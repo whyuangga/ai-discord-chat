@@ -41,6 +41,7 @@ from storage import (
     thread_chats,
 )
 from utils import (
+    build_clean_search_query,
     extract_urls_from_text,
     fetch_webpage_text,
     free_live_web_search,
@@ -442,7 +443,7 @@ async def get_ai_response(
         # JALUR FREE TIER MANDIRI: Ambil hasil pencarian web & berita terkini secara gratis tanpa tool berbayar
         if wants_live_search:
             free_ctx, free_search_sources = await free_live_web_search(
-                stripped_prompt,
+                build_clean_search_query(stripped_prompt),
                 http_session=session,
             )
             if free_ctx:

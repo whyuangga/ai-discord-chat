@@ -948,10 +948,15 @@ async def test_youtube_and_webpage_summarizer_ringkas_link(monkeypatch):
 async def test_google_search_grounding_cari_and_auto_chat_fallback(monkeypatch):
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
 
-    # Deteksi otomatis kapan pertanyaan membutuhkan pencarian berita/fakta terkini
+    # Deteksi otomatis kapan pertanyaan membutuhkan pencarian berita/fakta terkini (termasuk saat panggil nama bot!)
     assert utils.needs_live_web_search("Siapa pemenang pertandingan Timnas Indonesia tadi malam?") is True
     assert utils.needs_live_web_search("Berapa kurs dollar ke rupiah hari ini?") is True
+    assert utils.needs_live_web_search("Whas cariin berita bola terbaru dong") is True
+    assert utils.needs_live_web_search("Whas ada berita apa tentang timnas?") is True
+    assert utils.needs_live_web_search("Whas cari berita teknologi") is True
     assert utils.needs_live_web_search("Buatkan fungsi rekursif faktorial di Python") is False
+    assert utils.needs_live_web_search("Coba cek kode python aku ini dong") is False
+    assert utils.build_clean_search_query("Whas tolong cariin berita timnas Indonesia dong!", "Whas") == "berita timnas Indonesia"
 
     # Sanitasi pesan error kuota wajib bersih dari URL mentah agar tidak memicu kartu preview raksasa Discord
     raw_quota_err = (

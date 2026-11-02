@@ -645,16 +645,40 @@ _IGNORED_WEB_DOMAINS = (
 
 _LIVE_SEARCH_TRIGGER_RE = re.compile(
     r"("
-    r"\bcari(?:in|kan)?\s+(?:di\s+)?(?:google|internet|web|berita|info)\b|"
-    r"\b(?:berita|kabar|info|update|rilis|patch)\s+(?:hari\s+ini|terbaru|terkini|sekarang|minggu\s+ini|202[5-9])\b|"
-    r"\b(?:skor|hasil\s+pertandingan|klasemen|jadwal\s+(?:bola|pertandingan|mpl|valorant|liga|bioskop))\b|"
-    r"\b(?:cuaca|prakiraan\s+cuaca|gempa)\s+(?:hari\s+ini|sekarang|terkini|di\s+\w+)\b|"
+    r"\b(?:cari(?:in|kan)|tolong\s+cari(?:in|kan)?|coba\s+cari(?:in|kan)?|googling|browsing)\s+\S+|"
+    r"\b(?:cari|cek(?:in)?)\s+(?:di\s+)?(?:google|internet|web|berita|kabar|info|informasi|artikel|jadwal|skor|harga|kurs|cuaca|gempa|rilis|hasil)\b|"
+    r"\b(?:ada\s+)?(?:berita|kabar|isu|headline)\s+(?:apa|terbaru|terkini|hari\s+ini|sekarang|minggu\s+ini|barusan|tentang|soal|di\s+\w+|202[5-9])\b|"
+    r"\b(?:info|update|rilis|patch)\s+(?:hari\s+ini|terbaru|terkini|sekarang|minggu\s+ini|barusan|202[5-9])\b|"
+    r"\b(?:skor|hasil\s+pertandingan|klasemen|jadwal\s+(?:bola|pertandingan|mpl|valorant|liga|bioskop|konser))\b|"
+    r"\b(?:cuaca|prakiraan\s+cuaca|gempa|banjir)\s+(?:hari\s+ini|sekarang|terkini|barusan|di\s+\w+)\b|"
     r"\b(?:harga|kurs|nilai\s+tukar)\s+(?:emas|dollar|dolar|usd|rupiah|idr|bitcoin|btc|crypto|saham|bbm)\b|"
     r"\bsiapa\s+(?:presiden|juara|pemenang|pelatih|ceo|menteri|gubernur)\b|"
-    r"\b(?:tadi\s+malam|semalam|kemarin|barusan)\s+(?:siapa\s+yang\s+menang|ada\s+berita\s+apa)\b"
+    r"\b(?:tadi\s+malam|semalam|kemarin|barusan)\s+(?:siapa\s+yang\s+menang|ada\s+berita\s+apa|ada\s+kejadian\s+apa)\b"
     r")",
     re.IGNORECASE,
 )
+
+
+def build_clean_search_query(raw_text: str, bot_nickname: str = "") -> str:
+    """Membersihkan nama panggilan bot & kata perintah percakapan agar kata kunci pencarian berita akurat."""
+    q = (raw_text or "").strip()
+    if bot_nickname and len(bot_nickname.strip()) >= 2:
+        nick_esc = re.escape(bot_nickname.strip())
+        q = re.sub(rf"^\s*{nick_esc}[\s,!:.-]*", "", q, flags=re.IGNORECASE)
+        q = re.sub(rf"\b{nick_esc}\b", " ", q, flags=re.IGNORECASE)
+
+    # Hapus kata basa-basi pembuka & penutup khas chat Discord Indonesia
+    q = re.sub(
+        r"^\s*(?:eh|oi|woi|bro|kak|min| halo|hai)?[\s,]*(?:tolong\s+|coba\s+|bisa\s+)?"
+        r"(?:cari(?:in|kan)?|cek(?:in)?|googling|kasih\s+tau|lihat(?:in)?)\s+"
+        r"(?:aku\s+|gue\s+|dong\s+)?(?:di\s+(?:google|internet|web)\s+)?",
+        "",
+        q,
+        flags=re.IGNORECASE,
+    )
+    q = re.sub(r"\s+(?:dong|ya|yah|pls|please|deh|nih|cuy|bang|bro)\s*[?!.]*$", "", q, flags=re.IGNORECASE)
+    q = re.sub(r"\s+", " ", q).strip(" ?!.,")
+    return q or raw_text.strip()
 
 
 def normalize_youtube_url(url: str) -> str | None:

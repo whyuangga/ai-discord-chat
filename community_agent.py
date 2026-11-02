@@ -39,6 +39,7 @@ from ai_handler import (
     mark_model_unhealthy,
 )
 from utils import (
+    build_clean_search_query,
     extract_social_media_and_stickers,
     extract_urls_from_text,
     fetch_webpage_text,
@@ -765,7 +766,9 @@ async def generate_community_chat_reply(
         and needs_live_web_search(clean_text)
     )
     if use_search and not GEMINI_PAID_SEARCH_ENABLED:
-        free_ctx, _ = await free_live_web_search(clean_text, max_results=4, http_session=http_session)
+        nick_for_clean = guild_cfg.get("nickname") or bot_user.display_name
+        search_q = build_clean_search_query(clean_text, nick_for_clean)
+        free_ctx, _ = await free_live_web_search(search_q, max_results=4, http_session=http_session)
         if free_ctx:
             web_snippets.append(f"[Info Berita/Web Terkini Hari Ini:\n{free_ctx[:2200]}]")
 
