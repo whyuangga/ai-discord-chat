@@ -1150,6 +1150,33 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     assert "Pecco" in news_reply
     assert fake_http_news.post_calls[0]["json"]["tools"] == [{"google_search": {}}]
 
+    # Jika link YouTube bersifat privat/dibatasi usia (HTTP 403), /ringkas_link langsung memberi info jelas tanpa loop sia-sia
+    priv_yt_403 = FakeMockResponse(403, {"error": {"message": "Permission denied fetching video"}})
+    fake_http_priv_yt = FakeHttpSession(post_responses=[priv_yt_403])
+    s_txt, s_err = await ai_handler.analyze_link_with_gemini(
+        "https://youtu.be/dQw4w9WgXcQ",
+        http_session=fake_http_priv_yt,
+    )
+    assert s_txt is None
+    assert "privat" in s_err.lower()
+    assert len(fake_http_priv_yt.post_calls) == 1
+
+    # Dan di Auto-Chat, jika YouTube privat gagal 400, bot melepas fileData lalu tetap membalas teks chat dengan mulus
+    yt_400 = FakeMockResponse(400, {"error": {"message": "Invalid video URI"}})
+    yt_fallback_ok = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Wah videonya kayaknya diprivat tuh Dika, coba cek linknya lagi!"}]}}]},
+    )
+    fake_http_recover = FakeHttpSession(post_responses=[yt_400, yt_fallback_ok])
+    rec_reply = await community_agent.generate_community_chat_reply(
+        yt_msg,
+        bot_user,
+        http_session=fake_http_recover,
+    )
+    assert "diprivat" in rec_reply
+    assert all("fileData" not in p for p in fake_http_recover.post_calls[1]["json"]["contents"][-1]["parts"])
+
+
 
 
 

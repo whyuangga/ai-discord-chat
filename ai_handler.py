@@ -50,6 +50,7 @@ logger = logging.getLogger("gemini_bot.ai")
 
 FAST_TEXT_TIMEOUT = aiohttp.ClientTimeout(total=20, connect=8)
 CHAT_TIMEOUT = aiohttp.ClientTimeout(total=45, connect=10)
+VIDEO_LINK_TIMEOUT = aiohttp.ClientTimeout(total=65, connect=10)
 IMAGE_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=12)
 MEDIA_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_MEDIA_TASKS)
 
@@ -359,7 +360,11 @@ async def get_ai_response(
     )
     use_url_context_tool = bool(unfetched_web_urls) and not combined_media_parts
 
-    req_timeout = CHAT_TIMEOUT if (combined_media_parts or use_search_grounding or use_url_context_tool) else FAST_TEXT_TIMEOUT
+    req_timeout = (
+        VIDEO_LINK_TIMEOUT
+        if yt_urls
+        else (CHAT_TIMEOUT if (combined_media_parts or use_search_grounding or use_url_context_tool) else FAST_TEXT_TIMEOUT)
+    )
     active_keys = get_gemini_keys_rotated()
     last_error_msg = "Tidak dapat terhubung ke layanan Google Gemini."
 
@@ -757,7 +762,10 @@ async def search_web_with_gemini(
                         if reply_text:
                             if include_sources_footer:
                                 sources = _extract_grounding_sources(data)
-                                reply_text = f"{reply_text}{_format_grounding_footer(sources)}"
+                                footer = _format_grounding_footer(sources)
+                                max_body = max(500, 3850 - len(footer))
+                                clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+                                reply_text = f"{clipped}{footer}"
                             return reply_text, None
                         if block_msg and not should_retry:
                             return None, block_msg
@@ -857,7 +865,8 @@ async def analyze_link_with_gemini(
     )
     last_err = f"Tidak dapat memproses link `{target_label}`."
 
-    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+    req_link_timeout = VIDEO_LINK_TIMEOUT if yt_urls else CHAT_TIMEOUT
+    async with _borrow_session(http_session, req_link_timeout) as session:
         for idx, model_id in enumerate(chain):
             gen_config: dict = {"temperature": 0.4, "maxOutputTokens": 4096}
             t_cfg = build_thinking_config(model_id, "low")
@@ -877,7 +886,7 @@ async def analyze_link_with_gemini(
             headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
 
             try:
-                async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
+                async with session.post(url, headers=headers, json=payload, timeout=req_link_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
@@ -893,6 +902,14 @@ async def analyze_link_with_gemini(
                         else f"HTTP {resp.status}"
                     )
                     last_err = sanitize_error_message(err_detail)
+                    # Video YouTube privat / dibatasi usia akan ditolak 400/403 di semua model -> beri pesan jelas langsung
+                    if yt_urls and resp.status in (400, 403) and "api key" not in last_err.lower():
+                        return (
+                            None,
+                            "⚠️ Video YouTube tersebut bersifat **privat**, **dibatasi usia/wilayah**, atau tidak dapat diakses publik.",
+                        )
+                    if resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
             except (asyncio.TimeoutError, aiohttp.ClientError):
                 mark_model_unhealthy(model_id)
                 continue

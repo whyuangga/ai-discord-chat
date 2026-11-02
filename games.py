@@ -608,8 +608,10 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
 
     valid_list = [state["answer"], *state.get("aliases", [])]
     if is_matching_guess(content, valid_list):
-        active_channel_games.pop(message.channel.id, None)
-        task = state.get("timeout_task")
+        won_state = active_channel_games.pop(message.channel.id, None)
+        if won_state is None:
+            return True
+        task = won_state.get("timeout_task")
         if task and not task.done():
             task.cancel()
 

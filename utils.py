@@ -781,6 +781,33 @@ def clean_html_to_readable_text(raw_html: str, max_chars: int = 8000) -> tuple[s
     return title, body[:max_chars].strip()
 
 
+async def _is_resolved_host_public(url: str) -> bool:
+    """Memastikan hasil resolusi DNS hostname tidak mengarah ke IP privat/loopback (anti-DNS Rebinding SSRF)."""
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip()
+        if not host:
+            return False
+        loop = asyncio.get_running_loop()
+        infos = await asyncio.wait_for(loop.getaddrinfo(host, None), timeout=3.0)
+        for info in infos:
+            sockaddr = info[4]
+            if not sockaddr:
+                continue
+            ip_obj = ipaddress.ip_address(sockaddr[0])
+            if (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            ):
+                return False
+        return True
+    except Exception:
+        return False
+
+
 async def fetch_webpage_text(
     url: str,
     http_session: aiohttp.ClientSession | None = None,
@@ -793,6 +820,11 @@ async def fetch_webpage_text(
     if not is_safe_public_url(url):
         return None, None
 
+    # Validasi resolusi DNS non-blocking saat memakai koneksi jaringan nyata
+    if http_session is None or isinstance(http_session, aiohttp.ClientSession):
+        if not await _is_resolved_host_public(url):
+            return None, None
+
     timeout = aiohttp.ClientTimeout(total=10, connect=5)
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; DiscordGeminiAssistant/1.2; +https://github.com)",
@@ -804,6 +836,8 @@ async def fetch_webpage_text(
         async with sess.get(url, headers=headers, timeout=timeout, allow_redirects=True, max_redirects=4) as resp:
             final_url = str(resp.url)
             if not is_safe_public_url(final_url) or resp.status >= 400:
+                return None, None
+            if isinstance(sess, aiohttp.ClientSession) and not await _is_resolved_host_public(final_url):
                 return None, None
 
             ctype = (resp.headers.get("Content-Type") or "").lower()

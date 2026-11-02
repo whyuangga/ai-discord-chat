@@ -87,6 +87,7 @@ from storage import (
 from utils import (
     extract_message_attachments,
     extract_message_text_for_context,
+    extract_social_media_and_stickers,
     get_realtime_time_context,
     has_voice_or_audio_attachment,
     sanitize_error_message,
@@ -993,6 +994,14 @@ async def _run_message_context_action(
         message,
         http_session=bot.http_session,
     )
+    if not media_parts and (getattr(message, "stickers", None) or "<:" in msg_text or "<a:" in msg_text):
+        social_parts, _, _ = await extract_social_media_and_stickers(
+            message,
+            bot.http_session,
+            include_video=False,
+            include_audio=False,
+        )
+        media_parts.extend(social_parts)
 
     if not msg_text and not media_parts and not text_blocks:
         await interaction.followup.send(

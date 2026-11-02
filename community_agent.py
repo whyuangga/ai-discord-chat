@@ -609,6 +609,18 @@ async def _call_gemini_agent(
                             return None
                         continue
 
+                    if resp.status in (400, 403):
+                        # Jika gagal karena fileData YouTube privat/terkunci, buang part fileData agar teks chat tetap dibalas
+                        stripped_any = False
+                        for turn in contents:
+                            old_parts = turn.get("parts") or []
+                            new_parts = [p for p in old_parts if "fileData" not in p]
+                            if len(new_parts) != len(old_parts) and new_parts:
+                                turn["parts"] = new_parts
+                                stripped_any = True
+                        if stripped_any:
+                            continue
+
                     if resp.status in (429, 500, 502, 503, 504, 404):
                         mark_model_unhealthy(model_id)
                         logger.warning(
