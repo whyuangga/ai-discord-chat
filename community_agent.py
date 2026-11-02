@@ -16,9 +16,13 @@ from config import (
     AGENT_MAX_IDLE_POKES,
     BOT_TIMEZONE,
     DATA_DIR,
+    ENABLE_GOOGLE_SEARCH,
+    ENABLE_URL_READER,
     GEMINI_API_BASE,
     GEMINI_API_KEY,
     GEMINI_DEFAULT_MODEL,
+    GEMINI_SEARCH_FALLBACK_CHAIN,
+    GEMINI_SEARCH_MODEL,
     GEMINI_TEXT_FALLBACK_CHAIN,
 )
 from ai_handler import (
@@ -35,8 +39,11 @@ from ai_handler import (
 )
 from utils import (
     extract_social_media_and_stickers,
+    extract_urls_from_text,
+    fetch_webpage_text,
     get_realtime_time_context,
     has_voice_or_audio_attachment,
+    needs_live_web_search,
     sanitize_error_message,
 )
 
@@ -531,16 +538,46 @@ async def _call_gemini_agent(
     max_tokens: int = 2048,
     thinking_level: str = "minimal",
     has_media: bool = False,
+    use_google_search: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
     if not active_keys:
         return None
 
-    req_timeout = CHAT_TIMEOUT if has_media else FAST_TEXT_TIMEOUT
-    models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    req_timeout = CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT
 
     async with _borrow_session(http_session, req_timeout) as session:
+        # Jika butuh pencarian berita/info real-time hari ini, coba Google Search Grounding dulu
+        if use_google_search:
+            search_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+            for s_idx, s_model in enumerate(search_models):
+                s_cfg: dict = {"temperature": 0.65, "maxOutputTokens": max(1024, max_tokens)}
+                s_think = build_thinking_config(s_model, "low")
+                if s_think:
+                    s_cfg["thinkingConfig"] = s_think
+                s_payload = {
+                    "systemInstruction": {"parts": [{"text": system_prompt}]},
+                    "contents": contents,
+                    "tools": [{"google_search": {}}],
+                    "generationConfig": s_cfg,
+                }
+                s_headers = {
+                    "x-goog-api-key": active_keys[s_idx % len(active_keys)],
+                    "Content-Type": "application/json",
+                }
+                s_url = f"{GEMINI_API_BASE}/{s_model}:generateContent"
+                try:
+                    async with session.post(s_url, headers=s_headers, json=s_payload, timeout=CHAT_TIMEOUT) as resp:
+                        data = await resp.json(content_type=None)
+                        if resp.status == 200 and isinstance(data, dict):
+                            reply_text, _, _ = _extract_text_from_gemini_response(data)
+                            if reply_text:
+                                return reply_text.strip()
+                except Exception:
+                    continue
+
+        models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
         for idx, model_id in enumerate(models_to_try):
             gen_config: dict = {
                 "temperature": temperature,
@@ -571,6 +608,18 @@ async def _call_gemini_agent(
                         if not should_retry:
                             return None
                         continue
+
+                    if resp.status in (400, 403):
+                        # Jika gagal karena fileData YouTube privat/terkunci, buang part fileData agar teks chat tetap dibalas
+                        stripped_any = False
+                        for turn in contents:
+                            old_parts = turn.get("parts") or []
+                            new_parts = [p for p in old_parts if "fileData" not in p]
+                            if len(new_parts) != len(old_parts) and new_parts:
+                                turn["parts"] = new_parts
+                                stripped_any = True
+                        if stripped_any:
+                            continue
 
                     if resp.status in (429, 500, 502, 503, 504, 404):
                         mark_model_unhealthy(model_id)
@@ -611,8 +660,21 @@ async def generate_community_chat_reply(
         include_audio=True,
     )
 
+    yt_urls: list[str] = []
+    web_snippets: list[str] = []
+    if ENABLE_URL_READER and clean_text:
+        yt_urls, web_urls = extract_urls_from_text(clean_text)
+        for yt_u in yt_urls[:1]:
+            media_parts.append({"fileData": {"fileUri": yt_u}})
+            media_descs.append(f"[Membagikan link video YouTube: {yt_u}]")
+        for web_u in web_urls[:1]:
+            w_title, w_body = await fetch_webpage_text(web_u, http_session=http_session)
+            if w_body:
+                label = f"{w_title} ({web_u})" if w_title else web_u
+                web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
+
     author_name = message.author.display_name
-    desc_prefix = " ".join(media_descs)
+    desc_prefix = " ".join([*media_descs, *web_snippets])
     if clean_text and desc_prefix:
         user_turn_text = f"[{author_name}]: {clean_text}\n{desc_prefix}"
     elif clean_text:
@@ -644,13 +706,21 @@ async def generate_community_chat_reply(
     )
     system_prompt = _build_community_system_prompt(guild_cfg, bot_display, time_ctx)
 
+    use_search = (
+        ENABLE_GOOGLE_SEARCH
+        and not media_parts
+        and not web_snippets
+        and needs_live_web_search(clean_text)
+    )
+
     reply = await _call_gemini_agent(
         system_prompt,
         contents,
         temperature=0.88,
         max_tokens=2048,
-        thinking_level="low" if media_parts else "minimal",
+        thinking_level="low" if (media_parts or use_search) else "minimal",
         has_media=bool(media_parts),
+        use_google_search=use_search,
         http_session=http_session,
     )
 

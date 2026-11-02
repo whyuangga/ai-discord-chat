@@ -37,14 +37,16 @@ def build_main_panel_embed() -> discord.Embed:
         description=(
             "Selamat datang di pusat layanan **Google Gemini AI**!\n"
             "Pilih jenis ruang privat yang ingin Anda buat melalui tombol di bawah ini:\n\n"
-            "💬 **Chat AI, Vision, Voice Note & Koding**\n"
+            "💬 **Chat AI, Vision, Voice Note, YouTube & Live Search**\n"
             "> • Bebas pilih 5 mode kepribadian Gemini terbaru (Asisten, Kilat, Koding, Riset, Curhat).\n"
-            "> • **Vision, Suara & Kode:** Kirim **Voice Note (🎤)**, foto/screenshot error, atau file kode (`.py`, `.js`, `.txt`, dll) untuk ditanggapi langsung!\n"
-            "> • Bisa ganti mode kapan saja & memori tahan restart.\n\n"
+            "> • **Multimodal Lengkap:** Kirim **Voice Note (🎤)**, link **YouTube / artikel web**, foto/screenshot error, atau file kode untuk dianalisis langsung!\n"
+            "> • **Info Hari Ini:** Otomatis terhubung ke **Google Search** saat menanyakan berita/info terkini.\n\n"
             "🎨 **Generate & Edit Gambar AI**\n"
             "> • Buat ilustrasi berkualitas tinggi cukup dengan mengetik deskripsi.\n"
-            "> • Bebas atur **7 Gaya Art** & **5 Ukuran Rasio**.\n"
-            "> • Lampirkan gambar + instruksi teks untuk mengedit gambar!"
+            "> • Bebas atur **7 Gaya Art** & **5 Ukuran Rasio**, serta bisa edit gambar!\n\n"
+            "⚡ **Fitur Pintas di Seluruh Server:**\n"
+            "> • **Tekan-Tahan Pesan ➔ Apps:** `🌐 Terjemahkan ke Indonesia` & `💡 Jelaskan Pesan Ini`\n"
+            "> • `/cari` • `/ringkas_link` • `/ringkas` • `/game mulai` • `/bantuan`"
         ),
         color=discord.Color.blurple(),
     )

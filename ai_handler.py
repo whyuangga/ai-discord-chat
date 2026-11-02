@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import random
+import re
 import time
 import urllib.parse
 from contextlib import asynccontextmanager
@@ -12,12 +13,16 @@ import discord
 from config import (
     AI_MODELS,
     BOT_TIMEZONE,
+    ENABLE_GOOGLE_SEARCH,
     ENABLE_IMAGE_FALLBACK,
+    ENABLE_URL_READER,
     GEMINI_API_BASE,
     GEMINI_API_KEY,
     GEMINI_DEFAULT_MODEL,
     GEMINI_IMAGE_FALLBACK_CHAIN,
     GEMINI_PAID_IMAGE_ENABLED,
+    GEMINI_SEARCH_FALLBACK_CHAIN,
+    GEMINI_SEARCH_MODEL,
     GEMINI_TEXT_FALLBACK_CHAIN,
     MAX_CONCURRENT_MEDIA_TASKS,
     RATIO_OPTIONS,
@@ -33,12 +38,19 @@ from storage import (
     save_sessions_to_disk,
     thread_chats,
 )
-from utils import get_realtime_time_context, sanitize_error_message
+from utils import (
+    extract_urls_from_text,
+    fetch_webpage_text,
+    get_realtime_time_context,
+    needs_live_web_search,
+    sanitize_error_message,
+)
 
 logger = logging.getLogger("gemini_bot.ai")
 
 FAST_TEXT_TIMEOUT = aiohttp.ClientTimeout(total=20, connect=8)
 CHAT_TIMEOUT = aiohttp.ClientTimeout(total=45, connect=10)
+VIDEO_LINK_TIMEOUT = aiohttp.ClientTimeout(total=65, connect=10)
 IMAGE_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=12)
 MEDIA_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_MEDIA_TASKS)
 
@@ -193,6 +205,42 @@ def _extract_text_from_gemini_response(data: dict) -> tuple[str | None, str | No
     return None, f"⚠️ Respons Gemini kosong (status akhir: `{finish_reason or 'UNKNOWN'}`).", True
 
 
+def _extract_grounding_sources(data: dict, max_sources: int = 4) -> list[tuple[str, str]]:
+    """Mengekstrak daftar sumber web unik (judul, url) dari groundingMetadata Google Search."""
+    candidates = data.get("candidates") or []
+    if not candidates or not isinstance(candidates[0], dict):
+        return []
+
+    first = candidates[0]
+    meta = first.get("groundingMetadata") or first.get("grounding_metadata") or {}
+    chunks = meta.get("groundingChunks") or meta.get("grounding_chunks") or []
+
+    sources: list[tuple[str, str]] = []
+    seen_uris: set[str] = set()
+    for ch in chunks:
+        if not isinstance(ch, dict):
+            continue
+        web = ch.get("web") or {}
+        uri = str(web.get("uri") or "").strip()
+        title = str(web.get("title") or "").strip()
+        if not uri or uri in seen_uris:
+            continue
+        seen_uris.add(uri)
+        if not title:
+            title = urllib.parse.urlparse(uri).hostname or "Sumber Web"
+        sources.append((title[:48], uri))
+        if len(sources) >= max_sources:
+            break
+    return sources
+
+
+def _format_grounding_footer(sources: list[tuple[str, str]]) -> str:
+    if not sources:
+        return ""
+    links = [f"[{idx + 1}. {title}](<{uri}>)" for idx, (title, uri) in enumerate(sources)]
+    return "\n\n🌐 **Sumber Web:** " + " • ".join(links)
+
+
 async def get_ai_response(
     thread_id: int,
     prompt: str,
@@ -204,7 +252,7 @@ async def get_ai_response(
     thread: discord.Thread | None = None,
     bot_user_id: int | None = None,
 ) -> str:
-    """Mendapatkan balasan percakapan (Teks + Vision + File Kode) dari Google Gemini API."""
+    """Mendapatkan balasan percakapan (Teks + Vision + Audio + YouTube/Web + Search Grounding) dari Google Gemini API."""
     if not is_gemini_key_configured():
         return (
             "⚠️ **`GEMINI_API_KEY` belum dikonfigurasi!**\n"
@@ -221,16 +269,53 @@ async def get_ai_response(
     model_key = resolve_model_key(session_data.get("model_key"))
     model_info = AI_MODELS[model_key]
 
+    combined_media_parts: list[dict] = list(image_parts or [])
+    yt_urls: list[str] = []
+    web_urls: list[str] = []
+    unfetched_web_urls: list[str] = []
+
+    if ENABLE_URL_READER and prompt.strip():
+        yt_urls, web_urls = extract_urls_from_text(prompt)
+
+    for yt_url in yt_urls:
+        combined_media_parts.append({"fileData": {"fileUri": yt_url}})
+
+    fetched_web_blocks: list[str] = []
+    for w_url in web_urls:
+        w_title, w_body = await fetch_webpage_text(w_url, http_session=http_session)
+        if w_body:
+            heading = f"{w_title} ({w_url})" if w_title else w_url
+            fetched_web_blocks.append(f"🌐 **Isi Halaman Web `{heading}`:**\n{w_body}")
+        else:
+            unfetched_web_urls.append(w_url)
+
     prompt_sections: list[str] = []
-    if prompt.strip():
-        prompt_sections.append(prompt.strip())
+    stripped_prompt = prompt.strip()
+    # Jika pengguna hanya menempelkan link YouTube tanpa instruksi tambahan, beri instruksi rangkuman otomatis
+    only_yt_link = bool(yt_urls) and not re.sub(r"https?://\S+", "", stripped_prompt).strip()
+    only_web_link = bool(web_urls) and not yt_urls and not re.sub(r"https?://\S+", "", stripped_prompt).strip()
+
+    if only_yt_link:
+        prompt_sections.append(
+            f"{stripped_prompt}\nTolong tonton/pahami isi video YouTube di atas lalu buat rangkuman lengkap "
+            "poin-poin utamanya dalam bahasa Indonesia yang rapi dan mudah dipahami."
+        )
+    elif only_web_link:
+        prompt_sections.append(
+            f"{stripped_prompt}\nTolong baca dan rangkumkan inti pembahasan dari halaman web di atas dalam bahasa Indonesia."
+        )
+    elif stripped_prompt:
+        prompt_sections.append(stripped_prompt)
+
     if text_blocks:
         prompt_sections.extend(text_blocks)
+    if fetched_web_blocks:
+        prompt_sections.extend(fetched_web_blocks)
 
     has_audio_only = bool(image_filenames) and all(
         fn.startswith(("voice_note:", "audio:")) for fn in image_filenames
     )
-    if not prompt_sections and image_parts:
+    if not prompt_sections and combined_media_parts:
         if has_audio_only:
             prompt_sections.append(
                 "Dengarkan pesan suara (voice note) atau audio yang saya kirim ini dengan saksama, "
@@ -246,14 +331,18 @@ async def get_ai_response(
         files_label = ", ".join(image_filenames)
         media_tag = "pesan suara/audio" if has_audio_only else "gambar"
         history_note_parts.append(f"[Pengguna melampirkan {media_tag}: {files_label}]")
-    if effective_prompt:
+    if yt_urls:
+        history_note_parts.append(f"[Video YouTube: {', '.join(yt_urls)}]")
+    if stripped_prompt:
+        history_note_parts.append(stripped_prompt)
+    elif effective_prompt and not fetched_web_blocks:
         history_note_parts.append(effective_prompt)
     history_user_entry = "\n".join(history_note_parts).strip()
 
     contents = _build_gemini_contents(
         session_data.get("history", []),
         effective_prompt,
-        image_parts=image_parts,
+        image_parts=combined_media_parts or None,
     )
 
     time_ctx = get_realtime_time_context()
@@ -263,12 +352,66 @@ async def get_ai_response(
     )
 
     desired_thinking = model_info.get("thinking_level", "low")
-    req_timeout = CHAT_TIMEOUT if image_parts else FAST_TEXT_TIMEOUT
+    use_search_grounding = (
+        ENABLE_GOOGLE_SEARCH
+        and not combined_media_parts
+        and not fetched_web_blocks
+        and needs_live_web_search(stripped_prompt)
+    )
+    use_url_context_tool = bool(unfetched_web_urls) and not combined_media_parts
+
+    req_timeout = (
+        VIDEO_LINK_TIMEOUT
+        if yt_urls
+        else (CHAT_TIMEOUT if (combined_media_parts or use_search_grounding or use_url_context_tool) else FAST_TEXT_TIMEOUT)
+    )
     active_keys = get_gemini_keys_rotated()
-    models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
     last_error_msg = "Tidak dapat terhubung ke layanan Google Gemini."
 
     async with _borrow_session(http_session, req_timeout) as session:
+        # JALUR KHUSUS 1: Google Search Grounding / URL Context (prioritas gemini-2.5-flash yang gratis 500 RPD di Free Tier)
+        if use_search_grounding or use_url_context_tool:
+            grounded_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+            tools_list: list[dict] = []
+            if use_url_context_tool:
+                tools_list.append({"url_context": {}})
+            if use_search_grounding:
+                tools_list.append({"google_search": {}})
+
+            for s_idx, s_model in enumerate(grounded_models):
+                s_gen_cfg: dict = {"temperature": 0.5, "maxOutputTokens": 4096}
+                s_think = build_thinking_config(s_model, "low")
+                if s_think:
+                    s_gen_cfg["thinkingConfig"] = s_think
+
+                s_payload = {
+                    "systemInstruction": {"parts": [{"text": system_text}]},
+                    "contents": contents,
+                    "tools": tools_list,
+                    "generationConfig": s_gen_cfg,
+                }
+                s_key = active_keys[s_idx % len(active_keys)]
+                s_headers = {"x-goog-api-key": s_key, "Content-Type": "application/json"}
+                s_url = f"{GEMINI_API_BASE}/{s_model}:generateContent"
+
+                try:
+                    async with session.post(s_url, headers=s_headers, json=s_payload, timeout=CHAT_TIMEOUT) as resp:
+                        data = await resp.json(content_type=None)
+                        if resp.status == 200 and isinstance(data, dict):
+                            reply_text, _, _ = _extract_text_from_gemini_response(data)
+                            if reply_text:
+                                sources = _extract_grounding_sources(data)
+                                final_reply = f"{reply_text}{_format_grounding_footer(sources)}"
+                                append_conversation_turn(thread_id, history_user_entry, final_reply)
+                                await save_sessions_to_disk()
+                                return final_reply
+                except (asyncio.TimeoutError, aiohttp.ClientError):
+                    continue
+                except Exception:
+                    continue
+
+        # JALUR UTAMA: Model Percakapan Standar (+ Vision / Audio / YouTube)
+        models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
         for attempt_idx, candidate_model in enumerate(models_to_try):
             gen_config: dict = {
                 "temperature": model_info.get("temperature", 0.7),
@@ -318,6 +461,14 @@ async def get_ai_response(
                         return (
                             f"⚠️ **API Key Gemini tidak valid ({resp.status}):** {err_detail}\n"
                             "Periksa kembali `GEMINI_API_KEY` Anda di Google AI Studio."
+                        )
+
+                    # Jika gagal karena video YouTube privat / tidak bisa diakses oleh fileData, lepaskan fileData di percobaan berikutnya
+                    if resp.status in (400, 403) and yt_urls:
+                        contents = _build_gemini_contents(
+                            session_data.get("history", []),
+                            effective_prompt,
+                            image_parts=image_parts,
                         )
 
                     if resp.status in (429, 500, 502, 503, 504, 404):
@@ -530,7 +681,7 @@ async def summarize_channel_messages(
                 "generationConfig": gen_config,
             }
             api_key = active_keys[idx % len(active_keys)]
-            url = f"{GEMINI_API_BASE}/models/{model_id}:generateContent"
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
             headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
 
             try:
@@ -560,4 +711,292 @@ async def summarize_channel_messages(
                 continue
 
     return None, f"⚠️ Gagal merangkum obrolan: {last_err}"
+
+
+async def search_web_with_gemini(
+    query: str,
+    *,
+    timezone_name: str = BOT_TIMEZONE,
+    include_sources_footer: bool = True,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Mencari informasi/berita terbaru secara real-time menggunakan Google Search Grounding Gemini."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    time_ctx = get_realtime_time_context(timezone_name)
+    system_prompt = (
+        "Kamu adalah asisten pencari informasi terkini berbasis Google Gemini + Google Search.\n"
+        f"Waktu saat ini: {time_ctx['summary']}.\n"
+        "Jawablah dalam bahasa Indonesia yang akurat, padat, rapi, dan menyebutkan tanggal/fakta terbaru "
+        "sesuai hasil pencarian web."
+    )
+
+    active_keys = get_gemini_keys_rotated()
+    models_to_try = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+    last_err = "Layanan Google Search Grounding sedang penuh."
+
+    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+        # 1. Coba dengan tool Google Search Grounding (500 RPD gratis di gemini-2.5-flash Free Tier)
+        for idx, model_id in enumerate(models_to_try):
+            gen_config: dict = {"temperature": 0.3, "maxOutputTokens": 4096}
+            t_cfg = build_thinking_config(model_id, "low")
+            if t_cfg:
+                gen_config["thinkingConfig"] = t_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": [{"text": query}]}],
+                "tools": [{"google_search": {}}],
+                "generationConfig": gen_config,
+            }
+            api_key = active_keys[idx % len(active_keys)]
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                        if reply_text:
+                            if include_sources_footer:
+                                sources = _extract_grounding_sources(data)
+                                footer = _format_grounding_footer(sources)
+                                max_body = max(500, 3850 - len(footer))
+                                clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+                                reply_text = f"{clipped}{footer}"
+                            return reply_text, None
+                        if block_msg and not should_retry:
+                            return None, block_msg
+                        continue
+
+                    if resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+                    err_detail = (
+                        data.get("error", {}).get("message", f"HTTP {resp.status}")
+                        if isinstance(data, dict)
+                        else f"HTTP {resp.status}"
+                    )
+                    last_err = sanitize_error_message(err_detail)
+            except (asyncio.TimeoutError, aiohttp.ClientError):
+                mark_model_unhealthy(model_id)
+                continue
+
+        # 2. Cadangan pengetahuan model biasa jika kuota harian Grounding sedang habis
+        fallback_models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+        for idx, model_id in enumerate(fallback_models[:2]):
+            gen_config = {"temperature": 0.4, "maxOutputTokens": 3072}
+            t_cfg = build_thinking_config(model_id, "low")
+            if t_cfg:
+                gen_config["thinkingConfig"] = t_cfg
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": [{"text": query}]}],
+                "generationConfig": gen_config,
+            }
+            api_key = active_keys[idx % len(active_keys)]
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        reply_text, _, _ = _extract_text_from_gemini_response(data)
+                        if reply_text:
+                            note = "\n\n*(Catatan: Kuota pencarian web harian sedang penuh — dijawab berdasarkan pengetahuan model)*"
+                            return f"{reply_text}{note}", None
+            except Exception:
+                continue
+
+    return None, f"⚠️ Gagal mencari informasi: {last_err}"
+
+
+async def analyze_link_with_gemini(
+    raw_url: str,
+    question: str | None = "",
+    *,
+    timezone_name: str = BOT_TIMEZONE,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Merangkum atau menjawab pertanyaan seputar link video YouTube maupun artikel halaman web."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    q_clean = (question or "").strip()
+    yt_urls, web_urls = extract_urls_from_text(raw_url, include_ignored_domains=False)
+    if not yt_urls and not web_urls:
+        return None, "⚠️ Link tidak valid atau mengarah ke jaringan lokal/internal yang dibatasi."
+
+    parts: list[dict] = []
+    use_url_context = False
+    target_label = yt_urls[0] if yt_urls else web_urls[0]
+
+    if yt_urls:
+        parts.append({"fileData": {"fileUri": yt_urls[0]}})
+        user_task = q_clean or (
+            "Rangkumkan isi video YouTube ini secara terstruktur (Topik Utama, Poin-Poin Penting, & Kesimpulan) "
+            "dalam bahasa Indonesia yang jelas!"
+        )
+        parts.append({"text": f"URL Video YouTube: {yt_urls[0]}\nInstruksi: {user_task}"})
+    else:
+        w_title, w_body = await fetch_webpage_text(web_urls[0], http_session=http_session)
+        user_task = q_clean or (
+            "Rangkumkan inti pembahasan halaman web ini secara rapi dan padat dalam bahasa Indonesia!"
+        )
+        if w_body:
+            heading = f"{w_title} ({web_urls[0]})" if w_title else web_urls[0]
+            parts.append({"text": f"Halaman Web: {heading}\n\nIsi Teks Halaman:\n{w_body}\n\nInstruksi: {user_task}"})
+        else:
+            use_url_context = True
+            parts.append({"text": f"Buka dan baca URL ini: {web_urls[0]}\nInstruksi: {user_task}"})
+
+    time_ctx = get_realtime_time_context(timezone_name)
+    system_prompt = (
+        "Kamu adalah asisten perangkum konten video YouTube dan artikel web berbahasa Indonesia yang tajam, "
+        f"akurat, rapi, dan mudah dipahami. Waktu saat ini: {time_ctx['summary']}."
+    )
+
+    active_keys = get_gemini_keys_rotated()
+    chain = (
+        _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+        if use_url_context
+        else _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    )
+    last_err = f"Tidak dapat memproses link `{target_label}`."
+
+    req_link_timeout = VIDEO_LINK_TIMEOUT if yt_urls else CHAT_TIMEOUT
+    async with _borrow_session(http_session, req_link_timeout) as session:
+        for idx, model_id in enumerate(chain):
+            gen_config: dict = {"temperature": 0.4, "maxOutputTokens": 4096}
+            t_cfg = build_thinking_config(model_id, "low")
+            if t_cfg:
+                gen_config["thinkingConfig"] = t_cfg
+
+            payload: dict = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": gen_config,
+            }
+            if use_url_context:
+                payload["tools"] = [{"url_context": {}}]
+
+            api_key = active_keys[idx % len(active_keys)]
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=req_link_timeout) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                        if reply_text:
+                            return reply_text, None
+                        if block_msg and not should_retry:
+                            return None, block_msg
+                        continue
+
+                    err_detail = (
+                        data.get("error", {}).get("message", f"HTTP {resp.status}")
+                        if isinstance(data, dict)
+                        else f"HTTP {resp.status}"
+                    )
+                    last_err = sanitize_error_message(err_detail)
+                    # Video YouTube privat / dibatasi usia akan ditolak 400/403 di semua model -> beri pesan jelas langsung
+                    if yt_urls and resp.status in (400, 403) and "api key" not in last_err.lower():
+                        return (
+                            None,
+                            "⚠️ Video YouTube tersebut bersifat **privat**, **dibatasi usia/wilayah**, atau tidak dapat diakses publik.",
+                        )
+                    if resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+            except (asyncio.TimeoutError, aiohttp.ClientError):
+                mark_model_unhealthy(model_id)
+                continue
+
+    return None, f"⚠️ Gagal menganalisis link: {last_err}"
+
+
+async def transform_message_with_gemini(
+    mode: str,
+    message_text: str,
+    *,
+    media_parts: list[dict] | None = None,
+    text_blocks: list[str] | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Memproses aksi cepat Context Menu (Terjemahkan ke Indonesia / Jelaskan Pesan Ini)."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    combined_text_parts = [p for p in [message_text.strip(), *(text_blocks or [])] if p]
+    full_text = "\n\n".join(combined_text_parts).strip()
+
+    if not full_text and not media_parts:
+        return None, "⚠️ Pesan tersebut kosong dan tidak memiliki gambar/suara/teks yang bisa diproses."
+
+    if mode == "translate_id":
+        system_prompt = (
+            "Kamu adalah penerjemah bahasa profesional ke Bahasa Indonesia yang akurat dan luwes.\n"
+            "TUGASMU:\n"
+            "1. Terjemahkan seluruh teks pesan (atau ucapan suara / tulisan di dalam gambar terlampir) ke Bahasa Indonesia yang alami dan mudah dipahami.\n"
+            "2. Pertahankan format Markdown atau blok kode seperti aslinya (jangan menerjemahkan sintaks kode program, cukup komentarnya saja).\n"
+            "3. Sebutkan singkat bahasa aslinya di baris paling atas (contoh: `🌐 Bahasa Asal: Inggris`), dan jika ada istilah gaul/idiom unik, beri catatan arti singkat di bawahnya."
+        )
+        user_prompt = full_text or "Terjemahkan isi tulisan pada gambar atau ucapan pada pesan suara ini ke Bahasa Indonesia."
+    else:
+        system_prompt = (
+            "Kamu adalah asisten penjelas serba tahu yang ramah, jernih, dan mudah dimengerti.\n"
+            "TUGASMU:\n"
+            "Jelaskan maksud pesan ini (baik berupa istilah asing/teknis, potongan kode/error, pengumuman panjang, "
+            "meme/gambar, maupun pesan suara) dalam Bahasa Indonesia yang ringkas, jelas, dan langsung ke intinya!"
+        )
+        user_prompt = full_text or "Jelaskan maksud isi gambar atau pesan suara lampiran ini dengan jelas dalam Bahasa Indonesia."
+
+    parts: list[dict] = [*(media_parts or []), {"text": user_prompt}]
+    req_timeout = CHAT_TIMEOUT if media_parts else FAST_TEXT_TIMEOUT
+    active_keys = get_gemini_keys_rotated()
+    models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    last_err = "Server Gemini sedang sibuk."
+
+    async with _borrow_session(http_session, req_timeout) as session:
+        for idx, model_id in enumerate(models_to_try):
+            gen_config: dict = {"temperature": 0.35, "maxOutputTokens": 3072}
+            t_cfg = build_thinking_config(model_id, "low")
+            if t_cfg:
+                gen_config["thinkingConfig"] = t_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": gen_config,
+            }
+            api_key = active_keys[idx % len(active_keys)]
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                        if reply_text:
+                            return reply_text, None
+                        if block_msg and not should_retry:
+                            return None, block_msg
+                        continue
+
+                    if resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+                    err_detail = (
+                        data.get("error", {}).get("message", f"HTTP {resp.status}")
+                        if isinstance(data, dict)
+                        else f"HTTP {resp.status}"
+                    )
+                    last_err = sanitize_error_message(err_detail)
+            except (asyncio.TimeoutError, aiohttp.ClientError):
+                mark_model_unhealthy(model_id)
+                continue
+
+    return None, f"⚠️ Gagal memproses pesan: {last_err}"
 

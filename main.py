@@ -10,10 +10,13 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from ai_handler import (
+    analyze_link_with_gemini,
     generate_image,
     get_ai_response,
     is_gemini_key_configured,
+    search_web_with_gemini,
     summarize_channel_messages,
+    transform_message_with_gemini,
 )
 from community_agent import (
     chat_agent_channels,
@@ -50,7 +53,23 @@ from config import (
     GEMINI_IMAGE_MODEL,
     GEMINI_PAID_IMAGE_ENABLED,
     GEMINI_REASONING_MODEL,
+    GEMINI_SEARCH_MODEL,
     resolve_model_key,
+)
+from games import (
+    GAME_POINTS_BY_MODE,
+    GAME_ROUND_TIMEOUT_SEC,
+    TextGuessControlView,
+    TriviaButtonsView,
+    active_channel_games,
+    generate_ai_game_question,
+    get_guild_leaderboard,
+    get_user_rank_info,
+    handle_active_game_guess,
+    load_game_scores_from_disk,
+    reset_guild_scores,
+    save_game_scores_to_disk,
+    scramble_word,
 )
 from storage import (
     cleanup_expired_sessions,
@@ -67,6 +86,8 @@ from storage import (
 )
 from utils import (
     extract_message_attachments,
+    extract_message_text_for_context,
+    extract_social_media_and_stickers,
     get_realtime_time_context,
     has_voice_or_audio_attachment,
     sanitize_error_message,
@@ -143,15 +164,17 @@ class GeminiDiscordBot(commands.Bot):
         # 1. Buat koneksi HTTP bersama agar cepat & hemat RAM
         self.http_session = aiohttp.ClientSession()
 
-        # 2. Muat kembali sesi privat & konfigurasi AI Agent Komunitas dari disk
+        # 2. Muat kembali sesi privat, konfigurasi AI Agent, & papan skor game dari disk
         loaded_chats, loaded_imgs = load_sessions_from_disk()
         loaded_agent_chats, loaded_galleries = load_agent_config_from_disk()
+        loaded_score_guilds = load_game_scores_from_disk()
         logger.info(
-            "Memori dimuat: %d ruang chat privat, %d ruang gambar, %d channel Auto-Chat, %d channel Galeri.",
+            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d papan skor server.",
             loaded_chats,
             loaded_imgs,
             loaded_agent_chats,
             loaded_galleries,
+            loaded_score_guilds,
         )
 
         # 3. Daftarkan seluruh View persisten (sekali saja saat startup)
@@ -189,6 +212,7 @@ class GeminiDiscordBot(commands.Bot):
             idle_chat_watcher.cancel()
         await save_sessions_to_disk()
         await save_agent_config_to_disk()
+        await save_game_scores_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -261,6 +285,7 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
     if w_cfg and int(w_cfg.get("channel_id") or 0) == channel.id:
         set_welcome_config(channel.guild.id, channel.id, enabled=False)
         removed = True
+    active_channel_games.pop(channel.id, None)
     if removed:
         await save_agent_config_to_disk()
 
@@ -952,6 +977,519 @@ async def slash_ringkas(
     await interaction.followup.send(embed=embed, ephemeral=not publik)
 
 
+# ==============================================================================
+# FITUR 1: MENU TEKAN-TAHAN PESAN / KLIK KANAN (DISCORD CONTEXT MENU APPS)
+# ==============================================================================
+async def _run_message_context_action(
+    interaction: discord.Interaction,
+    message: discord.Message,
+    action: str,
+    embed_title: str,
+    embed_color: discord.Color,
+) -> None:
+    await interaction.response.defer(ephemeral=True)
+
+    msg_text = extract_message_text_for_context(message)
+    media_parts, _, text_blocks, _ = await extract_message_attachments(
+        message,
+        http_session=bot.http_session,
+    )
+    if not media_parts and (getattr(message, "stickers", None) or "<:" in msg_text or "<a:" in msg_text):
+        social_parts, _, _ = await extract_social_media_and_stickers(
+            message,
+            bot.http_session,
+            include_video=False,
+            include_audio=False,
+        )
+        media_parts.extend(social_parts)
+
+    if not msg_text and not media_parts and not text_blocks:
+        await interaction.followup.send(
+            "ℹ️ Pesan tersebut tidak memiliki teks, lampiran gambar/kode, maupun Voice Note yang bisa diproses.",
+            ephemeral=True,
+        )
+        return
+
+    result_text, err_msg = await transform_message_with_gemini(
+        action,
+        msg_text,
+        media_parts=media_parts or None,
+        text_blocks=text_blocks or None,
+        http_session=bot.http_session,
+    )
+    if err_msg or not result_text:
+        await interaction.followup.send(err_msg or "⚠️ Gagal memproses pesan ini.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=embed_title,
+        description=result_text[:3900],
+        color=embed_color,
+        timestamp=discord.utils.utcnow(),
+    )
+    preview_src = (message.content or "").strip()
+    if preview_src:
+        short_src = preview_src[:220] + ("…" if len(preview_src) > 220 else "")
+        embed.add_field(
+            name=f"💬 Pesan Asli ({message.author.display_name})",
+            value=f"> {short_src.replace(chr(10), ' ')}\n[🔗 Lompat ke Pesan]({message.jump_url})",
+            inline=False,
+        )
+    else:
+        embed.add_field(
+            name=f"📎 Sumber ({message.author.display_name})",
+            value=f"[🔗 Lompat ke Pesan Asli]({message.jump_url})",
+            inline=False,
+        )
+    embed.set_footer(text="Hanya terlihat oleh Anda • Gemini AI Context App")
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@bot.tree.context_menu(name="🌐 Terjemahkan ke Indonesia")
+async def context_translate_indonesia(interaction: discord.Interaction, message: discord.Message):
+    await _run_message_context_action(
+        interaction,
+        message,
+        action="translate_id",
+        embed_title="🌐 Hasil Terjemahan ke Bahasa Indonesia",
+        embed_color=discord.Color.teal(),
+    )
+
+
+@bot.tree.context_menu(name="💡 Jelaskan Pesan Ini")
+async def context_explain_message(interaction: discord.Interaction, message: discord.Message):
+    await _run_message_context_action(
+        interaction,
+        message,
+        action="explain",
+        embed_title="💡 Penjelasan Isi Pesan",
+        embed_color=discord.Color.gold(),
+    )
+
+
+# ==============================================================================
+# FITUR 2 & 3: PERANGKUM YOUTUBE/WEB (/ringkas_link) & GOOGLE SEARCH (/cari)
+# ==============================================================================
+@bot.tree.command(
+    name="ringkas_link",
+    description="Rangkum isi video YouTube atau artikel website secara instan tanpa perlu menonton/baca penuh",
+)
+@app_commands.describe(
+    url="Tempel link video YouTube (watch/youtu.be/shorts) atau link halaman website",
+    pertanyaan="Opsional: Tanya hal spesifik dari isi video/artikel tersebut",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+async def slash_ringkas_link(
+    interaction: discord.Interaction,
+    url: str,
+    pertanyaan: str | None = None,
+    publik: bool = False,
+):
+    await interaction.response.defer(ephemeral=not publik)
+    tz_name = BOT_TIMEZONE
+    if interaction.guild is not None:
+        tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
+
+    summary_text, err_msg = await analyze_link_with_gemini(
+        url.strip(),
+        question=pertanyaan,
+        timezone_name=tz_name,
+        http_session=bot.http_session,
+    )
+    if err_msg or not summary_text:
+        await interaction.followup.send(err_msg or "⚠️ Gagal menganalisis link tersebut.", ephemeral=True)
+        return
+
+    is_yt = "youtu" in url.lower()
+    embed = discord.Embed(
+        title="🎬 Ringkasan Video YouTube" if is_yt else "🔗 Ringkasan Halaman Web",
+        description=summary_text[:3900],
+        color=discord.Color.red() if is_yt else discord.Color.blue(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="🔗 Tautan Sumber", value=url.strip()[:500], inline=False)
+    if pertanyaan:
+        embed.add_field(name="❓ Fokus Pertanyaan", value=pertanyaan[:300], inline=False)
+    embed.set_footer(text=f"Diminta oleh {interaction.user.display_name}")
+    await interaction.followup.send(embed=embed, ephemeral=not publik)
+
+
+@bot.tree.command(
+    name="cari",
+    description="Cari informasi, berita, skor, harga, atau fakta terbaru hari ini via Google Search AI",
+)
+@app_commands.describe(
+    pertanyaan="Apa informasi terbaru hari ini yang ingin Anda cari?",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+async def slash_cari(
+    interaction: discord.Interaction,
+    pertanyaan: str,
+    publik: bool = False,
+):
+    await interaction.response.defer(ephemeral=not publik)
+    tz_name = BOT_TIMEZONE
+    if interaction.guild is not None:
+        tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
+
+    answer_text, err_msg = await search_web_with_gemini(
+        pertanyaan,
+        timezone_name=tz_name,
+        http_session=bot.http_session,
+    )
+    if err_msg or not answer_text:
+        await interaction.followup.send(err_msg or "⚠️ Gagal mencari informasi.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"🔎 {pertanyaan[:230]}",
+        description=answer_text[:3950],
+        color=discord.Color.brand_green(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_footer(text=f"Google Search Grounding • Diminta oleh {interaction.user.display_name}")
+    await interaction.followup.send(embed=embed, ephemeral=not publik)
+
+
+# ==============================================================================
+# FITUR 4: MINI-GAME TONGKRONGAN AI (/game) + PAPAN SKOR SERVER
+# ==============================================================================
+game_group = app_commands.Group(
+    name="game",
+    description="Mainkan Mini-Game Tongkrongan AI seru bareng warga server & kejar Papan Skor!",
+    guild_only=True,
+)
+
+
+async def _text_game_timeout_watcher(channel: discord.abc.Messageable, channel_id: int, state_ref: dict) -> None:
+    """Mengungkap jawaban otomatis bila waktu tebak kata di chat habis tanpa pemenang."""
+    try:
+        await asyncio.sleep(GAME_ROUND_TIMEOUT_SEC)
+    except asyncio.CancelledError:
+        return
+
+    current = active_channel_games.get(channel_id)
+    if current is not state_ref:
+        return
+
+    active_channel_games.pop(channel_id, None)
+    view_obj: discord.ui.View | None = state_ref.get("view")
+    msg_obj: discord.Message | None = state_ref.get("message")
+    if view_obj and msg_obj:
+        for child in view_obj.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        try:
+            await msg_obj.edit(view=view_obj)
+        except discord.HTTPException:
+            pass
+
+    try:
+        await channel.send(
+            f"⌛ **Waktu Habis!** Belum ada yang berhasil menebak dengan tepat.\n"
+            f"🔑 Jawaban yang benar adalah: **`{state_ref['answer']}`**\n"
+            f"*(Ketik `/game mulai` untuk mencoba tantangan baru!)*"
+        )
+    except discord.HTTPException:
+        pass
+
+
+@game_group.command(
+    name="mulai",
+    description="Mulai ronde Mini-Game AI di channel ini dan rebut poin klasemen!",
+)
+@app_commands.describe(jenis="Pilih mode permainan (kosongkan untuk mode acak kejutan!)")
+@app_commands.choices(
+    jenis=[
+        app_commands.Choice(name="🎭 Tebak dari Emoji - +20 Poin", value="emoji"),
+        app_commands.Choice(name="🧠 Kuis Trivia Cepat A/B/C/D - +15 Poin", value="trivia"),
+        app_commands.Choice(name="🕵️ Tebak Kata Misteri - +20 Poin", value="riddle"),
+        app_commands.Choice(name="🔀 Susun Huruf Acak - +15 Poin", value="scramble"),
+    ]
+)
+async def slash_game_mulai(
+    interaction: discord.Interaction,
+    jenis: app_commands.Choice[str] | None = None,
+):
+    channel = interaction.channel
+    if (
+        not isinstance(channel, (discord.TextChannel, discord.Thread))
+        or interaction.guild is None
+        or (isinstance(channel, discord.Thread) and channel.name.startswith(("ai-", "draw-")))
+    ):
+        await interaction.response.send_message(
+            "⚠️ Mini-Game hanya bisa dimainkan di Text Channel atau Thread publik server (bukan ruang sesi `ai-`/`draw-`).",
+            ephemeral=True,
+        )
+        return
+
+    if channel.id in active_channel_games:
+        await interaction.response.send_message(
+            "🎮 Masih ada ronde game yang sedang berlangsung di channel ini! Tebak dulu atau gunakan `/game stop`.",
+            ephemeral=True,
+        )
+        return
+
+    chosen_mode = jenis.value if jenis else random.choice(["emoji", "trivia", "riddle", "scramble"])
+    points = GAME_POINTS_BY_MODE.get(chosen_mode, 15)
+    await interaction.response.defer()
+
+    # Cek ulang setelah defer agar tidak tabrakan bila 2 orang mengetik bersamaan
+    if channel.id in active_channel_games:
+        await interaction.followup.send(
+            "🎮 Ronde baru saja dimulai oleh member lain! Yuk ikut menebak di atas.",
+            ephemeral=True,
+        )
+        return
+
+    q_data = await generate_ai_game_question(
+        chosen_mode,
+        interaction.guild.id,
+        http_session=bot.http_session,
+    )
+
+    if chosen_mode == "trivia":
+        letters = ("A", "B", "C", "D")
+        opt_lines = "\n".join(f"**{letters[i]}.** {q_data['options'][i]}" for i in range(4))
+        embed = discord.Embed(
+            title=f"🧠 KUIS TRIVIA CEPAT — Berhadiah +{points} Poin!",
+            description=(
+                f"❓ **{q_data['question']}**\n\n"
+                f"{opt_lines}\n\n"
+                f"⚡ *Klik tombol jawaban paling cepat di bawah! (1x kesempatan per orang, waktu {GAME_ROUND_TIMEOUT_SEC} detik)*"
+            ),
+            color=discord.Color.purple(),
+        )
+        embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name}")
+        view = TriviaButtonsView(channel.id, interaction.guild.id, q_data, points)
+        active_channel_games[channel.id] = {
+            "type": "trivia",
+            "starter_id": interaction.user.id,
+            "answer": q_data["options"][q_data["correct_index"]],
+            "points": points,
+            "view": view,
+        }
+        sent_msg = await interaction.followup.send(embed=embed, view=view, wait=True)
+        view.message = sent_msg
+        active_channel_games[channel.id]["message"] = sent_msg
+        return
+
+    if chosen_mode == "emoji":
+        title = f"🎭 TEBAK DARI EMOJI — Berhadiah +{points} Poin!"
+        desc = (
+            f"🏷️ **Kategori:** `{q_data.get('category', 'Populer')}`\n\n"
+            f"# {q_data['clue_emojis']}\n\n"
+            f"💬 *Ketik tebakanmu langsung di chat sekarang! ({GAME_ROUND_TIMEOUT_SEC} detik)*"
+        )
+        color = discord.Color.gold()
+        aliases = q_data.get("aliases") or []
+    elif chosen_mode == "riddle":
+        clues_fmt = "\n".join(f"**{i + 1}.** {c}" for i, c in enumerate(q_data["clues"]))
+        title = f"🕵️ SIAPAKAH / APAKAH AKU? — Berhadiah +{points} Poin!"
+        desc = (
+            f"🏷️ **Kategori:** `{q_data.get('category', 'Misteri')}`\n\n"
+            f"{clues_fmt}\n\n"
+            f"💬 *Ketik jawabannya langsung di chat! ({GAME_ROUND_TIMEOUT_SEC} detik)*"
+        )
+        color = discord.Color.dark_teal()
+        aliases = q_data.get("aliases") or []
+    else:  # scramble
+        scrambled = scramble_word(str(q_data["answer"]))
+        title = f"🔀 SUSUN HURUF ACAK — Berhadiah +{points} Poin!"
+        desc = (
+            f"🏷️ **Kategori:** `{q_data.get('category', 'Kata Umum')}`\n\n"
+            f"🔤 Susun huruf berikut menjadi 1 kata yang benar:\n"
+            f"## `{scrambled}`\n\n"
+            f"💬 *Ketik kata yang benar langsung di chat! ({GAME_ROUND_TIMEOUT_SEC} detik)*"
+        )
+        color = discord.Color.blurple()
+        aliases = []
+
+    embed = discord.Embed(title=title, description=desc, color=color)
+    embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name} • Klik tombol di bawah jika butuh bantuan")
+    ctrl_view = TextGuessControlView(channel.id, interaction.user.id)
+    state_obj: dict = {
+        "type": chosen_mode,
+        "starter_id": interaction.user.id,
+        "answer": str(q_data["answer"]).strip(),
+        "aliases": aliases,
+        "extra_hint": q_data.get("extra_hint", ""),
+        "points": points,
+        "view": ctrl_view,
+    }
+    active_channel_games[channel.id] = state_obj
+    sent_msg = await interaction.followup.send(embed=embed, view=ctrl_view, wait=True)
+    state_obj["message"] = sent_msg
+    state_obj["timeout_task"] = asyncio.create_task(
+        _text_game_timeout_watcher(channel, channel.id, state_obj)
+    )
+
+
+@game_group.command(
+    name="papan_skor",
+    description="Lihat Top 10 Klasemen Papan Skor Mini-Game di server ini",
+)
+async def slash_game_leaderboard(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message("⚠️ Hanya tersedia di dalam server.", ephemeral=True)
+        return
+
+    board = get_guild_leaderboard(interaction.guild.id, top_n=10)
+    if not board:
+        await interaction.response.send_message(
+            "🏆 **Papan Skor masih kosong!**\nYuk jadilah juara pertama dengan mengetik `/game mulai`!",
+            ephemeral=False,
+        )
+        return
+
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    lines: list[str] = []
+    for idx, row in enumerate(board, start=1):
+        badge = medals.get(idx, f"`#{idx}`")
+        lines.append(
+            f"{badge} <@{row['user_id']}> — **{row['points']} Poin** ({row['wins']}x menang)"
+        )
+
+    rank, my_pts, my_wins = get_user_rank_info(interaction.guild.id, interaction.user.id)
+    embed = discord.Embed(
+        title=f"🏆 Papan Skor Mini-Game — {interaction.guild.name}",
+        description="\n".join(lines),
+        color=discord.Color.gold(),
+        timestamp=discord.utils.utcnow(),
+    )
+    if rank is not None:
+        embed.set_footer(text=f"Posisi Anda: #{rank} • {my_pts} Poin ({my_wins}x menang)")
+    else:
+        embed.set_footer(text="Anda belum memiliki skor — ketik /game mulai untuk ikut bermain!")
+    await interaction.response.send_message(embed=embed)
+
+
+@game_group.command(
+    name="stop",
+    description="Hentikan ronde Mini-Game yang sedang berjalan di channel ini",
+)
+async def slash_game_stop(interaction: discord.Interaction):
+    channel = interaction.channel
+    if channel is None or channel.id not in active_channel_games:
+        await interaction.response.send_message(
+            "ℹ️ Tidak ada ronde Mini-Game yang sedang aktif di channel ini.",
+            ephemeral=True,
+        )
+        return
+
+    state = active_channel_games[channel.id]
+    is_mod = isinstance(interaction.user, discord.Member) and (
+        interaction.user.guild_permissions.administrator
+        or interaction.user.guild_permissions.manage_messages
+    )
+    if interaction.user.id != state.get("starter_id") and not is_mod:
+        await interaction.response.send_message(
+            "⚠️ Hanya pemulai ronde ini atau Moderator yang dapat menghentikan permainan.",
+            ephemeral=True,
+        )
+        return
+
+    active_channel_games.pop(channel.id, None)
+    task = state.get("timeout_task")
+    if task and not task.done():
+        task.cancel()
+
+    view_obj: discord.ui.View | None = state.get("view")
+    msg_obj: discord.Message | None = state.get("message")
+    if view_obj:
+        if hasattr(view_obj, "finished"):
+            view_obj.finished = True
+        view_obj.stop()
+        for child in view_obj.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        if msg_obj:
+            try:
+                await msg_obj.edit(view=view_obj)
+            except discord.HTTPException:
+                pass
+
+    await interaction.response.send_message(
+        f"🛑 Ronde Mini-Game dihentikan oleh {interaction.user.mention}. "
+        f"Jawaban dari soal tadi adalah: **`{state.get('answer', '-')}`**."
+    )
+
+
+@game_group.command(
+    name="reset_skor",
+    description="Reset seluruh Papan Skor Mini-Game server kembali ke 0 (Khusus Admin)",
+)
+async def slash_game_reset_skor(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message("⚠️ Hanya tersedia di server.", ephemeral=True)
+        return
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "⚠️ Hanya **Administrator** server yang dapat mereset seluruh Papan Skor.",
+            ephemeral=True,
+        )
+        return
+
+    reset_guild_scores(interaction.guild.id)
+    await save_game_scores_to_disk()
+    await interaction.response.send_message(
+        "🔄 **Papan Skor Mini-Game server berhasil direset ke 0!** Musim kompetisi baru dimulai!"
+    )
+
+
+bot.tree.add_command(game_group)
+
+
+@bot.tree.command(
+    name="bantuan",
+    description="Panduan lengkap cara memakai seluruh fitur Gemini AI di server ini",
+)
+async def slash_bantuan(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title=f"📚 Panduan Lengkap Fitur Gemini AI (v{BOT_VERSION})",
+        description="Berikut daftar fitur pintar yang bisa langsung dipakai seluruh member:",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(
+        name="1️⃣ Ruang Chat Privat, Vision, Voice Note & Gambar",
+        value=(
+            "• Klik tombol di panel `/setup_panel` untuk membuka ruang `ai-...` atau `draw-...`.\n"
+            "• Kirim teks, **Voice Note (🎤)**, foto/screenshot error, file kode, atau link YouTube/Web!\n"
+            "• Gunakan `/model` untuk ganti kepribadian & `/reset` untuk bersihkan memori."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="2️⃣ Tekan-Tahan Pesan (Tanpa Ketik Command!)",
+        value=(
+            "• **Di HP:** Tekan & tahan pesan siapa saja ➔ pilih **Apps**.\n"
+            "• **Di PC:** Klik kanan pesan ➔ pilih **Apps**.\n"
+            "• Pilih **`🌐 Terjemahkan ke Indonesia`** atau **`💡 Jelaskan Pesan Ini`**!"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="3️⃣ Ringkas Chat, YouTube, Web & Info Terbaru Hari Ini",
+        value=(
+            "• `/cari` — Cek berita, skor, cuaca, harga, atau info terbaru hari ini (Google Search).\n"
+            "• `/ringkas_link` — Rangkum isi video YouTube atau artikel web dalam hitungan detik.\n"
+            "• `/ringkas` — Rangkum 25–150 chat terakhir di channel agar tidak ketinggalan obrolan."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="4️⃣ Mini-Game Tongkrongan & AI Agent Server",
+        value=(
+            "• `/game mulai` — Main Tebak Emoji, Kuis Trivia, Kata Misteri, & Acak Kata!\n"
+            "• `/game papan_skor` — Cek Top 10 klasemen juara server (`/game stop` untuk akhiri ronde).\n"
+            "• *Khusus Admin:* `/setup_panel` & `/agent` (`chat`, `gallery`, `welcome`, `persona`, `sapa`, `status`)."
+        ),
+        inline=False,
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @bot.tree.command(
     name="status",
     description="Lihat status koneksi bot, latensi, pemakaian RAM, dan sesi Gemini aktif",
@@ -980,8 +1518,11 @@ async def slash_status(interaction: discord.Interaction):
         inline=True,
     )
     embed.add_field(
-        name="🌐 AI Agent Publik",
-        value=f"`{len(chat_agent_channels)}` chat | `{len(gallery_agent_channels)}` galeri",
+        name="🌐 Agent & Game",
+        value=(
+            f"`{len(chat_agent_channels)}` chat | `{len(gallery_agent_channels)}` galeri | "
+            f"`{len(active_channel_games)}` game"
+        ),
         inline=True,
     )
     embed.add_field(name="🕒 Jam Server AI", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
@@ -996,6 +1537,7 @@ async def slash_status(interaction: discord.Interaction):
             f"Utama: `{GEMINI_DEFAULT_MODEL}`\n"
             f"Kilat: `{GEMINI_FAST_MODEL}`\n"
             f"Koding/Riset: `{GEMINI_REASONING_MODEL}`\n"
+            f"Live Search: `{GEMINI_SEARCH_MODEL}`\n"
             f"Gambar: {img_engine_info}"
         ),
         inline=False,
@@ -1128,6 +1670,11 @@ async def on_message(message: discord.Message):
                         )
             return
 
+        # 1C. Thread biasa (bukan ai-/draw-) yang sedang menjalankan Mini-Game
+        if message.channel.id in active_channel_games:
+            if await handle_active_game_guess(message):
+                return
+
     # ==========================================================================
     # BAGIAN 2: AI AGENT KOMUNITAS DI CHANNEL PUBLIK (GALERI & AUTO-CHAT)
     # ==========================================================================
@@ -1159,7 +1706,14 @@ async def on_message(message: discord.Message):
                         await message.reply(comment_text[:1900], mention_author=False)
                         return
 
-        # 2B. AUTO-CHAT KOMUNITAS NATURAL (Teks, Stiker, Emoji, & Sapaan)
+        # 2B. MINI-GAME TONGKRONGAN AKTIF (Tebak Emoji / Kata Misteri / Susun Huruf)
+        if channel_id in active_channel_games:
+            if channel_id in chat_agent_channels:
+                record_human_channel_activity(channel_id)
+            if await handle_active_game_guess(message):
+                return
+
+        # 2C. AUTO-CHAT KOMUNITAS NATURAL (Teks, Stiker, Emoji, Link, & Sapaan)
         if channel_id in chat_agent_channels:
             should_reply, use_reply_ref = should_agent_reply_in_chat(message, bot.user)
             if should_reply:

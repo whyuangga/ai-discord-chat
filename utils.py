@@ -1,8 +1,11 @@
 import base64
 from datetime import datetime, timedelta, timezone
+import html
 import io
+import ipaddress
 import re
 from pathlib import Path
+import urllib.parse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import aiohttp
 import discord
@@ -16,6 +19,7 @@ from config import (
     MAX_STICKER_EMOJI_BYTES,
     MAX_TEXT_ATTACHMENT_BYTES,
     MAX_VIDEO_ATTACHMENT_BYTES,
+    MAX_WEBPAGE_FETCH_BYTES,
     parse_gemini_keys,
 )
 from storage import is_bot_ui_message
@@ -611,3 +615,277 @@ async def build_session_transcript(
         )
 
     return embed, transcript_file
+
+
+# ==============================================================================
+# DETEKTOR LINK YOUTUBE, PEMBACA ARTIKEL WEB AMAN, & PEMICU GOOGLE SEARCH
+# ==============================================================================
+_URL_RE = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
+_YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+_IGNORED_WEB_DOMAINS = (
+    "cdn.discordapp.com",
+    "media.discordapp.net",
+    "discord.gg",
+    "discord.com",
+    "discordapp.com",
+    "tenor.com",
+    "giphy.com",
+)
+
+_LIVE_SEARCH_TRIGGER_RE = re.compile(
+    r"("
+    r"\bcari(?:in|kan)?\s+(?:di\s+)?(?:google|internet|web|berita|info)\b|"
+    r"\b(?:berita|kabar|info|update|rilis|patch)\s+(?:hari\s+ini|terbaru|terkini|sekarang|minggu\s+ini|202[5-9])\b|"
+    r"\b(?:skor|hasil\s+pertandingan|klasemen|jadwal\s+(?:bola|pertandingan|mpl|valorant|liga|bioskop))\b|"
+    r"\b(?:cuaca|prakiraan\s+cuaca|gempa)\s+(?:hari\s+ini|sekarang|terkini|di\s+\w+)\b|"
+    r"\b(?:harga|kurs|nilai\s+tukar)\s+(?:emas|dollar|dolar|usd|rupiah|idr|bitcoin|btc|crypto|saham|bbm)\b|"
+    r"\bsiapa\s+(?:presiden|juara|pemenang|pelatih|ceo|menteri|gubernur)\b|"
+    r"\b(?:tadi\s+malam|semalam|kemarin|barusan)\s+(?:siapa\s+yang\s+menang|ada\s+berita\s+apa)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def normalize_youtube_url(url: str) -> str | None:
+    """Mengubah berbagai variasi link YouTube (youtu.be, shorts, live, mobile) ke format kanonik."""
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+    except Exception:
+        return None
+
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www.") or host.startswith("m."):
+        host = host.split(".", 1)[1]
+
+    video_id: str | None = None
+    if host == "youtu.be":
+        seg = parsed.path.strip("/").split("/")[0]
+        if _YT_ID_RE.match(seg):
+            video_id = seg
+    elif host in ("youtube.com", "music.youtube.com", "youtube-nocookie.com"):
+        qs = urllib.parse.parse_qs(parsed.query)
+        if "v" in qs and qs["v"] and _YT_ID_RE.match(qs["v"][0]):
+            video_id = qs["v"][0]
+        else:
+            parts = [p for p in parsed.path.strip("/").split("/") if p]
+            if len(parts) >= 2 and parts[0] in ("shorts", "live", "embed", "v") and _YT_ID_RE.match(parts[1]):
+                video_id = parts[1]
+
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
+    return None
+
+
+def is_safe_public_url(url: str) -> bool:
+    """Mencegah SSRF dengan memastikan URL mengarah ke host publik HTTP/HTTPS (bukan localhost/IP privat)."""
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+    except Exception:
+        return False
+
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+
+    host = (parsed.hostname or "").strip().lower()
+    if not host or host in ("localhost", "0.0.0.0") or host.endswith((".local", ".internal", ".localhost")):
+        return False
+
+    try:
+        ip = ipaddress.ip_address(host)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return False
+    except ValueError:
+        # Hostname domain biasa (bukan literal IP) -> pastikan memiliki titik domain publik
+        if "." not in host:
+            return False
+
+    return True
+
+
+def extract_urls_from_text(text: str, *, include_ignored_domains: bool = False) -> tuple[list[str], list[str]]:
+    """Mengekstrak hingga 2 URL YouTube kanonik dan hingga 2 URL artikel/halaman web publik dari teks."""
+    if not text:
+        return [], []
+
+    yt_urls: list[str] = []
+    web_urls: list[str] = []
+
+    for match in _URL_RE.findall(text):
+        cleaned = match.rstrip(".,;:!?\"')]>")
+        yt_canon = normalize_youtube_url(cleaned)
+        if yt_canon:
+            if yt_canon not in yt_urls and len(yt_urls) < 2:
+                yt_urls.append(yt_canon)
+            continue
+
+        if not is_safe_public_url(cleaned):
+            continue
+
+        host = (urllib.parse.urlparse(cleaned).hostname or "").lower()
+        if not include_ignored_domains and any(
+            host == dom or host.endswith(f".{dom}") for dom in _IGNORED_WEB_DOMAINS
+        ):
+            continue
+
+        # Lewati link file gambar/video/audio mentah karena sudah ditangani ekstraktor media
+        path_lower = urllib.parse.urlparse(cleaned).path.lower()
+        if path_lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".mp3", ".ogg", ".wav")):
+            continue
+
+        if cleaned not in web_urls and len(web_urls) < 2:
+            web_urls.append(cleaned)
+
+    return yt_urls, web_urls
+
+
+def clean_html_to_readable_text(raw_html: str, max_chars: int = 8000) -> tuple[str | None, str]:
+    """Mengekstrak judul dan teks bersih dari HTML tanpa membutuhkan library eksternal seperti BeautifulSoup."""
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", raw_html, flags=re.IGNORECASE | re.DOTALL)
+    title = html.unescape(re.sub(r"\s+", " ", title_match.group(1)).strip()) if title_match else None
+
+    meta_desc = ""
+    meta_match = re.search(
+        r'<meta[^>]+(?:name|property)=["\'](?:description|og:description)["\'][^>]+content=["\']([^"\']+)["\']',
+        raw_html,
+        flags=re.IGNORECASE,
+    )
+    if meta_match:
+        meta_desc = html.unescape(meta_match.group(1).strip())
+
+    # Buang bagian script, style, svg, nav, footer, dan komentar HTML
+    cleaned = re.sub(
+        r"<(script|style|noscript|svg|iframe|header|footer|nav)[^>]*>.*?</\1>",
+        " ",
+        raw_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = re.sub(r"<!--.*?-->", " ", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"</?(?:p|div|br|li|tr|h[1-6]|article|section|blockquote)[^>]*>", "\n", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = html.unescape(cleaned)
+
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in cleaned.splitlines()]
+    lines = [ln for ln in lines if len(ln) >= 2]
+    body = "\n".join(lines)
+    if meta_desc and meta_desc not in body[:600]:
+        body = f"Deskripsi Ringkas: {meta_desc}\n\n{body}"
+
+    return title, body[:max_chars].strip()
+
+
+async def _is_resolved_host_public(url: str) -> bool:
+    """Memastikan hasil resolusi DNS hostname tidak mengarah ke IP privat/loopback (anti-DNS Rebinding SSRF)."""
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip()
+        if not host:
+            return False
+        loop = asyncio.get_running_loop()
+        infos = await asyncio.wait_for(loop.getaddrinfo(host, None), timeout=3.0)
+        for info in infos:
+            sockaddr = info[4]
+            if not sockaddr:
+                continue
+            ip_obj = ipaddress.ip_address(sockaddr[0])
+            if (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            ):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+async def fetch_webpage_text(
+    url: str,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Mengunduh dan mengekstrak isi teks halaman web publik secara ringan & aman dari SSRF.
+
+    Returns:
+        (page_title, extracted_text) — extracted_text bernilai None jika gagal/diblokir situs.
+    """
+    if not is_safe_public_url(url):
+        return None, None
+
+    # Validasi resolusi DNS non-blocking saat memakai koneksi jaringan nyata
+    if http_session is None or isinstance(http_session, aiohttp.ClientSession):
+        if not await _is_resolved_host_public(url):
+            return None, None
+
+    timeout = aiohttp.ClientTimeout(total=10, connect=5)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; DiscordGeminiAssistant/1.2; +https://github.com)",
+        "Accept": "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    async def _do_get(sess: aiohttp.ClientSession) -> tuple[str | None, str | None]:
+        async with sess.get(url, headers=headers, timeout=timeout, allow_redirects=True, max_redirects=4) as resp:
+            final_url = str(resp.url)
+            if not is_safe_public_url(final_url) or resp.status >= 400:
+                return None, None
+            if isinstance(sess, aiohttp.ClientSession) and not await _is_resolved_host_public(final_url):
+                return None, None
+
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            if not any(t in ctype for t in ("text/", "json", "xml", "xhtml", "javascript")) and ctype:
+                return None, None
+
+            raw_bytes = await resp.content.read(MAX_WEBPAGE_FETCH_BYTES)
+            raw_text = raw_bytes.decode("utf-8", errors="replace")
+            if "html" in ctype or "<html" in raw_text[:500].lower():
+                title, body = clean_html_to_readable_text(raw_text)
+                return title, (body if len(body) >= 30 else None)
+            return None, raw_text[:8000].strip() or None
+
+    try:
+        if http_session is not None and not http_session.closed:
+            return await _do_get(http_session)
+        async with aiohttp.ClientSession(timeout=timeout) as temp:
+            return await _do_get(temp)
+    except Exception:
+        return None, None
+
+
+def needs_live_web_search(text: str) -> bool:
+    """Mendeteksi apakah kalimat pengguna menanyakan informasi/berita terkini yang membutuhkan Google Search."""
+    cleaned = (text or "").strip()
+    if len(cleaned) < 6:
+        return False
+    return bool(_LIVE_SEARCH_TRIGGER_RE.search(cleaned))
+
+
+def extract_message_text_for_context(message: discord.Message) -> str:
+    """Mengambil gabungan teks pesan beserta isi Embed & Stiker (berguna untuk fitur tekan-tahan Context Menu)."""
+    parts: list[str] = []
+    if getattr(message, "content", None) and message.content.strip():
+        parts.append(message.content.strip())
+    for emb in getattr(message, "embeds", []) or []:
+        if getattr(emb, "title", None):
+            parts.append(str(emb.title).strip())
+        if getattr(emb, "description", None):
+            parts.append(str(emb.description).strip())
+        for field in getattr(emb, "fields", []) or []:
+            fname = getattr(field, "name", "")
+            fval = getattr(field, "value", "")
+            if fname or fval:
+                parts.append(f"{fname}: {fval}".strip())
+    for stk in getattr(message, "stickers", []) or []:
+        sname = getattr(stk, "name", "")
+        if sname:
+            parts.append(f"[Stiker: {sname}]")
+    return "\n\n".join(parts).strip()
+
