@@ -598,6 +598,18 @@ async def generate_community_chat_reply(
     return reply
 
 
+_ICEBREAKER_ANGLES: tuple[str, ...] = (
+    "Sapa warga santai sesuai jam & hari sekarang sambil nanya lagi pada sibuk ngapain.",
+    "Lempar satu pertanyaan pilihan ringan ala tongkrongan (misal soal makanan/minuman favorit di jam segini, kebiasaan unik, atau hal relate sehari-hari) tanpa terdengar kaku.",
+    "Tanyain santai warga lagi pada dengerin lagu apa, nonton apa, atau main game apa belakangan ini.",
+    "Nyeletuk santai soal suasana hari/jam sekarang (misal vibe hari kerja vs weekend, jam rawan lapar/ngantuk, atau jam enak buat rebahan) lalu pancing obrolan.",
+    "Ajak warga ngobrol ringan soal hobi atau topik seru yang nyambung sama tema server.",
+    "Sapa tongkrongan dengan gaya akrab dan jenaka seolah baru buka HP dan mampir ke channel.",
+    "Lempar celetukan random yang lucu/relate soal kehidupan sehari-hari biar warga tertarik nyaut.",
+    "Nyeletuk ringan memecah keheningan channel dengan gaya santai khas anak Discord.",
+)
+
+
 async def generate_idle_icebreaker(
     channel_id: int,
     guild_id: int,
@@ -607,17 +619,30 @@ async def generate_idle_icebreaker(
     manual_trigger: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
-    """Membuat sapaan/celetukan santai otomatis saat channel chat sedang sepi."""
+    """Membuat sapaan/celetukan santai otomatis yang selalu bervariasi saat channel sedang sepi."""
     guild_cfg = get_guild_settings(guild_id)
     time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
     system_prompt = _build_community_system_prompt(guild_cfg, bot_display_name, time_ctx)
 
+    # Ambil 5 celetukan terakhir milik bot sendiri agar kalimat & topiknya tidak pernah diulang
+    past_hist = channel_histories.get(channel_id, [])
+    recent_bot_msgs = [h["content"] for h in past_hist if h.get("role") == "model"][-5:]
+    avoid_block = ""
+    if recent_bot_msgs:
+        joined_prev = " | ".join(f'"{m[:120]}"' for m in recent_bot_msgs)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Sebelumnya kamu sudah pernah mengirim kalimat ini: [{joined_prev}]. "
+            "JANGAN gunakan awalan kata, struktur kalimat, atau topik yang sama/mirip dengan kalimat sebelumnya tersebut! "
+            "Jangan terus-menerus mengawali kalimat dengan kata 'Sepi banget' atau 'Aduh sepi'."
+        )
+
+    chosen_angle = random.choice(_ICEBREAKER_ANGLES)
     icebreaker_instruction = (
-        f"(Instruksi situasi: Channel chat ini sudah sepi sekitar {max(1, idle_minutes_elapsed)} menit belum ada "
-        f"yang ngobrol. Sekarang pukul {time_ctx['clock']} ({time_ctx['vibe']}). "
-        "Nyeletuklah duluan secara spontan dan santai 1 kalimat pendek untuk memecah kesunyian atau "
-        "menyapa warga server sesuai jam sekarang — contoh vibe seperti 'Aduh sepi amat nih siang-siang, "
-        "pada kemana guys?' atau celetukan kreatif lain yang tidak monoton!)"
+        f"(Instruksi situasi: Channel chat ini belum ada obrolan baru sekitar {max(1, idle_minutes_elapsed)} menit. "
+        f"Sekarang hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
+        f"Ide sudut obrolan kali ini: {chosen_angle}\n"
+        "Buat 1 kalimat pendek yang spontan, segar, bervariasi, dan sangat manusiawi untuk memulai obrolan "
+        f"dengan warga server!){avoid_block}"
     )
 
     contents = [{"role": "user", "parts": [{"text": icebreaker_instruction}]}]

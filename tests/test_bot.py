@@ -585,6 +585,10 @@ async def test_dead_chat_icebreaker_increments_poke_counter(monkeypatch):
     )
     assert "sepi amat" in text
     assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 1
+    # Pastikan sapaan kedua otomatis menyertakan memori anti-monoton dari sapaan pertama
+    second_prompt_sent = fake_http.post_calls[0]["json"]["contents"][0]["parts"][0]["text"]
+    assert "ANTI-MONOTON" in second_prompt_sent
+    assert "Sepi banget nih malam-malam" in second_prompt_sent
 
     # 3. Mengatur ulang /agent chat mereset penghitung kembali ke 0
     community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_seconds=30)
