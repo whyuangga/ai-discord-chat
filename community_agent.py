@@ -105,6 +105,74 @@ def get_guild_settings(guild_id: int) -> dict:
     return settings
 
 
+def format_idle_duration(idle_seconds: int) -> str:
+    """Memformat durasi pemecah sepi ke teks yang mudah dibaca (detik / menit)."""
+    sec = max(0, int(idle_seconds))
+    if sec == 0:
+        return "Nonaktif"
+    if sec < 60 or sec % 60 != 0:
+        return f"{sec} detik"
+    mins = sec // 60
+    return f"{mins} menit"
+
+
+def parse_idle_duration(raw_value: str | int | float | None) -> tuple[int, str] | None:
+    """Mengubah input fleksibel pengguna (misal: '1', '30', '30 detik', '5 menit', '1 jam', '0')
+    menjadi (idle_seconds, label_teks). Mengembalikan None jika format tidak dikenali.
+    """
+    if raw_value is None:
+        sec = max(0, int(AGENT_DEFAULT_IDLE_MINUTES) * 60)
+        return sec, format_idle_duration(sec)
+
+    if isinstance(raw_value, (int, float)):
+        sec = max(0, min(43200, int(round(float(raw_value) * 60))))
+        if 0 < sec < 15:
+            sec = 15
+        return sec, format_idle_duration(sec)
+
+    cleaned = str(raw_value).strip().lower().replace(",", ".")
+    if not cleaned:
+        sec = max(0, int(AGENT_DEFAULT_IDLE_MINUTES) * 60)
+        return sec, format_idle_duration(sec)
+
+    if cleaned in ("0", "off", "mati", "nonaktif", "false", "matikan", "disable"):
+        return 0, "Nonaktif"
+
+    match = re.match(
+        r"^(\d+(?:\.\d+)?)\s*(d|dtk|detik|s|sec|second|seconds|m|mnt|menit|min|mins|j|jam|h|hr|hour|hours)?$",
+        cleaned,
+    )
+    if not match:
+        return None
+
+    num = float(match.group(1))
+    unit = (match.group(2) or "menit").strip()
+
+    if num <= 0:
+        return 0, "Nonaktif"
+
+    if unit in ("d", "dtk", "detik", "s", "sec", "second", "seconds"):
+        sec = int(round(num))
+    elif unit in ("j", "jam", "h", "hr", "hour", "hours"):
+        sec = int(round(num * 3600))
+    else:
+        sec = int(round(num * 60))
+
+    # Batasi aman antara 15 detik hingga 12 jam (43200 detik)
+    sec = max(15, min(43200, sec))
+    return sec, format_idle_duration(sec)
+
+
+def record_human_channel_activity(channel_id: int) -> None:
+    """Mencatat aktivitas chat member manusia agar penghitung pemecah sepi selalu akurat."""
+    ch_cfg = chat_agent_channels.get(channel_id)
+    if ch_cfg and ch_cfg.get("enabled"):
+        now = time.time()
+        ch_cfg["last_activity_at"] = now
+        ch_cfg["last_human_at"] = now
+        ch_cfg["consecutive_idle_pokes"] = 0
+
+
 def set_chat_channel_config(
     guild_id: int,
     channel_id: int,
@@ -112,6 +180,7 @@ def set_chat_channel_config(
     enabled: bool,
     reply_mode: str = "smart",
     idle_minutes: int = AGENT_DEFAULT_IDLE_MINUTES,
+    idle_seconds: int | None = None,
 ) -> dict | None:
     if not enabled:
         chat_agent_channels.pop(channel_id, None)
@@ -120,15 +189,25 @@ def set_chat_channel_config(
 
     now = time.time()
     existing = chat_agent_channels.get(channel_id) or {}
+    computed_sec = (
+        max(0, int(idle_seconds))
+        if idle_seconds is not None
+        else max(0, int(idle_minutes) * 60)
+    )
+    computed_mins = computed_sec // 60 if computed_sec >= 60 else (1 if computed_sec > 0 else 0)
+
+    # Reset last_activity_at & consecutive_idle_pokes setiap pengaturan disimpan
+    # supaya timer menit_sepi langsung mulai menghitung segar dan tidak terkunci!
     chat_agent_channels[channel_id] = {
         "guild_id": guild_id,
         "enabled": True,
         "reply_mode": reply_mode if reply_mode in ("smart", "all") else "smart",
-        "idle_minutes": max(0, int(idle_minutes)),
-        "last_activity_at": float(existing.get("last_activity_at") or now),
+        "idle_minutes": computed_mins if idle_seconds is not None else max(0, int(idle_minutes)),
+        "idle_seconds": computed_sec,
+        "last_activity_at": now,
         "last_human_at": float(existing.get("last_human_at") or now),
         "last_bot_reply_at": float(existing.get("last_bot_reply_at") or 0.0),
-        "consecutive_idle_pokes": int(existing.get("consecutive_idle_pokes") or 0),
+        "consecutive_idle_pokes": 0,
     }
     return chat_agent_channels[channel_id]
 
@@ -183,11 +262,14 @@ def load_agent_config_from_disk() -> tuple[int, int]:
             cid = int(cid_str)
             if not cdata.get("enabled", True):
                 continue
+            loaded_mins = max(0, int(cdata.get("idle_minutes", AGENT_DEFAULT_IDLE_MINUTES)))
+            loaded_secs = int(cdata.get("idle_seconds", loaded_mins * 60))
             chat_agent_channels[cid] = {
                 "guild_id": int(cdata["guild_id"]),
                 "enabled": True,
                 "reply_mode": cdata.get("reply_mode") if cdata.get("reply_mode") in ("smart", "all") else "smart",
-                "idle_minutes": max(0, int(cdata.get("idle_minutes", AGENT_DEFAULT_IDLE_MINUTES))),
+                "idle_minutes": loaded_mins,
+                "idle_seconds": max(0, loaded_secs),
                 "last_activity_at": float(cdata.get("last_activity_at") or now),
                 "last_human_at": float(cdata.get("last_human_at") or now),
                 "last_bot_reply_at": float(cdata.get("last_bot_reply_at") or 0.0),
@@ -522,6 +604,7 @@ async def generate_idle_icebreaker(
     bot_display_name: str,
     *,
     idle_minutes_elapsed: int = 30,
+    manual_trigger: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
     """Membuat sapaan/celetukan santai otomatis saat channel chat sedang sepi."""
@@ -557,7 +640,11 @@ async def generate_idle_icebreaker(
             now = time.time()
             ch_cfg["last_activity_at"] = now
             ch_cfg["last_bot_reply_at"] = now
-            ch_cfg["consecutive_idle_pokes"] = int(ch_cfg.get("consecutive_idle_pokes") or 0) + 1
+            if manual_trigger:
+                # Sapaan manual via /agent sapa tidak boleh mengunci penghitung otomatis menit_sepi
+                ch_cfg["consecutive_idle_pokes"] = 0
+            else:
+                ch_cfg["consecutive_idle_pokes"] = int(ch_cfg.get("consecutive_idle_pokes") or 0) + 1
         await save_agent_config_to_disk()
 
     return reply
@@ -645,8 +732,12 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
         if not ch_cfg.get("enabled"):
             continue
 
-        idle_mins = int(ch_cfg.get("idle_minutes") or 0)
-        if idle_mins <= 0:
+        idle_secs = int(
+            ch_cfg.get("idle_seconds")
+            if ch_cfg.get("idle_seconds") is not None
+            else int(ch_cfg.get("idle_minutes") or 0) * 60
+        )
+        if idle_secs <= 0:
             continue
 
         # Anti-spam: jangan terus-terusan monolog sendirian jika belum ada satupun manusia membalas
@@ -655,7 +746,7 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
 
         last_act = float(ch_cfg.get("last_activity_at") or 0.0)
         elapsed_sec = now - last_act
-        if elapsed_sec < idle_mins * 60:
+        if elapsed_sec < idle_secs:
             continue
 
         guild_id = ch_cfg["guild_id"]
@@ -676,7 +767,7 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
 
         async with lock:
             # Cek ulang setelah mendapat lock
-            if (time.time() - float(ch_cfg.get("last_activity_at") or 0.0)) < idle_mins * 60:
+            if (time.time() - float(ch_cfg.get("last_activity_at") or 0.0)) < idle_secs:
                 continue
 
             bot_name = (
@@ -684,22 +775,22 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
                 if channel.guild.me
                 else (bot.user.display_name if bot.user else "Teman")
             )
-            elapsed_mins = int(elapsed_sec // 60)
-            icebreaker = await generate_idle_icebreaker(
-                channel_id,
-                guild_id,
-                bot_name,
-                idle_minutes_elapsed=elapsed_mins,
-                http_session=http_session,
-            )
-            if icebreaker:
-                try:
-                    async with channel.typing():
-                        await asyncio.sleep(random.uniform(1.0, 2.2))
+            elapsed_mins = max(1, int(elapsed_sec // 60))
+            try:
+                async with channel.typing():
+                    icebreaker = await generate_idle_icebreaker(
+                        channel_id,
+                        guild_id,
+                        bot_name,
+                        idle_minutes_elapsed=elapsed_mins,
+                        manual_trigger=False,
+                        http_session=http_session,
+                    )
+                    if icebreaker:
                         await channel.send(icebreaker)
-                    poked_count += 1
-                    logger.info("Pemecah sepi terkirim di #%s (%s)", channel.name, channel_id)
-                except (discord.Forbidden, discord.HTTPException) as exc:
-                    logger.warning("Gagal mengirim pemecah sepi di %s: %s", channel_id, exc)
+                        poked_count += 1
+                        logger.info("Pemecah sepi terkirim di #%s (%s)", channel.name, channel_id)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning("Gagal mengirim pemecah sepi di %s: %s", channel_id, exc)
 
     return poked_count

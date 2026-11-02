@@ -12,6 +12,7 @@ from discord.ext import commands, tasks
 from ai_handler import generate_image, get_ai_response, is_gemini_key_configured
 from community_agent import (
     chat_agent_channels,
+    format_idle_duration,
     gallery_agent_channels,
     generate_community_chat_reply,
     generate_gallery_comment,
@@ -19,6 +20,8 @@ from community_agent import (
     get_agent_channel_lock,
     get_guild_settings,
     load_agent_config_from_disk,
+    parse_idle_duration,
+    record_human_channel_activity,
     run_idle_chat_check,
     save_agent_config_to_disk,
     set_chat_channel_config,
@@ -27,6 +30,7 @@ from community_agent import (
 )
 from config import (
     AGENT_DEFAULT_IDLE_MINUTES,
+    AGENT_MAX_IDLE_POKES,
     AI_MODELS,
     BOT_TIMEZONE,
     BOT_VERSION,
@@ -166,12 +170,12 @@ class GeminiDiscordBot(commands.Bot):
 bot = GeminiDiscordBot()
 
 
-@tasks.loop(minutes=1)
+@tasks.loop(seconds=15)
 async def idle_chat_watcher():
-    """Memantau channel Auto-Chat setiap 1 menit & membersihkan sesi kadaluarsa setiap 1 jam."""
+    """Memantau channel Auto-Chat setiap 15 detik & membersihkan sesi kadaluarsa setiap 1 jam."""
     try:
         await run_idle_chat_check(bot, http_session=bot.http_session)
-        if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 60 == 0:
+        if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 240 == 0:
             if cleanup_expired_sessions() > 0:
                 await save_sessions_to_disk()
     except Exception as exc:
@@ -241,6 +245,38 @@ agent_group = app_commands.Group(
 )
 
 
+_MENIT_SEPI_PRESETS: list[tuple[str, str]] = [
+    ("30 detik - Tes Kilat", "30 detik"),
+    ("1 menit - Tes Cepat", "1"),
+    ("5 menit", "5"),
+    ("15 menit", "15"),
+    ("30 menit - Rekomendasi", "30"),
+    ("60 menit - 1 Jam", "60"),
+    ("0 - Matikan Pemecah Sepi", "0"),
+]
+
+
+async def _menit_sepi_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    typed = (current or "").strip().lower()
+    if not typed:
+        return [app_commands.Choice(name=label, value=val) for label, val in _MENIT_SEPI_PRESETS]
+
+    choices: list[app_commands.Choice[str]] = []
+    parsed = parse_idle_duration(typed)
+    if parsed is not None:
+        _, human_label = parsed
+        choices.append(app_commands.Choice(name=f"Gunakan: {human_label}", value=typed))
+
+    for label, val in _MENIT_SEPI_PRESETS:
+        if typed in label.lower() or typed in val.lower():
+            if all(c.value != val for c in choices):
+                choices.append(app_commands.Choice(name=label, value=val))
+    return choices[:10]
+
+
 @agent_group.command(
     name="chat",
     description="Aktifkan/atur AI Agent Auto-Chat & Pemecah Sepi otomatis di channel publik",
@@ -249,31 +285,41 @@ agent_group = app_commands.Group(
     channel="Channel teks tempat AI Agent ikut ngobrol",
     aktif="True untuk mengaktifkan, False untuk mematikan",
     mode_balas="Cerdas & Natural (rekomendasi) atau Balas Semua Pesan",
-    menit_sepi="Berapa menit channel sepi sebelum AI menyapa duluan (isi 0 untuk mematikan)",
+    menit_sepi="Waktu sepi sebelum AI menyapa duluan (pilih dari daftar atau ketik misal: 1, 5, 30, 30 detik, 0)",
 )
 @app_commands.choices(
     mode_balas=[
-        app_commands.Choice(name="Cerdas & Natural ala Manusia (Rekomendasi)", value="smart"),
+        app_commands.Choice(name="Cerdas dan Natural - Rekomendasi", value="smart"),
         app_commands.Choice(name="Balas Semua Pesan Member", value="all"),
     ]
 )
+@app_commands.autocomplete(menit_sepi=_menit_sepi_autocomplete)
 async def agent_chat_cmd(
     interaction: discord.Interaction,
     channel: discord.TextChannel,
     aktif: bool,
     mode_balas: app_commands.Choice[str] | None = None,
-    menit_sepi: app_commands.Range[int, 0, 720] = AGENT_DEFAULT_IDLE_MINUTES,
+    menit_sepi: str | None = None,
 ):
     if interaction.guild is None:
         return
 
+    parsed = parse_idle_duration(menit_sepi)
+    if parsed is None:
+        await interaction.response.send_message(
+            "⚠️ Format `menit_sepi` tidak dikenali. Ketik angka menit seperti `1`, `5`, `30`, `30 detik`, atau `0` untuk mematikan.",
+            ephemeral=True,
+        )
+        return
+
+    idle_secs, idle_human_label = parsed
     chosen_mode = mode_balas.value if mode_balas else "smart"
     cfg = set_chat_channel_config(
         interaction.guild.id,
         channel.id,
         enabled=aktif,
         reply_mode=chosen_mode,
-        idle_minutes=menit_sepi,
+        idle_seconds=idle_secs,
     )
     await save_agent_config_to_disk()
 
@@ -284,7 +330,11 @@ async def agent_chat_cmd(
         )
         return
 
-    idle_desc = f"Aktif setiap **{menit_sepi} menit** sepi" if menit_sepi > 0 else "Nonaktif (`0` menit)"
+    idle_desc = (
+        f"Aktif setiap **{idle_human_label}** sepi *(timer dimulai dari sekarang)*"
+        if idle_secs > 0
+        else "Nonaktif (`0`)"
+    )
     mode_label = "Cerdas & Natural" if chosen_mode == "smart" else "Balas Semua Pesan"
     await interaction.response.send_message(
         f"✅ **AI Agent Auto-Chat aktif di {channel.mention}!**\n"
@@ -426,6 +476,7 @@ async def agent_sapa_cmd(
         interaction.guild.id,
         bot_name,
         idle_minutes_elapsed=30,
+        manual_trigger=True,
         http_session=bot.http_session,
     )
     if not icebreaker:
@@ -466,10 +517,25 @@ async def agent_status_cmd(interaction: discord.Interaction):
         if gdata.get("guild_id") == gid and gdata.get("enabled")
     ]
 
-    chat_lines = [
-        f"• <#{cid}> — Mode: `{d['reply_mode']}` | Pemecah sepi: `{d['idle_minutes']} mnt`"
-        for cid, d in active_chats
-    ] or ["*Belum ada channel Auto-Chat aktif (gunakan `/agent chat`)*"]
+    now_ts = time.time()
+    chat_lines: list[str] = []
+    for cid, d in active_chats:
+        idle_secs = int(
+            d.get("idle_seconds")
+            if d.get("idle_seconds") is not None
+            else int(d.get("idle_minutes") or 0) * 60
+        )
+        if idle_secs <= 0:
+            idle_info = "`Nonaktif`"
+        elif int(d.get("consecutive_idle_pokes") or 0) >= AGENT_MAX_IDLE_POKES:
+            idle_info = f"`{format_idle_duration(idle_secs)}` *(menunggu balasan warga)*"
+        else:
+            rem_sec = max(0, int(idle_secs - (now_ts - float(d.get("last_activity_at") or now_ts))))
+            rem_label = f"{rem_sec} dtk" if rem_sec < 60 else f"{rem_sec // 60} mnt {rem_sec % 60} dtk"
+            idle_info = f"`{format_idle_duration(idle_secs)}` *(sapa dlm ~{rem_label})*"
+        chat_lines.append(f"• <#{cid}> — Mode: `{d['reply_mode']}` | Pemecah sepi: {idle_info}")
+    if not chat_lines:
+        chat_lines = ["*Belum ada channel Auto-Chat aktif (gunakan `/agent chat`)*"]
 
     gallery_lines = [
         f"• <#{cid}> — Auto-Reaction: `{'Ya' if d.get('auto_reaction', True) else 'Tidak'}`"
@@ -793,6 +859,12 @@ async def on_message(message: discord.Message):
     # ==========================================================================
     if isinstance(message.channel, discord.TextChannel) and bot.user is not None:
         channel_id = message.channel.id
+
+        # Catat aktivitas manusia lebih awal agar sapaan sepi tidak salah hitung jika channel juga dipakai Galeri
+        if channel_id in chat_agent_channels and channel_id not in gallery_agent_channels:
+            pass
+        elif channel_id in chat_agent_channels and channel_id in gallery_agent_channels and message.attachments:
+            record_human_channel_activity(channel_id)
 
         # 2A. GALLERY AUTO-COMMENT (Scan Foto, Gambar, & Video Klip Pendek)
         if channel_id in gallery_agent_channels and message.attachments:

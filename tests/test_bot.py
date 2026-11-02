@@ -550,6 +550,25 @@ async def test_dead_chat_icebreaker_increments_poke_counter(monkeypatch):
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
 
     community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_minutes=30)
+
+    # 1. Sapaan manual (/agent sapa -> manual_trigger=True) TIDAK boleh mengunci consecutive_idle_pokes
+    ice_resp_manual = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Sepi banget nih malam-malam, pada kemana?"}]}}]},
+    )
+    fake_http_manual = FakeHttpSession(post_responses=[ice_resp_manual])
+    manual_text = await community_agent.generate_idle_icebreaker(
+        5000,
+        10,
+        "Megal",
+        idle_minutes_elapsed=30,
+        manual_trigger=True,
+        http_session=fake_http_manual,
+    )
+    assert "Sepi banget" in manual_text
+    assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 0
+
+    # 2. Sapaan otomatis background (manual_trigger=False) menaikkan consecutive_idle_pokes agar anti-spam
     ice_resp = FakeMockResponse(
         200,
         {"candidates": [{"content": {"parts": [{"text": "Aduh sepi amat nih siang-siang, pada lagi ngapain guys?"}]}}]},
@@ -561,10 +580,27 @@ async def test_dead_chat_icebreaker_increments_poke_counter(monkeypatch):
         10,
         "Megal",
         idle_minutes_elapsed=31,
+        manual_trigger=False,
         http_session=fake_http,
     )
     assert "sepi amat" in text
     assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 1
+
+    # 3. Mengatur ulang /agent chat mereset penghitung kembali ke 0
+    community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_seconds=30)
+    assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 0
+    assert community_agent.chat_agent_channels[5000]["idle_seconds"] == 30
+
+
+def test_parse_idle_duration_flexible_inputs():
+    assert community_agent.parse_idle_duration(None) == (1800, "30 menit")
+    assert community_agent.parse_idle_duration("1") == (60, "1 menit")
+    assert community_agent.parse_idle_duration("5 menit") == (300, "5 menit")
+    assert community_agent.parse_idle_duration("30 detik") == (30, "30 detik")
+    assert community_agent.parse_idle_duration("1 jam") == (3600, "60 menit")
+    assert community_agent.parse_idle_duration("0") == (0, "Nonaktif")
+    assert community_agent.parse_idle_duration("off") == (0, "Nonaktif")
+    assert community_agent.parse_idle_duration("bukan angka") is None
 
 
 def test_auto_cleanup_expired_sessions():
