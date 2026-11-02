@@ -21,6 +21,7 @@ from config import (
     GEMINI_API_BASE,
     GEMINI_API_KEY,
     GEMINI_DEFAULT_MODEL,
+    GEMINI_PAID_SEARCH_ENABLED,
     GEMINI_SEARCH_FALLBACK_CHAIN,
     GEMINI_SEARCH_MODEL,
     GEMINI_TEXT_FALLBACK_CHAIN,
@@ -29,6 +30,7 @@ from ai_handler import (
     CHAT_TIMEOUT,
     FAST_TEXT_TIMEOUT,
     MEDIA_SEMAPHORE,
+    VIDEO_LINK_TIMEOUT,
     _borrow_session,
     _build_model_chain,
     _extract_text_from_gemini_response,
@@ -38,11 +40,16 @@ from ai_handler import (
     mark_model_unhealthy,
 )
 from utils import (
+    build_clean_search_query,
     extract_social_media_and_stickers,
     extract_urls_from_text,
     fetch_webpage_text,
+    free_live_web_search,
     get_realtime_time_context,
+    has_any_url,
+    has_discord_voice_note,
     has_voice_or_audio_attachment,
+    has_youtube_url,
     needs_live_web_search,
     sanitize_error_message,
 )
@@ -79,11 +86,20 @@ STYLE_DESCRIPTIONS: dict[str, str] = {
 GALLERY_REACTIONS = ("✨", "🔥", "😍", "👏", "🙌")
 
 _GREETING_KEYWORDS = re.compile(
-    r"\b(pagi|siang|sore|malem|malam|halo+|hai+|hi+|hello|hey|p|tes|test|"
+    r"\b(pagi|siang|sore|malem|malam|halo+|hai+|hi+|hello|hey|tes|test|"
     r"assalamu'?alaikum|permisi|sepi|gabut|bosan|bosen|ngantuk|laper|lapar|"
     r"jam\s*berapa|ada\s*orang|pada\s*kemana)\b",
     re.IGNORECASE,
 )
+
+# Abaikan perintah untuk bot lain di server (bot musik m!play, ekonomi owo/pls, Mudae $wa, dll.)
+_OTHER_BOT_COMMAND_RE = re.compile(
+    r"^(?:[!?$%&.;~-][a-zA-Z]|[a-zA-Z]{1,3}![a-zA-Z]|(?:owo|pls)\s+\w+)",
+    re.IGNORECASE,
+)
+
+# Lacak pengirim chat terbaru per channel di RAM untuk mendeteksi saat beberapa manusia sedang asyik ngobrol
+_recent_channel_speakers: dict[int, list[tuple[int, float]]] = {}
 
 _ONLY_EMOJI_OR_SHORT_RE = re.compile(
     r"^[\s\W_0-9\U00010000-\U0010ffff<>a-zA-Z0-9:]{1,40}$"
@@ -110,9 +126,74 @@ def get_guild_settings(guild_id: int) -> dict:
             "custom_prompt": "",
             "timezone": BOT_TIMEZONE,
             "quiet_hours": True,
+            "youtube_enabled": bool(ENABLE_URL_READER),
+            "youtube_auto_chat": False,
+            "search_enabled": bool(ENABLE_GOOGLE_SEARCH),
+            "search_auto_chat": True,
         }
         guild_agent_settings[guild_id] = settings
+    else:
+        settings.setdefault("youtube_enabled", bool(ENABLE_URL_READER))
+        settings.setdefault("youtube_auto_chat", False)
+        settings.setdefault("search_enabled", bool(ENABLE_GOOGLE_SEARCH))
+        settings.setdefault("search_auto_chat", True)
     return settings
+
+
+def set_youtube_feature_config(
+    guild_id: int,
+    *,
+    enabled: bool,
+    auto_in_chat: bool | None = None,
+) -> dict:
+    """Mengatur ON/OFF fitur perangkum YouTube/Web serta izin auto-baca di Text Channel publik."""
+    cfg = get_guild_settings(guild_id)
+    cfg["youtube_enabled"] = bool(enabled)
+    if not enabled:
+        cfg["youtube_auto_chat"] = False
+    elif auto_in_chat is not None:
+        cfg["youtube_auto_chat"] = bool(auto_in_chat)
+    return cfg
+
+
+def set_search_feature_config(
+    guild_id: int,
+    *,
+    enabled: bool,
+    auto_in_chat: bool | None = None,
+) -> dict:
+    """Mengatur ON/OFF fitur pencarian web (/cari & auto-search di obrolan)."""
+    cfg = get_guild_settings(guild_id)
+    cfg["search_enabled"] = bool(enabled)
+    if not enabled:
+        cfg["search_auto_chat"] = False
+    elif auto_in_chat is not None:
+        cfg["search_auto_chat"] = bool(auto_in_chat)
+    elif not cfg.get("search_auto_chat", True):
+        # Saat dinyalakan ulang tanpa parameter tambahan, aktifkan kembali auto_in_chat
+        cfg["search_auto_chat"] = True
+    return cfg
+
+
+def is_youtube_enabled_for_guild(guild_id: int | None) -> bool:
+    if not ENABLE_URL_READER:
+        return False
+    if guild_id is None:
+        return True
+    return bool(get_guild_settings(guild_id).get("youtube_enabled", True))
+
+
+def is_search_enabled_for_guild(guild_id: int | None, *, for_auto_chat: bool = False) -> bool:
+    if not ENABLE_GOOGLE_SEARCH:
+        return False
+    if guild_id is None:
+        return True
+    cfg = get_guild_settings(guild_id)
+    if not cfg.get("search_enabled", True):
+        return False
+    if for_auto_chat and not cfg.get("search_auto_chat", True):
+        return False
+    return True
 
 
 def format_idle_duration(idle_seconds: int) -> str:
@@ -195,6 +276,7 @@ def set_chat_channel_config(
     if not enabled:
         chat_agent_channels.pop(channel_id, None)
         channel_histories.pop(channel_id, None)
+        _recent_channel_speakers.pop(channel_id, None)
         return None
 
     now = time.time()
@@ -307,6 +389,10 @@ def load_agent_config_from_disk() -> tuple[int, int]:
                 "custom_prompt": str(gdata.get("custom_prompt") or "").strip(),
                 "timezone": str(gdata.get("timezone") or BOT_TIMEZONE).strip(),
                 "quiet_hours": bool(gdata.get("quiet_hours", True)),
+                "youtube_enabled": bool(gdata.get("youtube_enabled", ENABLE_URL_READER)),
+                "youtube_auto_chat": bool(gdata.get("youtube_auto_chat", False)),
+                "search_enabled": bool(gdata.get("search_enabled", ENABLE_GOOGLE_SEARCH)),
+                "search_auto_chat": bool(gdata.get("search_auto_chat", True)),
             }
         except (ValueError, TypeError):
             continue
@@ -410,11 +496,70 @@ def _append_channel_history(channel_id: int, role: str, text: str) -> None:
         hist.pop(0)
 
 
+def _is_direct_bot_call(
+    message: discord.Message,
+    bot_user: discord.ClientUser | discord.User,
+    guild_cfg: dict,
+) -> tuple[bool, bool, bool]:
+    """Mengembalikan (is_direct_mention_or_nick, replied_to_bot, directed_at_other_human)."""
+    content = (message.content or "").strip()
+    agent_nick = (guild_cfg.get("nickname") or bot_user.display_name or "").strip().lower()
+
+    mentions_list = getattr(message, "mentions", None) or []
+    is_direct_mention = bot_user in mentions_list
+    if not is_direct_mention and agent_nick and len(agent_nick) >= 2:
+        if re.search(rf"\b{re.escape(agent_nick)}\b", content.lower()):
+            is_direct_mention = True
+
+    mentioned_other_human = any(
+        getattr(u, "id", None) != bot_user.id and not getattr(u, "bot", False)
+        for u in mentions_list
+    )
+
+    replied_to_bot = False
+    replied_to_other_human = False
+    ref = getattr(message, "reference", None)
+    if ref and getattr(ref, "message_id", None):
+        resolved = getattr(ref, "resolved", None)
+        if resolved is not None and getattr(resolved, "author", None) is not None:
+            if resolved.author.id == bot_user.id:
+                replied_to_bot = True
+            elif not is_direct_mention:
+                replied_to_other_human = True
+
+    directed_at_other_human = (replied_to_other_human or mentioned_other_human) and not is_direct_mention
+    return is_direct_mention, replied_to_bot, directed_at_other_human
+
+
+def _record_and_check_crowd_chat(channel_id: int, author_id: int, now: float) -> bool:
+    """Mencatat pengirim pesan & mendeteksi apakah >= 2 member manusia berbeda sedang aktif ngobrol (60 detik terakhir)."""
+    arr = _recent_channel_speakers.setdefault(channel_id, [])
+    arr.append((author_id, now))
+    cutoff = now - 60.0
+    arr[:] = [(uid, ts) for uid, ts in arr if ts >= cutoff][-12:]
+    distinct_humans = {uid for uid, _ in arr}
+    return len(distinct_humans) >= 2
+
+
+def _is_pure_emoji_or_sticker(message: discord.Message, content: str) -> bool:
+    """True hanya jika pesan berisi Stiker atau murni ekspresi Emoji (bukan kalimat teks ke teman yang diakhiri emoji)."""
+    if getattr(message, "stickers", None) and not content:
+        return True
+    if not content or len(content) > 60:
+        return False
+    has_emoji = bool(_UNICODE_EMOJI_RE.search(content) or "<:" in content or "<a:" in content)
+    if not has_emoji:
+        return False
+    # Buang sintaks custom emoji Discord <:nama:123>, lalu pastikan tidak ada kata huruf/angka >= 2 karakter
+    without_custom = re.sub(r"<a?:[a-zA-Z0-9_]{2,32}:\d{15,22}>", " ", content)
+    return not bool(re.search(r"[a-zA-Z0-9]{2,}", without_custom))
+
+
 def should_agent_reply_in_chat(
     message: discord.Message,
     bot_user: discord.ClientUser | discord.User,
 ) -> tuple[bool, bool]:
-    """Menentukan secara cerdas apakah AI Agent perlu membalas pesan di channel publik.
+    """Menentukan secara cerdas & sopan apakah AI Agent perlu membalas pesan di channel publik.
 
     Returns:
         (should_reply, use_reply_reference)
@@ -434,32 +579,41 @@ def should_agent_reply_in_chat(
 
     content = (message.content or "").strip()
     guild_cfg = get_guild_settings(ch_cfg["guild_id"])
-    agent_nick = (guild_cfg.get("nickname") or bot_user.display_name or "").strip().lower()
+    is_direct_mention, replied_to_bot, directed_at_other_human = _is_direct_bot_call(
+        message, bot_user, guild_cfg
+    )
+    humans_chatting_together = _record_and_check_crowd_chat(
+        message.channel.id, message.author.id, now
+    )
 
-    is_direct_mention = bot_user in message.mentions
-    if not is_direct_mention and agent_nick and len(agent_nick) >= 3:
-        if re.search(rf"\b{re.escape(agent_nick)}\b", content.lower()):
-            is_direct_mention = True
+    # 1. Abaikan perintah untuk bot lain (contoh: m!play, $wa, owo, .help) kecuali memanggil bot ini langsung
+    if content and _OTHER_BOT_COMMAND_RE.match(content) and not is_direct_mention and not replied_to_bot:
+        return False, False
 
-    # Cek apakah pesan ini me-reply pesan seseorang
-    replied_to_bot = False
-    replied_to_other_human = False
-    if message.reference and message.reference.message_id:
-        resolved = message.reference.resolved
-        if isinstance(resolved, discord.Message):
-            if resolved.author.id == bot_user.id:
-                replied_to_bot = True
-            elif not is_direct_mention:
-                replied_to_other_human = True
-
-    # Jangan memotong obrolan ketika member sedang me-reply member lain secara spesifik
-    if replied_to_other_human:
+    # 2. Jangan pernah memotong ketika member me-reply atau me-@mention member manusia lain!
+    if directed_at_other_human:
         if content:
             _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
+    # 3. Jika member memanggil nama bot, @mention bot, atau me-reply pesan bot -> PASTI dibalas!
     if is_direct_mention or replied_to_bot:
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
+
+    # 4. Jika member hanya membagikan link (YouTube, Spotify, TikTok, IG, Web) tanpa memanggil bot
+    #    dan mode auto_di_channel sedang OFF -> jangan ikut nimbrung agar tidak mengganggu!
+    auto_link_on = guild_cfg.get("youtube_enabled", True) and guild_cfg.get("youtube_auto_chat", False)
+    if (has_youtube_url(content) or has_any_url(content)) and not auto_link_on:
+        if content:
+            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+        return False, False
+
+    # 5. Jika member mengunggah file lagu/audio biasa (.mp3/.wav, bukan rekaman mikrofon Voice Note 🎤)
+    #    tanpa memanggil nama bot -> jangan menyela kiriman musik member!
+    if has_voice_or_audio_attachment(message) and not has_discord_voice_note(message):
+        return False, False
 
     # Cooldown singkat agar tidak membanjiri API saat chat sangat ramai
     if now - last_bot_at < AGENT_CHANNEL_COOLDOWN_SEC:
@@ -467,30 +621,51 @@ def should_agent_reply_in_chat(
             _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
-    # 0. Member mengirim Voice Note (Pesan Suara 🎤) atau file audio -> selalu dengarkan & balas!
-    if has_voice_or_audio_attachment(message):
+    # 6. Rekaman mikrofon Voice Note (🎤) asli Discord -> balas jika bukan di tengah keramaian obrolan sesama warga
+    if has_discord_voice_note(message) and not humans_chatting_together:
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
     if ch_cfg.get("reply_mode") == "all":
         return True, False
 
-    # Mode 'smart' (Natural ala manusia seperti di video):
-    # 1. Percakapan dengan bot masih hangat (dalam 6 menit terakhir)
-    if last_bot_at > 0 and (now - last_bot_at) <= 360:
+    # Mode 'smart' (Natural, tahu diri, & tidak mengganggu obrolan sesama member):
+    # A. Channel tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
+    if prev_activity == 0 or (now - prev_activity) >= 180:
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
+        return True, True
+
+    # Jika 2+ manusia sedang aktif saling mengobrol dalam 60 detik terakhir, tahan diri (mundur sopan)
+    # sampai ada yang memanggil nama bot!
+    if humans_chatting_together:
+        if content:
+            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+        return False, False
+
+    # B. Kelanjutan obrolan 1-lawan-1 yang masih hangat (maks. 90 detik & maks. 2 sahutan ke orang yang sama)
+    last_target_uid = ch_cfg.get("last_bot_target_user_id")
+    warm_count = int(ch_cfg.get("warm_followups") or 0)
+    if (
+        last_bot_at > 0
+        and (now - last_bot_at) <= 90
+        and last_target_uid == message.author.id
+        and warm_count < 2
+    ):
+        ch_cfg["warm_followups"] = warm_count + 1
         return True, False
 
-    # 2. Channel tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
-    if prev_activity == 0 or (now - prev_activity) >= 180:
+    # C. Member mengirim murni Stiker atau ekspresi Emoji saja (bukan kalimat teks ke orang lain)
+    if _is_pure_emoji_or_sticker(message, content):
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
-    # 3. Member mengirim stiker atau pesan reaksi penuh emoji
-    has_sticker = bool(getattr(message, "stickers", None))
-    has_emoji_expr = bool(_UNICODE_EMOJI_RE.search(content) or "<:" in content or "<a:" in content)
-    if has_sticker or (has_emoji_expr and len(content) <= 60):
-        return True, True
-
-    # 4. Sapaan / celetukan pemicu obrolan atau nanya jam
+    # D. Sapaan pembuka obrolan umum / nanya jam saat channel sedang santai
     if _GREETING_KEYWORDS.search(content):
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
     # Simpan sebagai konteks pasif grup jika tidak dibalas langsung
@@ -538,6 +713,7 @@ async def _call_gemini_agent(
     max_tokens: int = 2048,
     thinking_level: str = "minimal",
     has_media: bool = False,
+    has_youtube: bool = False,
     use_google_search: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
@@ -545,11 +721,15 @@ async def _call_gemini_agent(
     if not active_keys:
         return None
 
-    req_timeout = CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT
+    req_timeout = (
+        VIDEO_LINK_TIMEOUT
+        if has_youtube
+        else (CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT)
+    )
 
     async with _borrow_session(http_session, req_timeout) as session:
-        # Jika butuh pencarian berita/info real-time hari ini, coba Google Search Grounding dulu
-        if use_google_search:
+        # Opsional Paid Tier: Native Google Search tool hanya bila GEMINI_PAID_SEARCH_ENABLED=true
+        if use_google_search and GEMINI_PAID_SEARCH_ENABLED:
             search_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
             for s_idx, s_model in enumerate(search_models):
                 s_cfg: dict = {"temperature": 0.65, "maxOutputTokens": max(1024, max_tokens)}
@@ -660,18 +840,51 @@ async def generate_community_chat_reply(
         include_audio=True,
     )
 
+    is_direct_mention, replied_to_bot, _ = _is_direct_bot_call(message, bot_user, guild_cfg)
+    is_direct_call = is_direct_mention or replied_to_bot
+
     yt_urls: list[str] = []
     web_snippets: list[str] = []
-    if ENABLE_URL_READER and clean_text:
-        yt_urls, web_urls = extract_urls_from_text(clean_text)
-        for yt_u in yt_urls[:1]:
-            media_parts.append({"fileData": {"fileUri": yt_u}})
-            media_descs.append(f"[Membagikan link video YouTube: {yt_u}]")
-        for web_u in web_urls[:1]:
-            w_title, w_body = await fetch_webpage_text(web_u, http_session=http_session)
-            if w_body:
-                label = f"{w_title} ({web_u})" if w_title else web_u
-                web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
+    # Baca link YouTube/Web jika:
+    # - Fitur YouTube aktif DAN (member memanggil nama/mention bot secara langsung ATAU mode auto_di_channel dinyalakan Admin)
+    allow_public_link_reader = (
+        ENABLE_URL_READER
+        and guild_cfg.get("youtube_enabled", True)
+        and (is_direct_call or guild_cfg.get("youtube_auto_chat", False))
+    )
+    if allow_public_link_reader:
+        text_for_links = clean_text
+        # Dukung juga bila member me-reply pesan orang lain yang berisi link YouTube sambil memanggil nama bot!
+        ref = getattr(message, "reference", None)
+        resolved = getattr(ref, "resolved", None) if ref else None
+        if is_direct_call and resolved is not None and getattr(resolved, "content", None):
+            text_for_links = f"{clean_text}\n{resolved.content}"
+
+        if text_for_links.strip():
+            yt_urls, web_urls = extract_urls_from_text(text_for_links)
+            for yt_u in yt_urls[:1]:
+                media_parts.append({"fileData": {"fileUri": yt_u}})
+                media_descs.append(
+                    f"[Video YouTube terlampir ({yt_u}) — tonton/pahami isi videonya untuk menjawab permintaan {message.author.display_name}!]"
+                )
+            for web_u in web_urls[:1]:
+                w_title, w_body = await fetch_webpage_text(web_u, http_session=http_session)
+                if w_body:
+                    label = f"{w_title} ({web_u})" if w_title else web_u
+                    web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
+
+    use_search = (
+        is_search_enabled_for_guild(guild_id, for_auto_chat=True)
+        and not media_parts
+        and not web_snippets
+        and needs_live_web_search(clean_text)
+    )
+    if use_search and not GEMINI_PAID_SEARCH_ENABLED:
+        nick_for_clean = guild_cfg.get("nickname") or bot_user.display_name
+        search_q = build_clean_search_query(clean_text, nick_for_clean)
+        free_ctx, _ = await free_live_web_search(search_q, max_results=4, http_session=http_session)
+        if free_ctx:
+            web_snippets.append(f"[Info Berita/Web Terkini Hari Ini:\n{free_ctx[:2200]}]")
 
     author_name = message.author.display_name
     desc_prefix = " ".join([*media_descs, *web_snippets])
@@ -706,13 +919,6 @@ async def generate_community_chat_reply(
     )
     system_prompt = _build_community_system_prompt(guild_cfg, bot_display, time_ctx)
 
-    use_search = (
-        ENABLE_GOOGLE_SEARCH
-        and not media_parts
-        and not web_snippets
-        and needs_live_web_search(clean_text)
-    )
-
     reply = await _call_gemini_agent(
         system_prompt,
         contents,
@@ -720,7 +926,8 @@ async def generate_community_chat_reply(
         max_tokens=2048,
         thinking_level="low" if (media_parts or use_search) else "minimal",
         has_media=bool(media_parts),
-        use_google_search=use_search,
+        has_youtube=bool(yt_urls),
+        use_google_search=(use_search and GEMINI_PAID_SEARCH_ENABLED),
         http_session=http_session,
     )
 

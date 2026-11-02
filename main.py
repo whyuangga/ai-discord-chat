@@ -28,6 +28,8 @@ from community_agent import (
     generate_welcome_greeting,
     get_agent_channel_lock,
     get_guild_settings,
+    is_search_enabled_for_guild,
+    is_youtube_enabled_for_guild,
     load_agent_config_from_disk,
     parse_idle_duration,
     record_human_channel_activity,
@@ -35,7 +37,9 @@ from community_agent import (
     save_agent_config_to_disk,
     set_chat_channel_config,
     set_gallery_channel_config,
+    set_search_feature_config,
     set_welcome_config,
+    set_youtube_feature_config,
     should_agent_reply_in_chat,
     should_process_member_welcome,
     welcome_agent_guilds,
@@ -52,6 +56,7 @@ from config import (
     GEMINI_FAST_MODEL,
     GEMINI_IMAGE_MODEL,
     GEMINI_PAID_IMAGE_ENABLED,
+    GEMINI_PAID_SEARCH_ENABLED,
     GEMINI_REASONING_MODEL,
     GEMINI_SEARCH_MODEL,
     resolve_model_key,
@@ -661,8 +666,95 @@ async def agent_welcome_cmd(
 
 
 @agent_group.command(
+    name="youtube",
+    description="Aktifkan/matikan fitur perangkum link YouTube & kontrol auto-baca di Text Channel",
+)
+@app_commands.describe(
+    aktif="True = aktifkan /ringkas_link & baca link di ruang ai-..., False = matikan semua",
+    auto_di_channel="False (Default) = jangan auto-chat saat member kirim link YouTube di channel publik, True = nyalakan",
+)
+async def agent_youtube_cmd(
+    interaction: discord.Interaction,
+    aktif: bool,
+    auto_di_channel: bool | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    cfg = set_youtube_feature_config(
+        interaction.guild.id,
+        enabled=aktif,
+        auto_in_chat=auto_di_channel,
+    )
+    await save_agent_config_to_disk()
+
+    if not cfg["youtube_enabled"]:
+        await interaction.response.send_message(
+            "🛑 **Fitur Perangkum YouTube & Link Web telah DINONAKTIFKAN** di server ini.\n"
+            "• Command `/ringkas_link`, pembacaan link di `ai-...`, serta auto-baca di channel publik dimatikan.",
+            ephemeral=True,
+        )
+        return
+
+    auto_status = (
+        "✅ **AKTIF** *(bot ikut membaca & mengomentari link YouTube di Text Channel Auto-Chat)*"
+        if cfg["youtube_auto_chat"]
+        else "🔕 **NONAKTIF (Rekomendasi)** *(bot TIDAK ikut nimbrung saat warga kirim link YouTube di Text Channel)*"
+    )
+    await interaction.response.send_message(
+        f"🎬 **Pengaturan Perangkum YouTube & Link Web Disimpan!**\n"
+        f"• **Command `/ringkas_link` & Ruang Privat `ai-...`:** ✅ **AKTIF**\n"
+        f"• **Auto-Chat saat kirim link YouTube di Channel Publik:** {auto_status}",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="cari",
+    description="Aktifkan/matikan fitur pencarian berita & informasi terkini (/cari & auto-search)",
+)
+@app_commands.describe(
+    aktif="True = aktifkan fitur pencarian berita/web (/cari), False = matikan total di server ini",
+    auto_di_chat="True = otomatis cari berita saat ditanya di chat, False = hanya aktif lewat command /cari",
+)
+async def agent_cari_cmd(
+    interaction: discord.Interaction,
+    aktif: bool,
+    auto_di_chat: bool | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    cfg = set_search_feature_config(
+        interaction.guild.id,
+        enabled=aktif,
+        auto_in_chat=auto_di_chat,
+    )
+    await save_agent_config_to_disk()
+
+    if not cfg["search_enabled"]:
+        await interaction.response.send_message(
+            "🛑 **Fitur Pencarian Web (`/cari` & Auto-Search) telah DINONAKTIFKAN** di server ini.",
+            ephemeral=True,
+        )
+        return
+
+    auto_info = (
+        "✅ **AKTIF** *(otomatis mencari info terbaru saat ditanya di ruang chat)*"
+        if cfg["search_auto_chat"]
+        else "🔕 **NONAKTIF** *(pencarian web hanya jalan saat member mengetik `/cari`)*"
+    )
+    await interaction.response.send_message(
+        f"🔎 **Pengaturan Fitur Pencarian Web (`/cari`) Disimpan!**\n"
+        f"• **Command `/cari`:** ✅ **AKTIF**\n"
+        f"• **Auto-Search di Obrolan Chat:** {auto_info}",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
     name="status",
-    description="Lihat daftar channel Auto-Chat, Pemecah Sepi, & Galeri yang aktif di server ini",
+    description="Lihat daftar channel Auto-Chat, Pemecah Sepi, Galeri, & status ON/OFF fitur server",
 )
 async def agent_status_cmd(interaction: discord.Interaction):
     if interaction.guild is None:
@@ -720,6 +812,24 @@ async def agent_status_cmd(interaction: discord.Interaction):
             f"**Panggilan:** `{shown_nick}` | **Gaya:** `{g_cfg['style_preset']}`\n"
             f"**Waktu Lokal:** `{time_ctx['summary']}`\n"
             f"**Jam Tenang Malam:** `{'Aktif (23:00-06:00)' if g_cfg.get('quiet_hours', True) else 'Nonaktif'}`"
+        ),
+        inline=False,
+    )
+    yt_status = (
+        f"✅ ON *(Auto di Text Channel: {'ON' if g_cfg.get('youtube_auto_chat', False) else 'OFF'})*"
+        if g_cfg.get("youtube_enabled", True)
+        else "🛑 OFF"
+    )
+    cari_status = (
+        f"✅ ON *(Auto di Chat: {'ON' if g_cfg.get('search_auto_chat', True) else 'OFF'})*"
+        if g_cfg.get("search_enabled", True)
+        else "🛑 OFF"
+    )
+    embed.add_field(
+        name="⚙️ Saklar Fitur Pintar (`/agent youtube` & `/agent cari`)",
+        value=(
+            f"🎬 **Rangkum YouTube & Link:** {yt_status}\n"
+            f"🔎 **Pencarian Web (`/cari`):** {cari_status}"
         ),
         inline=False,
     )
@@ -1085,6 +1195,15 @@ async def slash_ringkas_link(
     pertanyaan: str | None = None,
     publik: bool = False,
 ):
+    guild_id = interaction.guild.id if interaction.guild is not None else None
+    if not is_youtube_enabled_for_guild(guild_id):
+        await interaction.response.send_message(
+            "🛑 Fitur perangkum YouTube & link web sedang **dinonaktifkan** di server ini oleh Admin "
+            "*(Admin dapat mengaktifkannya kembali lewat `/agent youtube aktif:True`)*.",
+            ephemeral=True,
+        )
+        return
+
     await interaction.response.defer(ephemeral=not publik)
     tz_name = BOT_TIMEZONE
     if interaction.guild is not None:
@@ -1116,7 +1235,7 @@ async def slash_ringkas_link(
 
 @bot.tree.command(
     name="cari",
-    description="Cari informasi, berita, skor, harga, atau fakta terbaru hari ini via Google Search AI",
+    description="Cari informasi, berita, skor, harga, atau fakta terbaru hari ini secara live",
 )
 @app_commands.describe(
     pertanyaan="Apa informasi terbaru hari ini yang ingin Anda cari?",
@@ -1127,6 +1246,15 @@ async def slash_cari(
     pertanyaan: str,
     publik: bool = False,
 ):
+    guild_id = interaction.guild.id if interaction.guild is not None else None
+    if not is_search_enabled_for_guild(guild_id, for_auto_chat=False):
+        await interaction.response.send_message(
+            "🛑 Fitur pencarian web (`/cari`) sedang **dinonaktifkan** di server ini oleh Admin "
+            "*(Admin dapat mengaktifkannya kembali lewat `/agent cari aktif:True`)*.",
+            ephemeral=True,
+        )
+        return
+
     await interaction.response.defer(ephemeral=not publik)
     tz_name = BOT_TIMEZONE
     if interaction.guild is not None:
@@ -1147,7 +1275,7 @@ async def slash_cari(
         color=discord.Color.brand_green(),
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_footer(text=f"Google Search Grounding • Diminta oleh {interaction.user.display_name}")
+    embed.set_footer(text=f"Live Web & News AI • Diminta oleh {interaction.user.display_name}")
     await interaction.followup.send(embed=embed, ephemeral=not publik)
 
 
@@ -1479,11 +1607,11 @@ async def slash_bantuan(interaction: discord.Interaction):
         inline=False,
     )
     embed.add_field(
-        name="4️⃣ Mini-Game Tongkrongan & AI Agent Server",
+        name="4️⃣ Mini-Game Tongkrongan & Pengaturan Admin",
         value=(
             "• `/game mulai` — Main Tebak Emoji, Kuis Trivia, Kata Misteri, & Acak Kata!\n"
             "• `/game papan_skor` — Cek Top 10 klasemen juara server (`/game stop` untuk akhiri ronde).\n"
-            "• *Khusus Admin:* `/setup_panel` & `/agent` (`chat`, `gallery`, `welcome`, `persona`, `sapa`, `status`)."
+            "• *Khusus Admin:* `/setup_panel` & `/agent` (`chat`, `gallery`, `welcome`, `youtube`, `cari`, `persona`, `sapa`, `status`)."
         ),
         inline=False,
     )
@@ -1531,13 +1659,18 @@ async def slash_status(interaction: discord.Interaction):
         if GEMINI_PAID_IMAGE_ENABLED
         else "`Flux AI` (Free Tier Instan)"
     )
+    search_engine_info = (
+        f"`{GEMINI_SEARCH_MODEL}` (Paid Grounding)"
+        if GEMINI_PAID_SEARCH_ENABLED
+        else "`Free Live Web + News RSS` (Free Tier)"
+    )
     embed.add_field(
         name="♊ Model Aktif",
         value=(
             f"Utama: `{GEMINI_DEFAULT_MODEL}`\n"
             f"Kilat: `{GEMINI_FAST_MODEL}`\n"
             f"Koding/Riset: `{GEMINI_REASONING_MODEL}`\n"
-            f"Live Search: `{GEMINI_SEARCH_MODEL}`\n"
+            f"Live Search: {search_engine_info}\n"
             f"Gambar: {img_engine_info}"
         ),
         inline=False,
@@ -1585,6 +1718,7 @@ async def on_message(message: discord.Message):
                     await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
                 return
 
+            gid = message.guild.id if message.guild is not None else None
             lock = get_thread_lock(message.channel.id)
             async with lock:
                 async with message.channel.typing():
@@ -1595,6 +1729,8 @@ async def on_message(message: discord.Message):
                             image_parts=image_parts,
                             image_filenames=image_filenames,
                             text_blocks=text_blocks,
+                            allow_url_reader=is_youtube_enabled_for_guild(gid),
+                            allow_web_search=is_search_enabled_for_guild(gid, for_auto_chat=True),
                             http_session=bot.http_session,
                             thread=message.channel,
                             bot_user_id=bot.user.id if bot.user else None,
