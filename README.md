@@ -1,8 +1,9 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.1.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.2.0-beta`)
 
-Bot Discord lengkap berbasis **100% Google Gemini API terbaru** yang menggabungkan **dua sistem utama dalam satu bot ringan**:
-1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, mendengar **Voice Note (🎤)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
-2. **🌐 AI Agent & Otomasi Komunitas (*Public Channel*)** — Teman nongkrong virtual bergaya manusia asli yang bisa ikut ngobrol santai di *General Chat*, mendengar **Voice Note**, menyambut member baru secara natural (**Auto-Welcomer**), merangkum obrolan tertinggal (**`/ringkas`**), memecah keheningan saat channel sepi (*Dead-Chat Reviver*), paham jam lokal secara *real-time*, membaca ekspresi **Stiker & Custom Emoji**, hingga otomatis mengomentari kiriman **Foto & Video** di channel Galeri!
+Bot Discord lengkap berbasis **100% Google Gemini API terbaru** yang menggabungkan **tiga sistem pintar dalam satu bot ringan**:
+1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita terbaru hari ini (Google Search)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
+2. **🌐 AI Agent & Otomasi Komunitas (*Public Channel*)** — Teman nongkrong virtual bergaya manusia asli yang bisa ikut ngobrol santai di *General Chat*, mengerti link YouTube/artikel yang dibagikan warga, mendengar **Voice Note**, menyambut member baru (**Auto-Welcomer**), merangkum obrolan tertinggal (**`/ringkas`**), memecah keheningan saat channel sepi (*Dead-Chat Reviver*), membaca ekspresi **Stiker & Custom Emoji**, hingga otomatis mengomentari kiriman **Foto & Video** di channel Galeri!
+3. **🎮 Hiburan & Pintasan Pintar Seluruh Server** — Menu **Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia` & `💡 Jelaskan Pesan Ini`), pencari info terkini **`/cari`**, perangkum link **`/ringkas_link`**, serta **Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **cepat & bebas antrean `503` pada akun Gemini *Free Tier***.
 
@@ -114,6 +115,29 @@ Fitur ini membuat bot berbaur di channel publik server layaknya **warga/teman no
 #### 7. 📝 Perangkum Obrolan Channel Tertinggal (`/ringkas`)
 - Ketinggalan **99+ notifikasi chat** di grup? Siapa pun member bisa mengetik **`/ringkas`** (pilih `25`, `50`, `100`, atau `150` pesan terakhir).
 - Bot akan merangkum poin-poin inti obrolan warga beserta info/momen penting ke dalam Embed rapi berbahasa Indonesia (secara default hanya terlihat oleh Anda sendiri agar tidak mengganggu chat).
+
+#### 8. 📲 Menu Tekan-Tahan Pesan / Klik Kanan (*Discord Context Menu Apps*) — Tanpa Ketik Command!
+Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pesan asing/rumit:
+- **Cara pakai di HP (Android/iOS):** Tekan & tahan (*long-press*) pesan siapa saja di channel mana pun ➔ pilih **Apps** ➔ klik:
+  - **`🌐 Terjemahkan ke Indonesia`** — Menerjemahkan pesan bahasa Inggris, Jepang, Korea, Arab, Mandarin, bahasa gaul/slang, maupun teks di dalam gambar/Voice Note ke Bahasa Indonesia yang luwes.
+  - **`💡 Jelaskan Pesan Ini`** — Menjelaskan maksud istilah teknis, potongan kode/error, pengumuman panjang, atau meme secara ringkas & mudah dimengerti.
+- **Cara pakai di PC/Laptop:** Klik kanan pesan ➔ sorot **Apps** ➔ pilih menu di atas. Hasilnya tampil privat (*ephemeral*) hanya untuk Anda!
+
+#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web Otomatis (`/ringkas_link` & Auto-Read)
+- **Otomatis di Chat:** Saat member mengirim link video YouTube (`youtube.com/watch`, `youtu.be`, `youtube.com/shorts`) atau link artikel web di ruang `ai-...` maupun di channel Auto-Chat, Gemini otomatis menonton/membaca isinya sehingga langsung nyambung membahas isi video/artikel tersebut!
+- **Command `/ringkas_link`:** Tempel link YouTube berdurasi panjang atau artikel berita panjang ke `/ringkas_link` untuk mendapatkan rangkuman poin penting dalam hitungan detik (bisa ditambah pertanyaan spesifik, dan dilengkapi proteksi keamanan anti-SSRF).
+
+#### 10. 🌍 Google Search Grounding — Cek Info & Berita Terbaru Hari Ini (`/cari` & Auto-Search)
+- Tidak lagi terbatas pada pengetahuan lama! Bot terhubung ke **Google Search Grounding** (kompatibel **100% gratis di *Free Tier*** hingga 500 pencarian/hari memakai `gemini-2.5-flash` + fallback otomatis jika kuota harian penuh).
+- Bisa dipakai langsung lewat **`/cari pertanyaan:...`** (lengkap dengan tautan **🌐 Sumber Web** yang bisa diklik), atau cukup tanyakan langsung info terkini (*skor pertandingan semalam, cuaca hari ini, kurs dollar/crypto, berita terbaru, jadwal rilis game*) di ruang `ai-...` maupun channel Auto-Chat!
+
+#### 11. 🎮 Mini-Game Tongkrongan AI (`/game`) + Papan Skor Server (*Leaderboard*)
+Bikin channel tongkrongan makin ramai dengan 4 permainan interaktif yang soalnya dibuat dinamis oleh Gemini AI (anti-bosan & tidak berulang!):
+- **`🎭 Tebak dari Emoji` (+20 Poin):** Tebak judul film, game, anime, atau makanan populer dari 4–5 petunjuk emoji di chat!
+- **`🧠 Kuis Trivia Cepat A/B/C/D` (+15 Poin):** Adu cepat klik tombol pilihan ganda A/B/C/D langsung di layar (1x kesempatan per orang per ronde!).
+- **`🕵️ Tebak Kata Misteri` (+20 Poin):** Permainan *"Siapakah / Apakah Aku?"* dengan 3 petunjuk bertingkat + tombol **💡 Buka Petunjuk**.
+- **`🔀 Susun Huruf Acak` (+15 Poin):** Adu cepat menyusun kata Bahasa Indonesia yang hurufnya diacak.
+- Seluruh skor kemenangan tersimpan permanen per server di `data/game_scores.json` dan dapat dilihat kapan saja lewat **`/game papan_skor`**!
 
 ---
 
@@ -237,16 +261,29 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 
 ## 📋 Daftar Lengkap Command & Tombol
 
-### 1. Slash & Prefix Commands Umum / Ruang Privat
+### 1. Menu Tekan-Tahan Pesan / Klik Kanan (*Apps*)
+| Menu Apps | Akses | Keterangan |
+| :--- | :--- | :--- |
+| **`🌐 Terjemahkan ke Indonesia`** | Semua Member | Tekan-tahan / klik kanan pesan siapa saja (teks, embed, gambar, atau Voice Note) untuk menerjemahkannya ke Bahasa Indonesia secara privat. |
+| **`💡 Jelaskan Pesan Ini`** | Semua Member | Tekan-tahan / klik kanan pesan rumit, istilah asing, error koding, atau meme untuk mendapatkan penjelasan ringkas. |
+
+### 2. Slash & Prefix Commands Umum, Pintasan & Hiburan
 | Command | Akses | Keterangan |
 | :--- | :--- | :--- |
 | `/setup_panel` atau `!setup_panel` | Administrator | Memasang Embed & tombol Panel Utama AI (Chat & Gambar) di channel saat ini. |
+| `/cari` | Semua Member | Mencari berita, skor, cuaca, kurs, & fakta terbaru hari ini via **Google Search Grounding** + sumber web. |
+| `/ringkas_link` | Semua Member | Merangkum isi video **YouTube** atau artikel website secara instan (bisa disertai pertanyaan). |
 | `/ringkas` | Semua Member | Merangkum `25`–`150` obrolan terakhir di channel agar tidak ketinggalan topik (*TL;DR*). |
+| `/game mulai` | Semua Member | Memulai ronde Mini-Game AI (`emoji`, `trivia`, `riddle`, `scramble`, atau acak kejutan). |
+| `/game papan_skor` | Semua Member | Menampilkan Top 10 Klasemen Papan Skor Mini-Game server beserta peringkat Anda. |
+| `/game stop` | Pemulai / Moderator | Menghentikan ronde Mini-Game yang sedang berjalan di channel saat ini. |
+| `/game reset_skor` | Administrator | Mereset seluruh Papan Skor Mini-Game server kembali ke `0` untuk musim baru. |
+| `/bantuan` | Semua Member | Menampilkan panduan ringkas seluruh fitur & cara pakai bot di Discord. |
 | `/model` | Pemilik Ruang Sesi | Mengganti mode kepribadian Gemini (Utama, Kilat, Koding, Riset, Curhat) di ruang `ai-...`. |
 | `/reset` | Pemilik Sesi / Moderator | Menghapus memori obrolan di `ai-...` atau mereset setelan gambar di `draw-...`. |
 | `/status` | Semua Member | Menampilkan ping Discord, pemakaian RAM (MB), uptime, jam AI, model aktif, & jumlah sesi. |
 
-### 2. Slash Commands Admin untuk AI Agent Komunitas (`/agent`)
+### 3. Slash Commands Admin untuk AI Agent Komunitas (`/agent`)
 | Command | Parameter Utama | Keterangan |
 | :--- | :--- | :--- |
 | `/agent chat` | `channel`, `aktif`, `mode_balas`, `menit_sepi` | Mengaktifkan/mematikan Auto-Chat & Pemecah Sepi otomatis di channel publik. |
@@ -270,6 +307,9 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `GEMINI_DEFAULT_MODEL` | Opsional | `gemini-3.5-flash-lite` | Model utama cepat & stabil (bebas *503 overload* di *Free Tier*) untuk chat umum, curhat, Vision, & AI Agent. |
 | `GEMINI_FAST_MODEL` | Opsional | `gemini-3.1-flash-lite` | Model ultra-kilat untuk mode Respon Kilat & cadangan instan. |
 | `GEMINI_REASONING_MODEL` | Opsional | `gemini-3.6-flash` | Model penalaran untuk mode Pakar Koding & Riset. |
+| `GEMINI_SEARCH_MODEL` | Opsional | `gemini-2.5-flash` | Model utama untuk **Google Search Grounding** (mendukung kuota gratis 500 RPD di *Free Tier* Google AI Studio). |
+| `ENABLE_GOOGLE_SEARCH` | Opsional | `true` | Mengaktifkan pencarian info/berita terkini otomatis di chat & `/cari` (`false` untuk menonaktifkan). |
+| `ENABLE_URL_READER` | Opsional | `true` | Mengaktifkan pembaca otomatis link video YouTube & halaman web yang dikirim di chat (`false` untuk menonaktifkan). |
 | `GEMINI_PAID_IMAGE_ENABLED` | Opsional | `false` | Biarkan `false` pada *Free Tier* agar langsung memakai Flux gratis secara instan. Ubah ke `true` jika akun AI Studio sudah *Paid/Billing* untuk memakai Nano Banana / Pro. |
 | `GEMINI_IMAGE_MODEL` | Opsional | `gemini-3.1-flash-lite-image` | Model gambar Gemini saat `GEMINI_PAID_IMAGE_ENABLED=true` (bisa diisi `gemini-3-pro-image` untuk Nano Banana Pro). |
 | `ENABLE_IMAGE_FALLBACK` | Opsional | `true` | Mengaktifkan generator gambar gratis Flux. |
@@ -311,16 +351,9 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 ## 🚀 Panduan Deploy di Wispbyte (Step-by-Step)
 
 1. Masuk ke dashboard **[Wispbyte](https://wispbyte.com)**, lalu buat server baru dengan runtime **Python** (pilih Python 3.11 atau 3.12+).
-2. Buka menu **Files** di panel Wispbyte, lalu unggah file utama berikut:
-   - `main.py`
-   - `community_agent.py`
-   - `ai_handler.py`
-   - `views.py`
-   - `storage.py`
-   - `utils.py`
-   - `config.py`
-   - `requirements.txt`
-   *(Atau hubungkan langsung dengan repository GitHub ini melalui menu Git jika tersedia).*
+2. **Cara Paling Praktis (Git Auto-Update — Rekomendasi):**
+   - Di tab **Startup** Wispbyte, isi **Git Repo Address** dengan URL repository GitHub Anda, isi **Git Branch** dengan `main` (huruf kecil), nyalakan **Auto Update = ON**, dan matikan **User Uploaded Files = OFF**. Setiap kali Anda klik **Restart**, Wispbyte otomatis menarik versi terbaru dari GitHub!
+   - *(Alternatif manual)* Buka menu **Files** di panel Wispbyte, lalu unggah `main.py`, `community_agent.py`, `games.py`, `ai_handler.py`, `views.py`, `storage.py`, `utils.py`, `config.py`, dan `requirements.txt`.
 3. Buka menu **Startup** di panel Wispbyte:
    - Pastikan **Startup File / App py file** diatur ke: `main.py`
    - Pastikan **Requirements file** diatur ke: `requirements.txt` *(atau isi `discord.py aiohttp python-dotenv` pada kolom Additional Python Packages)*.
@@ -335,7 +368,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.0.1-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~50.0 MB
+   ✅ Bot v1.2.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/setup_panel`** di channel panel AI privat.
@@ -366,12 +399,13 @@ python main.py
 
 ```text
 ai-discord-chat/
-├── main.py             # Entrypoint utama bot, Slash Commands, loop pemecah sepi & event handler
-├── community_agent.py  # Mesin AI Agent Komunitas (Auto-Chat, Pemecah Sepi, Stiker/Emoji, & Galeri)
-├── ai_handler.py       # Klien async HTTP ke Google Gemini REST API (Chat, Vision, Kode, & Gambar)
+├── main.py             # Entrypoint utama bot, Context Menus, Slash Commands, & event handler
+├── community_agent.py  # Mesin AI Agent Komunitas (Auto-Chat, Welcome, Pemecah Sepi, & Galeri)
+├── games.py            # Mesin Mini-Game Tongkrongan AI (Trivia, Emoji, Misteri, Acak Kata) & Papan Skor
+├── ai_handler.py       # Klien async Gemini API (Chat, Vision, Voice Note, YouTube/Web, & Google Search)
 ├── views.py            # Komponen tombol & dropdown UI Discord persisten tahan restart
 ├── storage.py          # Penyimpanan sesi privat JSON atomik & auto-recovery dari Discord Thread
-├── utils.py            # Pemotong pesan kode Markdown, ekstraktor media/stiker/video, & jam lokal
+├── utils.py            # Pemotong kode Markdown, ekstraktor media/suara, pembaca web SSRF-safe, & jam lokal
 ├── config.py           # Konfigurasi variabel .env, daftar 5 kepribadian Gemini, gaya & rasio gambar
 ├── requirements.txt    # Daftar dependensi Python super ringan
 ├── .env.example        # Template contoh pengisian variabel .env

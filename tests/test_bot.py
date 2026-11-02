@@ -8,16 +8,31 @@ import storage
 import utils
 import ai_handler
 import community_agent
+import games
 import views
 import main as bot_main
 
 
+class _FakeAsyncContent:
+    def __init__(self, raw_bytes: bytes):
+        self._raw = raw_bytes
+
+    async def read(self, max_bytes: int = -1):
+        return self._raw if max_bytes < 0 else self._raw[:max_bytes]
+
+    async def iter_chunked(self, chunk_size: int):
+        for idx in range(0, len(self._raw), chunk_size):
+            yield self._raw[idx : idx + chunk_size]
+
+
 class FakeMockResponse:
-    def __init__(self, status: int, json_data=None, raw_bytes: bytes = b"", headers=None):
+    def __init__(self, status: int, json_data=None, raw_bytes: bytes = b"", headers=None, url: str = "https://example.com"):
         self.status = status
         self._json_data = json_data
         self._raw_bytes = raw_bytes
         self.headers = headers or {}
+        self.url = url
+        self.content = _FakeAsyncContent(raw_bytes)
 
     async def json(self, content_type=None):
         return self._json_data
@@ -44,8 +59,8 @@ class FakeHttpSession:
         self.post_calls.append({"url": url, "headers": headers, "json": json})
         return self.post_responses.pop(0)
 
-    def get(self, url, timeout=None):
-        self.get_calls.append({"url": url})
+    def get(self, url, headers=None, timeout=None, allow_redirects=True, max_redirects=4):
+        self.get_calls.append({"url": url, "headers": headers})
         return self.get_responses.pop(0)
 
 
@@ -53,10 +68,13 @@ class FakeHttpSession:
 def clean_storage_state(tmp_path, monkeypatch):
     sessions_path = tmp_path / "sessions.json"
     agent_cfg_path = tmp_path / "agent_config.json"
+    scores_path = tmp_path / "game_scores.json"
     monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     monkeypatch.setattr(storage, "SESSIONS_FILE", sessions_path)
     monkeypatch.setattr(community_agent, "DATA_DIR", tmp_path)
     monkeypatch.setattr(community_agent, "AGENT_CONFIG_FILE", agent_cfg_path)
+    monkeypatch.setattr(games, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(games, "GAME_SCORES_FILE", scores_path)
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -66,6 +84,9 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.welcome_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
+    games.guild_game_scores.clear()
+    games.active_channel_games.clear()
+    games._recent_game_answers.clear()
     ai_handler.clear_model_cooldowns()
     yield
     storage.thread_chats.clear()
@@ -745,6 +766,7 @@ async def test_summarize_channel_messages_ringkas(monkeypatch):
     )
     assert err is None
     assert "Valorant" in summary
+    assert "/models/models/" not in fake_http.post_calls[0]["url"]
 
 
 @pytest.mark.asyncio
@@ -786,6 +808,349 @@ async def test_welcome_agent_greeting_dedup_and_persistence(monkeypatch):
     )
     assert "<@555>" in greeting
     assert len(community_agent.welcome_agent_guilds[10]["recent_welcomes"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_context_menus_and_transform_message_with_gemini(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    # Pastikan kedua Discord Message Context Menu terdaftar dengan tipe message & panjang <= 32
+    all_cmds = bot_main.bot.tree.get_commands()
+    msg_menus = {
+        c.name: c for c in all_cmds if getattr(c, "type", None) == discord.AppCommandType.message
+    }
+    assert "🌐 Terjemahkan ke Indonesia" in msg_menus
+    assert "💡 Jelaskan Pesan Ini" in msg_menus
+    assert all(len(name) <= 32 for name in msg_menus)
+
+    # Uji ekstraksi pesan + embed + stiker untuk Context Menu
+    class _FakeEmbed:
+        title = "Patch Notes v2.4"
+        description = "Fixed memory leak when loading shaders."
+
+    class _FakeSticker:
+        name = "bingung"
+
+    class _FakeCtxMsg:
+        content = "Tbh idk why it threw segfault at runtime 💀"
+        embeds = [_FakeEmbed()]
+        stickers = [_FakeSticker()]
+
+    extracted = utils.extract_message_text_for_context(_FakeCtxMsg())
+    assert "segfault" in extracted
+    assert "Patch Notes v2.4" in extracted
+    assert "bingung" in extracted
+
+    # Uji transform_message_with_gemini (translate_id & explain)
+    tr_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Jujur aku kurang tahu kenapa muncul error segfault saat dijalankan 💀"}]}}]},
+    )
+    ex_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Pesan ini membahas error *segmentation fault* (akses memori tidak valid)."}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[tr_resp, ex_resp])
+
+    tr_out, tr_err = await ai_handler.transform_message_with_gemini(
+        "translate_id",
+        extracted,
+        http_session=fake_http,
+    )
+    assert tr_err is None
+    assert "Jujur aku kurang tahu" in tr_out
+
+    ex_out, ex_err = await ai_handler.transform_message_with_gemini(
+        "explain",
+        extracted,
+        http_session=fake_http,
+    )
+    assert ex_err is None
+    assert "segmentation fault" in ex_out
+
+
+def test_youtube_url_normalizer_and_ssrf_guard():
+    # YouTube watch, youtu.be, dan shorts dinormalisasi ke format kanonis
+    assert (
+        utils.normalize_youtube_url("https://youtu.be/dQw4w9WgXcQ?si=abc")
+        == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    )
+    assert (
+        utils.normalize_youtube_url("https://www.youtube.com/shorts/aqz-KE-bpKQ")
+        == "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+    )
+    assert utils.normalize_youtube_url("https://example.com/artikel") is None
+
+    yt_urls, web_urls = utils.extract_urls_from_text(
+        "Tonton https://youtu.be/dQw4w9WgXcQ dan baca https://python.org/doc ya!"
+    )
+    assert yt_urls == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+    assert web_urls == ["https://python.org/doc"]
+
+    # Proteksi SSRF wajib menolak localhost & IP jaringan internal
+    assert utils.is_safe_public_url("http://localhost:8080/admin") is False
+    assert utils.is_safe_public_url("http://127.0.0.1/secret") is False
+    assert utils.is_safe_public_url("http://192.168.1.1/router") is False
+    assert utils.is_safe_public_url("http://169.254.169.254/latest/meta-data/") is False
+    assert utils.is_safe_public_url("http://10.0.0.5/internal") is False
+    assert utils.is_safe_public_url("ftp://example.com/file") is False
+
+
+@pytest.mark.asyncio
+async def test_youtube_and_webpage_summarizer_ringkas_link(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(utils, "is_safe_public_url", lambda u: u.startswith("https://"))
+
+    # 1. Analisis link YouTube mengirim part fileData ke Gemini secara native
+    yt_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "**🎬 Inti Video:** Tutorial optimasi Python async."}]}}]},
+    )
+    fake_http_yt = FakeHttpSession(post_responses=[yt_resp])
+    yt_summary, yt_err = await ai_handler.analyze_link_with_gemini(
+        "https://youtu.be/dQw4w9WgXcQ",
+        question="Apa tips utamanya?",
+        http_session=fake_http_yt,
+    )
+    assert yt_err is None
+    assert "Python async" in yt_summary
+    sent_parts = fake_http_yt.post_calls[0]["json"]["contents"][0]["parts"]
+    assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in sent_parts)
+
+    # 2. Analisis link artikel web mengambil & membersihkan HTML lalu merangkumnya
+    sample_html = (
+        b"<html><head><title>Rilis Python Terbaru</title><script>evil()</script></head>"
+        b"<body><main><h1>Python Cepat</h1><p>Peningkatan performa interpreter hingga 25 persen pada rilis ini.</p></main></body></html>"
+    )
+    web_get_resp = FakeMockResponse(
+        200,
+        raw_bytes=sample_html,
+        headers={"Content-Type": "text/html; charset=utf-8"},
+        url="https://blog.example.org/python",
+    )
+    web_ai_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "**📌 Inti Artikel:** Performa Python naik 25%."}]}}]},
+    )
+    fake_http_web = FakeHttpSession(post_responses=[web_ai_resp], get_responses=[web_get_resp])
+    web_summary, web_err = await ai_handler.analyze_link_with_gemini(
+        "https://blog.example.org/python",
+        http_session=fake_http_web,
+    )
+    assert web_err is None
+    assert "25%" in web_summary
+    prompt_sent = fake_http_web.post_calls[0]["json"]["contents"][0]["parts"][0]["text"]
+    assert "Rilis Python Terbaru" in prompt_sent
+    assert "evil()" not in prompt_sent
+
+
+@pytest.mark.asyncio
+async def test_google_search_grounding_cari_and_auto_chat_fallback(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    # Deteksi otomatis kapan pertanyaan membutuhkan pencarian berita/fakta terkini
+    assert utils.needs_live_web_search("Siapa pemenang pertandingan Timnas Indonesia tadi malam?") is True
+    assert utils.needs_live_web_search("Berapa kurs dollar ke rupiah hari ini?") is True
+    assert utils.needs_live_web_search("Buatkan fungsi rekursif faktorial di Python") is False
+
+    # 1. Command /cari memakai GEMINI_SEARCH_FALLBACK_CHAIN + tools google_search & mengekstrak sumber web
+    grounded_resp = FakeMockResponse(
+        200,
+        {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": "Kurs USD ke IDR hari ini berada di kisaran Rp16.150."}]},
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            {"web": {"uri": "https://ekonomi.example.com/kurs", "title": "Update Kurs Rupiah Hari Ini"}},
+                            {"web": {"uri": "https://bank.example.com/fx", "title": "Data Valas Terkini"}},
+                        ]
+                    },
+                }
+            ]
+        },
+    )
+    fake_http = FakeHttpSession(post_responses=[grounded_resp])
+    ans, err = await ai_handler.search_web_with_gemini(
+        "Berapa kurs dollar hari ini?",
+        http_session=fake_http,
+    )
+    assert err is None
+    assert "Rp16.150" in ans
+    assert "https://ekonomi.example.com/kurs" in ans
+    assert fake_http.post_calls[0]["json"]["tools"] == [{"google_search": {}}]
+    assert "gemini-2.5-flash" in fake_http.post_calls[0]["url"]
+
+    # 2. Di ruang chat privat ai-..., jika kuota Google Search Free Tier habis (429), otomatis fallback mulus ke model biasa!
+    storage.init_thread_session(808, "gemini_flash")
+    quota_429 = FakeMockResponse(429, {"error": {"message": "Quota exceeded"}})
+    fallback_std = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Maaf pencarian live sedang penuh, namun secara umum begini..."}]}}]},
+    )
+    # 2 model di GEMINI_SEARCH_FALLBACK_CHAIN mengembalikan 429 -> lanjut ke GEMINI_DEFAULT_MODEL dengan sukses
+    fake_http_fb = FakeHttpSession(post_responses=[quota_429, quota_429, fallback_std])
+    reply = await ai_handler.get_ai_response(
+        808,
+        "Berita teknologi terbaru hari ini apa?",
+        http_session=fake_http_fb,
+    )
+    assert "secara umum begini" in reply
+    assert len(fake_http_fb.post_calls) == 3
+    assert "tools" not in fake_http_fb.post_calls[2]["json"]
+
+
+@pytest.mark.asyncio
+async def test_mini_game_engine_guessing_and_leaderboard_persistence(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    # 1. Validasi seluruh subcommand /game & command baru terdaftar
+    top_names = {c.name for c in bot_main.bot.tree.get_commands()}
+    assert {"cari", "ringkas_link", "game", "bantuan"}.issubset(top_names)
+    game_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "game")
+    sub_names = {sc.name for sc in game_cmd.commands}
+    assert sub_names == {"mulai", "papan_skor", "stop", "reset_skor"}
+
+    # 2. Pencocokan tebakan toleran huruf besar/kecil, spasi, tanda hubung, dan kalimat singkat
+    assert games.is_matching_guess("spiderman", ["Spider-Man"]) is True
+    assert games.is_matching_guess("jawabannya Spider Man!", ["Spider-Man"]) is True
+    assert games.is_matching_guess("batman", ["Spider-Man"]) is False
+
+    hint_str = games.build_masked_word_hint("Martabak")
+    assert hint_str.startswith("M") and "_" in hint_str
+    scrambled = games.scramble_word("NUSANTARA")
+    assert len(scrambled.replace(" ", "")) == len("NUSANTARA")
+
+    # 3. Pembuatan soal via Gemini JSON + anti-duplikasi jawaban
+    emoji_json_resp = FakeMockResponse(
+        200,
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": json.dumps(
+                                    {
+                                        "clue_emojis": "🧙‍♂️⚡👓🦉🏰",
+                                        "category": "Film Fantasi",
+                                        "answer": "Harry Potter",
+                                        "aliases": ["harrypotter"],
+                                        "extra_hint": "Sekolah sihir Hogwarts.",
+                                    }
+                                )
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+    fake_http = FakeHttpSession(post_responses=[emoji_json_resp])
+    q_data = await games.generate_ai_game_question("emoji", guild_id=77, http_session=fake_http)
+    assert q_data["answer"] == "Harry Potter"
+
+    # 4. Simulasi member menebak di channel: tebakan salah pendek ditahan agar Auto-Chat tidak bocor,
+    #    dan tebakan benar memberikan poin + menyimpan ke disk
+    replied_embeds = []
+
+    class _FakeGameMsg:
+        def __init__(self, author_id: int, author_name: str, text: str):
+            self.channel = type("Ch", (), {"id": 9100})()
+            self.guild = type("G", (), {"id": 77})()
+            self.author = type(
+                "U",
+                (),
+                {"id": author_id, "display_name": author_name, "mention": f"<@{author_id}>"},
+            )()
+            self.content = text
+            self.mentions = []
+
+        async def reply(self, embed=None, mention_author=False):
+            replied_embeds.append(embed)
+
+    games.active_channel_games[9100] = {
+        "type": "emoji",
+        "starter_id": 1,
+        "answer": "Harry Potter",
+        "aliases": ["harrypotter"],
+        "points": 20,
+    }
+
+    # Tebakan salah pendek -> mengembalikan True (menahan Auto-Chat) namun game tetap berjalan
+    consumed_wrong = await games.handle_active_game_guess(_FakeGameMsg(301, "Budi", "Lord Voldemort"))
+    assert consumed_wrong is True
+    assert 9100 in games.active_channel_games
+    assert replied_embeds == []
+
+    # Tebakan benar -> poin masuk, ronde selesai, dan tersimpan ke game_scores.json
+    consumed_right = await games.handle_active_game_guess(_FakeGameMsg(302, "Citra", "harry potter!"))
+    assert consumed_right is True
+    assert 9100 not in games.active_channel_games
+    assert len(replied_embeds) == 1
+    assert "Citra" in replied_embeds[0].description or "<@302>" in replied_embeds[0].description
+
+    # Uji ketahanan simpan & muat ulang papan skor dari disk
+    games.guild_game_scores.clear()
+    loaded_cnt = games.load_game_scores_from_disk()
+    assert loaded_cnt == 1
+    board = games.get_guild_leaderboard(77)
+    assert len(board) == 1
+    assert board[0]["user_id"] == 302
+    assert board[0]["points"] == 20
+    assert board[0]["wins"] == 1
+    rank, pts, wins = games.get_user_rank_info(77, 302)
+    assert (rank, pts, wins) == (1, 20, 1)
+
+
+@pytest.mark.asyncio
+async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    bot_user = _FakeUser(100, "Whas")
+    member = _FakeUser(205, "Dika")
+    community_agent.set_chat_channel_config(10, 6100, enabled=True, reply_mode="always", idle_minutes=30)
+
+    yt_msg = _FakeCommunityMessage(
+        channel_id=6100,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Guys cobain tonton https://youtu.be/dQw4w9WgXcQ kocak banget",
+    )
+    yt_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Wah legendaris banget lagu Rick Astley itu Dika 😂"}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[yt_resp])
+    reply = await community_agent.generate_community_chat_reply(yt_msg, bot_user, http_session=fake_http)
+    assert "Rick Astley" in reply
+    sent_parts = fake_http.post_calls[0]["json"]["contents"][-1]["parts"]
+    assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in sent_parts)
+
+    # Pertanyaan berita hari ini di Auto-Chat memicu Google Search Grounding di gemini-2.5-flash
+    news_msg = _FakeCommunityMessage(
+        channel_id=6100,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas siapa juara MotoGP tadi malam?",
+    )
+    news_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Balapan semalam seru banget, Pecco berhasil podium satu!"}]}}]},
+    )
+    fake_http_news = FakeHttpSession(post_responses=[news_resp])
+    news_reply = await community_agent.generate_community_chat_reply(
+        news_msg,
+        bot_user,
+        http_session=fake_http_news,
+    )
+    assert "Pecco" in news_reply
+    assert fake_http_news.post_calls[0]["json"]["tools"] == [{"google_search": {}}]
+
+
 
 
 

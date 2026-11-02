@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.1.0-beta"
+BOT_VERSION = "1.2.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -63,12 +63,24 @@ GEMINI_IMAGE_MODEL: str = (
     os.getenv("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-lite-image"
 ).strip()
 
+# Model khusus untuk Google Search Grounding (gemini-2.5-flash & 2.5-flash-lite mendukung 500 RPD GRATIS di Free Tier!)
+GEMINI_SEARCH_MODEL: str = (
+    os.getenv("GEMINI_SEARCH_MODEL") or "gemini-2.5-flash"
+).strip()
+
 # Rantai model cadangan berbeda (tanpa alias duplikat) jika salah satu model penuh/503
 GEMINI_TEXT_FALLBACK_CHAIN: list[str] = [
     GEMINI_DEFAULT_MODEL,
     GEMINI_FAST_MODEL,
     GEMINI_REASONING_MODEL,
+    "gemini-2.5-flash",
     "gemini-3.8-flash",
+]
+
+GEMINI_SEARCH_FALLBACK_CHAIN: list[str] = [
+    GEMINI_SEARCH_MODEL,
+    "gemini-2.5-flash-lite",
+    GEMINI_DEFAULT_MODEL,
 ]
 
 GEMINI_IMAGE_FALLBACK_CHAIN: list[str] = [
@@ -80,6 +92,8 @@ GEMINI_IMAGE_FALLBACK_CHAIN: list[str] = [
 # Ubah GEMINI_PAID_IMAGE_ENABLED=true di .env hanya jika akun Google AI Studio Anda sudah Paid/Billing.
 GEMINI_PAID_IMAGE_ENABLED: bool = _env_bool("GEMINI_PAID_IMAGE_ENABLED", False)
 ENABLE_IMAGE_FALLBACK: bool = _env_bool("ENABLE_IMAGE_FALLBACK", True)
+ENABLE_GOOGLE_SEARCH: bool = _env_bool("ENABLE_GOOGLE_SEARCH", True)
+ENABLE_URL_READER: bool = _env_bool("ENABLE_URL_READER", True)
 
 MAX_HISTORY_MESSAGES: int = _env_int("MAX_HISTORY_MESSAGES", 30, minimum=4)
 MAX_THREADS_PER_USER: int = _env_int("MAX_THREADS_PER_USER", 3, minimum=1)
@@ -93,6 +107,7 @@ MAX_VIDEO_ATTACHMENT_BYTES: int = 15 * 1024 * 1024  # 15 MB per video klip pende
 MAX_STICKER_EMOJI_BYTES: int = 2 * 1024 * 1024  # 2 MB untuk stiker / custom emoji
 MAX_IMAGES_PER_MESSAGE: int = 4
 MAX_TEXT_ATTACHMENT_BYTES: int = 100 * 1024  # 100 KB per file teks/kode
+MAX_WEBPAGE_FETCH_BYTES: int = 256 * 1024  # 256 KB batas aman pembaca halaman web
 
 # Pengaturan Default AI Community Agent (Auto-Chat, Pemecah Sepi, & Galeri)
 BOT_TIMEZONE: str = (os.getenv("BOT_TIMEZONE") or "Asia/Jakarta").strip()
@@ -105,6 +120,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
+GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
 
 # ==============================================================================
 # DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI - RESPONS CEPAT)
