@@ -63,7 +63,10 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
+    ai_handler.clear_model_cooldowns()
     yield
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
@@ -71,7 +74,10 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
+    ai_handler.clear_model_cooldowns()
 
 
 def test_split_discord_message_preserves_code_fences():
@@ -183,21 +189,25 @@ async def test_gemini_chat_ignores_thought_parts_and_uses_header_auth(monkeypatc
 @pytest.mark.asyncio
 async def test_gemini_chat_fallback_and_no_history_corruption_on_error(monkeypatch):
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
-    monkeypatch.setattr(ai_handler, "GEMINI_TEXT_FALLBACK_CHAIN", ["gemini-3.8-flash", "gemini-3.5-flash-lite"])
+    monkeypatch.setattr(ai_handler, "GEMINI_TEXT_FALLBACK_CHAIN", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
     storage.init_thread_session(777, "gemini_flash")
 
-    # Simulasi: model pertama kena 429 rate-limit, model kedua sukses
-    resp_429 = FakeMockResponse(429, {"error": {"message": "Quota exceeded"}})
+    # Simulasi: model pertama kena 503 overload, model kedua langsung sukses & model pertama masuk cooldown
+    resp_503 = FakeMockResponse(503, {"error": {"message": "This model is currently experiencing high demand."}})
     resp_200 = FakeMockResponse(
         200,
         {"candidates": [{"content": {"parts": [{"text": "Berhasil lewat model cadangan!"}]}}]},
     )
-    fake_http = FakeHttpSession(post_responses=[resp_429, resp_200])
+    fake_http = FakeHttpSession(post_responses=[resp_503, resp_200])
 
     reply = await ai_handler.get_ai_response(777, "Tes fallback", http_session=fake_http)
     assert reply == "Berhasil lewat model cadangan!"
     assert len(fake_http.post_calls) == 2
-    assert "gemini-3.5-flash-lite" in fake_http.post_calls[1]["url"]
+    assert "gemini-3.1-flash-lite" in fake_http.post_calls[1]["url"]
+
+    # Panggilan berikutnya harus langsung memprioritaskan gemini-3.1-flash-lite karena 3.5-flash-lite sedang cooldown
+    chain_after_503 = ai_handler._build_model_chain("gemini-3.5-flash-lite", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
+    assert chain_after_503[0] == "gemini-3.1-flash-lite"
 
     # Sekarang simulasi: semua model gagal -> riwayat sebelumnya tidak boleh rusak/menggantung
     fail_http = FakeHttpSession(
@@ -207,7 +217,7 @@ async def test_gemini_chat_fallback_and_no_history_corruption_on_error(monkeypat
         ]
     )
     err_reply = await ai_handler.get_ai_response(777, "Pesan yang gagal", http_session=fail_http)
-    assert "sedang sibuk" in err_reply
+    assert "padat" in err_reply
     assert len(storage.thread_chats[777]["history"]) == 2
     assert storage.thread_chats[777]["history"][-1]["role"] == "model"
 
@@ -223,7 +233,24 @@ async def test_generate_image_gemini_native_and_fallback(monkeypatch):
     fake_png = b"\x89PNG\r\n\x1a\n" + (b"x" * 2048)
     b64_png = base64.b64encode(fake_png).decode("ascii")
 
-    # 1. Sukses langsung dari Gemini Native Image Generation
+    # 1. Mode Free Tier Default (GEMINI_PAID_IMAGE_ENABLED=False):
+    #    Langsung menembak Flux tanpa membuang waktu ke model Nano Banana berbayar!
+    monkeypatch.setattr(ai_handler, "GEMINI_PAID_IMAGE_ENABLED", False)
+    monkeypatch.setattr(ai_handler, "ENABLE_IMAGE_FALLBACK", True)
+    fake_http_free = FakeHttpSession(
+        post_responses=[],
+        get_responses=[FakeMockResponse(200, raw_bytes=fake_png, headers={"Content-Type": "image/png"})],
+    )
+    engine_label_free, dfile_free, err_free = await ai_handler.generate_image(
+        888, "kucing astronot", http_session=fake_http_free
+    )
+    assert err_free is None
+    assert dfile_free is not None
+    assert len(fake_http_free.post_calls) == 0
+    assert "Flux" in engine_label_free
+
+    # 2. Mode Paid Tier (GEMINI_PAID_IMAGE_ENABLED=True): memakai Google Gemini Native Image
+    monkeypatch.setattr(ai_handler, "GEMINI_PAID_IMAGE_ENABLED", True)
     gemini_img_resp = FakeMockResponse(
         200,
         {
@@ -238,26 +265,20 @@ async def test_generate_image_gemini_native_and_fallback(monkeypatch):
             ]
         },
     )
-    fake_http = FakeHttpSession(post_responses=[gemini_img_resp])
-    engine_label, dfile, err = await ai_handler.generate_image(888, "kota masa depan", http_session=fake_http)
+    fake_http_paid = FakeHttpSession(post_responses=[gemini_img_resp])
+    engine_label, dfile, err = await ai_handler.generate_image(888, "kota masa depan", http_session=fake_http_paid)
     assert err is None
     assert dfile is not None
     assert "Google Gemini" in engine_label
-    sent_json = fake_http.post_calls[0]["json"]
+    sent_json = fake_http_paid.post_calls[0]["json"]
     assert sent_json["generationConfig"]["imageConfig"]["aspectRatio"] == "16:9"
 
-    # 2. Jika Gemini Image 429 pada Free Tier -> otomatis ke Fallback Gratis
-    monkeypatch.setattr(ai_handler, "ENABLE_IMAGE_FALLBACK", True)
-    fake_http_fb = FakeHttpSession(
-        post_responses=[FakeMockResponse(429, {"error": {"message": "Free tier quota 0"}})],
-        get_responses=[FakeMockResponse(200, raw_bytes=fake_png, headers={"Content-Type": "image/png"})],
-    )
-    engine_label_fb, dfile_fb, err_fb = await ai_handler.generate_image(
-        888, "kucing astronot", http_session=fake_http_fb
-    )
-    assert err_fb is None
-    assert dfile_fb is not None
-    assert "Fallback" in engine_label_fb
+
+def test_thinking_config_compatibility():
+    # Flash-Lite mendukung minimal
+    assert ai_handler.build_thinking_config("gemini-3.5-flash-lite", "minimal") == {"thinkingLevel": "minimal"}
+    # 3.8 Flash otomatis mengubah minimal menjadi low agar tidak error HTTP 400
+    assert ai_handler.build_thinking_config("gemini-3.8-flash", "minimal") == {"thinkingLevel": "low"}
 
 
 @pytest.mark.asyncio
@@ -277,7 +298,7 @@ async def test_persistent_views_have_valid_custom_ids():
 
 def test_slash_commands_registered():
     cmd_names = {cmd.name for cmd in bot_main.bot.tree.get_commands()}
-    assert {"setup_panel", "reset", "model", "status"}.issubset(cmd_names)
+    assert {"setup_panel", "reset", "model", "status", "ringkas"}.issubset(cmd_names)
 
 
 class _DummyAttachment:
@@ -331,7 +352,7 @@ def test_agent_command_group_registered():
     assert "agent" in cmd_names
     agent_cmd = next(cmd for cmd in bot_main.bot.tree.get_commands() if cmd.name == "agent")
     sub_names = {sub.name for sub in agent_cmd.commands}
-    assert {"chat", "gallery", "persona", "sapa", "status"} == sub_names
+    assert {"chat", "gallery", "persona", "sapa", "status", "welcome"} == sub_names
 
 
 class _FakeSticker:
@@ -533,6 +554,25 @@ async def test_dead_chat_icebreaker_increments_poke_counter(monkeypatch):
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
 
     community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_minutes=30)
+
+    # 1. Sapaan manual (/agent sapa -> manual_trigger=True) TIDAK boleh mengunci consecutive_idle_pokes
+    ice_resp_manual = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Sepi banget nih malam-malam, pada kemana?"}]}}]},
+    )
+    fake_http_manual = FakeHttpSession(post_responses=[ice_resp_manual])
+    manual_text = await community_agent.generate_idle_icebreaker(
+        5000,
+        10,
+        "Megal",
+        idle_minutes_elapsed=30,
+        manual_trigger=True,
+        http_session=fake_http_manual,
+    )
+    assert "Sepi banget" in manual_text
+    assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 0
+
+    # 2. Sapaan otomatis background (manual_trigger=False) menaikkan consecutive_idle_pokes agar anti-spam
     ice_resp = FakeMockResponse(
         200,
         {"candidates": [{"content": {"parts": [{"text": "Aduh sepi amat nih siang-siang, pada lagi ngapain guys?"}]}}]},
@@ -544,10 +584,31 @@ async def test_dead_chat_icebreaker_increments_poke_counter(monkeypatch):
         10,
         "Megal",
         idle_minutes_elapsed=31,
+        manual_trigger=False,
         http_session=fake_http,
     )
     assert "sepi amat" in text
     assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 1
+    # Pastikan sapaan kedua otomatis menyertakan memori anti-monoton dari sapaan pertama
+    second_prompt_sent = fake_http.post_calls[0]["json"]["contents"][0]["parts"][0]["text"]
+    assert "ANTI-MONOTON" in second_prompt_sent
+    assert "Sepi banget nih malam-malam" in second_prompt_sent
+
+    # 3. Mengatur ulang /agent chat mereset penghitung kembali ke 0
+    community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_seconds=30)
+    assert community_agent.chat_agent_channels[5000]["consecutive_idle_pokes"] == 0
+    assert community_agent.chat_agent_channels[5000]["idle_seconds"] == 30
+
+
+def test_parse_idle_duration_flexible_inputs():
+    assert community_agent.parse_idle_duration(None) == (1800, "30 menit")
+    assert community_agent.parse_idle_duration("1") == (60, "1 menit")
+    assert community_agent.parse_idle_duration("5 menit") == (300, "5 menit")
+    assert community_agent.parse_idle_duration("30 detik") == (30, "30 detik")
+    assert community_agent.parse_idle_duration("1 jam") == (3600, "60 menit")
+    assert community_agent.parse_idle_duration("0") == (0, "Nonaktif")
+    assert community_agent.parse_idle_duration("off") == (0, "Nonaktif")
+    assert community_agent.parse_idle_duration("bukan angka") is None
 
 
 def test_auto_cleanup_expired_sessions():
@@ -581,6 +642,150 @@ def test_multi_gemini_api_keys_rotation_and_redaction(monkeypatch):
     sanitized = utils.sanitize_error_message("Failed with AIzaKeyAlpha11111 and AIzaKeyBeta22222")
     assert "AIzaKeyAlpha11111" not in sanitized
     assert "AIzaKeyBeta22222" not in sanitized
+
+
+@pytest.mark.asyncio
+async def test_voice_note_and_audio_extraction_and_reply(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    vn_att = _DummyAttachment("voice-message.ogg", "audio/ogg; codecs=opus", b"OggS\x00\x02opusvoice")
+    vn_att.duration = 6.4
+
+    # 1. Di ruang privat ai-..., Voice Note otomatis diekstrak sebagai audio/ogg & dijawab Gemini
+    msg_priv = _DummyMessage([vn_att])
+    media_parts, media_names, _, warnings = await utils.extract_message_attachments(msg_priv)
+    assert warnings == []
+    assert len(media_parts) == 1
+    assert media_parts[0]["inlineData"]["mimeType"] == "audio/ogg"
+    assert media_names == ["voice_note:voice-message.ogg"]
+
+    # Di ruang gambar draw-..., Voice Note dilewati secara aman
+    draw_parts, _, _, draw_warns = await utils.extract_message_attachments(msg_priv, include_audio=False)
+    assert draw_parts == []
+    assert len(draw_warns) == 1
+
+    storage.init_thread_session(909, "gemini_flash")
+    vn_gemini_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Siap, suara kamu terdengar jelas! Ayo kita bahas."}]}}]},
+    )
+    fake_http_priv = FakeHttpSession(post_responses=[vn_gemini_resp])
+    priv_reply = await ai_handler.get_ai_response(
+        909,
+        "",
+        image_parts=media_parts,
+        image_filenames=media_names,
+        http_session=fake_http_priv,
+    )
+    assert "suara kamu terdengar jelas" in priv_reply
+
+    # 2. Di channel Auto-Chat komunitas, Voice Note tanpa teks tetap memicu bot untuk mendengar & membalas!
+    bot_user = _FakeUser(100, "Whas")
+    member = _FakeUser(201, "Angga")
+    community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_minutes=30)
+    # Buat seolah channel baru aktif 10 detik lalu agar membuktikan pemicu murni berasal dari Voice Note
+    community_agent.chat_agent_channels[5000]["last_activity_at"] = 9999999999.0
+
+    vn_comm_msg = _FakeCommunityMessage(
+        channel_id=5000,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="",
+        attachments=[vn_att],
+    )
+    should_reply, use_ref = community_agent.should_agent_reply_in_chat(vn_comm_msg, bot_user)
+    assert should_reply is True
+    assert use_ref is True
+
+    comm_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Haha siap Angga, gas login bentar lagi ya!"}]}}]},
+    )
+    fake_http_comm = FakeHttpSession(post_responses=[comm_resp])
+    comm_reply = await community_agent.generate_community_chat_reply(
+        vn_comm_msg,
+        bot_user,
+        http_session=fake_http_comm,
+    )
+    assert "gas login" in comm_reply
+
+
+@pytest.mark.asyncio
+async def test_summarize_channel_messages_ringkas(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    log_lines = [
+        "[Angga]: Guys nanti jam 8 malam mabar Valorant yuk",
+        "[Rizky]: Gas gue ikut main Sage",
+        "[Sinta]: Aku nyusul jam setengah 9 ya habis makan",
+    ]
+    sum_resp = FakeMockResponse(
+        200,
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "**📌 Topik Utama**\n- Angga mengajak mabar Valorant jam 8 malam, Rizky & Sinta ikut."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+    fake_http = FakeHttpSession(post_responses=[sum_resp])
+    summary, err = await ai_handler.summarize_channel_messages(
+        log_lines,
+        "general",
+        http_session=fake_http,
+    )
+    assert err is None
+    assert "Valorant" in summary
+
+
+@pytest.mark.asyncio
+async def test_welcome_agent_greeting_dedup_and_persistence(monkeypatch):
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    community_agent.set_welcome_config(
+        10,
+        7000,
+        enabled=True,
+        extra_note="Jangan lupa ambil role di #roles",
+    )
+    await community_agent.save_agent_config_to_disk()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent.load_agent_config_from_disk()
+    assert community_agent.welcome_agent_guilds[10]["channel_id"] == 7000
+    assert "ambil role" in community_agent.welcome_agent_guilds[10]["extra_note"]
+
+    # Deduplikasi: join yang sama dalam 60 detik hanya diproses 1x (kecuali force=True untuk tes)
+    assert community_agent.should_process_member_welcome(10, 555) is True
+    assert community_agent.should_process_member_welcome(10, 555) is False
+    assert community_agent.should_process_member_welcome(10, 555, force=True) is True
+
+    # Jika model lupa menyertakan mention <@555>, fungsi otomatis menyisipkannya
+    w_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Halo selamat datang di tongkrongan kita, jangan lupa mampir ke #roles ya!"}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[w_resp])
+    greeting = await community_agent.generate_welcome_greeting(
+        10,
+        "Bintang",
+        "<@555>",
+        "Whas",
+        guild_name="Server Angga",
+        member_count=42,
+        http_session=fake_http,
+    )
+    assert "<@555>" in greeting
+    assert len(community_agent.welcome_agent_guilds[10]["recent_welcomes"]) == 1
 
 
 

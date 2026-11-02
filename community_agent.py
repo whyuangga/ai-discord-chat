@@ -23,16 +23,20 @@ from config import (
 )
 from ai_handler import (
     CHAT_TIMEOUT,
+    FAST_TEXT_TIMEOUT,
     MEDIA_SEMAPHORE,
     _borrow_session,
     _build_model_chain,
     _extract_text_from_gemini_response,
+    build_thinking_config,
     get_gemini_keys_rotated,
     is_gemini_key_configured,
+    mark_model_unhealthy,
 )
 from utils import (
     extract_social_media_and_stickers,
     get_realtime_time_context,
+    has_voice_or_audio_attachment,
     sanitize_error_message,
 )
 
@@ -42,7 +46,9 @@ logger = logging.getLogger("gemini_bot.agent")
 guild_agent_settings: dict[int, dict] = {}
 chat_agent_channels: dict[int, dict] = {}
 gallery_agent_channels: dict[int, dict] = {}
+welcome_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
+_recent_welcomed_members: dict[tuple[int, int], float] = {}
 
 _agent_disk_lock = asyncio.Lock()
 _agent_channel_locks: dict[int, asyncio.Lock] = {}
@@ -102,6 +108,74 @@ def get_guild_settings(guild_id: int) -> dict:
     return settings
 
 
+def format_idle_duration(idle_seconds: int) -> str:
+    """Memformat durasi pemecah sepi ke teks yang mudah dibaca (detik / menit)."""
+    sec = max(0, int(idle_seconds))
+    if sec == 0:
+        return "Nonaktif"
+    if sec < 60 or sec % 60 != 0:
+        return f"{sec} detik"
+    mins = sec // 60
+    return f"{mins} menit"
+
+
+def parse_idle_duration(raw_value: str | int | float | None) -> tuple[int, str] | None:
+    """Mengubah input fleksibel pengguna (misal: '1', '30', '30 detik', '5 menit', '1 jam', '0')
+    menjadi (idle_seconds, label_teks). Mengembalikan None jika format tidak dikenali.
+    """
+    if raw_value is None:
+        sec = max(0, int(AGENT_DEFAULT_IDLE_MINUTES) * 60)
+        return sec, format_idle_duration(sec)
+
+    if isinstance(raw_value, (int, float)):
+        sec = max(0, min(43200, int(round(float(raw_value) * 60))))
+        if 0 < sec < 15:
+            sec = 15
+        return sec, format_idle_duration(sec)
+
+    cleaned = str(raw_value).strip().lower().replace(",", ".")
+    if not cleaned:
+        sec = max(0, int(AGENT_DEFAULT_IDLE_MINUTES) * 60)
+        return sec, format_idle_duration(sec)
+
+    if cleaned in ("0", "off", "mati", "nonaktif", "false", "matikan", "disable"):
+        return 0, "Nonaktif"
+
+    match = re.match(
+        r"^(\d+(?:\.\d+)?)\s*(d|dtk|detik|s|sec|second|seconds|m|mnt|menit|min|mins|j|jam|h|hr|hour|hours)?$",
+        cleaned,
+    )
+    if not match:
+        return None
+
+    num = float(match.group(1))
+    unit = (match.group(2) or "menit").strip()
+
+    if num <= 0:
+        return 0, "Nonaktif"
+
+    if unit in ("d", "dtk", "detik", "s", "sec", "second", "seconds"):
+        sec = int(round(num))
+    elif unit in ("j", "jam", "h", "hr", "hour", "hours"):
+        sec = int(round(num * 3600))
+    else:
+        sec = int(round(num * 60))
+
+    # Batasi aman antara 15 detik hingga 12 jam (43200 detik)
+    sec = max(15, min(43200, sec))
+    return sec, format_idle_duration(sec)
+
+
+def record_human_channel_activity(channel_id: int) -> None:
+    """Mencatat aktivitas chat member manusia agar penghitung pemecah sepi selalu akurat."""
+    ch_cfg = chat_agent_channels.get(channel_id)
+    if ch_cfg and ch_cfg.get("enabled"):
+        now = time.time()
+        ch_cfg["last_activity_at"] = now
+        ch_cfg["last_human_at"] = now
+        ch_cfg["consecutive_idle_pokes"] = 0
+
+
 def set_chat_channel_config(
     guild_id: int,
     channel_id: int,
@@ -109,6 +183,7 @@ def set_chat_channel_config(
     enabled: bool,
     reply_mode: str = "smart",
     idle_minutes: int = AGENT_DEFAULT_IDLE_MINUTES,
+    idle_seconds: int | None = None,
 ) -> dict | None:
     if not enabled:
         chat_agent_channels.pop(channel_id, None)
@@ -117,15 +192,25 @@ def set_chat_channel_config(
 
     now = time.time()
     existing = chat_agent_channels.get(channel_id) or {}
+    computed_sec = (
+        max(0, int(idle_seconds))
+        if idle_seconds is not None
+        else max(0, int(idle_minutes) * 60)
+    )
+    computed_mins = computed_sec // 60 if computed_sec >= 60 else (1 if computed_sec > 0 else 0)
+
+    # Reset last_activity_at & consecutive_idle_pokes setiap pengaturan disimpan
+    # supaya timer menit_sepi langsung mulai menghitung segar dan tidak terkunci!
     chat_agent_channels[channel_id] = {
         "guild_id": guild_id,
         "enabled": True,
         "reply_mode": reply_mode if reply_mode in ("smart", "all") else "smart",
-        "idle_minutes": max(0, int(idle_minutes)),
-        "last_activity_at": float(existing.get("last_activity_at") or now),
+        "idle_minutes": computed_mins if idle_seconds is not None else max(0, int(idle_minutes)),
+        "idle_seconds": computed_sec,
+        "last_activity_at": now,
         "last_human_at": float(existing.get("last_human_at") or now),
         "last_bot_reply_at": float(existing.get("last_bot_reply_at") or 0.0),
-        "consecutive_idle_pokes": int(existing.get("consecutive_idle_pokes") or 0),
+        "consecutive_idle_pokes": 0,
     }
     return chat_agent_channels[channel_id]
 
@@ -147,6 +232,51 @@ def set_gallery_channel_config(
         "auto_reaction": bool(auto_reaction),
     }
     return gallery_agent_channels[channel_id]
+
+
+def set_welcome_config(
+    guild_id: int,
+    channel_id: int,
+    *,
+    enabled: bool,
+    extra_note: str | None = None,
+) -> dict | None:
+    """Mengatur atau menonaktifkan fitur AI Auto-Welcomer untuk member baru di suatu server."""
+    if not enabled:
+        welcome_agent_guilds.pop(guild_id, None)
+        return None
+
+    existing = welcome_agent_guilds.get(guild_id) or {}
+    if extra_note is None:
+        note = str(existing.get("extra_note") or "").strip()
+    elif extra_note.strip() == "-":
+        note = ""
+    else:
+        note = extra_note.strip()[:250]
+
+    welcome_agent_guilds[guild_id] = {
+        "enabled": True,
+        "channel_id": int(channel_id),
+        "extra_note": note,
+        "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
+    }
+    return welcome_agent_guilds[guild_id]
+
+
+def should_process_member_welcome(guild_id: int, user_id: int, *, force: bool = False) -> bool:
+    """Mencegah sambutan ganda jika event on_member_join & System Join Message aktif bersamaan."""
+    now = time.time()
+    # Bersihkan entri kadaluarsa (> 5 menit)
+    expired = [k for k, ts in _recent_welcomed_members.items() if now - ts > 300]
+    for k in expired:
+        _recent_welcomed_members.pop(k, None)
+
+    key = (int(guild_id), int(user_id))
+    if not force and key in _recent_welcomed_members and (now - _recent_welcomed_members[key]) < 60:
+        return False
+
+    _recent_welcomed_members[key] = now
+    return True
 
 
 def load_agent_config_from_disk() -> tuple[int, int]:
@@ -180,11 +310,14 @@ def load_agent_config_from_disk() -> tuple[int, int]:
             cid = int(cid_str)
             if not cdata.get("enabled", True):
                 continue
+            loaded_mins = max(0, int(cdata.get("idle_minutes", AGENT_DEFAULT_IDLE_MINUTES)))
+            loaded_secs = int(cdata.get("idle_seconds", loaded_mins * 60))
             chat_agent_channels[cid] = {
                 "guild_id": int(cdata["guild_id"]),
                 "enabled": True,
                 "reply_mode": cdata.get("reply_mode") if cdata.get("reply_mode") in ("smart", "all") else "smart",
-                "idle_minutes": max(0, int(cdata.get("idle_minutes", AGENT_DEFAULT_IDLE_MINUTES))),
+                "idle_minutes": loaded_mins,
+                "idle_seconds": max(0, loaded_secs),
                 "last_activity_at": float(cdata.get("last_activity_at") or now),
                 "last_human_at": float(cdata.get("last_human_at") or now),
                 "last_bot_reply_at": float(cdata.get("last_bot_reply_at") or 0.0),
@@ -202,6 +335,20 @@ def load_agent_config_from_disk() -> tuple[int, int]:
                 "guild_id": int(gdata["guild_id"]),
                 "enabled": True,
                 "auto_reaction": bool(gdata.get("auto_reaction", True)),
+            }
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    for gid_str, wdata in (raw.get("welcome_guilds") or {}).items():
+        try:
+            gid = int(gid_str)
+            if not wdata.get("enabled", True):
+                continue
+            welcome_agent_guilds[gid] = {
+                "enabled": True,
+                "channel_id": int(wdata["channel_id"]),
+                "extra_note": str(wdata.get("extra_note") or "").strip()[:250],
+                "recent_welcomes": [str(x) for x in (wdata.get("recent_welcomes") or [])[-5:]],
             }
         except (KeyError, ValueError, TypeError):
             continue
@@ -230,6 +377,7 @@ async def save_agent_config_to_disk() -> None:
                 "guild_settings": {str(k): v for k, v in guild_agent_settings.items()},
                 "chat_channels": {str(k): v for k, v in chat_agent_channels.items()},
                 "gallery_channels": {str(k): v for k, v in gallery_agent_channels.items()},
+                "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
                 "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in channel_histories.items()},
             }
             tmp_file = AGENT_CONFIG_FILE.with_suffix(".json.tmp")
@@ -312,6 +460,10 @@ def should_agent_reply_in_chat(
             _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
+    # 0. Member mengirim Voice Note (Pesan Suara 🎤) atau file audio -> selalu dengarkan & balas!
+    if has_voice_or_audio_attachment(message):
+        return True, True
+
     if ch_cfg.get("reply_mode") == "all":
         return True, False
 
@@ -360,7 +512,10 @@ def _build_community_system_prompt(guild_cfg: dict, bot_display_name: str, time_
         "pancing balik dengan pertanyaan ringan supaya obrolan terus nyambung dan hidup.\n"
         "5. Jika member mengirim STIKER atau EMOJI, perhatikan ekspresi visual pada gambar stiker/emoji "
         "tersebut lalu komentari ekspresinya secara spesifik, seru, atau jenaka!\n"
-        f"6. WAKTU SEKARANG: {time_ctx['summary']}. Kamu tahu persis jam berapa sekarang ({time_ctx['clock']}) "
+        "6. Jika member mengirim VOICE NOTE (pesan suara) atau AUDIO, dengarkan baik-baik apa yang mereka "
+        "ucapkan beserta intonasinya, lalu balas langsung isi pembicaraannya secara santai seolah kamu baru "
+        "mendengarkan voice note temanmu (jangan kaku bilang 'aku sudah mendengarkan rekaman audio kamu').\n"
+        f"7. WAKTU SEKARANG: {time_ctx['summary']}. Kamu tahu persis jam berapa sekarang ({time_ctx['clock']}) "
         "dan sesuaikan obrolanmu dengan suasana jam ini secara alami."
     )
     if extra:
@@ -373,39 +528,60 @@ async def _call_gemini_agent(
     contents: list[dict],
     *,
     temperature: float = 0.88,
-    max_tokens: int = 350,
+    max_tokens: int = 2048,
+    thinking_level: str = "minimal",
+    has_media: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
     if not active_keys:
         return None
 
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents,
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": max_tokens,
-        },
-    }
-
+    req_timeout = CHAT_TIMEOUT if has_media else FAST_TEXT_TIMEOUT
     models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+
+    async with _borrow_session(http_session, req_timeout) as session:
         for idx, model_id in enumerate(models_to_try):
+            gen_config: dict = {
+                "temperature": temperature,
+                "maxOutputTokens": max(1024, max_tokens),
+            }
+            thinking_cfg = build_thinking_config(model_id, thinking_level)
+            if thinking_cfg:
+                gen_config["thinkingConfig"] = thinking_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": contents,
+                "generationConfig": gen_config,
+            }
             headers = {
                 "x-goog-api-key": active_keys[idx % len(active_keys)],
                 "Content-Type": "application/json",
             }
             url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+
             try:
-                async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
+                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
-                        reply_text, _ = _extract_text_from_gemini_response(data)
+                        reply_text, _, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text.strip()
-                    if resp.status in (429, 503) and idx < len(models_to_try) - 1:
-                        await asyncio.sleep(0.8)
+                        if not should_retry:
+                            return None
+                        continue
+
+                    if resp.status in (429, 500, 502, 503, 504, 404):
+                        mark_model_unhealthy(model_id)
+                        logger.warning(
+                            "Agent Gemini model %s HTTP %s, pindah instan ke model cadangan...",
+                            model_id,
+                            resp.status,
+                        )
+            except asyncio.TimeoutError:
+                mark_model_unhealthy(model_id)
+                logger.warning("Agent Gemini model %s timeout, pindah instan ke cadangan...", model_id)
             except Exception as exc:
                 logger.warning("Agent Gemini (%s) gagal: %s", model_id, sanitize_error_message(exc))
     return None
@@ -432,6 +608,7 @@ async def generate_community_chat_reply(
         message,
         http_session,
         include_video=False,
+        include_audio=True,
     )
 
     author_name = message.author.display_name
@@ -471,7 +648,9 @@ async def generate_community_chat_reply(
         system_prompt,
         contents,
         temperature=0.88,
-        max_tokens=300,
+        max_tokens=2048,
+        thinking_level="low" if media_parts else "minimal",
+        has_media=bool(media_parts),
         http_session=http_session,
     )
 
@@ -490,25 +669,51 @@ async def generate_community_chat_reply(
     return reply
 
 
+_ICEBREAKER_ANGLES: tuple[str, ...] = (
+    "Sapa warga santai sesuai jam & hari sekarang sambil nanya lagi pada sibuk ngapain.",
+    "Lempar satu pertanyaan pilihan ringan ala tongkrongan (misal soal makanan/minuman favorit di jam segini, kebiasaan unik, atau hal relate sehari-hari) tanpa terdengar kaku.",
+    "Tanyain santai warga lagi pada dengerin lagu apa, nonton apa, atau main game apa belakangan ini.",
+    "Nyeletuk santai soal suasana hari/jam sekarang (misal vibe hari kerja vs weekend, jam rawan lapar/ngantuk, atau jam enak buat rebahan) lalu pancing obrolan.",
+    "Ajak warga ngobrol ringan soal hobi atau topik seru yang nyambung sama tema server.",
+    "Sapa tongkrongan dengan gaya akrab dan jenaka seolah baru buka HP dan mampir ke channel.",
+    "Lempar celetukan random yang lucu/relate soal kehidupan sehari-hari biar warga tertarik nyaut.",
+    "Nyeletuk ringan memecah keheningan channel dengan gaya santai khas anak Discord.",
+)
+
+
 async def generate_idle_icebreaker(
     channel_id: int,
     guild_id: int,
     bot_display_name: str,
     *,
     idle_minutes_elapsed: int = 30,
+    manual_trigger: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
-    """Membuat sapaan/celetukan santai otomatis saat channel chat sedang sepi."""
+    """Membuat sapaan/celetukan santai otomatis yang selalu bervariasi saat channel sedang sepi."""
     guild_cfg = get_guild_settings(guild_id)
     time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
     system_prompt = _build_community_system_prompt(guild_cfg, bot_display_name, time_ctx)
 
+    # Ambil 5 celetukan terakhir milik bot sendiri agar kalimat & topiknya tidak pernah diulang
+    past_hist = channel_histories.get(channel_id, [])
+    recent_bot_msgs = [h["content"] for h in past_hist if h.get("role") == "model"][-5:]
+    avoid_block = ""
+    if recent_bot_msgs:
+        joined_prev = " | ".join(f'"{m[:120]}"' for m in recent_bot_msgs)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Sebelumnya kamu sudah pernah mengirim kalimat ini: [{joined_prev}]. "
+            "JANGAN gunakan awalan kata, struktur kalimat, atau topik yang sama/mirip dengan kalimat sebelumnya tersebut! "
+            "Jangan terus-menerus mengawali kalimat dengan kata 'Sepi banget' atau 'Aduh sepi'."
+        )
+
+    chosen_angle = random.choice(_ICEBREAKER_ANGLES)
     icebreaker_instruction = (
-        f"(Instruksi situasi: Channel chat ini sudah sepi sekitar {max(1, idle_minutes_elapsed)} menit belum ada "
-        f"yang ngobrol. Sekarang pukul {time_ctx['clock']} ({time_ctx['vibe']}). "
-        "Nyeletuklah duluan secara spontan dan santai 1 kalimat pendek untuk memecah kesunyian atau "
-        "menyapa warga server sesuai jam sekarang — contoh vibe seperti 'Aduh sepi amat nih siang-siang, "
-        "pada kemana guys?' atau celetukan kreatif lain yang tidak monoton!)"
+        f"(Instruksi situasi: Channel chat ini belum ada obrolan baru sekitar {max(1, idle_minutes_elapsed)} menit. "
+        f"Sekarang hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
+        f"Ide sudut obrolan kali ini: {chosen_angle}\n"
+        "Buat 1 kalimat pendek yang spontan, segar, bervariasi, dan sangat manusiawi untuk memulai obrolan "
+        f"dengan warga server!){avoid_block}"
     )
 
     contents = [{"role": "user", "parts": [{"text": icebreaker_instruction}]}]
@@ -516,7 +721,9 @@ async def generate_idle_icebreaker(
         system_prompt,
         contents,
         temperature=0.95,
-        max_tokens=200,
+        max_tokens=2048,
+        thinking_level="minimal",
+        has_media=False,
         http_session=http_session,
     )
 
@@ -529,7 +736,11 @@ async def generate_idle_icebreaker(
             now = time.time()
             ch_cfg["last_activity_at"] = now
             ch_cfg["last_bot_reply_at"] = now
-            ch_cfg["consecutive_idle_pokes"] = int(ch_cfg.get("consecutive_idle_pokes") or 0) + 1
+            if manual_trigger:
+                # Sapaan manual via /agent sapa tidak boleh mengunci penghitung otomatis menit_sepi
+                ch_cfg["consecutive_idle_pokes"] = 0
+            else:
+                ch_cfg["consecutive_idle_pokes"] = int(ch_cfg.get("consecutive_idle_pokes") or 0) + 1
         await save_agent_config_to_disk()
 
     return reply
@@ -555,6 +766,7 @@ async def generate_gallery_comment(
             message,
             http_session,
             include_video=True,
+            include_audio=False,
         )
     # Hanya komentari kiriman yang benar-benar memiliki lampiran foto/gambar atau video di galeri
     has_gallery_attachment = any(
@@ -593,7 +805,9 @@ async def generate_gallery_comment(
         gallery_system_prompt,
         contents,
         temperature=0.85,
-        max_tokens=260,
+        max_tokens=2048,
+        thinking_level="low",
+        has_media=True,
         http_session=http_session,
     )
 
@@ -615,8 +829,12 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
         if not ch_cfg.get("enabled"):
             continue
 
-        idle_mins = int(ch_cfg.get("idle_minutes") or 0)
-        if idle_mins <= 0:
+        idle_secs = int(
+            ch_cfg.get("idle_seconds")
+            if ch_cfg.get("idle_seconds") is not None
+            else int(ch_cfg.get("idle_minutes") or 0) * 60
+        )
+        if idle_secs <= 0:
             continue
 
         # Anti-spam: jangan terus-terusan monolog sendirian jika belum ada satupun manusia membalas
@@ -625,7 +843,7 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
 
         last_act = float(ch_cfg.get("last_activity_at") or 0.0)
         elapsed_sec = now - last_act
-        if elapsed_sec < idle_mins * 60:
+        if elapsed_sec < idle_secs:
             continue
 
         guild_id = ch_cfg["guild_id"]
@@ -646,7 +864,7 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
 
         async with lock:
             # Cek ulang setelah mendapat lock
-            if (time.time() - float(ch_cfg.get("last_activity_at") or 0.0)) < idle_mins * 60:
+            if (time.time() - float(ch_cfg.get("last_activity_at") or 0.0)) < idle_secs:
                 continue
 
             bot_name = (
@@ -654,22 +872,103 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
                 if channel.guild.me
                 else (bot.user.display_name if bot.user else "Teman")
             )
-            elapsed_mins = int(elapsed_sec // 60)
-            icebreaker = await generate_idle_icebreaker(
-                channel_id,
-                guild_id,
-                bot_name,
-                idle_minutes_elapsed=elapsed_mins,
-                http_session=http_session,
-            )
-            if icebreaker:
-                try:
-                    async with channel.typing():
-                        await asyncio.sleep(random.uniform(1.0, 2.2))
+            elapsed_mins = max(1, int(elapsed_sec // 60))
+            try:
+                async with channel.typing():
+                    icebreaker = await generate_idle_icebreaker(
+                        channel_id,
+                        guild_id,
+                        bot_name,
+                        idle_minutes_elapsed=elapsed_mins,
+                        manual_trigger=False,
+                        http_session=http_session,
+                    )
+                    if icebreaker:
                         await channel.send(icebreaker)
-                    poked_count += 1
-                    logger.info("Pemecah sepi terkirim di #%s (%s)", channel.name, channel_id)
-                except (discord.Forbidden, discord.HTTPException) as exc:
-                    logger.warning("Gagal mengirim pemecah sepi di %s: %s", channel_id, exc)
+                        poked_count += 1
+                        logger.info("Pemecah sepi terkirim di #%s (%s)", channel.name, channel_id)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning("Gagal mengirim pemecah sepi di %s: %s", channel_id, exc)
 
     return poked_count
+
+
+_WELCOME_ANGLES: tuple[str, ...] = (
+    "Sambut dengan antusias layaknya warga lama yang senang kedatangan teman tongkrongan baru.",
+    "Sambut hangat sesuai suasana jam sekarang lalu ajak kenalan santai atau tanya lagi sibuk/main apa.",
+    "Sambut akrab dan seru sesuai tema komunitas server, bikin dia langsung merasa betah dan tidak canggung.",
+    "Beri sambutan ceria yang santai ala Discord Indonesia lalu pancing satu pertanyaan ringan biar dia mau nyaut.",
+    "Sambut ramah seolah membukakan pintu tongkrongan sambil menyapa namanya dengan akrab.",
+)
+
+
+async def generate_welcome_greeting(
+    guild_id: int,
+    member_display_name: str,
+    member_mention: str,
+    bot_display_name: str,
+    *,
+    guild_name: str = "",
+    member_count: int | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> str | None:
+    """Membuat sambutan otomatis yang unik & natural ala manusia untuk member yang baru bergabung."""
+    w_cfg = welcome_agent_guilds.get(guild_id)
+    if not w_cfg or not w_cfg.get("enabled"):
+        return None
+
+    guild_cfg = get_guild_settings(guild_id)
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+    system_prompt = _build_community_system_prompt(guild_cfg, bot_display_name, time_ctx)
+
+    recent_welcomes = list(w_cfg.get("recent_welcomes") or [])[-5:]
+    avoid_block = ""
+    if recent_welcomes:
+        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_welcomes)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Sambutan sebelumnya yang sudah pernah kamu kirim: [{joined_prev}]. "
+            "Buat variasi kalimat & pembuka yang berbeda supaya setiap member baru mendapat sambutan segar!"
+        )
+
+    extra_note = str(w_cfg.get("extra_note") or "").strip()
+    note_instruction = (
+        f"\nSelipkan juga info penting ini secara santai (jangan kaku seperti pengumuman): \"{extra_note}\""
+        if extra_note
+        else ""
+    )
+    count_info = f" (member ke-{member_count})" if member_count else ""
+    server_label = f" di server '{guild_name}'" if guild_name else ""
+    angle = random.choice(_WELCOME_ANGLES)
+
+    welcome_prompt = (
+        f"(Instruksi situasi: Member baru bernama '{member_display_name}'{count_info} baru saja bergabung{server_label} "
+        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
+        f"Gaya sambutan kali ini: {angle}\n"
+        f"Gunakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention, "
+        "tulis 1–2 kalimat pendek saja yang hangat, gaul/akrab, dan mengundang dia ikut ngobrol!)"
+        f"{note_instruction}{avoid_block}"
+    )
+
+    reply = await _call_gemini_agent(
+        system_prompt,
+        [{"role": "user", "parts": [{"text": welcome_prompt}]}],
+        temperature=0.92,
+        max_tokens=1536,
+        thinking_level="minimal",
+        has_media=False,
+        http_session=http_session,
+    )
+
+    if reply:
+        reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip().strip('"')
+        if member_mention and member_mention not in reply:
+            reply = f"{member_mention} {reply}"
+        recent_welcomes.append(reply)
+        w_cfg["recent_welcomes"] = recent_welcomes[-5:]
+        channel_id = int(w_cfg["channel_id"])
+        if channel_id in chat_agent_channels:
+            _append_channel_history(channel_id, "model", reply)
+        await save_agent_config_to_disk()
+
+    return reply
+
