@@ -1,0 +1,268 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on", "ya"}
+
+
+BOT_VERSION = "1.0.0-beta"
+
+# ==============================================================================
+# KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
+# ==============================================================================
+DISCORD_BOT_TOKEN: str = (
+    os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN") or ""
+).strip()
+GEMINI_API_KEY: str = (os.getenv("GEMINI_API_KEY") or "").strip()
+DISCORD_GUILD_ID: int | None = _env_int("DISCORD_GUILD_ID", 0, minimum=0) or None
+
+
+def parse_gemini_keys(raw_value: str) -> list[str]:
+    """Mendukung 1 API key maupun multi-API key dipisahkan koma (rotasi otomatis saat 429)."""
+    return [
+        k.strip()
+        for k in (raw_value or "").split(",")
+        if k.strip() and not k.strip().startswith("masukkan_")
+    ]
+
+# ==============================================================================
+# PENGATURAN MODEL GEMINI (TERBARU 2026) & BATAS SISTEM
+# ==============================================================================
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+GEMINI_DEFAULT_MODEL: str = (
+    os.getenv("GEMINI_DEFAULT_MODEL") or "gemini-3.8-flash"
+).strip()
+GEMINI_FAST_MODEL: str = (
+    os.getenv("GEMINI_FAST_MODEL") or "gemini-3.5-flash-lite"
+).strip()
+GEMINI_IMAGE_MODEL: str = (
+    os.getenv("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-lite-image"
+).strip()
+
+# Rantai model cadangan otomatis jika model utama terkena rate-limit (429) atau gangguan sementara (503)
+GEMINI_TEXT_FALLBACK_CHAIN: list[str] = [
+    GEMINI_DEFAULT_MODEL,
+    "gemini-flash-latest",
+    GEMINI_FAST_MODEL,
+    "gemini-3.1-flash-lite",
+]
+
+GEMINI_IMAGE_FALLBACK_CHAIN: list[str] = [
+    GEMINI_IMAGE_MODEL,
+    "gemini-nano-banana-2.1",
+]
+
+ENABLE_IMAGE_FALLBACK: bool = _env_bool("ENABLE_IMAGE_FALLBACK", True)
+MAX_HISTORY_MESSAGES: int = _env_int("MAX_HISTORY_MESSAGES", 30, minimum=4)
+MAX_THREADS_PER_USER: int = _env_int("MAX_THREADS_PER_USER", 3, minimum=1)
+SESSION_EXPIRE_DAYS: int = _env_int("SESSION_EXPIRE_DAYS", 7, minimum=0)
+MAX_CONCURRENT_MEDIA_TASKS: int = _env_int("MAX_CONCURRENT_MEDIA_TASKS", 2, minimum=1)
+
+# Batas aman lampiran Vision, Video, Stiker & file kode (menjaga RAM tetap ringan di Wispbyte)
+MAX_IMAGE_ATTACHMENT_BYTES: int = 8 * 1024 * 1024  # 8 MB per gambar
+MAX_VIDEO_ATTACHMENT_BYTES: int = 15 * 1024 * 1024  # 15 MB per video klip pendek (Galeri)
+MAX_STICKER_EMOJI_BYTES: int = 2 * 1024 * 1024  # 2 MB untuk stiker / custom emoji
+MAX_IMAGES_PER_MESSAGE: int = 4
+MAX_TEXT_ATTACHMENT_BYTES: int = 100 * 1024  # 100 KB per file teks/kode
+
+# Pengaturan Default AI Community Agent (Auto-Chat, Pemecah Sepi, & Galeri)
+BOT_TIMEZONE: str = (os.getenv("BOT_TIMEZONE") or "Asia/Jakarta").strip()
+AGENT_DEFAULT_IDLE_MINUTES: int = _env_int("AGENT_DEFAULT_IDLE_MINUTES", 30, minimum=0)
+AGENT_MAX_IDLE_POKES: int = _env_int("AGENT_MAX_IDLE_POKES", 1, minimum=1)
+AGENT_CHANNEL_COOLDOWN_SEC: float = 3.5
+AGENT_HISTORY_MESSAGES: int = _env_int("AGENT_HISTORY_MESSAGES", 20, minimum=4)
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+SESSIONS_FILE = DATA_DIR / "sessions.json"
+AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
+
+# ==============================================================================
+# DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI)
+# ==============================================================================
+AI_MODELS: dict[str, dict] = {
+    "gemini_flash": {
+        "name": "♊ Gemini 3.8 Flash (Asisten Utama)",
+        "short_label": "Gemini 3.8 Flash (Utama)",
+        "description": "Asisten cerdas serba bisa + analisis gambar (Vision)",
+        "emoji": "♊",
+        "model_id": GEMINI_DEFAULT_MODEL,
+        "temperature": 0.7,
+        "system_prompt": (
+            "Kamu adalah AI Assistant berbasis Google Gemini di server Discord ini yang ramah, "
+            "cerdas, dan sangat membantu. Jawablah dalam bahasa Indonesia yang santai, sopan, "
+            "jelas, dan rapi menggunakan format Markdown Discord seperlunya. Jika pengguna "
+            "melampirkan gambar atau file teks/kode, analisis isinya secara teliti dan akurat."
+        ),
+    },
+    "gemini_fast": {
+        "name": "⚡ Gemini 3.5 Flash-Lite (Respon Kilat)",
+        "short_label": "Gemini Flash-Lite (Kilat)",
+        "description": "Respon super cepat & hemat kuota untuk tanya-jawab singkat",
+        "emoji": "⚡",
+        "model_id": GEMINI_FAST_MODEL,
+        "temperature": 0.6,
+        "system_prompt": (
+            "Kamu adalah asisten AI Google Gemini berkecepatan tinggi. Jawablah setiap pertanyaan "
+            "secara ringkas, padat, langsung ke inti (to-the-point), namun tetap ramah dalam bahasa Indonesia."
+        ),
+    },
+    "gemini_coder": {
+        "name": "💻 Gemini - Pakar Koding & Debug",
+        "short_label": "Gemini Pakar Koding",
+        "description": "Spesialis pemrograman, arsitektur kode & debug error",
+        "emoji": "💻",
+        "model_id": GEMINI_DEFAULT_MODEL,
+        "temperature": 0.3,
+        "system_prompt": (
+            "Kamu adalah Senior Software Engineer & AI spesialis pemrograman berbasis Google Gemini. "
+            "Jawablah pertanyaan koding secara terstruktur, berikan contoh kode yang bersih, aman, "
+            "dan modern menggunakan blok kode Markdown lengkap dengan penanda bahasa (misal ```python). "
+            "Jelaskan akar masalah bug dan logika solusinya secara jelas dalam bahasa Indonesia."
+        ),
+    },
+    "gemini_logic": {
+        "name": "🧠 Gemini - Penalaran & Riset",
+        "short_label": "Gemini Penalaran & Riset",
+        "description": "Analisis mendalam, logika, matematika & pemecahan masalah",
+        "emoji": "🧠",
+        "model_id": GEMINI_DEFAULT_MODEL,
+        "temperature": 0.4,
+        "system_prompt": (
+            "Kamu adalah asisten riset dan analis logika berbasis Google Gemini. Uraikan permasalahan "
+            "kompleks langkah demi langkah secara sistematis, objektif, akurat, dan terstruktur. "
+            "Sangat unggul dalam penalaran logika, matematika, sains, dan perencanaan dalam bahasa Indonesia."
+        ),
+    },
+    "gemini_curhat": {
+        "name": "🛋️ Gemini - Teman Curhat",
+        "short_label": "Gemini Teman Curhat",
+        "description": "Empati tinggi, pendengar hangat, aman & suportif",
+        "emoji": "🛋️",
+        "model_id": GEMINI_DEFAULT_MODEL,
+        "temperature": 0.85,
+        "system_prompt": (
+            "Kamu adalah Teman Curhat yang sangat empatik, hangat, pendengar yang baik, tidak menghakimi, "
+            "dan suportif. Berikan respons yang menenangkan, memvalidasi perasaan pengguna, dan ramah "
+            "layaknya sahabat dekat dalam bahasa Indonesia yang natural."
+        ),
+    },
+}
+
+# Pemetaan otomatis jika ada sesi lama yang masih memakai ID model versi terdahulu
+LEGACY_MODEL_ALIASES: dict[str, str] = {
+    "groq_llama70b": "gemini_logic",
+    "groq_fast": "gemini_fast",
+    "qwen_coder": "gemini_coder",
+}
+
+
+def resolve_model_key(model_key: str | None) -> str:
+    if not model_key:
+        return "gemini_flash"
+    mapped = LEGACY_MODEL_ALIASES.get(model_key, model_key)
+    return mapped if mapped in AI_MODELS else "gemini_flash"
+
+
+# ==============================================================================
+# DAFTAR GAYA ART & RASIO GAMBAR
+# ==============================================================================
+STYLE_OPTIONS: dict[str, dict[str, str]] = {
+    "Biasa": {
+        "label": "Biasa / Default",
+        "emoji": "🖼️",
+        "prompt": "",
+    },
+    "Anime": {
+        "label": "Anime Style",
+        "emoji": "⛩️",
+        "prompt": ", anime style, highly detailed Japanese animation, vibrant colors, crisp lineart, studio anime aesthetic",
+    },
+    "Cyberpunk": {
+        "label": "Cyberpunk Futuristic",
+        "emoji": "🏙️",
+        "prompt": ", cyberpunk style, neon lights, futuristic metropolis, highly detailed, dramatic cinematic lighting",
+    },
+    "Photorealistic": {
+        "label": "Photorealistic (Foto Asli)",
+        "emoji": "📸",
+        "prompt": ", photorealistic, ultra realistic DSLR photography, natural lighting, sharp focus, 8k detail",
+    },
+    "3D Render": {
+        "label": "3D Render (Pixar/Blender)",
+        "emoji": "🧊",
+        "prompt": ", 3d render style, blender 3d, pixar animation aesthetic, octane render, soft studio lighting",
+    },
+    "Pixel Art": {
+        "label": "Pixel Art Retro",
+        "emoji": "👾",
+        "prompt": ", detailed 16-bit pixel art, retro game aesthetic, crisp pixels, vibrant palette",
+    },
+    "Watercolor": {
+        "label": "Lukisan Cat Air (Watercolor)",
+        "emoji": "🎨",
+        "prompt": ", artistic watercolor painting on textured paper, soft brush strokes, dreamy pastel colors",
+    },
+}
+
+STYLE_PROMPTS: dict[str, str] = {k: v["prompt"] for k, v in STYLE_OPTIONS.items()}
+
+RATIO_OPTIONS: dict[str, dict] = {
+    "1:1 (Persegi)": {
+        "label": "1:1 (Persegi - Default)",
+        "emoji": "⏹️",
+        "aspect_ratio": "1:1",
+        "dimensions": (1024, 1024),
+    },
+    "16:9 (Landscape)": {
+        "label": "16:9 (Landscape / Banner)",
+        "emoji": "🖼️",
+        "aspect_ratio": "16:9",
+        "dimensions": (1280, 720),
+    },
+    "9:16 (Portrait/Story)": {
+        "label": "9:16 (Portrait / Story HP)",
+        "emoji": "📱",
+        "aspect_ratio": "9:16",
+        "dimensions": (720, 1280),
+    },
+    "4:3 (Klasik)": {
+        "label": "4:3 (Foto Klasik)",
+        "emoji": "📺",
+        "aspect_ratio": "4:3",
+        "dimensions": (1152, 864),
+    },
+    "3:4 (Poster)": {
+        "label": "3:4 (Poster / Potret)",
+        "emoji": "📋",
+        "aspect_ratio": "3:4",
+        "dimensions": (864, 1152),
+    },
+}
+
+RATIO_DIMENSIONS: dict[str, tuple[int, int]] = {
+    k: v["dimensions"] for k, v in RATIO_OPTIONS.items()
+}
+
+DEFAULT_IMAGE_SETTINGS: dict[str, str] = {
+    "style": "Biasa",
+    "ratio": "1:1 (Persegi)",
+}
