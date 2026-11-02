@@ -36,6 +36,7 @@ from ai_handler import (
 from utils import (
     extract_social_media_and_stickers,
     get_realtime_time_context,
+    has_voice_or_audio_attachment,
     sanitize_error_message,
 )
 
@@ -45,7 +46,9 @@ logger = logging.getLogger("gemini_bot.agent")
 guild_agent_settings: dict[int, dict] = {}
 chat_agent_channels: dict[int, dict] = {}
 gallery_agent_channels: dict[int, dict] = {}
+welcome_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
+_recent_welcomed_members: dict[tuple[int, int], float] = {}
 
 _agent_disk_lock = asyncio.Lock()
 _agent_channel_locks: dict[int, asyncio.Lock] = {}
@@ -231,6 +234,51 @@ def set_gallery_channel_config(
     return gallery_agent_channels[channel_id]
 
 
+def set_welcome_config(
+    guild_id: int,
+    channel_id: int,
+    *,
+    enabled: bool,
+    extra_note: str | None = None,
+) -> dict | None:
+    """Mengatur atau menonaktifkan fitur AI Auto-Welcomer untuk member baru di suatu server."""
+    if not enabled:
+        welcome_agent_guilds.pop(guild_id, None)
+        return None
+
+    existing = welcome_agent_guilds.get(guild_id) or {}
+    if extra_note is None:
+        note = str(existing.get("extra_note") or "").strip()
+    elif extra_note.strip() == "-":
+        note = ""
+    else:
+        note = extra_note.strip()[:250]
+
+    welcome_agent_guilds[guild_id] = {
+        "enabled": True,
+        "channel_id": int(channel_id),
+        "extra_note": note,
+        "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
+    }
+    return welcome_agent_guilds[guild_id]
+
+
+def should_process_member_welcome(guild_id: int, user_id: int, *, force: bool = False) -> bool:
+    """Mencegah sambutan ganda jika event on_member_join & System Join Message aktif bersamaan."""
+    now = time.time()
+    # Bersihkan entri kadaluarsa (> 5 menit)
+    expired = [k for k, ts in _recent_welcomed_members.items() if now - ts > 300]
+    for k in expired:
+        _recent_welcomed_members.pop(k, None)
+
+    key = (int(guild_id), int(user_id))
+    if not force and key in _recent_welcomed_members and (now - _recent_welcomed_members[key]) < 60:
+        return False
+
+    _recent_welcomed_members[key] = now
+    return True
+
+
 def load_agent_config_from_disk() -> tuple[int, int]:
     """Memuat konfigurasi AI Agent Komunitas dari data/agent_config.json."""
     if not AGENT_CONFIG_FILE.exists():
@@ -291,6 +339,20 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+    for gid_str, wdata in (raw.get("welcome_guilds") or {}).items():
+        try:
+            gid = int(gid_str)
+            if not wdata.get("enabled", True):
+                continue
+            welcome_agent_guilds[gid] = {
+                "enabled": True,
+                "channel_id": int(wdata["channel_id"]),
+                "extra_note": str(wdata.get("extra_note") or "").strip()[:250],
+                "recent_welcomes": [str(x) for x in (wdata.get("recent_welcomes") or [])[-5:]],
+            }
+        except (KeyError, ValueError, TypeError):
+            continue
+
     for cid_str, hist in (raw.get("channel_histories") or {}).items():
         try:
             cid = int(cid_str)
@@ -315,6 +377,7 @@ async def save_agent_config_to_disk() -> None:
                 "guild_settings": {str(k): v for k, v in guild_agent_settings.items()},
                 "chat_channels": {str(k): v for k, v in chat_agent_channels.items()},
                 "gallery_channels": {str(k): v for k, v in gallery_agent_channels.items()},
+                "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
                 "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in channel_histories.items()},
             }
             tmp_file = AGENT_CONFIG_FILE.with_suffix(".json.tmp")
@@ -397,6 +460,10 @@ def should_agent_reply_in_chat(
             _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
+    # 0. Member mengirim Voice Note (Pesan Suara 🎤) atau file audio -> selalu dengarkan & balas!
+    if has_voice_or_audio_attachment(message):
+        return True, True
+
     if ch_cfg.get("reply_mode") == "all":
         return True, False
 
@@ -445,7 +512,10 @@ def _build_community_system_prompt(guild_cfg: dict, bot_display_name: str, time_
         "pancing balik dengan pertanyaan ringan supaya obrolan terus nyambung dan hidup.\n"
         "5. Jika member mengirim STIKER atau EMOJI, perhatikan ekspresi visual pada gambar stiker/emoji "
         "tersebut lalu komentari ekspresinya secara spesifik, seru, atau jenaka!\n"
-        f"6. WAKTU SEKARANG: {time_ctx['summary']}. Kamu tahu persis jam berapa sekarang ({time_ctx['clock']}) "
+        "6. Jika member mengirim VOICE NOTE (pesan suara) atau AUDIO, dengarkan baik-baik apa yang mereka "
+        "ucapkan beserta intonasinya, lalu balas langsung isi pembicaraannya secara santai seolah kamu baru "
+        "mendengarkan voice note temanmu (jangan kaku bilang 'aku sudah mendengarkan rekaman audio kamu').\n"
+        f"7. WAKTU SEKARANG: {time_ctx['summary']}. Kamu tahu persis jam berapa sekarang ({time_ctx['clock']}) "
         "dan sesuaikan obrolanmu dengan suasana jam ini secara alami."
     )
     if extra:
@@ -538,6 +608,7 @@ async def generate_community_chat_reply(
         message,
         http_session,
         include_video=False,
+        include_audio=True,
     )
 
     author_name = message.author.display_name
@@ -578,7 +649,7 @@ async def generate_community_chat_reply(
         contents,
         temperature=0.88,
         max_tokens=2048,
-        thinking_level="minimal",
+        thinking_level="low" if media_parts else "minimal",
         has_media=bool(media_parts),
         http_session=http_session,
     )
@@ -695,6 +766,7 @@ async def generate_gallery_comment(
             message,
             http_session,
             include_video=True,
+            include_audio=False,
         )
     # Hanya komentari kiriman yang benar-benar memiliki lampiran foto/gambar atau video di galeri
     has_gallery_attachment = any(
@@ -819,3 +891,84 @@ async def run_idle_chat_check(bot: discord.Client, http_session: aiohttp.ClientS
                 logger.warning("Gagal mengirim pemecah sepi di %s: %s", channel_id, exc)
 
     return poked_count
+
+
+_WELCOME_ANGLES: tuple[str, ...] = (
+    "Sambut dengan antusias layaknya warga lama yang senang kedatangan teman tongkrongan baru.",
+    "Sambut hangat sesuai suasana jam sekarang lalu ajak kenalan santai atau tanya lagi sibuk/main apa.",
+    "Sambut akrab dan seru sesuai tema komunitas server, bikin dia langsung merasa betah dan tidak canggung.",
+    "Beri sambutan ceria yang santai ala Discord Indonesia lalu pancing satu pertanyaan ringan biar dia mau nyaut.",
+    "Sambut ramah seolah membukakan pintu tongkrongan sambil menyapa namanya dengan akrab.",
+)
+
+
+async def generate_welcome_greeting(
+    guild_id: int,
+    member_display_name: str,
+    member_mention: str,
+    bot_display_name: str,
+    *,
+    guild_name: str = "",
+    member_count: int | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> str | None:
+    """Membuat sambutan otomatis yang unik & natural ala manusia untuk member yang baru bergabung."""
+    w_cfg = welcome_agent_guilds.get(guild_id)
+    if not w_cfg or not w_cfg.get("enabled"):
+        return None
+
+    guild_cfg = get_guild_settings(guild_id)
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+    system_prompt = _build_community_system_prompt(guild_cfg, bot_display_name, time_ctx)
+
+    recent_welcomes = list(w_cfg.get("recent_welcomes") or [])[-5:]
+    avoid_block = ""
+    if recent_welcomes:
+        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_welcomes)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Sambutan sebelumnya yang sudah pernah kamu kirim: [{joined_prev}]. "
+            "Buat variasi kalimat & pembuka yang berbeda supaya setiap member baru mendapat sambutan segar!"
+        )
+
+    extra_note = str(w_cfg.get("extra_note") or "").strip()
+    note_instruction = (
+        f"\nSelipkan juga info penting ini secara santai (jangan kaku seperti pengumuman): \"{extra_note}\""
+        if extra_note
+        else ""
+    )
+    count_info = f" (member ke-{member_count})" if member_count else ""
+    server_label = f" di server '{guild_name}'" if guild_name else ""
+    angle = random.choice(_WELCOME_ANGLES)
+
+    welcome_prompt = (
+        f"(Instruksi situasi: Member baru bernama '{member_display_name}'{count_info} baru saja bergabung{server_label} "
+        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
+        f"Gaya sambutan kali ini: {angle}\n"
+        f"Gunakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention, "
+        "tulis 1–2 kalimat pendek saja yang hangat, gaul/akrab, dan mengundang dia ikut ngobrol!)"
+        f"{note_instruction}{avoid_block}"
+    )
+
+    reply = await _call_gemini_agent(
+        system_prompt,
+        [{"role": "user", "parts": [{"text": welcome_prompt}]}],
+        temperature=0.92,
+        max_tokens=1536,
+        thinking_level="minimal",
+        has_media=False,
+        http_session=http_session,
+    )
+
+    if reply:
+        reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip().strip('"')
+        if member_mention and member_mention not in reply:
+            reply = f"{member_mention} {reply}"
+        recent_welcomes.append(reply)
+        w_cfg["recent_welcomes"] = recent_welcomes[-5:]
+        channel_id = int(w_cfg["channel_id"])
+        if channel_id in chat_agent_channels:
+            _append_channel_history(channel_id, "model", reply)
+        await save_agent_config_to_disk()
+
+    return reply
+

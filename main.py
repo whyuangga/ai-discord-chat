@@ -9,7 +9,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ai_handler import generate_image, get_ai_response, is_gemini_key_configured
+from ai_handler import (
+    generate_image,
+    get_ai_response,
+    is_gemini_key_configured,
+    summarize_channel_messages,
+)
 from community_agent import (
     chat_agent_channels,
     format_idle_duration,
@@ -17,6 +22,7 @@ from community_agent import (
     generate_community_chat_reply,
     generate_gallery_comment,
     generate_idle_icebreaker,
+    generate_welcome_greeting,
     get_agent_channel_lock,
     get_guild_settings,
     load_agent_config_from_disk,
@@ -26,7 +32,10 @@ from community_agent import (
     save_agent_config_to_disk,
     set_chat_channel_config,
     set_gallery_channel_config,
+    set_welcome_config,
     should_agent_reply_in_chat,
+    should_process_member_welcome,
+    welcome_agent_guilds,
 )
 from config import (
     AGENT_DEFAULT_IDLE_MINUTES,
@@ -59,6 +68,7 @@ from storage import (
 from utils import (
     extract_message_attachments,
     get_realtime_time_context,
+    has_voice_or_audio_attachment,
     sanitize_error_message,
     split_discord_message,
 )
@@ -104,6 +114,7 @@ class GeminiDiscordBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.members = True
         super().__init__(
             command_prefix="!",
             intents=intents,
@@ -111,6 +122,22 @@ class GeminiDiscordBot(commands.Bot):
         )
         self.http_session: aiohttp.ClientSession | None = None
         self.started_at: float = time.time()
+
+    async def start(self, token: str, *, reconnect: bool = True) -> None:
+        await self.login(token)
+        try:
+            await self.connect(reconnect=reconnect)
+        except discord.PrivilegedIntentsRequired:
+            if self.intents.members:
+                logger.warning(
+                    "ℹ️ Server Members Intent belum dicentang di Discord Developer Portal — "
+                    "menyambung otomatis tanpa Members Intent (Auto-Welcome tetap bekerja lewat "
+                    "pesan System Join Discord, atau centang Server Members Intent untuk semua channel)."
+                )
+                self._connection._intents.members = False
+                await self.connect(reconnect=reconnect)
+            else:
+                raise
 
     async def setup_hook(self) -> None:
         # 1. Buat koneksi HTTP bersama agar cepat & hemat RAM
@@ -230,8 +257,61 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
     if channel.id in gallery_agent_channels:
         set_gallery_channel_config(channel.guild.id, channel.id, enabled=False)
         removed = True
+    w_cfg = welcome_agent_guilds.get(channel.guild.id)
+    if w_cfg and int(w_cfg.get("channel_id") or 0) == channel.id:
+        set_welcome_config(channel.guild.id, channel.id, enabled=False)
+        removed = True
     if removed:
         await save_agent_config_to_disk()
+
+
+async def _trigger_member_welcome(
+    guild: discord.Guild,
+    member: discord.abc.User,
+    *,
+    force: bool = False,
+) -> str | None:
+    """Menjalankan sambutan member baru secara aman & bebas duplikat."""
+    if getattr(member, "bot", False):
+        return None
+
+    w_cfg = welcome_agent_guilds.get(guild.id)
+    if not w_cfg or not w_cfg.get("enabled"):
+        return None
+
+    target_ch = guild.get_channel(int(w_cfg["channel_id"]))
+    if not isinstance(target_ch, discord.TextChannel):
+        return None
+
+    if not should_process_member_welcome(guild.id, member.id, force=force):
+        return None
+
+    bot_name = guild.me.display_name if guild.me else (bot.user.display_name if bot.user else "Teman")
+    lock = get_agent_channel_lock(target_ch.id)
+    async with lock:
+        try:
+            async with target_ch.typing():
+                greeting = await generate_welcome_greeting(
+                    guild.id,
+                    member.display_name,
+                    member.mention,
+                    bot_name,
+                    guild_name=guild.name,
+                    member_count=getattr(guild, "member_count", None),
+                    http_session=bot.http_session,
+                )
+                if greeting:
+                    await target_ch.send(greeting[:1900])
+                    return greeting
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning("Gagal mengirim pesan Auto-Welcome di %s: %s", target_ch.id, exc)
+    return None
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    """Menyambut member baru secara otomatis menggunakan AI Agent (jika aktif)."""
+    await _trigger_member_welcome(member.guild, member)
 
 
 # ==============================================================================
@@ -340,7 +420,7 @@ async def agent_chat_cmd(
         f"✅ **AI Agent Auto-Chat aktif di {channel.mention}!**\n"
         f"• **Mode Balasan:** `{mode_label}`\n"
         f"• **Pemecah Sepi Otomatis:** {idle_desc}\n"
-        f"• **Kemampuan:** Ngobrol santai ala manusia, baca **Stiker & Emoji**, dan paham **Jam Lokal Real-Time**.\n"
+        f"• **Kemampuan:** Ngobrol santai ala manusia, dengar **Voice Note (🎤)**, baca **Stiker & Emoji**, dan paham **Jam Lokal Real-Time**.\n"
         f"*(Gunakan `/agent sapa` jika ingin mengetes sapaan pemecah sepi sekarang juga!)*",
         ephemeral=True,
     )
@@ -494,6 +574,68 @@ async def agent_sapa_cmd(
 
 
 @agent_group.command(
+    name="welcome",
+    description="Aktifkan/atur AI Auto-Welcomer untuk menyambut member baru secara natural",
+)
+@app_commands.describe(
+    channel="Channel tempat AI menyambut member baru (misal #welcome)",
+    aktif="True untuk mengaktifkan, False untuk mematikan",
+    pesan_tambahan="Info opsional yang diselipkan santai (misal: Jangan lupa ambil role di #roles, atau isi - untuk hapus)",
+    tes_sekarang="True untuk langsung mencoba contoh sambutan AI di channel tersebut sekarang",
+)
+async def agent_welcome_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    aktif: bool,
+    pesan_tambahan: str | None = None,
+    tes_sekarang: bool = False,
+):
+    if interaction.guild is None:
+        return
+
+    cfg = set_welcome_config(
+        interaction.guild.id,
+        channel.id,
+        enabled=aktif,
+        extra_note=pesan_tambahan,
+    )
+    await save_agent_config_to_disk()
+
+    if not aktif or cfg is None:
+        await interaction.response.send_message(
+            f"🛑 **AI Auto-Welcomer** telah **dinonaktifkan** di server ini.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    intent_hint = ""
+    if not bot.intents.members:
+        intent_hint = (
+            "\n💡 *Tips: Agar sambutan bekerja di channel mana pun (bukan hanya channel System Join Discord), "
+            "aktifkan centang **Server Members Intent** di Discord Developer Portal lalu restart bot.*"
+        )
+
+    test_result_note = ""
+    if tes_sekarang:
+        sent_greeting = await _trigger_member_welcome(interaction.guild, interaction.user, force=True)
+        if sent_greeting:
+            test_result_note = f"\n🎉 **Tes sambutan berhasil dikirim ke {channel.mention}!**"
+        else:
+            test_result_note = f"\n⚠️ *Gagal mengirim tes sambutan ke {channel.mention} (cek izin kirim pesan bot & API key).*"
+
+    extra_info = cfg.get("extra_note") or "(Tidak ada — murni sambutan santai)"
+    await interaction.followup.send(
+        f"👋 **AI Auto-Welcomer aktif di {channel.mention}!**\n"
+        f"• Setiap ada member baru masuk server, AI akan menyapanya dengan kalimat bervariasi sesuai jam & tema server.\n"
+        f"• **Pesan Tambahan:** `{extra_info}`"
+        f"{test_result_note}{intent_hint}",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
     name="status",
     description="Lihat daftar channel Auto-Chat, Pemecah Sepi, & Galeri yang aktif di server ini",
 )
@@ -556,7 +698,15 @@ async def agent_status_cmd(interaction: discord.Interaction):
         ),
         inline=False,
     )
+    w_cfg = welcome_agent_guilds.get(gid)
+    if w_cfg and w_cfg.get("enabled"):
+        w_note = f" | Info: `{w_cfg['extra_note']}`" if w_cfg.get("extra_note") else ""
+        welcome_line = f"• Aktif di <#{w_cfg['channel_id']}>{w_note}"
+    else:
+        welcome_line = "*Belum aktif (gunakan `/agent welcome`)*"
+
     embed.add_field(name="💬 Channel Auto-Chat & Pemecah Sepi", value="\n".join(chat_lines), inline=False)
+    embed.add_field(name="👋 Auto-Welcomer Member Baru", value=welcome_line, inline=False)
     embed.add_field(name="📸 Channel Auto-Komentar Galeri (Foto & Video)", value="\n".join(gallery_lines), inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -685,6 +835,124 @@ async def slash_model(interaction: discord.Interaction, mode: app_commands.Choic
 
 
 @bot.tree.command(
+    name="ringkas",
+    description="Rangkum inti obrolan terakhir di channel ini agar tidak ketinggalan topik (TL;DR)",
+)
+@app_commands.describe(
+    jumlah="Berapa banyak pesan terakhir yang ingin dirangkum",
+    channel="Channel yang ingin dirangkum (kosongkan untuk channel saat ini)",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke semua orang di channel",
+)
+@app_commands.choices(
+    jumlah=[
+        app_commands.Choice(name="25 Pesan Terakhir", value="25"),
+        app_commands.Choice(name="50 Pesan Terakhir - Default", value="50"),
+        app_commands.Choice(name="100 Pesan Terakhir", value="100"),
+        app_commands.Choice(name="150 Pesan Terakhir", value="150"),
+    ]
+)
+async def slash_ringkas(
+    interaction: discord.Interaction,
+    jumlah: app_commands.Choice[str] | None = None,
+    channel: discord.TextChannel | None = None,
+    publik: bool = False,
+):
+    target = channel or interaction.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread)) or interaction.guild is None:
+        await interaction.response.send_message(
+            "⚠️ Command `/ringkas` hanya dapat digunakan di Text Channel atau Thread server.",
+            ephemeral=True,
+        )
+        return
+
+    # Validasi keamanan izin baca: member & bot wajib sama-sama berhak membaca riwayat channel tersebut
+    if isinstance(interaction.user, discord.Member):
+        user_perms = target.permissions_for(interaction.user)
+        if not (user_perms.view_channel and user_perms.read_message_history):
+            await interaction.response.send_message(
+                f"⚠️ Anda tidak memiliki izin untuk membaca riwayat pesan di {target.mention}.",
+                ephemeral=True,
+            )
+            return
+
+    if interaction.guild.me is not None:
+        bot_perms = target.permissions_for(interaction.guild.me)
+        if not (bot_perms.view_channel and bot_perms.read_message_history):
+            await interaction.response.send_message(
+                f"⚠️ Bot belum memiliki izin `Read Message History` di {target.mention}.",
+                ephemeral=True,
+            )
+            return
+
+    limit_count = int(jumlah.value) if jumlah else 50
+    await interaction.response.defer(ephemeral=not publik)
+
+    g_cfg = get_guild_settings(interaction.guild.id)
+    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
+
+    collected_lines: list[str] = []
+    try:
+        async for msg in target.history(limit=limit_count + 20):
+            if msg.type not in (discord.MessageType.default, discord.MessageType.reply):
+                continue
+            text = (msg.content or "").strip()
+            extras: list[str] = []
+            if has_voice_or_audio_attachment(msg):
+                extras.append("[Voice Note/Audio]")
+            elif msg.attachments:
+                extras.append(f"[Lampiran: {', '.join(a.filename for a in msg.attachments[:2])}]")
+            if getattr(msg, "stickers", None):
+                extras.append(f"[Stiker: {msg.stickers[0].name}]")
+
+            combined = " ".join(filter(None, [text, *extras])).strip()
+            if not combined:
+                continue
+            # Lewati pesan embed sistem panel bot
+            if msg.author.bot and msg.embeds and not text:
+                continue
+
+            author_tag = f"{msg.author.display_name} (Bot)" if msg.author.bot else msg.author.display_name
+            collected_lines.append(f"[{author_tag}]: {combined[:400]}")
+            if len(collected_lines) >= limit_count:
+                break
+    except Exception as exc:
+        await interaction.followup.send(
+            f"⚠️ Gagal mengambil riwayat pesan: `{sanitize_error_message(exc)}`",
+            ephemeral=True,
+        )
+        return
+
+    if len(collected_lines) < 2:
+        await interaction.followup.send(
+            f"ℹ️ Belum cukup obrolan teks di {target.mention} untuk dirangkum.",
+            ephemeral=True,
+        )
+        return
+
+    # Urutkan kronologis dari pesan paling awal ke paling baru
+    collected_lines.reverse()
+    summary_text, err_msg = await summarize_channel_messages(
+        collected_lines,
+        target.name,
+        timezone_name=tz_name,
+        http_session=bot.http_session,
+    )
+
+    if err_msg or not summary_text:
+        await interaction.followup.send(err_msg or "⚠️ Gagal membuat ringkasan.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"📝 Ringkasan {len(collected_lines)} Chat Terakhir di #{target.name}",
+        description=summary_text[:3900],
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_footer(text=f"Diminta oleh {interaction.user.display_name}")
+    await interaction.followup.send(embed=embed, ephemeral=not publik)
+
+
+@bot.tree.command(
     name="status",
     description="Lihat status koneksi bot, latensi, pemakaian RAM, dan sesi Gemini aktif",
 )
@@ -741,6 +1009,11 @@ async def slash_status(interaction: discord.Interaction):
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
+        return
+
+    # Cadangan Auto-Welcome lewat pesan System Join Discord (bekerja walau Server Members Intent belum aktif!)
+    if message.type == discord.MessageType.new_member and message.guild is not None:
+        await _trigger_member_welcome(message.guild, message.author)
         return
 
     # Jalankan command prefix (seperti !setup_panel) tanpa memicu AI
@@ -804,6 +1077,7 @@ async def on_message(message: discord.Message):
             image_parts, _, _, warnings = await extract_message_attachments(
                 message,
                 http_session=bot.http_session,
+                include_audio=False,
             )
 
             if not prompt and not image_parts:

@@ -11,9 +11,11 @@ import discord
 
 from config import (
     AI_MODELS,
+    BOT_TIMEZONE,
     ENABLE_IMAGE_FALLBACK,
     GEMINI_API_BASE,
     GEMINI_API_KEY,
+    GEMINI_DEFAULT_MODEL,
     GEMINI_IMAGE_FALLBACK_CHAIN,
     GEMINI_PAID_IMAGE_ENABLED,
     GEMINI_TEXT_FALLBACK_CHAIN,
@@ -224,15 +226,26 @@ async def get_ai_response(
         prompt_sections.append(prompt.strip())
     if text_blocks:
         prompt_sections.extend(text_blocks)
+
+    has_audio_only = bool(image_filenames) and all(
+        fn.startswith(("voice_note:", "audio:")) for fn in image_filenames
+    )
     if not prompt_sections and image_parts:
-        prompt_sections.append("Tolong jelaskan dan analisis gambar yang saya lampirkan ini.")
+        if has_audio_only:
+            prompt_sections.append(
+                "Dengarkan pesan suara (voice note) atau audio yang saya kirim ini dengan saksama, "
+                "lalu jawab atau tanggapi langsung isi ucapannya secara jelas, ramah, dan relevan."
+            )
+        else:
+            prompt_sections.append("Tolong jelaskan dan analisis lampiran media/gambar yang saya kirim ini.")
 
     effective_prompt = "\n\n".join(prompt_sections).strip()
 
     history_note_parts: list[str] = []
     if image_filenames:
         files_label = ", ".join(image_filenames)
-        history_note_parts.append(f"[Pengguna melampirkan gambar: {files_label}]")
+        media_tag = "pesan suara/audio" if has_audio_only else "gambar"
+        history_note_parts.append(f"[Pengguna melampirkan {media_tag}: {files_label}]")
     if effective_prompt:
         history_note_parts.append(effective_prompt)
     history_user_entry = "\n".join(history_note_parts).strip()
@@ -458,3 +471,93 @@ async def generate_image(
 
     detail = "; ".join(gemini_errors) or "Gagal mengunduh gambar dari server AI."
     return None, None, detail
+
+
+async def summarize_channel_messages(
+    messages_log: list[str],
+    channel_name: str,
+    *,
+    timezone_name: str = BOT_TIMEZONE,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Merangkum daftar riwayat obrolan channel menjadi ringkasan TL;DR berbahasa Indonesia yang rapi.
+
+    Returns:
+        (summary_text, error_message)
+    """
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    if not messages_log:
+        return None, "Belum ada percakapan teks yang cukup di channel ini untuk dirangkum."
+
+    time_ctx = get_realtime_time_context(timezone_name)
+    system_prompt = (
+        "Kamu adalah perangkum obrolan komunitas Discord yang cerdas, ringkas, asik, dan akurat.\n"
+        f"Waktu saat ini: {time_ctx['summary']}.\n\n"
+        "TUGASMU:\n"
+        "Buat ringkasan cepat (TL;DR) dalam bahasa Indonesia yang santai namun rapi agar member yang baru buka HP "
+        "langsung paham apa saja yang barusan dibahas warga tanpa harus scroll panjang.\n"
+        "Gunakan struktur singkat berikut:\n"
+        "**📌 Topik Utama yang Dibahas**\n"
+        "- Sebutkan 2–5 poin inti obrolan beserta nama member yang membahasnya.\n\n"
+        "**🔥 Info / Momen Penting**\n"
+        "- Sebutkan jika ada ajakan mabar, kesepakatan, pengumuman, link/karya menarik, atau pertanyaan yang belum terjawab "
+        "(jika tidak ada yang khusus, tulis singkat suasana obrolannya)."
+    )
+
+    joined_transcript = "\n".join(messages_log)[-24000:]
+    user_prompt = (
+        f"Berikut adalah {len(messages_log)} pesan terakhir di channel #{channel_name}:\n\n"
+        f"{joined_transcript}\n\n"
+        "Rangkumkan isi obrolan di atas sekarang!"
+    )
+
+    active_keys = get_gemini_keys_rotated()
+    models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    last_err = "Server Gemini sedang sibuk, coba beberapa saat lagi."
+
+    async with _borrow_session(http_session, FAST_TEXT_TIMEOUT) as session:
+        for idx, model_id in enumerate(models_to_try):
+            gen_config: dict = {"temperature": 0.4, "maxOutputTokens": 2048}
+            t_cfg = build_thinking_config(model_id, "low")
+            if t_cfg:
+                gen_config["thinkingConfig"] = t_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                "generationConfig": gen_config,
+            }
+            api_key = active_keys[idx % len(active_keys)]
+            url = f"{GEMINI_API_BASE}/models/{model_id}:generateContent"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200:
+                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                        if reply_text:
+                            return reply_text, None
+                        if not should_retry and block_msg:
+                            return None, block_msg
+                        continue
+
+                    if resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+                        continue
+                    if resp.status == 429:
+                        continue
+                    err_detail = (
+                        data.get("error", {}).get("message", f"HTTP {resp.status}")
+                        if isinstance(data, dict)
+                        else f"HTTP {resp.status}"
+                    )
+                    last_err = sanitize_error_message(err_detail)
+            except (asyncio.TimeoutError, aiohttp.ClientError):
+                mark_model_unhealthy(model_id)
+                continue
+
+    return None, f"⚠️ Gagal merangkum obrolan: {last_err}"
+

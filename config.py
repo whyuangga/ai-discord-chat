@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.0.1-beta"
+BOT_VERSION = "1.1.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -86,8 +86,9 @@ MAX_THREADS_PER_USER: int = _env_int("MAX_THREADS_PER_USER", 3, minimum=1)
 SESSION_EXPIRE_DAYS: int = _env_int("SESSION_EXPIRE_DAYS", 7, minimum=0)
 MAX_CONCURRENT_MEDIA_TASKS: int = _env_int("MAX_CONCURRENT_MEDIA_TASKS", 2, minimum=1)
 
-# Batas aman lampiran Vision, Video, Stiker & file kode (menjaga RAM tetap ringan di Wispbyte)
+# Batas aman lampiran Vision, Audio/Voice Note, Video, Stiker & file kode (menjaga RAM tetap ringan di Wispbyte)
 MAX_IMAGE_ATTACHMENT_BYTES: int = 8 * 1024 * 1024  # 8 MB per gambar
+MAX_AUDIO_ATTACHMENT_BYTES: int = 12 * 1024 * 1024  # 12 MB per Voice Note / file audio
 MAX_VIDEO_ATTACHMENT_BYTES: int = 15 * 1024 * 1024  # 15 MB per video klip pendek (Galeri)
 MAX_STICKER_EMOJI_BYTES: int = 2 * 1024 * 1024  # 2 MB untuk stiker / custom emoji
 MAX_IMAGES_PER_MESSAGE: int = 4

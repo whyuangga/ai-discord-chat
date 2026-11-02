@@ -37,9 +37,9 @@ def build_main_panel_embed() -> discord.Embed:
         description=(
             "Selamat datang di pusat layanan **Google Gemini AI**!\n"
             "Pilih jenis ruang privat yang ingin Anda buat melalui tombol di bawah ini:\n\n"
-            "💬 **Chat AI, Vision & Koding**\n"
+            "💬 **Chat AI, Vision, Voice Note & Koding**\n"
             "> • Bebas pilih 5 mode kepribadian Gemini terbaru (Asisten, Kilat, Koding, Riset, Curhat).\n"
-            "> • **Mendukung Vision & File:** Kirim foto/screenshot error atau file kode (`.py`, `.js`, `.txt`, dll) untuk dianalisis langsung!\n"
+            "> • **Vision, Suara & Kode:** Kirim **Voice Note (🎤)**, foto/screenshot error, atau file kode (`.py`, `.js`, `.txt`, dll) untuk ditanggapi langsung!\n"
             "> • Bisa ganti mode kapan saja & memori tahan restart.\n\n"
             "🎨 **Generate & Edit Gambar AI**\n"
             "> • Buat ilustrasi berkualitas tinggi cukup dengan mengetik deskripsi.\n"
@@ -432,7 +432,7 @@ class AIModelSelectView(discord.ui.View):
                     f"👋 **Selamat Datang {interaction.user.mention}!**\n"
                     f"Ruang chat privat Anda siap menggunakan **{model_info['name']}**.\n"
                     f"• Ketik pertanyaan apa saja untuk mulai mengobrol.\n"
-                    f"• 📷 **Vision & Kode:** Anda juga bisa melampirkan **gambar/screenshot** atau **file kode** langsung di sini!\n"
+                    f"• 🎙️ **Voice Note, Vision & Kode:** Anda bisa mengirim **Pesan Suara (🎤)**, melampirkan **gambar/screenshot**, atau **file kode** langsung di sini!\n"
                     f"• Gunakan menu di bawah jika ingin berganti mode kepribadian di tengah obrolan:"
                 ),
                 view=ChatPersonaSwitchView(),

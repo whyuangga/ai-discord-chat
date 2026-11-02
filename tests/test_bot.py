@@ -63,6 +63,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
     ai_handler.clear_model_cooldowns()
     yield
@@ -72,6 +74,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
     ai_handler.clear_model_cooldowns()
 
@@ -294,7 +298,7 @@ async def test_persistent_views_have_valid_custom_ids():
 
 def test_slash_commands_registered():
     cmd_names = {cmd.name for cmd in bot_main.bot.tree.get_commands()}
-    assert {"setup_panel", "reset", "model", "status"}.issubset(cmd_names)
+    assert {"setup_panel", "reset", "model", "status", "ringkas"}.issubset(cmd_names)
 
 
 class _DummyAttachment:
@@ -348,7 +352,7 @@ def test_agent_command_group_registered():
     assert "agent" in cmd_names
     agent_cmd = next(cmd for cmd in bot_main.bot.tree.get_commands() if cmd.name == "agent")
     sub_names = {sub.name for sub in agent_cmd.commands}
-    assert {"chat", "gallery", "persona", "sapa", "status"} == sub_names
+    assert {"chat", "gallery", "persona", "sapa", "status", "welcome"} == sub_names
 
 
 class _FakeSticker:
@@ -638,6 +642,150 @@ def test_multi_gemini_api_keys_rotation_and_redaction(monkeypatch):
     sanitized = utils.sanitize_error_message("Failed with AIzaKeyAlpha11111 and AIzaKeyBeta22222")
     assert "AIzaKeyAlpha11111" not in sanitized
     assert "AIzaKeyBeta22222" not in sanitized
+
+
+@pytest.mark.asyncio
+async def test_voice_note_and_audio_extraction_and_reply(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    vn_att = _DummyAttachment("voice-message.ogg", "audio/ogg; codecs=opus", b"OggS\x00\x02opusvoice")
+    vn_att.duration = 6.4
+
+    # 1. Di ruang privat ai-..., Voice Note otomatis diekstrak sebagai audio/ogg & dijawab Gemini
+    msg_priv = _DummyMessage([vn_att])
+    media_parts, media_names, _, warnings = await utils.extract_message_attachments(msg_priv)
+    assert warnings == []
+    assert len(media_parts) == 1
+    assert media_parts[0]["inlineData"]["mimeType"] == "audio/ogg"
+    assert media_names == ["voice_note:voice-message.ogg"]
+
+    # Di ruang gambar draw-..., Voice Note dilewati secara aman
+    draw_parts, _, _, draw_warns = await utils.extract_message_attachments(msg_priv, include_audio=False)
+    assert draw_parts == []
+    assert len(draw_warns) == 1
+
+    storage.init_thread_session(909, "gemini_flash")
+    vn_gemini_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Siap, suara kamu terdengar jelas! Ayo kita bahas."}]}}]},
+    )
+    fake_http_priv = FakeHttpSession(post_responses=[vn_gemini_resp])
+    priv_reply = await ai_handler.get_ai_response(
+        909,
+        "",
+        image_parts=media_parts,
+        image_filenames=media_names,
+        http_session=fake_http_priv,
+    )
+    assert "suara kamu terdengar jelas" in priv_reply
+
+    # 2. Di channel Auto-Chat komunitas, Voice Note tanpa teks tetap memicu bot untuk mendengar & membalas!
+    bot_user = _FakeUser(100, "Whas")
+    member = _FakeUser(201, "Angga")
+    community_agent.set_chat_channel_config(10, 5000, enabled=True, reply_mode="smart", idle_minutes=30)
+    # Buat seolah channel baru aktif 10 detik lalu agar membuktikan pemicu murni berasal dari Voice Note
+    community_agent.chat_agent_channels[5000]["last_activity_at"] = 9999999999.0
+
+    vn_comm_msg = _FakeCommunityMessage(
+        channel_id=5000,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="",
+        attachments=[vn_att],
+    )
+    should_reply, use_ref = community_agent.should_agent_reply_in_chat(vn_comm_msg, bot_user)
+    assert should_reply is True
+    assert use_ref is True
+
+    comm_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Haha siap Angga, gas login bentar lagi ya!"}]}}]},
+    )
+    fake_http_comm = FakeHttpSession(post_responses=[comm_resp])
+    comm_reply = await community_agent.generate_community_chat_reply(
+        vn_comm_msg,
+        bot_user,
+        http_session=fake_http_comm,
+    )
+    assert "gas login" in comm_reply
+
+
+@pytest.mark.asyncio
+async def test_summarize_channel_messages_ringkas(monkeypatch):
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    log_lines = [
+        "[Angga]: Guys nanti jam 8 malam mabar Valorant yuk",
+        "[Rizky]: Gas gue ikut main Sage",
+        "[Sinta]: Aku nyusul jam setengah 9 ya habis makan",
+    ]
+    sum_resp = FakeMockResponse(
+        200,
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "**📌 Topik Utama**\n- Angga mengajak mabar Valorant jam 8 malam, Rizky & Sinta ikut."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+    fake_http = FakeHttpSession(post_responses=[sum_resp])
+    summary, err = await ai_handler.summarize_channel_messages(
+        log_lines,
+        "general",
+        http_session=fake_http,
+    )
+    assert err is None
+    assert "Valorant" in summary
+
+
+@pytest.mark.asyncio
+async def test_welcome_agent_greeting_dedup_and_persistence(monkeypatch):
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    community_agent.set_welcome_config(
+        10,
+        7000,
+        enabled=True,
+        extra_note="Jangan lupa ambil role di #roles",
+    )
+    await community_agent.save_agent_config_to_disk()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent.load_agent_config_from_disk()
+    assert community_agent.welcome_agent_guilds[10]["channel_id"] == 7000
+    assert "ambil role" in community_agent.welcome_agent_guilds[10]["extra_note"]
+
+    # Deduplikasi: join yang sama dalam 60 detik hanya diproses 1x (kecuali force=True untuk tes)
+    assert community_agent.should_process_member_welcome(10, 555) is True
+    assert community_agent.should_process_member_welcome(10, 555) is False
+    assert community_agent.should_process_member_welcome(10, 555, force=True) is True
+
+    # Jika model lupa menyertakan mention <@555>, fungsi otomatis menyisipkannya
+    w_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Halo selamat datang di tongkrongan kita, jangan lupa mampir ke #roles ya!"}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[w_resp])
+    greeting = await community_agent.generate_welcome_greeting(
+        10,
+        "Bintang",
+        "<@555>",
+        "Whas",
+        guild_name="Server Angga",
+        member_count=42,
+        http_session=fake_http,
+    )
+    assert "<@555>" in greeting
+    assert len(community_agent.welcome_agent_guilds[10]["recent_welcomes"]) == 1
 
 
 

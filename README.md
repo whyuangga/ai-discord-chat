@@ -1,8 +1,8 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.0.1-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.1.0-beta`)
 
 Bot Discord lengkap berbasis **100% Google Gemini API terbaru** yang menggabungkan **dua sistem utama dalam satu bot ringan**:
-1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
-2. **🌐 AI Agent & Otomasi Komunitas (*Public Channel*)** — Teman nongkrong virtual bergaya manusia asli yang bisa ikut ngobrol santai di *General Chat*, memecah keheningan saat channel sepi (*Dead-Chat Reviver*), paham jam lokal secara *real-time*, membaca ekspresi **Stiker & Custom Emoji**, hingga otomatis mengomentari kiriman **Foto & Video** di channel Galeri!
+1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, mendengar **Voice Note (🎤)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
+2. **🌐 AI Agent & Otomasi Komunitas (*Public Channel*)** — Teman nongkrong virtual bergaya manusia asli yang bisa ikut ngobrol santai di *General Chat*, mendengar **Voice Note**, menyambut member baru secara natural (**Auto-Welcomer**), merangkum obrolan tertinggal (**`/ringkas`**), memecah keheningan saat channel sepi (*Dead-Chat Reviver*), paham jam lokal secara *real-time*, membaca ekspresi **Stiker & Custom Emoji**, hingga otomatis mengomentari kiriman **Foto & Video** di channel Galeri!
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **cepat & bebas antrean `503` pada akun Gemini *Free Tier***.
 
@@ -43,8 +43,9 @@ Saat menekan tombol **💬 Chat AI (Teks & Vision)**, member bebas memilih 1 dar
 
 > 💡 **Ganti Mode Kapan Saja:** Di dalam ruang `ai-...`, tersedia menu *dropdown* dan command `/model` untuk mengganti kepribadian Gemini di tengah percakapan **tanpa menghapus riwayat obrolan sebelumnya**.
 
-#### 2. 📷 Analisis Gambar (*Vision*), Stiker, & Pembaca File Kode
-Di dalam ruang chat `ai-...`, member tidak hanya bisa mengetik teks, tetapi juga melampirkan:
+#### 2. 🎙️ Mendengar *Voice Note* (Pesan Suara 🎤), *Vision* Gambar, & Pembaca File Kode
+Di dalam ruang chat `ai-...` (maupun di channel Auto-Chat komunitas), member bisa langsung mengirim:
+- **Voice Note / Pesan Suara Discord (🎤) & File Audio** (`.ogg`, `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac` — maks. 12 MB): Cukup tekan tombol mikrofon di Discord HP/PC lalu bicara — Gemini mendengarkan langsung isi ucapan beserta intonasinya dan menjawab nyambung tanpa perlu mengetik!
 - **Gambar / Screenshot** (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif` — maks. 8 MB per gambar, hingga 4 gambar sekaligus): Cocok untuk menanyakan soal bergambar, desain UI, atau *screenshot* pesan *error* koding.
 - **File Kode & Dokumen Teks** (`.py`, `.js`, `.ts`, `.tsx`, `.json`, `.yaml`, `.html`, `.css`, `.sql`, `.csv`, `.txt`, `.md`, `.log`, `.c`, `.cpp`, `.java`, `.go`, `.rs`, `.php`, dll. — maks. 100 KB per file): Bot otomatis membaca isi file dan memasukkannya sebagai konteks ke Gemini.
 - **Stiker Discord**: Bot ikut mengenali visual stiker yang dikirim.
@@ -105,6 +106,14 @@ Fitur ini membuat bot berbaur di channel publik server layaknya **warga/teman no
   1. Bot otomatis men-scan isi visual gambar atau video tersebut menggunakan Gemini Multimodal.
   2. Memberikan **reaksi emoji otomatis** (`✨`, `🔥`, `😍`, `👏`, atau `🙌` — bisa dinyalakan/dimatikan).
   3. Membalas (*reply*) postingan tersebut dengan komentar spesifik yang menyebutkan detail unik di dalam foto/video (seperti warna kostum, karakter, latar tempat, atau momen serunya).
+
+#### 6. 👋 AI Auto-Welcomer Member Baru (`/agent welcome`)
+- Begitu ada member baru bergabung ke server, AI Agent otomatis menyapanya di channel sambutan (`#welcome`) dengan kalimat kreatif yang **selalu gonta-ganti** (anti-monoton), menyesuaikan nama member baru, jam lokal saat ia masuk, gaya bahasa, serta `konteks_komunitas` server Anda!
+- Bisa ditambahkan `pesan_tambahan` (contoh: *"Jangan lupa ambil role di #roles ya"*) yang akan dirangkai secara luwes oleh AI, serta dilengkapi tombol `tes_sekarang:True` untuk langsung melihat contoh sambutannya.
+
+#### 7. 📝 Perangkum Obrolan Channel Tertinggal (`/ringkas`)
+- Ketinggalan **99+ notifikasi chat** di grup? Siapa pun member bisa mengetik **`/ringkas`** (pilih `25`, `50`, `100`, atau `150` pesan terakhir).
+- Bot akan merangkum poin-poin inti obrolan warga beserta info/momen penting ke dalam Embed rapi berbahasa Indonesia (secara default hanya terlihat oleh Anda sendiri agar tidak mengganggu chat).
 
 ---
 
@@ -184,13 +193,25 @@ Agar bot otomatis mengomentari dan memberi emoji pada kiriman foto/video member 
 /agent gallery channel:#galeri aktif:True auto_reaction:True
 ```
 
-#### D. Mengatur Kepribadian, Nama Akrab, Zona Waktu, & Jam Tenang (`/agent persona`)
+#### D. Mengaktifkan AI Auto-Welcomer Member Baru (`/agent welcome`)
+Agar setiap member baru disambut hangat secara otomatis & anti-monoton:
+```text
+/agent welcome channel:#welcome aktif:True pesan_tambahan:Jangan lupa mampir ambil role di #roles ya tes_sekarang:True
+```
+
+#### E. Merangkum Chat yang Ketinggalan (`/ringkas`)
+Bisa dipakai oleh semua member saat baru buka Discord dan tertinggal obrolan panjang:
+```text
+/ringkas jumlah:50 Pesan Terakhir - Default publik:False
+```
+
+#### F. Mengatur Kepribadian, Nama Akrab, Zona Waktu, & Jam Tenang (`/agent persona`)
 Sesuaikan karakter AI Agent dengan gaya tongkrongan server Anda:
 ```text
 /agent persona gaya_bahasa:Gaul Tongkrongan Discord (Gue/Lu) nama_panggilan:Whas zona_waktu:WIB - Waktu Indonesia Barat (Asia/Jakarta) jam_tenang_malam:True konteks_komunitas:Server komunitas mabar game dan nongkrong santai
 ```
 
-#### E. Mengecek Status Fitur & Sisa Hitung Mundur (`/agent status` & `/status`)
+#### G. Mengecek Status Fitur & Sisa Hitung Mundur (`/agent status` & `/status`)
 - Ketik **`/agent status`** untuk melihat daftar channel Auto-Chat & Galeri yang sedang aktif beserta **sisa waktu hitung mundur pemecah sepi** secara *real-time* (contoh: `sapa dlm ~12 mnt 30 dtk`).
 - Ketik **`/status`** untuk mengecek ping koneksi Discord, pemakaian RAM Wispbyte, *uptime*, dan model Gemini yang sedang aktif.
 
@@ -204,6 +225,7 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | :--- | :--- |
 | **Matikan Auto-Chat & Pemecah Sepi total** di suatu channel | `/agent chat channel:#welcome aktif:False` |
 | **Matikan Pemecah Sepi saja** *(tapi Auto-Chat tetap aktif membalas warga)* | `/agent chat channel:#welcome aktif:True menit_sepi:0` |
+| **Matikan AI Auto-Welcomer member baru** | `/agent welcome channel:#welcome aktif:False` |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
 | **Matikan Jam Tenang Malam (23:00–06:00)** *(agar sapaan tetap jalan tengah malam)* | `/agent persona jam_tenang_malam:False` |
@@ -219,6 +241,7 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | Command | Akses | Keterangan |
 | :--- | :--- | :--- |
 | `/setup_panel` atau `!setup_panel` | Administrator | Memasang Embed & tombol Panel Utama AI (Chat & Gambar) di channel saat ini. |
+| `/ringkas` | Semua Member | Merangkum `25`–`150` obrolan terakhir di channel agar tidak ketinggalan topik (*TL;DR*). |
 | `/model` | Pemilik Ruang Sesi | Mengganti mode kepribadian Gemini (Utama, Kilat, Koding, Riset, Curhat) di ruang `ai-...`. |
 | `/reset` | Pemilik Sesi / Moderator | Menghapus memori obrolan di `ai-...` atau mereset setelan gambar di `draw-...`. |
 | `/status` | Semua Member | Menampilkan ping Discord, pemakaian RAM (MB), uptime, jam AI, model aktif, & jumlah sesi. |
@@ -227,6 +250,7 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | Command | Parameter Utama | Keterangan |
 | :--- | :--- | :--- |
 | `/agent chat` | `channel`, `aktif`, `mode_balas`, `menit_sepi` | Mengaktifkan/mematikan Auto-Chat & Pemecah Sepi otomatis di channel publik. |
+| `/agent welcome` | `channel`, `aktif`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan/mematikan AI Auto-Welcomer natural untuk member baru. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di channel Galeri/Showcase. |
 | `/agent persona` | `gaya_bahasa`, `nama_panggilan`, `zona_waktu`, `jam_tenang_malam`, `konteks_komunitas` | Mengubah nama akrab AI, gaya bicara (*Akrab / Gaul / Ramah*), zona waktu (*WIB/WITA/WIT*), Jam Tenang, & deskripsi komunitas. |
 | `/agent sapa` | `channel` *(opsional)* | Memicu AI Agent langsung menyapa / memecah sepi detik ini juga (untuk tes instan). |
@@ -266,6 +290,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
    - Salin **Token** untuk dimasukkan ke `DISCORD_BOT_TOKEN`.
    - Gulir ke bagian **Privileged Gateway Intents**, lalu **AKTIFKAN**:
      - ✅ **Message Content Intent** *(Sangat wajib! Tanpa ini bot tidak bisa membaca isi teks chat maupun lampiran)*
+     - ✅ **Server Members Intent** *(Direkomendasikan agar fitur `/agent welcome` bisa menyambut member baru di channel mana saja)*
    - Klik **Save Changes**.
 3. Buka tab **OAuth2 → URL Generator**:
    - Centang **Scopes**: `bot` dan `applications.commands`.

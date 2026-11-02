@@ -10,6 +10,7 @@ from config import (
     BOT_TIMEZONE,
     DISCORD_BOT_TOKEN,
     GEMINI_API_KEY,
+    MAX_AUDIO_ATTACHMENT_BYTES,
     MAX_IMAGE_ATTACHMENT_BYTES,
     MAX_IMAGES_PER_MESSAGE,
     MAX_STICKER_EMOJI_BYTES,
@@ -27,6 +28,38 @@ IMAGE_MIME_BY_EXT: dict[str, str] = {
     ".gif": "image/gif",
 }
 
+AUDIO_MIME_BY_EXT: dict[str, str] = {
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".mp3": "audio/mp3",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+    ".m4a": "audio/aac",
+    ".flac": "audio/flac",
+    ".aiff": "audio/aiff",
+    ".aif": "audio/aiff",
+}
+
+AUDIO_MIME_ALIASES: dict[str, str] = {
+    "audio/ogg": "audio/ogg",
+    "audio/opus": "audio/ogg",
+    "application/ogg": "audio/ogg",
+    "audio/mpeg": "audio/mp3",
+    "audio/mp3": "audio/mp3",
+    "audio/wav": "audio/wav",
+    "audio/x-wav": "audio/wav",
+    "audio/wave": "audio/wav",
+    "audio/aac": "audio/aac",
+    "audio/mp4": "audio/aac",
+    "audio/m4a": "audio/aac",
+    "audio/x-m4a": "audio/aac",
+    "audio/flac": "audio/flac",
+    "audio/x-flac": "audio/flac",
+    "audio/aiff": "audio/aiff",
+    "audio/x-aiff": "audio/aiff",
+}
+
 VIDEO_MIME_BY_EXT: dict[str, str] = {
     ".mp4": "video/mp4",
     ".webm": "video/webm",
@@ -37,6 +70,42 @@ VIDEO_MIME_BY_EXT: dict[str, str] = {
 
 SUPPORTED_IMAGE_MIMES = set(IMAGE_MIME_BY_EXT.values())
 SUPPORTED_VIDEO_MIMES = set(VIDEO_MIME_BY_EXT.values())
+
+
+def is_discord_voice_attachment(att) -> bool:
+    """Mendeteksi apakah lampiran adalah Voice Note (Pesan Suara 🎤) asli Discord."""
+    checker = getattr(att, "is_voice_message", None)
+    if callable(checker):
+        try:
+            if checker():
+                return True
+        except Exception:
+            pass
+    fname = str(getattr(att, "filename", "") or "").lower()
+    has_waveform = bool(getattr(att, "waveform", None))
+    return has_waveform or fname.startswith("voice-message.")
+
+
+def resolve_audio_mime(att) -> str | None:
+    """Menentukan MIME audio standar Gemini untuk lampiran Voice Note atau file suara."""
+    if is_discord_voice_attachment(att):
+        return "audio/ogg"
+    ext = Path(str(getattr(att, "filename", "") or "")).suffix.lower()
+    content_type = (getattr(att, "content_type", None) or "").split(";")[0].strip().lower()
+    if content_type in AUDIO_MIME_ALIASES:
+        return AUDIO_MIME_ALIASES[content_type]
+    return AUDIO_MIME_BY_EXT.get(ext)
+
+
+def has_voice_or_audio_attachment(message) -> bool:
+    """Mengecek cepat apakah sebuah pesan Discord berisi Voice Note atau lampiran audio."""
+    flags = getattr(message, "flags", None)
+    if flags is not None and bool(getattr(flags, "voice", False)):
+        return True
+    for att in getattr(message, "attachments", []) or []:
+        if resolve_audio_mime(att) is not None:
+            return True
+    return False
 
 _CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{2,32}):(\d{15,22})>")
 
@@ -219,11 +288,13 @@ def split_discord_message(text: str, max_length: int = 1900) -> list[str]:
 async def extract_message_attachments(
     message: discord.Message,
     http_session: aiohttp.ClientSession | None = None,
+    *,
+    include_audio: bool = True,
 ) -> tuple[list[dict], list[str], list[str], list[str]]:
-    """Mengekstrak lampiran gambar (Vision), Stiker Discord, dan file teks/kode dari pesan Discord.
+    """Mengekstrak lampiran gambar (Vision), Voice Note / Audio, Stiker Discord, dan file teks/kode.
 
     Returns:
-        (image_parts, image_filenames, text_blocks, warnings)
+        (media_parts, media_filenames, text_blocks, warnings)
     """
     image_parts: list[dict] = []
     image_filenames: list[str] = []
@@ -238,7 +309,7 @@ async def extract_message_attachments(
         mime = content_type if content_type in SUPPORTED_IMAGE_MIMES else IMAGE_MIME_BY_EXT.get(ext)
         if mime:
             if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
-                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} gambar per pesan (`{att.filename}` dilewati).")
+                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
                 continue
             if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
                 max_mb = MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)
@@ -253,7 +324,30 @@ async def extract_message_attachments(
                 warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
             continue
 
-        # 2. Deteksi Lampiran File Teks / Kode Sumber
+        # 2. Deteksi Voice Note (Pesan Suara 🎤) & File Audio (.ogg, .mp3, .wav, .m4a, .flac)
+        audio_mime = resolve_audio_mime(att)
+        if audio_mime:
+            if not include_audio:
+                warnings.append("Ruang gambar hanya menerima lampiran gambar referensi (bukan audio/voice note).")
+                continue
+            if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
+                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
+                continue
+            if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
+                max_mb = MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)
+                warnings.append(f"Ukuran audio `{att.filename}` melebihi batas {max_mb} MB.")
+                continue
+            try:
+                raw_bytes = await att.read()
+                b64_data = base64.b64encode(raw_bytes).decode("ascii")
+                image_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64_data}})
+                prefix = "voice_note:" if is_discord_voice_attachment(att) else "audio:"
+                image_filenames.append(f"{prefix}{att.filename}")
+            except Exception as exc:
+                warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
+            continue
+
+        # 3. Deteksi Lampiran File Teks / Kode Sumber
         if ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/"):
             if att.size > MAX_TEXT_ATTACHMENT_BYTES:
                 max_kb = MAX_TEXT_ATTACHMENT_BYTES // 1024
@@ -269,7 +363,9 @@ async def extract_message_attachments(
                 warnings.append(f"Gagal membaca file `{att.filename}`: {sanitize_error_message(exc)}")
             continue
 
-        warnings.append(f"Format lampiran `{att.filename}` belum didukung (gunakan gambar PNG/JPG/WEBP/GIF atau file teks/kode).")
+        warnings.append(
+            f"Format lampiran `{att.filename}` belum didukung (gunakan gambar, Voice Note/audio, atau file teks/kode)."
+        )
 
     # 3. Deteksi Stiker Discord di ruang chat privat
     for sticker in getattr(message, "stickers", []) or []:
@@ -318,9 +414,10 @@ async def extract_social_media_and_stickers(
     http_session: aiohttp.ClientSession | None = None,
     *,
     include_video: bool = True,
+    include_audio: bool = True,
 ) -> tuple[list[dict], list[str], list[str]]:
-    """Mengekstrak gambar, video pendek (Galeri), Stiker Discord, serta Custom Emoji
-    agar AI Agent dapat benar-benar melihat visual ekspresi stiker/emoji/foto/video!
+    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), Stiker Discord, serta Custom Emoji
+    agar AI Agent dapat mendengar pesan suara maupun melihat visual ekspresi stiker/emoji/foto/video!
 
     Returns:
         (media_parts, descriptions, warnings)
@@ -329,7 +426,7 @@ async def extract_social_media_and_stickers(
     descriptions: list[str] = []
     warnings: list[str] = []
 
-    # 1. Lampiran File Gambar & Video Klip
+    # 1. Lampiran File Gambar, Voice Note / Audio, & Video Klip
     for att in getattr(message, "attachments", []) or []:
         ext = Path(att.filename).suffix.lower()
         content_type = (att.content_type or "").split(";")[0].strip().lower()
@@ -348,6 +445,31 @@ async def extract_social_media_and_stickers(
                 descriptions.append(f"[Mengirim foto/gambar: {att.filename}]")
             except Exception as exc:
                 warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
+            continue
+
+        audio_mime = resolve_audio_mime(att)
+        if include_audio and audio_mime:
+            if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
+                continue
+            if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
+                warnings.append(
+                    f"Audio `{att.filename}` melebihi batas {MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)} MB."
+                )
+                continue
+            try:
+                raw = await att.read()
+                b64 = base64.b64encode(raw).decode("ascii")
+                media_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
+                dur = getattr(att, "duration", None)
+                dur_info = f" ({dur:.0f} detik)" if isinstance(dur, (int, float)) and dur > 0 else ""
+                if is_discord_voice_attachment(att):
+                    descriptions.append(
+                        f"[Mengirim Voice Note / Pesan Suara{dur_info} — dengarkan isi ucapannya dan balas langsung!]"
+                    )
+                else:
+                    descriptions.append(f"[Mengirim file audio: {att.filename}{dur_info} — dengarkan isinya!]")
+            except Exception as exc:
+                warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
             continue
 
         vid_mime = content_type if content_type in SUPPORTED_VIDEO_MIMES else VIDEO_MIME_BY_EXT.get(ext)
