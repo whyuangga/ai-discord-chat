@@ -23,12 +23,15 @@ from config import (
 )
 from ai_handler import (
     CHAT_TIMEOUT,
+    FAST_TEXT_TIMEOUT,
     MEDIA_SEMAPHORE,
     _borrow_session,
     _build_model_chain,
     _extract_text_from_gemini_response,
+    build_thinking_config,
     get_gemini_keys_rotated,
     is_gemini_key_configured,
+    mark_model_unhealthy,
 )
 from utils import (
     extract_social_media_and_stickers,
@@ -373,39 +376,60 @@ async def _call_gemini_agent(
     contents: list[dict],
     *,
     temperature: float = 0.88,
-    max_tokens: int = 350,
+    max_tokens: int = 2048,
+    thinking_level: str = "minimal",
+    has_media: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
     if not active_keys:
         return None
 
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents,
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": max_tokens,
-        },
-    }
-
+    req_timeout = CHAT_TIMEOUT if has_media else FAST_TEXT_TIMEOUT
     models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+
+    async with _borrow_session(http_session, req_timeout) as session:
         for idx, model_id in enumerate(models_to_try):
+            gen_config: dict = {
+                "temperature": temperature,
+                "maxOutputTokens": max(1024, max_tokens),
+            }
+            thinking_cfg = build_thinking_config(model_id, thinking_level)
+            if thinking_cfg:
+                gen_config["thinkingConfig"] = thinking_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": contents,
+                "generationConfig": gen_config,
+            }
             headers = {
                 "x-goog-api-key": active_keys[idx % len(active_keys)],
                 "Content-Type": "application/json",
             }
             url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+
             try:
-                async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
+                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
-                        reply_text, _ = _extract_text_from_gemini_response(data)
+                        reply_text, _, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text.strip()
-                    if resp.status in (429, 503) and idx < len(models_to_try) - 1:
-                        await asyncio.sleep(0.8)
+                        if not should_retry:
+                            return None
+                        continue
+
+                    if resp.status in (429, 500, 502, 503, 504, 404):
+                        mark_model_unhealthy(model_id)
+                        logger.warning(
+                            "Agent Gemini model %s HTTP %s, pindah instan ke model cadangan...",
+                            model_id,
+                            resp.status,
+                        )
+            except asyncio.TimeoutError:
+                mark_model_unhealthy(model_id)
+                logger.warning("Agent Gemini model %s timeout, pindah instan ke cadangan...", model_id)
             except Exception as exc:
                 logger.warning("Agent Gemini (%s) gagal: %s", model_id, sanitize_error_message(exc))
     return None
@@ -471,7 +495,9 @@ async def generate_community_chat_reply(
         system_prompt,
         contents,
         temperature=0.88,
-        max_tokens=300,
+        max_tokens=2048,
+        thinking_level="minimal",
+        has_media=bool(media_parts),
         http_session=http_session,
     )
 
@@ -516,7 +542,9 @@ async def generate_idle_icebreaker(
         system_prompt,
         contents,
         temperature=0.95,
-        max_tokens=200,
+        max_tokens=2048,
+        thinking_level="minimal",
+        has_media=False,
         http_session=http_session,
     )
 
@@ -593,7 +621,9 @@ async def generate_gallery_comment(
         gallery_system_prompt,
         contents,
         temperature=0.85,
-        max_tokens=260,
+        max_tokens=2048,
+        thinking_level="low",
+        has_media=True,
         http_session=http_session,
     )
 

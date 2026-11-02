@@ -64,6 +64,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
     community_agent.channel_histories.clear()
+    ai_handler.clear_model_cooldowns()
     yield
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
@@ -72,6 +73,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
     community_agent.channel_histories.clear()
+    ai_handler.clear_model_cooldowns()
 
 
 def test_split_discord_message_preserves_code_fences():
@@ -183,21 +185,25 @@ async def test_gemini_chat_ignores_thought_parts_and_uses_header_auth(monkeypatc
 @pytest.mark.asyncio
 async def test_gemini_chat_fallback_and_no_history_corruption_on_error(monkeypatch):
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
-    monkeypatch.setattr(ai_handler, "GEMINI_TEXT_FALLBACK_CHAIN", ["gemini-3.8-flash", "gemini-3.5-flash-lite"])
+    monkeypatch.setattr(ai_handler, "GEMINI_TEXT_FALLBACK_CHAIN", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
     storage.init_thread_session(777, "gemini_flash")
 
-    # Simulasi: model pertama kena 429 rate-limit, model kedua sukses
-    resp_429 = FakeMockResponse(429, {"error": {"message": "Quota exceeded"}})
+    # Simulasi: model pertama kena 503 overload, model kedua langsung sukses & model pertama masuk cooldown
+    resp_503 = FakeMockResponse(503, {"error": {"message": "This model is currently experiencing high demand."}})
     resp_200 = FakeMockResponse(
         200,
         {"candidates": [{"content": {"parts": [{"text": "Berhasil lewat model cadangan!"}]}}]},
     )
-    fake_http = FakeHttpSession(post_responses=[resp_429, resp_200])
+    fake_http = FakeHttpSession(post_responses=[resp_503, resp_200])
 
     reply = await ai_handler.get_ai_response(777, "Tes fallback", http_session=fake_http)
     assert reply == "Berhasil lewat model cadangan!"
     assert len(fake_http.post_calls) == 2
-    assert "gemini-3.5-flash-lite" in fake_http.post_calls[1]["url"]
+    assert "gemini-3.1-flash-lite" in fake_http.post_calls[1]["url"]
+
+    # Panggilan berikutnya harus langsung memprioritaskan gemini-3.1-flash-lite karena 3.5-flash-lite sedang cooldown
+    chain_after_503 = ai_handler._build_model_chain("gemini-3.5-flash-lite", ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"])
+    assert chain_after_503[0] == "gemini-3.1-flash-lite"
 
     # Sekarang simulasi: semua model gagal -> riwayat sebelumnya tidak boleh rusak/menggantung
     fail_http = FakeHttpSession(
@@ -207,7 +213,7 @@ async def test_gemini_chat_fallback_and_no_history_corruption_on_error(monkeypat
         ]
     )
     err_reply = await ai_handler.get_ai_response(777, "Pesan yang gagal", http_session=fail_http)
-    assert "sedang sibuk" in err_reply
+    assert "padat" in err_reply
     assert len(storage.thread_chats[777]["history"]) == 2
     assert storage.thread_chats[777]["history"][-1]["role"] == "model"
 
@@ -223,7 +229,24 @@ async def test_generate_image_gemini_native_and_fallback(monkeypatch):
     fake_png = b"\x89PNG\r\n\x1a\n" + (b"x" * 2048)
     b64_png = base64.b64encode(fake_png).decode("ascii")
 
-    # 1. Sukses langsung dari Gemini Native Image Generation
+    # 1. Mode Free Tier Default (GEMINI_PAID_IMAGE_ENABLED=False):
+    #    Langsung menembak Flux tanpa membuang waktu ke model Nano Banana berbayar!
+    monkeypatch.setattr(ai_handler, "GEMINI_PAID_IMAGE_ENABLED", False)
+    monkeypatch.setattr(ai_handler, "ENABLE_IMAGE_FALLBACK", True)
+    fake_http_free = FakeHttpSession(
+        post_responses=[],
+        get_responses=[FakeMockResponse(200, raw_bytes=fake_png, headers={"Content-Type": "image/png"})],
+    )
+    engine_label_free, dfile_free, err_free = await ai_handler.generate_image(
+        888, "kucing astronot", http_session=fake_http_free
+    )
+    assert err_free is None
+    assert dfile_free is not None
+    assert len(fake_http_free.post_calls) == 0
+    assert "Flux" in engine_label_free
+
+    # 2. Mode Paid Tier (GEMINI_PAID_IMAGE_ENABLED=True): memakai Google Gemini Native Image
+    monkeypatch.setattr(ai_handler, "GEMINI_PAID_IMAGE_ENABLED", True)
     gemini_img_resp = FakeMockResponse(
         200,
         {
@@ -238,26 +261,20 @@ async def test_generate_image_gemini_native_and_fallback(monkeypatch):
             ]
         },
     )
-    fake_http = FakeHttpSession(post_responses=[gemini_img_resp])
-    engine_label, dfile, err = await ai_handler.generate_image(888, "kota masa depan", http_session=fake_http)
+    fake_http_paid = FakeHttpSession(post_responses=[gemini_img_resp])
+    engine_label, dfile, err = await ai_handler.generate_image(888, "kota masa depan", http_session=fake_http_paid)
     assert err is None
     assert dfile is not None
     assert "Google Gemini" in engine_label
-    sent_json = fake_http.post_calls[0]["json"]
+    sent_json = fake_http_paid.post_calls[0]["json"]
     assert sent_json["generationConfig"]["imageConfig"]["aspectRatio"] == "16:9"
 
-    # 2. Jika Gemini Image 429 pada Free Tier -> otomatis ke Fallback Gratis
-    monkeypatch.setattr(ai_handler, "ENABLE_IMAGE_FALLBACK", True)
-    fake_http_fb = FakeHttpSession(
-        post_responses=[FakeMockResponse(429, {"error": {"message": "Free tier quota 0"}})],
-        get_responses=[FakeMockResponse(200, raw_bytes=fake_png, headers={"Content-Type": "image/png"})],
-    )
-    engine_label_fb, dfile_fb, err_fb = await ai_handler.generate_image(
-        888, "kucing astronot", http_session=fake_http_fb
-    )
-    assert err_fb is None
-    assert dfile_fb is not None
-    assert "Fallback" in engine_label_fb
+
+def test_thinking_config_compatibility():
+    # Flash-Lite mendukung minimal
+    assert ai_handler.build_thinking_config("gemini-3.5-flash-lite", "minimal") == {"thinkingLevel": "minimal"}
+    # 3.8 Flash otomatis mengubah minimal menjadi low agar tidak error HTTP 400
+    assert ai_handler.build_thinking_config("gemini-3.8-flash", "minimal") == {"thinkingLevel": "low"}
 
 
 @pytest.mark.asyncio

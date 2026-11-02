@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import random
+import time
 import urllib.parse
 from contextlib import asynccontextmanager
 import aiohttp
@@ -14,6 +15,7 @@ from config import (
     GEMINI_API_BASE,
     GEMINI_API_KEY,
     GEMINI_IMAGE_FALLBACK_CHAIN,
+    GEMINI_PAID_IMAGE_ENABLED,
     GEMINI_TEXT_FALLBACK_CHAIN,
     MAX_CONCURRENT_MEDIA_TASKS,
     RATIO_OPTIONS,
@@ -33,9 +35,13 @@ from utils import get_realtime_time_context, sanitize_error_message
 
 logger = logging.getLogger("gemini_bot.ai")
 
-CHAT_TIMEOUT = aiohttp.ClientTimeout(total=60, connect=15)
-IMAGE_TIMEOUT = aiohttp.ClientTimeout(total=90, connect=15)
+FAST_TEXT_TIMEOUT = aiohttp.ClientTimeout(total=20, connect=8)
+CHAT_TIMEOUT = aiohttp.ClientTimeout(total=45, connect=10)
+IMAGE_TIMEOUT = aiohttp.ClientTimeout(total=75, connect=12)
 MEDIA_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_MEDIA_TASKS)
+
+MODEL_COOLDOWN_SECONDS = 180.0
+_model_cooldown_until: dict[str, float] = {}
 _key_rotation_counter = 0
 
 
@@ -54,6 +60,34 @@ def is_gemini_key_configured() -> bool:
     return len(parse_gemini_keys(GEMINI_API_KEY)) > 0
 
 
+def mark_model_unhealthy(model_id: str, cooldown_sec: float = MODEL_COOLDOWN_SECONDS) -> None:
+    """Menandai model yang sedang overload (503/timeout) agar pesan berikutnya langsung memakai model sehat."""
+    _model_cooldown_until[model_id] = time.time() + cooldown_sec
+
+
+def clear_model_cooldowns() -> None:
+    _model_cooldown_until.clear()
+
+
+def build_thinking_config(model_id: str, desired_level: str | None = "low") -> dict | None:
+    """Menyusun thinkingConfig yang kompatibel agar respon Gemini 3 cepat dan tidak boros token pikiran."""
+    if not desired_level:
+        return None
+    lower_id = (model_id or "").lower()
+    if not ("gemini-3" in lower_id or "gemini-4" in lower_id):
+        return None
+
+    level = desired_level.lower()
+    if level not in ("minimal", "low", "medium", "high"):
+        level = "low"
+
+    # gemini-3.8-flash, pro, dan argon minimal menggunakan 'low' ('minimal' ditolak HTTP 400)
+    if level == "minimal" and any(tag in lower_id for tag in ("3.8", "pro", "argon")):
+        level = "low"
+
+    return {"thinkingLevel": level}
+
+
 @asynccontextmanager
 async def _borrow_session(
     shared_session: aiohttp.ClientSession | None,
@@ -67,12 +101,17 @@ async def _borrow_session(
 
 
 def _build_model_chain(primary_model: str, fallback_list: list[str]) -> list[str]:
-    ordered: list[str] = []
+    """Menyusun daftar model unik dan memprioritaskan model yang tidak sedang terkena cooldown 503."""
+    deduped: list[str] = []
     for model_id in [primary_model, *fallback_list]:
         cleaned = (model_id or "").strip()
-        if cleaned and cleaned not in ordered:
-            ordered.append(cleaned)
-    return ordered
+        if cleaned and cleaned not in deduped:
+            deduped.append(cleaned)
+
+    now = time.time()
+    healthy = [m for m in deduped if _model_cooldown_until.get(m, 0.0) <= now]
+    cooling = [m for m in deduped if _model_cooldown_until.get(m, 0.0) > now]
+    return healthy + cooling
 
 
 def _build_gemini_contents(
@@ -106,21 +145,23 @@ def _build_gemini_contents(
     return contents
 
 
-def _extract_text_from_gemini_response(data: dict) -> tuple[str | None, str | None]:
+def _extract_text_from_gemini_response(data: dict) -> tuple[str | None, str | None, bool]:
     """Mengekstrak teks jawaban bersih dari JSON response Gemini (mengabaikan part 'thought' internal).
     Returns:
-        (reply_text, block_or_error_reason)
+        (reply_text, block_or_error_reason, should_retry_next_model)
     """
     prompt_feedback = data.get("promptFeedback") or {}
     if prompt_feedback.get("blockReason"):
         reason = prompt_feedback["blockReason"]
-        return None, (
-            f"⚠️ Permintaan tidak dapat diproses karena kebijakan keamanan konten Google Gemini (`{reason}`)."
+        return (
+            None,
+            f"⚠️ Permintaan tidak dapat diproses karena kebijakan keamanan konten Google Gemini (`{reason}`).",
+            False,
         )
 
     candidates = data.get("candidates") or []
     if not candidates:
-        return None, "⚠️ Google Gemini tidak mengembalikan kandidat jawaban untuk pesan ini."
+        return None, "⚠️ Google Gemini tidak mengembalikan kandidat jawaban.", True
 
     first = candidates[0]
     finish_reason = first.get("finishReason", "")
@@ -134,21 +175,20 @@ def _extract_text_from_gemini_response(data: dict) -> tuple[str | None, str | No
         if isinstance(p.get("text"), str) and not p.get("thought", False)
     ]
 
-    # Fallback jika suatu model menaruh semua teks tanpa memisahkan flag thought
-    if not visible_texts:
-        visible_texts = [p["text"] for p in parts if isinstance(p.get("text"), str)]
-
     combined = "".join(visible_texts).strip()
     if combined:
-        return combined, None
+        return combined, None, False
 
     if finish_reason in {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"}:
-        return None, (
+        return (
+            None,
             f"⚠️ Jawaban dibatasi oleh filter keamanan Google Gemini (`{finish_reason}`). "
-            "Coba ubah kalimat pertanyaan Anda."
+            "Coba ubah kalimat pertanyaan Anda.",
+            False,
         )
 
-    return None, f"⚠️ Respons Gemini kosong (status akhir: `{finish_reason or 'UNKNOWN'}`)."
+    # Jika habis di token thinking (MAX_TOKENS tanpa teks terlihat), coba model lebih ringan berikutnya
+    return None, f"⚠️ Respons Gemini kosong (status akhir: `{finish_reason or 'UNKNOWN'}`).", True
 
 
 async def get_ai_response(
@@ -179,7 +219,6 @@ async def get_ai_response(
     model_key = resolve_model_key(session_data.get("model_key"))
     model_info = AI_MODELS[model_key]
 
-    # Gabungkan prompt teks pengguna beserta isi lampiran file teks/kode (jika ada)
     prompt_sections: list[str] = []
     if prompt.strip():
         prompt_sections.append(prompt.strip())
@@ -190,7 +229,6 @@ async def get_ai_response(
 
     effective_prompt = "\n\n".join(prompt_sections).strip()
 
-    # Catatan ringan untuk disimpan di riwayat (tanpa menyimpan base64 gambar jutaan byte di RAM/disk)
     history_note_parts: list[str] = []
     if image_filenames:
         files_label = ", ".join(image_filenames)
@@ -211,41 +249,49 @@ async def get_ai_response(
         f"[Informasi Waktu Saat Ini: {time_ctx['summary']}]"
     )
 
-    payload = {
-        "systemInstruction": {
-            "parts": [{"text": system_text}],
-        },
-        "contents": contents,
-        "generationConfig": {
-            "temperature": model_info.get("temperature", 0.7),
-            "maxOutputTokens": 4096,
-        },
-    }
-
+    desired_thinking = model_info.get("thinking_level", "low")
+    req_timeout = CHAT_TIMEOUT if image_parts else FAST_TEXT_TIMEOUT
     active_keys = get_gemini_keys_rotated()
     models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
     last_error_msg = "Tidak dapat terhubung ke layanan Google Gemini."
 
-    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+    async with _borrow_session(http_session, req_timeout) as session:
         for attempt_idx, candidate_model in enumerate(models_to_try):
+            gen_config: dict = {
+                "temperature": model_info.get("temperature", 0.7),
+                "maxOutputTokens": 8192,
+            }
+            thinking_cfg = build_thinking_config(candidate_model, desired_thinking)
+            if thinking_cfg:
+                gen_config["thinkingConfig"] = thinking_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_text}]},
+                "contents": contents,
+                "generationConfig": gen_config,
+            }
+
             api_key_for_attempt = active_keys[attempt_idx % len(active_keys)]
             headers = {
                 "x-goog-api-key": api_key_for_attempt,
                 "Content-Type": "application/json",
             }
             url = f"{GEMINI_API_BASE}/{candidate_model}:generateContent"
+
             try:
-                async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
+                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
 
                     if resp.status == 200 and isinstance(data, dict):
-                        reply_text, block_msg = _extract_text_from_gemini_response(data)
-                        if block_msg:
-                            return block_msg
+                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             append_conversation_turn(thread_id, history_user_entry, reply_text)
                             await save_sessions_to_disk()
                             return reply_text
+                        if block_msg and not should_retry:
+                            return block_msg
+                        last_error_msg = block_msg or "Respons kosong dari model."
+                        continue
 
                     err_detail = ""
                     if isinstance(data, dict) and isinstance(data.get("error"), dict):
@@ -255,28 +301,28 @@ async def get_ai_response(
 
                     err_detail = sanitize_error_message(err_detail)
 
-                    # Jika API Key salah/tidak valid (dan hanya punya 1 key), hentikan percobaan ulang seketika
                     if resp.status in (400, 401, 403) and "api key" in err_detail.lower() and len(active_keys) == 1:
                         return (
                             f"⚠️ **API Key Gemini tidak valid ({resp.status}):** {err_detail}\n"
                             "Periksa kembali `GEMINI_API_KEY` Anda di Google AI Studio."
                         )
 
-                    last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
-                    logger.warning("Gemini model %s gagal (%s). Mencoba cadangan...", candidate_model, last_error_msg)
+                    if resp.status in (429, 500, 502, 503, 504, 404):
+                        mark_model_unhealthy(candidate_model)
 
-                    if resp.status in (429, 503) and attempt_idx < len(models_to_try) - 1:
-                        await asyncio.sleep(1.0)
+                    last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
+                    logger.warning("Gemini model %s gagal (%s). Pindah instan ke cadangan...", candidate_model, last_error_msg)
 
             except asyncio.TimeoutError:
-                last_error_msg = f"Waktu tunggu habis (timeout) saat menghubungi `{candidate_model}`."
-                logger.warning(last_error_msg)
+                mark_model_unhealthy(candidate_model)
+                last_error_msg = f"Waktu tunggu habis pada `{candidate_model}`."
+                logger.warning("%s Pindah instan ke cadangan...", last_error_msg)
             except Exception as exc:
                 last_error_msg = f"Gangguan jaringan: {sanitize_error_message(exc)}"
                 logger.warning("Exception pada Gemini (%s): %s", candidate_model, last_error_msg)
 
     return (
-        "⚠️ **Maaf, Google Gemini sedang sibuk atau mencapai batas kuota sementara.**\n"
+        "⚠️ **Maaf, server Google Gemini sedang sangat padat saat ini.**\n"
         f"Detail: `{last_error_msg}`\n"
         "*Silakan tunggu beberapa detik lalu kirim ulang pesan Anda.*"
     )
@@ -298,8 +344,9 @@ async def generate_image(
     reference_images: list[dict] | None = None,
     http_session: aiohttp.ClientSession | None = None,
 ) -> tuple[str | None, discord.File | None, str | None]:
-    """Menghasilkan (atau mengedit) gambar menggunakan Google Gemini Image API,
-    dengan fallback gratis otomatis jika kuota gambar pada Free Tier terbatas.
+    """Menghasilkan (atau mengedit) gambar.
+    - Jika `GEMINI_PAID_IMAGE_ENABLED=true` (atau pengguna mengedit lampiran gambar), memakai Gemini Nano Banana.
+    - Jika memakai Free Tier (`GEMINI_PAID_IMAGE_ENABLED=false`), langsung membuat gambar via Flux gratis tanpa jeda!
 
     Returns:
         (engine_label, discord_file, error_message)
@@ -317,12 +364,13 @@ async def generate_image(
     full_prompt = f"{clean_prompt}{style_suffix}"
 
     gemini_errors: list[str] = []
+    should_try_gemini_image = GEMINI_PAID_IMAGE_ENABLED or bool(reference_images)
 
     async with MEDIA_SEMAPHORE:
         async with _borrow_session(http_session, IMAGE_TIMEOUT) as session:
-            # 1. UTAMA: GOOGLE GEMINI NATIVE IMAGE GENERATION (Nano Banana Series)
+            # 1. GOOGLE GEMINI NATIVE IMAGE GENERATION (Aktif jika Paid Tier atau Edit Gambar)
             active_keys = get_gemini_keys_rotated()
-            if active_keys:
+            if should_try_gemini_image and active_keys:
                 request_parts: list[dict] = []
                 if reference_images:
                     request_parts.extend(reference_images)
@@ -338,7 +386,12 @@ async def generate_image(
                     },
                 }
 
-                for k_idx, img_model in enumerate(_build_model_chain(GEMINI_IMAGE_FALLBACK_CHAIN[0], GEMINI_IMAGE_FALLBACK_CHAIN)):
+                models_list = _build_model_chain(GEMINI_IMAGE_FALLBACK_CHAIN[0], GEMINI_IMAGE_FALLBACK_CHAIN)
+                # Jika hanya mencoba edit gambar pada Free Tier, cukup tes 1 model agar tidak lambat
+                if not GEMINI_PAID_IMAGE_ENABLED:
+                    models_list = models_list[:1]
+
+                for k_idx, img_model in enumerate(models_list):
                     headers = {
                         "x-goog-api-key": active_keys[k_idx % len(active_keys)],
                         "Content-Type": "application/json",
@@ -371,7 +424,7 @@ async def generate_image(
                     except Exception as exc:
                         gemini_errors.append(f"{img_model}: {sanitize_error_message(exc)}")
 
-            # 2. FALLBACK OTOMATIS GRATIS (Jika API Key Gemini Free Tier membatasi kuota gambar)
+            # 2. GENERATOR GAMBAR GRATIS (Langsung dieksekusi di Free Tier tanpa menunggu error!)
             if ENABLE_IMAGE_FALLBACK and not reference_images:
                 seed = random.randint(1, 999_999_999)
                 encoded = urllib.parse.quote(full_prompt)
@@ -390,14 +443,18 @@ async def generate_image(
                                     io.BytesIO(img_bytes),
                                     filename=f"generated.{ext}",
                                 )
-                                return "Flux Fallback (Kuota Gambar Gemini Free Tier Terbatas)", file_obj, None
-                        gemini_errors.append(f"Fallback HTTP {resp.status}")
+                                return "Flux AI (Free Tier)", file_obj, None
+                        gemini_errors.append(f"Flux HTTP {resp.status}")
                 except Exception as exc:
-                    gemini_errors.append(f"Fallback: {sanitize_error_message(exc)}")
+                    gemini_errors.append(f"Flux: {sanitize_error_message(exc)}")
 
-    if reference_images and not ENABLE_IMAGE_FALLBACK:
-        detail = "; ".join(gemini_errors) or "Model edit gambar tidak tersedia pada tier API Key ini."
-    else:
-        detail = "; ".join(gemini_errors) or "Gagal mengunduh gambar dari server AI."
+    if reference_images and not GEMINI_PAID_IMAGE_ENABLED:
+        return (
+            None,
+            None,
+            "Fitur Edit Gambar lampiran membutuhkan akun Gemini Paid Tier (`GEMINI_PAID_IMAGE_ENABLED=true`). "
+            "Untuk Free Tier, ketik langsung deskripsi teks gambar yang ingin dibuat.",
+        )
 
+    detail = "; ".join(gemini_errors) or "Gagal mengunduh gambar dari server AI."
     return None, None, detail

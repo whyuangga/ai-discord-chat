@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.0.0-beta"
+BOT_VERSION = "1.0.1-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -42,27 +42,33 @@ def parse_gemini_keys(raw_value: str) -> list[str]:
         if k.strip() and not k.strip().startswith("masukkan_")
     ]
 
+
 # ==============================================================================
-# PENGATURAN MODEL GEMINI (TERBARU 2026) & BATAS SISTEM
+# PENGATURAN MODEL GEMINI (OPTIMAL FREE TIER: CEPAT, STABIL, ANTI-503)
 # ==============================================================================
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
+# Default menggunakan gemini-3.5-flash-lite & gemini-3.1-flash-lite yang super cepat (~1 detik)
+# dan stabil bebas antrean 503 di Free Tier Google AI Studio
 GEMINI_DEFAULT_MODEL: str = (
-    os.getenv("GEMINI_DEFAULT_MODEL") or "gemini-3.8-flash"
+    os.getenv("GEMINI_DEFAULT_MODEL") or "gemini-3.5-flash-lite"
 ).strip()
 GEMINI_FAST_MODEL: str = (
-    os.getenv("GEMINI_FAST_MODEL") or "gemini-3.5-flash-lite"
+    os.getenv("GEMINI_FAST_MODEL") or "gemini-3.1-flash-lite"
+).strip()
+GEMINI_REASONING_MODEL: str = (
+    os.getenv("GEMINI_REASONING_MODEL") or "gemini-3.6-flash"
 ).strip()
 GEMINI_IMAGE_MODEL: str = (
     os.getenv("GEMINI_IMAGE_MODEL") or "gemini-3.1-flash-lite-image"
 ).strip()
 
-# Rantai model cadangan otomatis jika model utama terkena rate-limit (429) atau gangguan sementara (503)
+# Rantai model cadangan berbeda (tanpa alias duplikat) jika salah satu model penuh/503
 GEMINI_TEXT_FALLBACK_CHAIN: list[str] = [
     GEMINI_DEFAULT_MODEL,
-    "gemini-flash-latest",
     GEMINI_FAST_MODEL,
-    "gemini-3.1-flash-lite",
+    GEMINI_REASONING_MODEL,
+    "gemini-3.8-flash",
 ]
 
 GEMINI_IMAGE_FALLBACK_CHAIN: list[str] = [
@@ -70,7 +76,11 @@ GEMINI_IMAGE_FALLBACK_CHAIN: list[str] = [
     "gemini-nano-banana-2.1",
 ]
 
+# Pada Free Tier, model gambar Nano Banana berbayar dilewati langsung agar generate gambar instan.
+# Ubah GEMINI_PAID_IMAGE_ENABLED=true di .env hanya jika akun Google AI Studio Anda sudah Paid/Billing.
+GEMINI_PAID_IMAGE_ENABLED: bool = _env_bool("GEMINI_PAID_IMAGE_ENABLED", False)
 ENABLE_IMAGE_FALLBACK: bool = _env_bool("ENABLE_IMAGE_FALLBACK", True)
+
 MAX_HISTORY_MESSAGES: int = _env_int("MAX_HISTORY_MESSAGES", 30, minimum=4)
 MAX_THREADS_PER_USER: int = _env_int("MAX_THREADS_PER_USER", 3, minimum=1)
 SESSION_EXPIRE_DAYS: int = _env_int("SESSION_EXPIRE_DAYS", 7, minimum=0)
@@ -87,7 +97,7 @@ MAX_TEXT_ATTACHMENT_BYTES: int = 100 * 1024  # 100 KB per file teks/kode
 BOT_TIMEZONE: str = (os.getenv("BOT_TIMEZONE") or "Asia/Jakarta").strip()
 AGENT_DEFAULT_IDLE_MINUTES: int = _env_int("AGENT_DEFAULT_IDLE_MINUTES", 30, minimum=0)
 AGENT_MAX_IDLE_POKES: int = _env_int("AGENT_MAX_IDLE_POKES", 1, minimum=1)
-AGENT_CHANNEL_COOLDOWN_SEC: float = 3.5
+AGENT_CHANNEL_COOLDOWN_SEC: float = 3.0
 AGENT_HISTORY_MESSAGES: int = _env_int("AGENT_HISTORY_MESSAGES", 20, minimum=4)
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -96,15 +106,16 @@ SESSIONS_FILE = DATA_DIR / "sessions.json"
 AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
 
 # ==============================================================================
-# DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI)
+# DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI - RESPONS CEPAT)
 # ==============================================================================
 AI_MODELS: dict[str, dict] = {
     "gemini_flash": {
-        "name": "♊ Gemini 3.8 Flash (Asisten Utama)",
-        "short_label": "Gemini 3.8 Flash (Utama)",
-        "description": "Asisten cerdas serba bisa + analisis gambar (Vision)",
+        "name": "♊ Gemini Flash (Asisten Utama)",
+        "short_label": "Gemini Flash (Utama)",
+        "description": "Asisten cerdas, cepat & serba bisa + analisis gambar (Vision)",
         "emoji": "♊",
         "model_id": GEMINI_DEFAULT_MODEL,
+        "thinking_level": "low",
         "temperature": 0.7,
         "system_prompt": (
             "Kamu adalah AI Assistant berbasis Google Gemini di server Discord ini yang ramah, "
@@ -114,11 +125,12 @@ AI_MODELS: dict[str, dict] = {
         ),
     },
     "gemini_fast": {
-        "name": "⚡ Gemini 3.5 Flash-Lite (Respon Kilat)",
+        "name": "⚡ Gemini Flash-Lite (Respon Kilat)",
         "short_label": "Gemini Flash-Lite (Kilat)",
-        "description": "Respon super cepat & hemat kuota untuk tanya-jawab singkat",
+        "description": "Respon instan < 1.5 detik & hemat kuota untuk tanya-jawab singkat",
         "emoji": "⚡",
         "model_id": GEMINI_FAST_MODEL,
+        "thinking_level": "minimal",
         "temperature": 0.6,
         "system_prompt": (
             "Kamu adalah asisten AI Google Gemini berkecepatan tinggi. Jawablah setiap pertanyaan "
@@ -130,7 +142,8 @@ AI_MODELS: dict[str, dict] = {
         "short_label": "Gemini Pakar Koding",
         "description": "Spesialis pemrograman, arsitektur kode & debug error",
         "emoji": "💻",
-        "model_id": GEMINI_DEFAULT_MODEL,
+        "model_id": GEMINI_REASONING_MODEL,
+        "thinking_level": "medium",
         "temperature": 0.3,
         "system_prompt": (
             "Kamu adalah Senior Software Engineer & AI spesialis pemrograman berbasis Google Gemini. "
@@ -144,7 +157,8 @@ AI_MODELS: dict[str, dict] = {
         "short_label": "Gemini Penalaran & Riset",
         "description": "Analisis mendalam, logika, matematika & pemecahan masalah",
         "emoji": "🧠",
-        "model_id": GEMINI_DEFAULT_MODEL,
+        "model_id": GEMINI_REASONING_MODEL,
+        "thinking_level": "medium",
         "temperature": 0.4,
         "system_prompt": (
             "Kamu adalah asisten riset dan analis logika berbasis Google Gemini. Uraikan permasalahan "
@@ -158,6 +172,7 @@ AI_MODELS: dict[str, dict] = {
         "description": "Empati tinggi, pendengar hangat, aman & suportif",
         "emoji": "🛋️",
         "model_id": GEMINI_DEFAULT_MODEL,
+        "thinking_level": "minimal",
         "temperature": 0.85,
         "system_prompt": (
             "Kamu adalah Teman Curhat yang sangat empatik, hangat, pendengar yang baik, tidak menghakimi, "

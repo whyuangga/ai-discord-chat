@@ -33,11 +33,11 @@ Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assist
 Saat menekan tombol **💬 Chat AI (Teks & Vision)**, member bebas memilih 1 dari 5 mode kepribadian:
 | Mode | Model Utama | Karakter & Kegunaan |
 | :--- | :--- | :--- |
-| **♊ Gemini 3.8 Flash (Asisten Utama)** | `gemini-3.8-flash` | Cerdas, ramah, dan serba bisa untuk tanya-jawab topik umum sehari-hari. |
-| **⚡ Gemini 3.5 Flash-Lite (Respon Kilat)** | `gemini-3.5-flash-lite` | Jawaban ringkas, padat, *to-the-point*, sangat cepat, dan hemat kuota API. |
-| **💻 Gemini - Pakar Koding & Debug** | `gemini-3.8-flash` | Spesialis pemrograman, struktur kode rapi, penjelasan logika, & bedah *bug*. |
-| **🧠 Gemini - Penalaran & Riset** | `gemini-3.8-flash` | Analitis & sistematis *step-by-step* untuk matematika, sains, tugas, & riset. |
-| **🛋️ Gemini - Teman Curhat** | `gemini-3.8-flash` | Pendengar yang hangat, empatik, tidak menghakimi, dan suportif ala sahabat dekat. |
+| **♊ Gemini Flash (Asisten Utama)** | `gemini-3.5-flash-lite` | Cerdas, ramah, cepat (~1 detik), & serba bisa untuk topik umum sehari-hari. |
+| **⚡ Gemini Flash-Lite (Respon Kilat)** | `gemini-3.1-flash-lite` | Jawaban ringkas, padat, *to-the-point*, instan, & paling hemat kuota API. |
+| **💻 Gemini - Pakar Koding & Debug** | `gemini-3.6-flash` | Spesialis pemrograman, struktur kode rapi, penjelasan logika, & bedah *bug*. |
+| **🧠 Gemini - Penalaran & Riset** | `gemini-3.6-flash` | Analitis & sistematis *step-by-step* untuk matematika, sains, tugas, & riset. |
+| **🛋️ Gemini - Teman Curhat** | `gemini-3.5-flash-lite` | Pendengar yang hangat, empatik, tidak menghakimi, dan suportif ala sahabat dekat. |
 
 > 💡 **Ganti Mode Kapan Saja:** Di dalam ruang `ai-...`, tersedia menu *dropdown* dan command `/model` untuk mengganti kepribadian Gemini di tengah percakapan **tanpa menghapus riwayat obrolan sebelumnya**.
 
@@ -151,10 +151,12 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `DISCORD_BOT_TOKEN` | ✅ **Wajib** | — | Token bot dari Discord Developer Portal (juga mendukung alias `DISCORD_TOKEN`). |
 | `GEMINI_API_KEY` | ✅ **Wajib** | — | API Key dari [Google AI Studio](https://aistudio.google.com/apikey) *(bisa isi 1 key atau beberapa key dipisahkan koma `key1,key2` untuk rotasi otomatis)*. |
 | `DISCORD_GUILD_ID` | Opsional | *(kosong)* | Isi ID Server Discord Anda jika ingin Slash Commands baru langsung muncul instan (<1 detik) tanpa menunggu cache global Discord. |
-| `GEMINI_DEFAULT_MODEL` | Opsional | `gemini-3.8-flash` | Model utama untuk chat cerdas, koding, riset, curhat, Vision, & AI Agent. |
-| `GEMINI_FAST_MODEL` | Opsional | `gemini-3.5-flash-lite` | Model ringan super cepat untuk mode Respon Kilat & cadangan. |
-| `GEMINI_IMAGE_MODEL` | Opsional | `gemini-3.1-flash-lite-image` | Model utama pembuat & pengedit gambar Gemini. |
-| `ENABLE_IMAGE_FALLBACK` | Opsional | `true` | Otomatis memakai generator gratis cadangan jika kuota gambar Gemini Free Tier habis. |
+| `GEMINI_DEFAULT_MODEL` | Opsional | `gemini-3.5-flash-lite` | Model utama cepat & stabil (bebas *503 overload* di *Free Tier*) untuk chat umum, curhat, Vision, & AI Agent. |
+| `GEMINI_FAST_MODEL` | Opsional | `gemini-3.1-flash-lite` | Model ultra-kilat untuk mode Respon Kilat & cadangan instan. |
+| `GEMINI_REASONING_MODEL` | Opsional | `gemini-3.6-flash` | Model penalaran untuk mode Pakar Koding & Riset. |
+| `GEMINI_PAID_IMAGE_ENABLED` | Opsional | `false` | Biarkan `false` pada *Free Tier* agar langsung memakai Flux gratis secara instan. Ubah ke `true` jika akun AI Studio sudah *Paid/Billing* untuk memakai Nano Banana / Pro. |
+| `GEMINI_IMAGE_MODEL` | Opsional | `gemini-3.1-flash-lite-image` | Model gambar Gemini saat `GEMINI_PAID_IMAGE_ENABLED=true` (bisa diisi `gemini-3-pro-image` untuk Nano Banana Pro). |
+| `ENABLE_IMAGE_FALLBACK` | Opsional | `true` | Mengaktifkan generator gambar gratis Flux. |
 | `MAX_HISTORY_MESSAGES` | Opsional | `30` | Jumlah riwayat pesan terakhir yang diingat per ruang chat privat. |
 | `MAX_THREADS_PER_USER` | Opsional | `3` | Maksimal ruang privat aktif yang boleh dibuka bersamaan oleh 1 member. |
 | `BOT_TIMEZONE` | Opsional | `Asia/Jakarta` | Zona waktu default (`Asia/Jakarta`, `Asia/Makassar`, atau `Asia/Jayapura`). |

@@ -35,6 +35,8 @@ from config import (
     GEMINI_DEFAULT_MODEL,
     GEMINI_FAST_MODEL,
     GEMINI_IMAGE_MODEL,
+    GEMINI_PAID_IMAGE_ENABLED,
+    GEMINI_REASONING_MODEL,
     resolve_model_key,
 )
 from storage import (
@@ -131,19 +133,23 @@ class GeminiDiscordBot(commands.Bot):
         if not idle_chat_watcher.is_running():
             idle_chat_watcher.start()
 
-        # 5. Sinkronisasi Slash Commands (/setup_panel, /agent ..., /model, /reset, /status)
+        # 5. Sinkronisasi Slash Commands (tanpa duplikasi Guild vs Global)
         try:
             if DISCORD_GUILD_ID:
                 guild_obj = discord.Object(id=DISCORD_GUILD_ID)
                 self.tree.copy_global_to(guild=guild_obj)
                 synced_guild = await self.tree.sync(guild=guild_obj)
+                # Hapus salinan global lama agar command tidak muncul dobel di server tes
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()
                 logger.info(
-                    "Slash commands tersinkron instan ke Guild %s (%d command).",
+                    "Slash commands tersinkron instan ke Guild %s (%d command, bebas duplikat).",
                     DISCORD_GUILD_ID,
                     len(synced_guild),
                 )
-            synced_global = await self.tree.sync()
-            logger.info("Global Slash commands tersinkron (%d command).", len(synced_global))
+            else:
+                synced_global = await self.tree.sync()
+                logger.info("Global Slash commands tersinkron (%d command).", len(synced_global))
         except Exception as exc:
             logger.warning("Gagal sinkronisasi Slash Commands: %s", sanitize_error_message(exc))
 
@@ -645,12 +651,18 @@ async def slash_status(interaction: discord.Interaction):
         inline=True,
     )
     embed.add_field(name="🕒 Jam Server AI", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
+    img_engine_info = (
+        f"`{GEMINI_IMAGE_MODEL}` (Paid)"
+        if GEMINI_PAID_IMAGE_ENABLED
+        else "`Flux AI` (Free Tier Instan)"
+    )
     embed.add_field(
-        name="♊ Model Gemini",
+        name="♊ Model Aktif",
         value=(
             f"Utama: `{GEMINI_DEFAULT_MODEL}`\n"
             f"Kilat: `{GEMINI_FAST_MODEL}`\n"
-            f"Gambar: `{GEMINI_IMAGE_MODEL}`"
+            f"Koding/Riset: `{GEMINI_REASONING_MODEL}`\n"
+            f"Gambar: {img_engine_info}"
         ),
         inline=False,
     )
@@ -786,22 +798,20 @@ async def on_message(message: discord.Message):
         if channel_id in gallery_agent_channels and message.attachments:
             lock = get_agent_channel_lock(channel_id)
             async with lock:
-                comment_text, reaction_emoji = await generate_gallery_comment(
-                    message,
-                    bot.user,
-                    http_session=bot.http_session,
-                )
-                if comment_text:
-                    if reaction_emoji:
-                        try:
-                            await message.add_reaction(reaction_emoji)
-                        except (discord.Forbidden, discord.HTTPException):
-                            pass
-
-                    async with message.channel.typing():
-                        await asyncio.sleep(random.uniform(1.0, 2.0))
+                async with message.channel.typing():
+                    comment_text, reaction_emoji = await generate_gallery_comment(
+                        message,
+                        bot.user,
+                        http_session=bot.http_session,
+                    )
+                    if comment_text:
+                        if reaction_emoji:
+                            try:
+                                await message.add_reaction(reaction_emoji)
+                            except (discord.Forbidden, discord.HTTPException):
+                                pass
                         await message.reply(comment_text[:1900], mention_author=False)
-                    return
+                        return
 
         # 2B. AUTO-CHAT KOMUNITAS NATURAL (Teks, Stiker, Emoji, & Sapaan)
         if channel_id in chat_agent_channels:
@@ -810,7 +820,6 @@ async def on_message(message: discord.Message):
                 lock = get_agent_channel_lock(channel_id)
                 async with lock:
                     async with message.channel.typing():
-                        await asyncio.sleep(random.uniform(1.0, 2.2))
                         reply_text = await generate_community_chat_reply(
                             message,
                             bot.user,
