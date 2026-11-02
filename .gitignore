@@ -1,0 +1,22 @@
+# Rahasia & Environment Variables (JANGAN DI-COMMIT!)
+.env
+.env.*
+!.env.example
+
+# Data Sesi Runtime
+data/
+
+# Python Bytecode & Virtual Environment
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Testing & Tooling Cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+.DS_Store
