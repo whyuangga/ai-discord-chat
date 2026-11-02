@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.2.0-beta"
+BOT_VERSION = "1.2.1-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -88,9 +88,10 @@ GEMINI_IMAGE_FALLBACK_CHAIN: list[str] = [
     "gemini-nano-banana-2.1",
 ]
 
-# Pada Free Tier, model gambar Nano Banana berbayar dilewati langsung agar generate gambar instan.
-# Ubah GEMINI_PAID_IMAGE_ENABLED=true di .env hanya jika akun Google AI Studio Anda sudah Paid/Billing.
+# Pada Free Tier, model gambar Nano Banana & tool Google Search berbayar dilewati langsung agar instan & bebas error kuota 0.
+# Ubah GEMINI_PAID_IMAGE_ENABLED / GEMINI_PAID_SEARCH_ENABLED=true di .env hanya jika akun Google AI Studio Anda sudah Paid/Billing.
 GEMINI_PAID_IMAGE_ENABLED: bool = _env_bool("GEMINI_PAID_IMAGE_ENABLED", False)
+GEMINI_PAID_SEARCH_ENABLED: bool = _env_bool("GEMINI_PAID_SEARCH_ENABLED", False)
 ENABLE_IMAGE_FALLBACK: bool = _env_bool("ENABLE_IMAGE_FALLBACK", True)
 ENABLE_GOOGLE_SEARCH: bool = _env_bool("ENABLE_GOOGLE_SEARCH", True)
 ENABLE_URL_READER: bool = _env_bool("ENABLE_URL_READER", True)

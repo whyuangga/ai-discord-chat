@@ -21,6 +21,7 @@ from config import (
     GEMINI_API_BASE,
     GEMINI_API_KEY,
     GEMINI_DEFAULT_MODEL,
+    GEMINI_PAID_SEARCH_ENABLED,
     GEMINI_SEARCH_FALLBACK_CHAIN,
     GEMINI_SEARCH_MODEL,
     GEMINI_TEXT_FALLBACK_CHAIN,
@@ -41,8 +42,10 @@ from utils import (
     extract_social_media_and_stickers,
     extract_urls_from_text,
     fetch_webpage_text,
+    free_live_web_search,
     get_realtime_time_context,
     has_voice_or_audio_attachment,
+    has_youtube_url,
     needs_live_web_search,
     sanitize_error_message,
 )
@@ -110,9 +113,74 @@ def get_guild_settings(guild_id: int) -> dict:
             "custom_prompt": "",
             "timezone": BOT_TIMEZONE,
             "quiet_hours": True,
+            "youtube_enabled": bool(ENABLE_URL_READER),
+            "youtube_auto_chat": False,
+            "search_enabled": bool(ENABLE_GOOGLE_SEARCH),
+            "search_auto_chat": True,
         }
         guild_agent_settings[guild_id] = settings
+    else:
+        settings.setdefault("youtube_enabled", bool(ENABLE_URL_READER))
+        settings.setdefault("youtube_auto_chat", False)
+        settings.setdefault("search_enabled", bool(ENABLE_GOOGLE_SEARCH))
+        settings.setdefault("search_auto_chat", True)
     return settings
+
+
+def set_youtube_feature_config(
+    guild_id: int,
+    *,
+    enabled: bool,
+    auto_in_chat: bool | None = None,
+) -> dict:
+    """Mengatur ON/OFF fitur perangkum YouTube/Web serta izin auto-baca di Text Channel publik."""
+    cfg = get_guild_settings(guild_id)
+    cfg["youtube_enabled"] = bool(enabled)
+    if not enabled:
+        cfg["youtube_auto_chat"] = False
+    elif auto_in_chat is not None:
+        cfg["youtube_auto_chat"] = bool(auto_in_chat)
+    return cfg
+
+
+def set_search_feature_config(
+    guild_id: int,
+    *,
+    enabled: bool,
+    auto_in_chat: bool | None = None,
+) -> dict:
+    """Mengatur ON/OFF fitur pencarian web (/cari & auto-search di obrolan)."""
+    cfg = get_guild_settings(guild_id)
+    cfg["search_enabled"] = bool(enabled)
+    if not enabled:
+        cfg["search_auto_chat"] = False
+    elif auto_in_chat is not None:
+        cfg["search_auto_chat"] = bool(auto_in_chat)
+    elif not cfg.get("search_auto_chat", True):
+        # Saat dinyalakan ulang tanpa parameter tambahan, aktifkan kembali auto_in_chat
+        cfg["search_auto_chat"] = True
+    return cfg
+
+
+def is_youtube_enabled_for_guild(guild_id: int | None) -> bool:
+    if not ENABLE_URL_READER:
+        return False
+    if guild_id is None:
+        return True
+    return bool(get_guild_settings(guild_id).get("youtube_enabled", True))
+
+
+def is_search_enabled_for_guild(guild_id: int | None, *, for_auto_chat: bool = False) -> bool:
+    if not ENABLE_GOOGLE_SEARCH:
+        return False
+    if guild_id is None:
+        return True
+    cfg = get_guild_settings(guild_id)
+    if not cfg.get("search_enabled", True):
+        return False
+    if for_auto_chat and not cfg.get("search_auto_chat", True):
+        return False
+    return True
 
 
 def format_idle_duration(idle_seconds: int) -> str:
@@ -307,6 +375,10 @@ def load_agent_config_from_disk() -> tuple[int, int]:
                 "custom_prompt": str(gdata.get("custom_prompt") or "").strip(),
                 "timezone": str(gdata.get("timezone") or BOT_TIMEZONE).strip(),
                 "quiet_hours": bool(gdata.get("quiet_hours", True)),
+                "youtube_enabled": bool(gdata.get("youtube_enabled", ENABLE_URL_READER)),
+                "youtube_auto_chat": bool(gdata.get("youtube_auto_chat", False)),
+                "search_enabled": bool(gdata.get("search_enabled", ENABLE_GOOGLE_SEARCH)),
+                "search_auto_chat": bool(gdata.get("search_auto_chat", True)),
             }
         except (ValueError, TypeError):
             continue
@@ -461,6 +533,14 @@ def should_agent_reply_in_chat(
     if is_direct_mention or replied_to_bot:
         return True, True
 
+    # Jika member membagikan link YouTube biasa di Text Channel tanpa mention bot & auto-YouTube sedang OFF,
+    # jangan ikut nimbrung auto-chat supaya tidak mengganggu warga yang sedang share video/lagu!
+    if has_youtube_url(content) and not (
+        guild_cfg.get("youtube_enabled", True) and guild_cfg.get("youtube_auto_chat", False)
+    ):
+        _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+        return False, False
+
     # Cooldown singkat agar tidak membanjiri API saat chat sangat ramai
     if now - last_bot_at < AGENT_CHANNEL_COOLDOWN_SEC:
         if content:
@@ -548,8 +628,8 @@ async def _call_gemini_agent(
     req_timeout = CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT
 
     async with _borrow_session(http_session, req_timeout) as session:
-        # Jika butuh pencarian berita/info real-time hari ini, coba Google Search Grounding dulu
-        if use_google_search:
+        # Opsional Paid Tier: Native Google Search tool hanya bila GEMINI_PAID_SEARCH_ENABLED=true
+        if use_google_search and GEMINI_PAID_SEARCH_ENABLED:
             search_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
             for s_idx, s_model in enumerate(search_models):
                 s_cfg: dict = {"temperature": 0.65, "maxOutputTokens": max(1024, max_tokens)}
@@ -662,7 +742,12 @@ async def generate_community_chat_reply(
 
     yt_urls: list[str] = []
     web_snippets: list[str] = []
-    if ENABLE_URL_READER and clean_text:
+    allow_public_link_reader = (
+        ENABLE_URL_READER
+        and guild_cfg.get("youtube_enabled", True)
+        and guild_cfg.get("youtube_auto_chat", False)
+    )
+    if allow_public_link_reader and clean_text:
         yt_urls, web_urls = extract_urls_from_text(clean_text)
         for yt_u in yt_urls[:1]:
             media_parts.append({"fileData": {"fileUri": yt_u}})
@@ -672,6 +757,17 @@ async def generate_community_chat_reply(
             if w_body:
                 label = f"{w_title} ({web_u})" if w_title else web_u
                 web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
+
+    use_search = (
+        is_search_enabled_for_guild(guild_id, for_auto_chat=True)
+        and not media_parts
+        and not web_snippets
+        and needs_live_web_search(clean_text)
+    )
+    if use_search and not GEMINI_PAID_SEARCH_ENABLED:
+        free_ctx, _ = await free_live_web_search(clean_text, max_results=4, http_session=http_session)
+        if free_ctx:
+            web_snippets.append(f"[Info Berita/Web Terkini Hari Ini:\n{free_ctx[:2200]}]")
 
     author_name = message.author.display_name
     desc_prefix = " ".join([*media_descs, *web_snippets])
@@ -706,13 +802,6 @@ async def generate_community_chat_reply(
     )
     system_prompt = _build_community_system_prompt(guild_cfg, bot_display, time_ctx)
 
-    use_search = (
-        ENABLE_GOOGLE_SEARCH
-        and not media_parts
-        and not web_snippets
-        and needs_live_web_search(clean_text)
-    )
-
     reply = await _call_gemini_agent(
         system_prompt,
         contents,
@@ -720,7 +809,7 @@ async def generate_community_chat_reply(
         max_tokens=2048,
         thinking_level="low" if (media_parts or use_search) else "minimal",
         has_media=bool(media_parts),
-        use_google_search=use_search,
+        use_google_search=(use_search and GEMINI_PAID_SEARCH_ENABLED),
         http_session=http_session,
     )
 

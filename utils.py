@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
 import html
@@ -6,6 +7,7 @@ import ipaddress
 import re
 from pathlib import Path
 import urllib.parse
+import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import aiohttp
 import discord
@@ -179,13 +181,21 @@ _FENCE_RE = re.compile(r"^\s*(`{3,})([\w.+-]*)\s*$")
 
 
 def sanitize_error_message(error: Exception | str) -> str:
-    """Menyembunyikan token/API key jika tidak sengaja muncul dalam pesan error."""
+    """Menyembunyikan token/API key serta membersihkan pesan kuota/URL mentah agar tidak memicu preview besar di Discord."""
     text = str(error)
     secrets = [GEMINI_API_KEY, DISCORD_BOT_TOKEN, *parse_gemini_keys(GEMINI_API_KEY)]
     for secret in secrets:
         if secret and len(secret) >= 8 and secret in text:
             text = text.replace(secret, "[REDACTED]")
-    return text
+
+    lower = text.lower()
+    if "exceeded your current quota" in lower or "check your plan and billing" in lower:
+        return "Batas kuota per menit Gemini Free Tier sedang penuh sesaat, silakan coba beberapa detik lagi."
+
+    # Cegah URL dokumentasi Google/eksternal memunculkan kartu link preview raksasa di pesan error Discord
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip(" .:-")
+    return text or "Terjadi gangguan sementara pada layanan AI."
 
 
 def _toggle_fence_state(line: str, current_fence: str | None) -> str | None:
@@ -866,6 +876,279 @@ def needs_live_web_search(text: str) -> bool:
     if len(cleaned) < 6:
         return False
     return bool(_LIVE_SEARCH_TRIGGER_RE.search(cleaned))
+
+
+def has_youtube_url(text: str) -> bool:
+    """Mengecek cepat apakah sebuah teks pesan mengandung link video YouTube."""
+    if not text:
+        return False
+    for match in _URL_RE.findall(text):
+        if normalize_youtube_url(match.rstrip(".,;:!?\"')]>")):
+            return True
+    return False
+
+
+def _strip_html_inline(raw: str) -> str:
+    if not raw:
+        return ""
+    no_tags = re.sub(r"<[^>]+>", " ", raw)
+    return re.sub(r"\s+", " ", html.unescape(no_tags)).strip()
+
+
+def _unwrap_ddg_url(raw_href: str) -> str:
+    href = html.unescape((raw_href or "").strip())
+    if href.startswith("//"):
+        href = "https:" + href
+    parsed = urllib.parse.urlparse(href)
+    if "duckduckgo.com" in (parsed.hostname or "").lower():
+        qs = urllib.parse.parse_qs(parsed.query)
+        if qs.get("uddg"):
+            return qs["uddg"][0].strip()
+    return href
+
+
+async def _search_duckduckgo_html(
+    query: str,
+    session: aiohttp.ClientSession,
+    max_items: int = 5,
+) -> list[dict]:
+    """Mengambil hasil pencarian web umum gratis dari DuckDuckGo HTML (tanpa API key)."""
+    encoded = urllib.parse.quote_plus(query.strip())
+    url = f"https://html.duckduckgo.com/html/?q={encoded}&kl=id-id"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+    timeout = aiohttp.ClientTimeout(total=7, connect=4)
+    results: list[dict] = []
+    try:
+        async with session.get(url, headers=headers, timeout=timeout, allow_redirects=True) as resp:
+            if resp.status != 200:
+                return []
+            raw_bytes = await resp.content.read(220 * 1024)
+            page = raw_bytes.decode("utf-8", errors="replace")
+
+        blocks = re.findall(
+            r'<div[^>]+class="[^"]*result__body[^"]*"[^>]*>(.*?)</div>\s*</div>',
+            page,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not blocks:
+            blocks = page.split('class="result__body"')
+
+        for blk in blocks:
+            a_match = re.search(
+                r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+                blk,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if not a_match:
+                continue
+            target_url = _unwrap_ddg_url(a_match.group(1))
+            if not target_url.startswith(("http://", "https://")) or "duckduckgo.com/y.js" in target_url:
+                continue
+            title = _strip_html_inline(a_match.group(2))
+            snip_match = re.search(
+                r'class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|div|span)>',
+                blk,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            snippet = _strip_html_inline(snip_match.group(1)) if snip_match else ""
+            if title:
+                results.append(
+                    {
+                        "title": title[:120],
+                        "url": target_url,
+                        "snippet": snippet[:320],
+                        "date": "",
+                        "kind": "web",
+                    }
+                )
+            if len(results) >= max_items:
+                break
+    except Exception:
+        return []
+    return results
+
+
+async def _search_google_news_rss(
+    query: str,
+    session: aiohttp.ClientSession,
+    max_items: int = 5,
+) -> list[dict]:
+    """Mengambil berita terbaru hari ini secara real-time dari Google News RSS Indonesia (gratis & anti-blokir)."""
+    encoded = urllib.parse.quote_plus(query.strip())
+    url = f"https://news.google.com/rss/search?q={encoded}&hl=id&gl=ID&ceid=ID:id"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; DiscordGeminiAssistant/1.2)",
+        "Accept": "application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+    }
+    timeout = aiohttp.ClientTimeout(total=7, connect=4)
+    results: list[dict] = []
+    try:
+        async with session.get(url, headers=headers, timeout=timeout, allow_redirects=True) as resp:
+            if resp.status != 200:
+                return []
+            raw_xml = (await resp.content.read(220 * 1024)).decode("utf-8", errors="replace")
+
+        root = ET.fromstring(raw_xml)
+        for item in root.findall(".//item"):
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            pub_date = (item.findtext("pubDate") or "").strip()
+            desc = _strip_html_inline(item.findtext("description") or "")
+            src_el = item.find("source")
+            src_name = (src_el.text or "").strip() if src_el is not None else ""
+            src_url = (src_el.attrib.get("url") or "").strip() if src_el is not None else ""
+
+            if not title:
+                continue
+            results.append(
+                {
+                    "title": title[:130],
+                    "url": link or src_url,
+                    "source_label": src_name or title[:45],
+                    "snippet": desc[:280],
+                    "date": pub_date[:25],
+                    "kind": "news",
+                }
+            )
+            if len(results) >= max_items:
+                break
+    except Exception:
+        return []
+    return results
+
+
+async def _search_wikipedia_api(
+    query: str,
+    session: aiohttp.ClientSession,
+    max_items: int = 3,
+) -> list[dict]:
+    """Cadangan pencarian fakta ensiklopedia dari Wikipedia Bahasa Indonesia (JSON ringan, selalu gratis)."""
+    encoded = urllib.parse.quote_plus(query.strip())
+    url = (
+        f"https://id.wikipedia.org/w/api.php?action=query&list=search"
+        f"&srsearch={encoded}&srlimit={max_items}&utf8=1&format=json"
+    )
+    headers = {"User-Agent": "DiscordGeminiAssistant/1.2 (https://github.com)"}
+    timeout = aiohttp.ClientTimeout(total=6, connect=4)
+    results: list[dict] = []
+    try:
+        async with session.get(url, headers=headers, timeout=timeout) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json(content_type=None)
+        for row in (data.get("query") or {}).get("search") or []:
+            title = str(row.get("title") or "").strip()
+            snippet = _strip_html_inline(str(row.get("snippet") or ""))
+            if title:
+                wiki_url = f"https://id.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
+                results.append(
+                    {
+                        "title": f"{title} — Wikipedia",
+                        "url": wiki_url,
+                        "snippet": snippet[:300],
+                        "date": "",
+                        "kind": "wiki",
+                    }
+                )
+    except Exception:
+        return []
+    return results
+
+
+async def free_live_web_search(
+    query: str,
+    *,
+    max_results: int = 6,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str, list[dict]]:
+    """Mencari informasi & berita terkini secara gratis tanpa kuota berbayar Google Search API.
+
+    Menggabungkan DuckDuckGo Web + Google News RSS Indonesia (+ cadangan Wikipedia),
+    lalu menyusun blok konteks siap baca untuk Gemini beserta daftar tautan sumber web.
+    """
+    clean_q = (query or "").strip()
+    if not clean_q:
+        return "", []
+
+    async def _run_with_session(sess: aiohttp.ClientSession) -> tuple[str, list[dict]]:
+        ddg_task = _search_duckduckgo_html(clean_q, sess, max_items=4)
+        news_task = _search_google_news_rss(clean_q, sess, max_items=4)
+        ddg_res, news_res = await asyncio.gather(ddg_task, news_task)
+
+        combined: list[dict] = []
+        seen_urls: set[str] = set()
+
+        # Selang-seling hasil web umum & berita terbaru agar cakupan lengkap
+        for bucket in (news_res, ddg_res):
+            for item in bucket:
+                u = item.get("url") or ""
+                if not u or u in seen_urls:
+                    continue
+                seen_urls.add(u)
+                combined.append(item)
+                if len(combined) >= max_results:
+                    break
+            if len(combined) >= max_results:
+                break
+
+        if len(combined) < 2:
+            wiki_res = await _search_wikipedia_api(clean_q, sess, max_items=3)
+            for item in wiki_res:
+                u = item.get("url") or ""
+                if u and u not in seen_urls:
+                    seen_urls.add(u)
+                    combined.append(item)
+
+        if not combined:
+            return "", []
+
+        # Perkaya 1 halaman web langsung teratas (bukan redirect RSS) bila tersedia agar detail angka/fakta presisi
+        top_web_excerpt = ""
+        for item in ddg_res[:2]:
+            candidate_url = item.get("url") or ""
+            if candidate_url and is_safe_public_url(candidate_url):
+                try:
+                    _, body = await asyncio.wait_for(
+                        fetch_webpage_text(candidate_url, http_session=sess),
+                        timeout=4.5,
+                    )
+                    if body:
+                        top_web_excerpt = (
+                            f"\n\n[Kutipan Isi Halaman Teratas ({item['title']})]:\n{body[:1800]}"
+                        )
+                        break
+                except Exception:
+                    continue
+
+        lines: list[str] = []
+        sources: list[dict] = []
+        for idx, item in enumerate(combined[:max_results], start=1):
+            date_tag = f" ({item['date']})" if item.get("date") else ""
+            snip_tag = f"\n   Ringkasan: {item['snippet']}" if item.get("snippet") else ""
+            lines.append(f"{idx}. **{item['title']}**{date_tag}{snip_tag}\n   URL: {item['url']}")
+            if len(sources) < 4 and item.get("url"):
+                short_label = item.get("source_label") or item["title"]
+                sources.append({"title": short_label[:55], "url": item["url"]})
+
+        context_block = (
+            f"Hasil Pencarian Web & Berita Terkini untuk `{clean_q}`:\n"
+            + "\n".join(lines)
+            + top_web_excerpt
+        )
+        return context_block, sources
+
+    timeout = aiohttp.ClientTimeout(total=10, connect=5)
+    if http_session is not None and not http_session.closed:
+        return await _run_with_session(http_session)
+    async with aiohttp.ClientSession(timeout=timeout) as temp_sess:
+        return await _run_with_session(temp_sess)
 
 
 def extract_message_text_for_context(message: discord.Message) -> str:

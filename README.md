@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.2.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.2.1-beta`)
 
 Bot Discord lengkap berbasis **100% Google Gemini API terbaru** yang menggabungkan **tiga sistem pintar dalam satu bot ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita terbaru hari ini (Google Search)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -123,13 +123,13 @@ Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pe
   - **`💡 Jelaskan Pesan Ini`** — Menjelaskan maksud istilah teknis, potongan kode/error, pengumuman panjang, atau meme secara ringkas & mudah dimengerti.
 - **Cara pakai di PC/Laptop:** Klik kanan pesan ➔ sorot **Apps** ➔ pilih menu di atas. Hasilnya tampil privat (*ephemeral*) hanya untuk Anda!
 
-#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web Otomatis (`/ringkas_link` & Auto-Read)
-- **Otomatis di Chat:** Saat member mengirim link video YouTube (`youtube.com/watch`, `youtu.be`, `youtube.com/shorts`) atau link artikel web di ruang `ai-...` maupun di channel Auto-Chat, Gemini otomatis menonton/membaca isinya sehingga langsung nyambung membahas isi video/artikel tersebut!
-- **Command `/ringkas_link`:** Tempel link YouTube berdurasi panjang atau artikel berita panjang ke `/ringkas_link` untuk mendapatkan rangkuman poin penting dalam hitungan detik (bisa ditambah pertanyaan spesifik, dan dilengkapi proteksi keamanan anti-SSRF).
+#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web (`/ringkas_link` & Kontrol ON/OFF `/agent youtube`)
+- **Command `/ringkas_link` & Ruang Privat `ai-...`:** Tempel link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`) atau artikel web untuk langsung mendapatkan rangkuman poin penting dalam hitungan detik!
+- **Tidak Mengganggu Text Channel Publik (Default Auto-Chat YouTube = `OFF`):** Saat member sekadar membagikan link lagu/video YouTube di `#welcome` atau `#general`, bot **tidak akan** ikut nimbrung/auto-chat sendiri. Admin bebas menyalakan atau mematikan fitur ini kapan saja langsung lewat **`/agent youtube`**.
 
-#### 10. 🌍 Google Search Grounding — Cek Info & Berita Terbaru Hari Ini (`/cari` & Auto-Search)
-- Tidak lagi terbatas pada pengetahuan lama! Bot terhubung ke **Google Search Grounding** (kompatibel **100% gratis di *Free Tier*** hingga 500 pencarian/hari memakai `gemini-2.5-flash` + fallback otomatis jika kuota harian penuh).
-- Bisa dipakai langsung lewat **`/cari pertanyaan:...`** (lengkap dengan tautan **🌐 Sumber Web** yang bisa diklik), atau cukup tanyakan langsung info terkini (*skor pertandingan semalam, cuaca hari ini, kurs dollar/crypto, berita terbaru, jadwal rilis game*) di ruang `ai-...` maupun channel Auto-Chat!
+#### 10. 🌍 Live Web & News Search — Cek Info & Berita Hari Ini (`/cari` & Kontrol ON/OFF `/agent cari`)
+- **100% Gratis di *Free Tier* (Bebas Error `exceeded your current quota`):** Menggunakan mesin pencari web & berita *real-time* mandiri (**DuckDuckGo Web + Google News RSS Indonesia** + pembaca artikel) yang dirangkum oleh model Gemini gratis lengkap dengan tautan **🌐 Sumber Web**!
+- Bisa dipakai langsung lewat **`/cari pertanyaan:...`** maupun otomatis di obrolan, serta bisa dinyalakan/dimatikan kapan saja oleh Admin langsung lewat **`/agent cari`**.
 
 #### 11. 🎮 Mini-Game Tongkrongan AI (`/game`) + Papan Skor Server (*Leaderboard*)
 Bikin channel tongkrongan makin ramai dengan 4 permainan interaktif yang soalnya dibuat dinamis oleh Gemini AI (anti-bosan & tidak berulang!):
@@ -252,6 +252,10 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Matikan AI Auto-Welcomer member baru** | `/agent welcome channel:#welcome aktif:False` |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
+| **Matikan fitur Rangkum YouTube & Link Web sepenuhnya** | `/agent youtube aktif:False` |
+| **Matikan Auto-Chat saat kirim link YouTube di Text Channel** *(tapi `/ringkas_link` tetap jalan — **Default**)* | `/agent youtube aktif:True auto_di_channel:False` |
+| **Matikan fitur Pencarian Berita/Web (`/cari`) sepenuhnya** | `/agent cari aktif:False` |
+| **Matikan Auto-Search di obrolan** *(agar pencarian hanya jalan kalau ketik `/cari`)* | `/agent cari aktif:True auto_di_chat:False` |
 | **Matikan Jam Tenang Malam (23:00–06:00)** *(agar sapaan tetap jalan tengah malam)* | `/agent persona jam_tenang_malam:False` |
 | **Reset Nama Panggilan / Konteks Komunitas kembali ke default** | `/agent persona nama_panggilan:- konteks_komunitas:-` *(isi tanda strip `-`)* |
 | **Tutup 1 Ruang Sesi Privat (`ai-...` / `draw-...`)** | Klik tombol merah **🔴 Akhiri Sesi** di dalam thread tersebut |
@@ -289,6 +293,8 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | `/agent chat` | `channel`, `aktif`, `mode_balas`, `menit_sepi` | Mengaktifkan/mematikan Auto-Chat & Pemecah Sepi otomatis di channel publik. |
 | `/agent welcome` | `channel`, `aktif`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan/mematikan AI Auto-Welcomer natural untuk member baru. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di channel Galeri/Showcase. |
+| `/agent youtube` | `aktif`, `auto_di_channel` | Mengaktifkan/mematikan fitur rangkum YouTube/Web (`/ringkas_link`) & izin auto-baca di Text Channel publik (default `auto_di_channel=False`). |
+| `/agent cari` | `aktif`, `auto_di_chat` | Mengaktifkan/mematikan fitur pencarian berita/web (`/cari` & auto-search di obrolan). |
 | `/agent persona` | `gaya_bahasa`, `nama_panggilan`, `zona_waktu`, `jam_tenang_malam`, `konteks_komunitas` | Mengubah nama akrab AI, gaya bicara (*Akrab / Gaul / Ramah*), zona waktu (*WIB/WITA/WIT*), Jam Tenang, & deskripsi komunitas. |
 | `/agent sapa` | `channel` *(opsional)* | Memicu AI Agent langsung menyapa / memecah sepi detik ini juga (untuk tes instan). |
 | `/agent status` | — | Melihat status profil AI Agent, daftar channel aktif, & sisa hitung mundur pemecah sepi. |
@@ -307,9 +313,10 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `GEMINI_DEFAULT_MODEL` | Opsional | `gemini-3.5-flash-lite` | Model utama cepat & stabil (bebas *503 overload* di *Free Tier*) untuk chat umum, curhat, Vision, & AI Agent. |
 | `GEMINI_FAST_MODEL` | Opsional | `gemini-3.1-flash-lite` | Model ultra-kilat untuk mode Respon Kilat & cadangan instan. |
 | `GEMINI_REASONING_MODEL` | Opsional | `gemini-3.6-flash` | Model penalaran untuk mode Pakar Koding & Riset. |
-| `GEMINI_SEARCH_MODEL` | Opsional | `gemini-2.5-flash` | Model utama untuk **Google Search Grounding** (mendukung kuota gratis 500 RPD di *Free Tier* Google AI Studio). |
-| `ENABLE_GOOGLE_SEARCH` | Opsional | `true` | Mengaktifkan pencarian info/berita terkini otomatis di chat & `/cari` (`false` untuk menonaktifkan). |
-| `ENABLE_URL_READER` | Opsional | `true` | Mengaktifkan pembaca otomatis link video YouTube & halaman web yang dikirim di chat (`false` untuk menonaktifkan). |
+| `ENABLE_GOOGLE_SEARCH` | Opsional | `true` | Default awal fitur `/cari` & Live Search (bisa di-ON/OFF langsung dari Discord lewat `/agent cari`). |
+| `ENABLE_URL_READER` | Opsional | `true` | Default awal fitur perangkum link YouTube/Web (bisa di-ON/OFF langsung dari Discord lewat `/agent youtube`). |
+| `GEMINI_PAID_SEARCH_ENABLED` | Opsional | `false` | Biarkan `false` pada *Free Tier* agar memakai mesin pencari web & berita gratis mandiri tanpa error kuota 0. Ubah ke `true` hanya jika akun AI Studio sudah *Paid/Billing*. |
+| `GEMINI_SEARCH_MODEL` | Opsional | `gemini-2.5-flash` | Model yang dipakai jika `GEMINI_PAID_SEARCH_ENABLED=true`. |
 | `GEMINI_PAID_IMAGE_ENABLED` | Opsional | `false` | Biarkan `false` pada *Free Tier* agar langsung memakai Flux gratis secara instan. Ubah ke `true` jika akun AI Studio sudah *Paid/Billing* untuk memakai Nano Banana / Pro. |
 | `GEMINI_IMAGE_MODEL` | Opsional | `gemini-3.1-flash-lite-image` | Model gambar Gemini saat `GEMINI_PAID_IMAGE_ENABLED=true` (bisa diisi `gemini-3-pro-image` untuk Nano Banana Pro). |
 | `ENABLE_IMAGE_FALLBACK` | Opsional | `true` | Mengaktifkan generator gambar gratis Flux. |
@@ -368,7 +375,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.2.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.2.1-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/setup_panel`** di channel panel AI privat.

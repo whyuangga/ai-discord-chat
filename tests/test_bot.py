@@ -373,7 +373,7 @@ def test_agent_command_group_registered():
     assert "agent" in cmd_names
     agent_cmd = next(cmd for cmd in bot_main.bot.tree.get_commands() if cmd.name == "agent")
     sub_names = {sub.name for sub in agent_cmd.commands}
-    assert {"chat", "gallery", "persona", "sapa", "status", "welcome"} == sub_names
+    assert {"chat", "gallery", "persona", "sapa", "status", "welcome", "youtube", "cari"} == sub_names
 
 
 class _FakeSticker:
@@ -953,51 +953,84 @@ async def test_google_search_grounding_cari_and_auto_chat_fallback(monkeypatch):
     assert utils.needs_live_web_search("Berapa kurs dollar ke rupiah hari ini?") is True
     assert utils.needs_live_web_search("Buatkan fungsi rekursif faktorial di Python") is False
 
-    # 1. Command /cari memakai GEMINI_SEARCH_FALLBACK_CHAIN + tools google_search & mengekstrak sumber web
-    grounded_resp = FakeMockResponse(
-        200,
-        {
-            "candidates": [
-                {
-                    "content": {"parts": [{"text": "Kurs USD ke IDR hari ini berada di kisaran Rp16.150."}]},
-                    "groundingMetadata": {
-                        "groundingChunks": [
-                            {"web": {"uri": "https://ekonomi.example.com/kurs", "title": "Update Kurs Rupiah Hari Ini"}},
-                            {"web": {"uri": "https://bank.example.com/fx", "title": "Data Valas Terkini"}},
-                        ]
-                    },
-                }
-            ]
-        },
+    # Sanitasi pesan error kuota wajib bersih dari URL mentah agar tidak memicu kartu preview raksasa Discord
+    raw_quota_err = (
+        "You exceeded your current quota, please check your plan and billing details. "
+        "For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. "
+        "To monitor your current usage, head to: https://ai.dev/rate-limit."
     )
-    fake_http = FakeHttpSession(post_responses=[grounded_resp])
+    cleaned_err = utils.sanitize_error_message(raw_quota_err)
+    assert "https://" not in cleaned_err
+    assert "kuota" in cleaned_err.lower()
+
+    # 1. Mode Default Free Tier (GEMINI_PAID_SEARCH_ENABLED=False):
+    #    /cari menggunakan mesin pencari gratis (DuckDuckGo + Google News RSS) TANPA memanggil tool berbayar google_search!
+    sample_ddg_html = (
+        b'<div class="result__body"><a class="result__a" '
+        b'href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fekonomi.example.com%2Fkurs">Kurs Dollar Hari Ini</a>'
+        b'<a class="result__snippet">Nilai tukar USD ke IDR hari ini berada di Rp16.150 per dolar AS.</a></div>'
+    )
+    sample_news_rss = (
+        b'<?xml version="1.0" encoding="UTF-8"?><rss><channel><item>'
+        b"<title>Rupiah Menguat ke Rp16.150 Sore Ini - Kompas</title>"
+        b"<link>https://news.example.com/rupiah</link>"
+        b"<pubDate>Mon, 02 Nov 2026 10:00:00 GMT</pubDate>"
+        b"<description>Kurs rupiah menguat tipis terhadap dolar AS.</description>"
+        b'<source url="https://kompas.example.com">Kompas</source>'
+        b"</item></channel></rss>"
+    )
+    ddg_get = FakeMockResponse(200, raw_bytes=sample_ddg_html, headers={"Content-Type": "text/html"})
+    rss_get = FakeMockResponse(200, raw_bytes=sample_news_rss, headers={"Content-Type": "application/xml"})
+    top_page_get = FakeMockResponse(
+        200,
+        raw_bytes=b"<html><title>Kurs USD</title><body><p>Kurs jual Rp16.180 dan kurs beli Rp16.120 hari ini.</p></body></html>",
+        headers={"Content-Type": "text/html"},
+        url="https://ekonomi.example.com/kurs",
+    )
+    monkeypatch.setattr(utils, "is_safe_public_url", lambda u: u.startswith("https://"))
+
+    free_ai_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Kurs USD ke IDR hari ini berada di kisaran Rp16.150."}]}}]},
+    )
+    fake_http_free = FakeHttpSession(
+        post_responses=[free_ai_resp],
+        get_responses=[ddg_get, rss_get, top_page_get],
+    )
     ans, err = await ai_handler.search_web_with_gemini(
         "Berapa kurs dollar hari ini?",
-        http_session=fake_http,
+        http_session=fake_http_free,
     )
     assert err is None
     assert "Rp16.150" in ans
-    assert "https://ekonomi.example.com/kurs" in ans
-    assert fake_http.post_calls[0]["json"]["tools"] == [{"google_search": {}}]
-    assert "gemini-2.5-flash" in fake_http.post_calls[0]["url"]
+    assert "https://news.example.com/rupiah" in ans or "https://ekonomi.example.com/kurs" in ans
+    # Pastikan TIDAK memanggil tools google_search berbayar pada mode Free Tier!
+    assert "tools" not in fake_http_free.post_calls[0]["json"]
+    assert "gemini-3.5-flash-lite" in fake_http_free.post_calls[0]["url"]
 
-    # 2. Di ruang chat privat ai-..., jika kuota Google Search Free Tier habis (429), otomatis fallback mulus ke model biasa!
-    storage.init_thread_session(808, "gemini_flash")
-    quota_429 = FakeMockResponse(429, {"error": {"message": "Quota exceeded"}})
-    fallback_std = FakeMockResponse(
+    # 2. Jika GEMINI_PAID_SEARCH_ENABLED=True tapi API Key ternyata kena limit 0 (exceeded your current quota),
+    #    bot otomatis mematikan paid tool dan langsung beralih ke Free Live Search dengan mulus!
+    monkeypatch.setattr(ai_handler, "GEMINI_PAID_SEARCH_ENABLED", True)
+    ai_handler.clear_model_cooldowns()
+    quota_zero = FakeMockResponse(429, {"error": {"message": raw_quota_err}})
+    ddg_get2 = FakeMockResponse(200, raw_bytes=sample_ddg_html, headers={"Content-Type": "text/html"})
+    rss_get2 = FakeMockResponse(200, raw_bytes=sample_news_rss, headers={"Content-Type": "application/xml"})
+    top_page_get2 = FakeMockResponse(404, raw_bytes=b"")
+    fallback_ok = FakeMockResponse(
         200,
-        {"candidates": [{"content": {"parts": [{"text": "Maaf pencarian live sedang penuh, namun secara umum begini..."}]}}]},
+        {"candidates": [{"content": {"parts": [{"text": "Berhasil dijawab lewat jalur gratis setelah bypass kuota 0!"}]}}]},
     )
-    # 2 model di GEMINI_SEARCH_FALLBACK_CHAIN mengembalikan 429 -> lanjut ke GEMINI_DEFAULT_MODEL dengan sukses
-    fake_http_fb = FakeHttpSession(post_responses=[quota_429, quota_429, fallback_std])
-    reply = await ai_handler.get_ai_response(
-        808,
-        "Berita teknologi terbaru hari ini apa?",
-        http_session=fake_http_fb,
+    fake_http_paid_fb = FakeHttpSession(
+        post_responses=[quota_zero, fallback_ok],
+        get_responses=[ddg_get2, rss_get2, top_page_get2],
     )
-    assert "secara umum begini" in reply
-    assert len(fake_http_fb.post_calls) == 3
-    assert "tools" not in fake_http_fb.post_calls[2]["json"]
+    ans2, err2 = await ai_handler.search_web_with_gemini(
+        "Update kurs rupiah hari ini",
+        http_session=fake_http_paid_fb,
+    )
+    assert err2 is None
+    assert "jalur gratis" in ans2
+    assert ai_handler._paid_google_search_available is False
 
 
 @pytest.mark.asyncio
@@ -1108,9 +1141,14 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
 
+    # Pastikan subcommand baru /agent youtube & /agent cari terdaftar di CommandTree
+    agent_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "agent")
+    agent_sub_names = {sc.name for sc in agent_cmd.commands}
+    assert {"youtube", "cari"}.issubset(agent_sub_names)
+
     bot_user = _FakeUser(100, "Whas")
     member = _FakeUser(205, "Dika")
-    community_agent.set_chat_channel_config(10, 6100, enabled=True, reply_mode="always", idle_minutes=30)
+    community_agent.set_chat_channel_config(10, 6100, enabled=True, reply_mode="all", idle_minutes=30)
 
     yt_msg = _FakeCommunityMessage(
         channel_id=6100,
@@ -1119,6 +1157,17 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
         bot_user=bot_user,
         content="Guys cobain tonton https://youtu.be/dQw4w9WgXcQ kocak banget",
     )
+
+    # 1. DEFAULT: youtube_auto_chat == False -> kirim link YouTube di Text Channel TIDAK memicu auto-chat!
+    should_reply_default, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
+    assert should_reply_default is False
+
+    # 2. Saat Admin mengaktifkan /agent youtube aktif:True auto_di_channel:True, barulah bot ikut membaca YouTube di channel
+    community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)
+    community_agent.chat_agent_channels[6100]["last_bot_reply_at"] = 0.0
+    should_reply_on, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
+    assert should_reply_on is True
+
     yt_resp = FakeMockResponse(
         200,
         {"candidates": [{"content": {"parts": [{"text": "Wah legendaris banget lagu Rick Astley itu Dika 😂"}]}}]},
@@ -1129,7 +1178,33 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     sent_parts = fake_http.post_calls[0]["json"]["contents"][-1]["parts"]
     assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in sent_parts)
 
-    # Pertanyaan berita hari ini di Auto-Chat memicu Google Search Grounding di gemini-2.5-flash
+    # 3. Uji saklar ON/OFF /agent youtube & /agent cari + penyimpanan ke agent_config.json
+    community_agent.set_youtube_feature_config(10, enabled=False)
+    community_agent.set_search_feature_config(10, enabled=False)
+    assert community_agent.is_youtube_enabled_for_guild(10) is False
+    assert community_agent.is_search_enabled_for_guild(10) is False
+
+    await community_agent.save_agent_config_to_disk()
+    community_agent.guild_agent_settings.clear()
+    community_agent.load_agent_config_from_disk()
+    assert community_agent.is_youtube_enabled_for_guild(10) is False
+    assert community_agent.is_search_enabled_for_guild(10) is False
+
+    # Nyalakan kembali fitur cari hanya untuk command /cari (auto_in_chat=False)
+    community_agent.set_search_feature_config(10, enabled=True, auto_in_chat=False)
+    assert community_agent.is_search_enabled_for_guild(10, for_auto_chat=False) is True
+    assert community_agent.is_search_enabled_for_guild(10, for_auto_chat=True) is False
+
+    # Nyalakan penuh untuk menguji pencarian berita gratis di Auto-Chat
+    community_agent.set_search_feature_config(10, enabled=True, auto_in_chat=True)
+    community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)
+
+    async def _fake_free_search(q, **kwargs):
+        return "1. **Pecco Juara MotoGP** — Balapan tadi malam dimenangkan Pecco.", [
+            {"title": "MotoGP News", "url": "https://motogp.example.com"}
+        ]
+
+    monkeypatch.setattr(community_agent, "free_live_web_search", _fake_free_search)
     news_msg = _FakeCommunityMessage(
         channel_id=6100,
         guild_id=10,
@@ -1148,7 +1223,9 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
         http_session=fake_http_news,
     )
     assert "Pecco" in news_reply
-    assert fake_http_news.post_calls[0]["json"]["tools"] == [{"google_search": {}}]
+    assert "tools" not in fake_http_news.post_calls[0]["json"]
+    sent_news_text = fake_http_news.post_calls[0]["json"]["contents"][-1]["parts"][-1]["text"]
+    assert "Pecco Juara MotoGP" in sent_news_text
 
     # Jika link YouTube bersifat privat/dibatasi usia (HTTP 403), /ringkas_link langsung memberi info jelas tanpa loop sia-sia
     priv_yt_403 = FakeMockResponse(403, {"error": {"message": "Permission denied fetching video"}})
