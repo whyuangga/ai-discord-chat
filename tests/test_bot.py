@@ -1163,9 +1163,34 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
         content="Guys cobain tonton https://youtu.be/dQw4w9WgXcQ kocak banget",
     )
 
-    # 1. DEFAULT: youtube_auto_chat == False -> kirim link YouTube di Text Channel TIDAK memicu auto-chat!
+    # 1. DEFAULT: youtube_auto_chat == False -> kirim link YouTube biasa tanpa panggil bot TIDAK memicu auto-chat!
     should_reply_default, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
     assert should_reply_default is False
+
+    # 1B. TAPI jika member memanggil nama panggilan bot (misal 'Whas') + link YouTube, bot LANGSUNG menonton & merangkumnya!
+    community_agent.get_guild_settings(10)["nickname"] = "Whas"
+    yt_called_msg = _FakeCommunityMessage(
+        channel_id=6100,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas coba rangkumin video ini dong https://youtu.be/dQw4w9WgXcQ",
+    )
+    should_reply_called, _ = community_agent.should_agent_reply_in_chat(yt_called_msg, bot_user)
+    assert should_reply_called is True
+    called_yt_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Itu video klip Never Gonna Give You Up dari Rick Astley, Dika!"}]}}]},
+    )
+    fake_http_called = FakeHttpSession(post_responses=[called_yt_resp])
+    called_reply = await community_agent.generate_community_chat_reply(
+        yt_called_msg,
+        bot_user,
+        http_session=fake_http_called,
+    )
+    assert "Never Gonna Give You Up" in called_reply
+    called_parts = fake_http_called.post_calls[0]["json"]["contents"][-1]["parts"]
+    assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in called_parts)
 
     # 2. Saat Admin mengaktifkan /agent youtube aktif:True auto_di_channel:True, barulah bot ikut membaca YouTube di channel
     community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)

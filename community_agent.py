@@ -30,6 +30,7 @@ from ai_handler import (
     CHAT_TIMEOUT,
     FAST_TEXT_TIMEOUT,
     MEDIA_SEMAPHORE,
+    VIDEO_LINK_TIMEOUT,
     _borrow_session,
     _build_model_chain,
     _extract_text_from_gemini_response,
@@ -483,6 +484,34 @@ def _append_channel_history(channel_id: int, role: str, text: str) -> None:
         hist.pop(0)
 
 
+def _is_direct_bot_call(
+    message: discord.Message,
+    bot_user: discord.ClientUser | discord.User,
+    guild_cfg: dict,
+) -> tuple[bool, bool, bool]:
+    """Mengembalikan (is_direct_mention_or_nick, replied_to_bot, replied_to_other_human)."""
+    content = (message.content or "").strip()
+    agent_nick = (guild_cfg.get("nickname") or bot_user.display_name or "").strip().lower()
+
+    is_direct_mention = bot_user in (getattr(message, "mentions", None) or [])
+    if not is_direct_mention and agent_nick and len(agent_nick) >= 2:
+        if re.search(rf"\b{re.escape(agent_nick)}\b", content.lower()):
+            is_direct_mention = True
+
+    replied_to_bot = False
+    replied_to_other_human = False
+    ref = getattr(message, "reference", None)
+    if ref and getattr(ref, "message_id", None):
+        resolved = getattr(ref, "resolved", None)
+        if resolved is not None and getattr(resolved, "author", None) is not None:
+            if resolved.author.id == bot_user.id:
+                replied_to_bot = True
+            elif not is_direct_mention:
+                replied_to_other_human = True
+
+    return is_direct_mention, replied_to_bot, replied_to_other_human
+
+
 def should_agent_reply_in_chat(
     message: discord.Message,
     bot_user: discord.ClientUser | discord.User,
@@ -507,23 +536,9 @@ def should_agent_reply_in_chat(
 
     content = (message.content or "").strip()
     guild_cfg = get_guild_settings(ch_cfg["guild_id"])
-    agent_nick = (guild_cfg.get("nickname") or bot_user.display_name or "").strip().lower()
-
-    is_direct_mention = bot_user in message.mentions
-    if not is_direct_mention and agent_nick and len(agent_nick) >= 3:
-        if re.search(rf"\b{re.escape(agent_nick)}\b", content.lower()):
-            is_direct_mention = True
-
-    # Cek apakah pesan ini me-reply pesan seseorang
-    replied_to_bot = False
-    replied_to_other_human = False
-    if message.reference and message.reference.message_id:
-        resolved = message.reference.resolved
-        if isinstance(resolved, discord.Message):
-            if resolved.author.id == bot_user.id:
-                replied_to_bot = True
-            elif not is_direct_mention:
-                replied_to_other_human = True
+    is_direct_mention, replied_to_bot, replied_to_other_human = _is_direct_bot_call(
+        message, bot_user, guild_cfg
+    )
 
     # Jangan memotong obrolan ketika member sedang me-reply member lain secara spesifik
     if replied_to_other_human:
@@ -619,6 +634,7 @@ async def _call_gemini_agent(
     max_tokens: int = 2048,
     thinking_level: str = "minimal",
     has_media: bool = False,
+    has_youtube: bool = False,
     use_google_search: bool = False,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
@@ -626,7 +642,11 @@ async def _call_gemini_agent(
     if not active_keys:
         return None
 
-    req_timeout = CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT
+    req_timeout = (
+        VIDEO_LINK_TIMEOUT
+        if has_youtube
+        else (CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT)
+    )
 
     async with _borrow_session(http_session, req_timeout) as session:
         # Opsional Paid Tier: Native Google Search tool hanya bila GEMINI_PAID_SEARCH_ENABLED=true
@@ -741,23 +761,38 @@ async def generate_community_chat_reply(
         include_audio=True,
     )
 
+    is_direct_mention, replied_to_bot, _ = _is_direct_bot_call(message, bot_user, guild_cfg)
+    is_direct_call = is_direct_mention or replied_to_bot
+
     yt_urls: list[str] = []
     web_snippets: list[str] = []
+    # Baca link YouTube/Web jika:
+    # - Fitur YouTube aktif DAN (member memanggil nama/mention bot secara langsung ATAU mode auto_di_channel dinyalakan Admin)
     allow_public_link_reader = (
         ENABLE_URL_READER
         and guild_cfg.get("youtube_enabled", True)
-        and guild_cfg.get("youtube_auto_chat", False)
+        and (is_direct_call or guild_cfg.get("youtube_auto_chat", False))
     )
-    if allow_public_link_reader and clean_text:
-        yt_urls, web_urls = extract_urls_from_text(clean_text)
-        for yt_u in yt_urls[:1]:
-            media_parts.append({"fileData": {"fileUri": yt_u}})
-            media_descs.append(f"[Membagikan link video YouTube: {yt_u}]")
-        for web_u in web_urls[:1]:
-            w_title, w_body = await fetch_webpage_text(web_u, http_session=http_session)
-            if w_body:
-                label = f"{w_title} ({web_u})" if w_title else web_u
-                web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
+    if allow_public_link_reader:
+        text_for_links = clean_text
+        # Dukung juga bila member me-reply pesan orang lain yang berisi link YouTube sambil memanggil nama bot!
+        ref = getattr(message, "reference", None)
+        resolved = getattr(ref, "resolved", None) if ref else None
+        if is_direct_call and resolved is not None and getattr(resolved, "content", None):
+            text_for_links = f"{clean_text}\n{resolved.content}"
+
+        if text_for_links.strip():
+            yt_urls, web_urls = extract_urls_from_text(text_for_links)
+            for yt_u in yt_urls[:1]:
+                media_parts.append({"fileData": {"fileUri": yt_u}})
+                media_descs.append(
+                    f"[Video YouTube terlampir ({yt_u}) — tonton/pahami isi videonya untuk menjawab permintaan {message.author.display_name}!]"
+                )
+            for web_u in web_urls[:1]:
+                w_title, w_body = await fetch_webpage_text(web_u, http_session=http_session)
+                if w_body:
+                    label = f"{w_title} ({web_u})" if w_title else web_u
+                    web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
 
     use_search = (
         is_search_enabled_for_guild(guild_id, for_auto_chat=True)
@@ -812,6 +847,7 @@ async def generate_community_chat_reply(
         max_tokens=2048,
         thinking_level="low" if (media_parts or use_search) else "minimal",
         has_media=bool(media_parts),
+        has_youtube=bool(yt_urls),
         use_google_search=(use_search and GEMINI_PAID_SEARCH_ENABLED),
         http_session=http_session,
     )
