@@ -83,6 +83,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.gallery_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
+    community_agent._recent_channel_speakers.clear()
     community_agent.channel_histories.clear()
     games.guild_game_scores.clear()
     games.active_channel_games.clear()
@@ -1282,6 +1283,64 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     )
     assert "diprivat" in rec_reply
     assert all("fileData" not in p for p in fake_http_recover.post_calls[1]["json"]["contents"][-1]["parts"])
+
+
+def test_anti_disturbance_etiquette_in_public_chat():
+    bot_user = _FakeUser(100, "WhasBot")
+    umar = _FakeUser(201, "Umar")
+    budi = _FakeUser(202, "Budi")
+
+    community_agent.set_chat_channel_config(10, 7700, enabled=True, reply_mode="smart", idle_minutes=30)
+    community_agent.get_guild_settings(10)["nickname"] = "Whas"
+    # Anggap channel baru saja aktif 10 detik lalu agar bukan pemicu channel hening >= 3 menit
+    import time as _t
+
+    community_agent.chat_agent_channels[7700]["last_activity_at"] = _t.time()
+
+    # 1. Member me-@mention member manusia lain -> Bot DIAM (tidak ikut campur)
+    msg_tag_friend = _FakeCommunityMessage(
+        channel_id=7700,
+        guild_id=10,
+        author=umar,
+        bot_user=bot_user,
+        content="Halo @Budi udah makan belum?",
+        mentions=[budi],
+    )
+    assert community_agent.should_agent_reply_in_chat(msg_tag_friend, bot_user) == (False, False)
+
+    # 2. Perintah untuk bot lain di server (bot musik m!play, Mudae $wa, OwO) -> Bot DIAM
+    for other_cmd in ("m!play Hindia", "$wa", "owo hunt", ".help"):
+        msg_cmd = _FakeCommunityMessage(
+            channel_id=7700, guild_id=10, author=umar, bot_user=bot_user, content=other_cmd
+        )
+        assert community_agent.should_agent_reply_in_chat(msg_cmd, bot_user) == (False, False)
+
+    # 3. Share link Spotify / TikTok tanpa panggil bot -> Bot DIAM
+    msg_spotify = _FakeCommunityMessage(
+        channel_id=7700,
+        guild_id=10,
+        author=umar,
+        bot_user=bot_user,
+        content="Dengerin deh https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC",
+    )
+    assert community_agent.should_agent_reply_in_chat(msg_spotify, bot_user) == (False, False)
+
+    # 4. Kalimat ngobrol biasa dengan 1 emoji di ujung saat 2 member sedang aktif ngobrol -> Bot DIAM
+    msg_crowd_1 = _FakeCommunityMessage(
+        channel_id=7700, guild_id=10, author=budi, bot_user=bot_user, content="Oke gas login sekarang 🔥"
+    )
+    assert community_agent.should_agent_reply_in_chat(msg_crowd_1, bot_user) == (False, False)
+
+    # 5. Tapi begitu salah satu member memanggil nama bot ('Whas ...'), bot LANGSUNG menyahut!
+    msg_call_bot = _FakeCommunityMessage(
+        channel_id=7700,
+        guild_id=10,
+        author=budi,
+        bot_user=bot_user,
+        content="Whas menurutmu gimana?",
+    )
+    assert community_agent.should_agent_reply_in_chat(msg_call_bot, bot_user) == (True, True)
+
 
 
 

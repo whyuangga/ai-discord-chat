@@ -46,6 +46,8 @@ from utils import (
     fetch_webpage_text,
     free_live_web_search,
     get_realtime_time_context,
+    has_any_url,
+    has_discord_voice_note,
     has_voice_or_audio_attachment,
     has_youtube_url,
     needs_live_web_search,
@@ -84,11 +86,20 @@ STYLE_DESCRIPTIONS: dict[str, str] = {
 GALLERY_REACTIONS = ("✨", "🔥", "😍", "👏", "🙌")
 
 _GREETING_KEYWORDS = re.compile(
-    r"\b(pagi|siang|sore|malem|malam|halo+|hai+|hi+|hello|hey|p|tes|test|"
+    r"\b(pagi|siang|sore|malem|malam|halo+|hai+|hi+|hello|hey|tes|test|"
     r"assalamu'?alaikum|permisi|sepi|gabut|bosan|bosen|ngantuk|laper|lapar|"
     r"jam\s*berapa|ada\s*orang|pada\s*kemana)\b",
     re.IGNORECASE,
 )
+
+# Abaikan perintah untuk bot lain di server (bot musik m!play, ekonomi owo/pls, Mudae $wa, dll.)
+_OTHER_BOT_COMMAND_RE = re.compile(
+    r"^(?:[!?$%&.;~-][a-zA-Z]|[a-zA-Z]{1,3}![a-zA-Z]|(?:owo|pls)\s+\w+)",
+    re.IGNORECASE,
+)
+
+# Lacak pengirim chat terbaru per channel di RAM untuk mendeteksi saat beberapa manusia sedang asyik ngobrol
+_recent_channel_speakers: dict[int, list[tuple[int, float]]] = {}
 
 _ONLY_EMOJI_OR_SHORT_RE = re.compile(
     r"^[\s\W_0-9\U00010000-\U0010ffff<>a-zA-Z0-9:]{1,40}$"
@@ -265,6 +276,7 @@ def set_chat_channel_config(
     if not enabled:
         chat_agent_channels.pop(channel_id, None)
         channel_histories.pop(channel_id, None)
+        _recent_channel_speakers.pop(channel_id, None)
         return None
 
     now = time.time()
@@ -489,14 +501,20 @@ def _is_direct_bot_call(
     bot_user: discord.ClientUser | discord.User,
     guild_cfg: dict,
 ) -> tuple[bool, bool, bool]:
-    """Mengembalikan (is_direct_mention_or_nick, replied_to_bot, replied_to_other_human)."""
+    """Mengembalikan (is_direct_mention_or_nick, replied_to_bot, directed_at_other_human)."""
     content = (message.content or "").strip()
     agent_nick = (guild_cfg.get("nickname") or bot_user.display_name or "").strip().lower()
 
-    is_direct_mention = bot_user in (getattr(message, "mentions", None) or [])
+    mentions_list = getattr(message, "mentions", None) or []
+    is_direct_mention = bot_user in mentions_list
     if not is_direct_mention and agent_nick and len(agent_nick) >= 2:
         if re.search(rf"\b{re.escape(agent_nick)}\b", content.lower()):
             is_direct_mention = True
+
+    mentioned_other_human = any(
+        getattr(u, "id", None) != bot_user.id and not getattr(u, "bot", False)
+        for u in mentions_list
+    )
 
     replied_to_bot = False
     replied_to_other_human = False
@@ -509,14 +527,39 @@ def _is_direct_bot_call(
             elif not is_direct_mention:
                 replied_to_other_human = True
 
-    return is_direct_mention, replied_to_bot, replied_to_other_human
+    directed_at_other_human = (replied_to_other_human or mentioned_other_human) and not is_direct_mention
+    return is_direct_mention, replied_to_bot, directed_at_other_human
+
+
+def _record_and_check_crowd_chat(channel_id: int, author_id: int, now: float) -> bool:
+    """Mencatat pengirim pesan & mendeteksi apakah >= 2 member manusia berbeda sedang aktif ngobrol (60 detik terakhir)."""
+    arr = _recent_channel_speakers.setdefault(channel_id, [])
+    arr.append((author_id, now))
+    cutoff = now - 60.0
+    arr[:] = [(uid, ts) for uid, ts in arr if ts >= cutoff][-12:]
+    distinct_humans = {uid for uid, _ in arr}
+    return len(distinct_humans) >= 2
+
+
+def _is_pure_emoji_or_sticker(message: discord.Message, content: str) -> bool:
+    """True hanya jika pesan berisi Stiker atau murni ekspresi Emoji (bukan kalimat teks ke teman yang diakhiri emoji)."""
+    if getattr(message, "stickers", None) and not content:
+        return True
+    if not content or len(content) > 60:
+        return False
+    has_emoji = bool(_UNICODE_EMOJI_RE.search(content) or "<:" in content or "<a:" in content)
+    if not has_emoji:
+        return False
+    # Buang sintaks custom emoji Discord <:nama:123>, lalu pastikan tidak ada kata huruf/angka >= 2 karakter
+    without_custom = re.sub(r"<a?:[a-zA-Z0-9_]{2,32}:\d{15,22}>", " ", content)
+    return not bool(re.search(r"[a-zA-Z0-9]{2,}", without_custom))
 
 
 def should_agent_reply_in_chat(
     message: discord.Message,
     bot_user: discord.ClientUser | discord.User,
 ) -> tuple[bool, bool]:
-    """Menentukan secara cerdas apakah AI Agent perlu membalas pesan di channel publik.
+    """Menentukan secara cerdas & sopan apakah AI Agent perlu membalas pesan di channel publik.
 
     Returns:
         (should_reply, use_reply_reference)
@@ -536,25 +579,40 @@ def should_agent_reply_in_chat(
 
     content = (message.content or "").strip()
     guild_cfg = get_guild_settings(ch_cfg["guild_id"])
-    is_direct_mention, replied_to_bot, replied_to_other_human = _is_direct_bot_call(
+    is_direct_mention, replied_to_bot, directed_at_other_human = _is_direct_bot_call(
         message, bot_user, guild_cfg
     )
+    humans_chatting_together = _record_and_check_crowd_chat(
+        message.channel.id, message.author.id, now
+    )
 
-    # Jangan memotong obrolan ketika member sedang me-reply member lain secara spesifik
-    if replied_to_other_human:
+    # 1. Abaikan perintah untuk bot lain (contoh: m!play, $wa, owo, .help) kecuali memanggil bot ini langsung
+    if content and _OTHER_BOT_COMMAND_RE.match(content) and not is_direct_mention and not replied_to_bot:
+        return False, False
+
+    # 2. Jangan pernah memotong ketika member me-reply atau me-@mention member manusia lain!
+    if directed_at_other_human:
         if content:
             _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
+    # 3. Jika member memanggil nama bot, @mention bot, atau me-reply pesan bot -> PASTI dibalas!
     if is_direct_mention or replied_to_bot:
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
-    # Jika member membagikan link YouTube biasa di Text Channel tanpa mention bot & auto-YouTube sedang OFF,
-    # jangan ikut nimbrung auto-chat supaya tidak mengganggu warga yang sedang share video/lagu!
-    if has_youtube_url(content) and not (
-        guild_cfg.get("youtube_enabled", True) and guild_cfg.get("youtube_auto_chat", False)
-    ):
-        _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+    # 4. Jika member hanya membagikan link (YouTube, Spotify, TikTok, IG, Web) tanpa memanggil bot
+    #    dan mode auto_di_channel sedang OFF -> jangan ikut nimbrung agar tidak mengganggu!
+    auto_link_on = guild_cfg.get("youtube_enabled", True) and guild_cfg.get("youtube_auto_chat", False)
+    if (has_youtube_url(content) or has_any_url(content)) and not auto_link_on:
+        if content:
+            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+        return False, False
+
+    # 5. Jika member mengunggah file lagu/audio biasa (.mp3/.wav, bukan rekaman mikrofon Voice Note 🎤)
+    #    tanpa memanggil nama bot -> jangan menyela kiriman musik member!
+    if has_voice_or_audio_attachment(message) and not has_discord_voice_note(message):
         return False, False
 
     # Cooldown singkat agar tidak membanjiri API saat chat sangat ramai
@@ -563,30 +621,51 @@ def should_agent_reply_in_chat(
             _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
-    # 0. Member mengirim Voice Note (Pesan Suara 🎤) atau file audio -> selalu dengarkan & balas!
-    if has_voice_or_audio_attachment(message):
+    # 6. Rekaman mikrofon Voice Note (🎤) asli Discord -> balas jika bukan di tengah keramaian obrolan sesama warga
+    if has_discord_voice_note(message) and not humans_chatting_together:
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
     if ch_cfg.get("reply_mode") == "all":
         return True, False
 
-    # Mode 'smart' (Natural ala manusia seperti di video):
-    # 1. Percakapan dengan bot masih hangat (dalam 6 menit terakhir)
-    if last_bot_at > 0 and (now - last_bot_at) <= 360:
+    # Mode 'smart' (Natural, tahu diri, & tidak mengganggu obrolan sesama member):
+    # A. Channel tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
+    if prev_activity == 0 or (now - prev_activity) >= 180:
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
+        return True, True
+
+    # Jika 2+ manusia sedang aktif saling mengobrol dalam 60 detik terakhir, tahan diri (mundur sopan)
+    # sampai ada yang memanggil nama bot!
+    if humans_chatting_together:
+        if content:
+            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+        return False, False
+
+    # B. Kelanjutan obrolan 1-lawan-1 yang masih hangat (maks. 90 detik & maks. 2 sahutan ke orang yang sama)
+    last_target_uid = ch_cfg.get("last_bot_target_user_id")
+    warm_count = int(ch_cfg.get("warm_followups") or 0)
+    if (
+        last_bot_at > 0
+        and (now - last_bot_at) <= 90
+        and last_target_uid == message.author.id
+        and warm_count < 2
+    ):
+        ch_cfg["warm_followups"] = warm_count + 1
         return True, False
 
-    # 2. Channel tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
-    if prev_activity == 0 or (now - prev_activity) >= 180:
+    # C. Member mengirim murni Stiker atau ekspresi Emoji saja (bukan kalimat teks ke orang lain)
+    if _is_pure_emoji_or_sticker(message, content):
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
-    # 3. Member mengirim stiker atau pesan reaksi penuh emoji
-    has_sticker = bool(getattr(message, "stickers", None))
-    has_emoji_expr = bool(_UNICODE_EMOJI_RE.search(content) or "<:" in content or "<a:" in content)
-    if has_sticker or (has_emoji_expr and len(content) <= 60):
-        return True, True
-
-    # 4. Sapaan / celetukan pemicu obrolan atau nanya jam
+    # D. Sapaan pembuka obrolan umum / nanya jam saat channel sedang santai
     if _GREETING_KEYWORDS.search(content):
+        ch_cfg["last_bot_target_user_id"] = message.author.id
+        ch_cfg["warm_followups"] = 0
         return True, True
 
     # Simpan sebagai konteks pasif grup jika tidak dibalas langsung

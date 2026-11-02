@@ -113,6 +113,17 @@ def has_voice_or_audio_attachment(message) -> bool:
             return True
     return False
 
+
+def has_discord_voice_note(message) -> bool:
+    """Mengecek apakah pesan berisi rekaman mikrofon Voice Note (🎤) asli Discord (bukan file lagu .mp3 biasa)."""
+    flags = getattr(message, "flags", None)
+    if flags is not None and bool(getattr(flags, "voice", False)):
+        return True
+    for att in getattr(message, "attachments", []) or []:
+        if is_discord_voice_attachment(att):
+            return True
+    return False
+
 _CUSTOM_EMOJI_RE = re.compile(r"<(a?):([a-zA-Z0-9_]{2,32}):(\d{15,22})>")
 
 _INDONESIAN_DAYS = (
@@ -910,6 +921,13 @@ def has_youtube_url(text: str) -> bool:
         if normalize_youtube_url(match.rstrip(".,;:!?\"')]>")):
             return True
     return False
+
+
+def has_any_url(text: str) -> bool:
+    """Mengecek apakah teks pesan mengandung tautan URL (YouTube, Spotify, TikTok, IG, Web, dll.)."""
+    if not text:
+        return False
+    return bool(_URL_RE.search(text))
 
 
 def _strip_html_inline(raw: str) -> str:
