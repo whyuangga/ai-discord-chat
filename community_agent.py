@@ -34,6 +34,7 @@ from ai_handler import (
     _borrow_session,
     _build_model_chain,
     _extract_text_from_gemini_response,
+    _format_grounding_footer,
     build_thinking_config,
     get_gemini_keys_rotated,
     is_gemini_key_configured,
@@ -63,7 +64,10 @@ gallery_agent_channels: dict[int, dict] = {}
 youtube_agent_channels: dict[int, dict] = {}
 search_agent_channels: dict[int, dict] = {}
 welcome_agent_guilds: dict[int, dict] = {}
+digest_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
+
+MAX_SERVER_KNOWLEDGE_ENTRIES = 25
 _recent_welcomed_members: dict[tuple[int, int], float] = {}
 _standalone_last_reply_at: dict[int, float] = {}
 _post_runtime_state: dict[int, dict] = {}
@@ -130,9 +134,149 @@ def get_guild_settings(guild_id: int) -> dict:
             "custom_prompt": "",
             "timezone": BOT_TIMEZONE,
             "quiet_hours": True,
+            "knowledge_entries": [],
         }
         guild_agent_settings[guild_id] = settings
+    elif "knowledge_entries" not in settings or not isinstance(settings["knowledge_entries"], list):
+        settings["knowledge_entries"] = []
     return settings
+
+
+def get_server_knowledge_entries(guild_id: int) -> list[dict]:
+    """Mengambil daftar catatan FAQ / Info Penting Server."""
+    settings = get_guild_settings(guild_id)
+    return list(settings.get("knowledge_entries") or [])
+
+
+def upsert_server_knowledge(guild_id: int, topic: str, content: str) -> tuple[dict | None, str]:
+    """Menambah atau memperbarui entri Info/FAQ Server.
+    Mengembalikan `(entry_dict, status)` dengan `status` berupa `'updated'`, `'added'`, atau `'full'`.
+    """
+    clean_topic = re.sub(r"\s+", " ", (topic or "").strip())[:80]
+    clean_content = (content or "").strip()[:500]
+    if not clean_topic or not clean_content:
+        return None, "empty"
+
+    settings = get_guild_settings(guild_id)
+    entries: list[dict] = settings.setdefault("knowledge_entries", [])
+
+    for item in entries:
+        if str(item.get("topic", "")).strip().lower() == clean_topic.lower():
+            item["topic"] = clean_topic
+            item["content"] = clean_content
+            return item, "updated"
+
+    if len(entries) >= MAX_SERVER_KNOWLEDGE_ENTRIES:
+        return None, "full"
+
+    new_item = {"topic": clean_topic, "content": clean_content}
+    entries.append(new_item)
+    return new_item, "added"
+
+
+def delete_server_knowledge(guild_id: int, target: str) -> dict | None:
+    """Menghapus 1 entri Info/FAQ Server berdasarkan nomor urut (1..N) atau kecocokan nama topik."""
+    settings = get_guild_settings(guild_id)
+    entries: list[dict] = settings.setdefault("knowledge_entries", [])
+    if not entries:
+        return None
+
+    cleaned = (target or "").strip().lstrip("#")
+    if cleaned.isdigit():
+        idx = int(cleaned) - 1
+        if 0 <= idx < len(entries):
+            return entries.pop(idx)
+
+    lowered = cleaned.lower()
+    for i, item in enumerate(entries):
+        if str(item.get("topic", "")).strip().lower() == lowered:
+            return entries.pop(i)
+    for i, item in enumerate(entries):
+        if lowered and lowered in str(item.get("topic", "")).strip().lower():
+            return entries.pop(i)
+    return None
+
+
+def clear_server_knowledge(guild_id: int) -> int:
+    """Menghapus seluruh entri Info/FAQ Server dan mengembalikan jumlah yang dihapus."""
+    settings = get_guild_settings(guild_id)
+    entries: list[dict] = settings.get("knowledge_entries") or []
+    count = len(entries)
+    settings["knowledge_entries"] = []
+    return count
+
+
+def format_server_knowledge_for_prompt(guild_id: int | None) -> str:
+    """Memformat basis pengetahuan/FAQ server menjadi teks konteks untuk System Prompt AI."""
+    if not guild_id:
+        return ""
+    settings = guild_agent_settings.get(int(guild_id))
+    if not settings:
+        return ""
+    entries = settings.get("knowledge_entries") or []
+    if not entries:
+        return ""
+
+    lines = [
+        "INFORMASI PENTING & FAQ RESMI SERVER DISCORD INI "
+        "(Gunakan fakta resmi ini dengan akurat saat member bertanya seputar rules, link, IP, jadwal, atau info server):"
+    ]
+    for item in entries[:MAX_SERVER_KNOWLEDGE_ENTRIES]:
+        t = str(item.get("topic") or "").strip()
+        c = str(item.get("content") or "").strip()
+        if t and c:
+            lines.append(f"- [{t}]: {c}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def parse_digest_time(raw_time: str | None) -> tuple[int, int] | None:
+    """Mengubah string jam seperti '07:00', '7', '08.30' menjadi `(jam, menit)` 24-jam."""
+    if raw_time is None or not str(raw_time).strip():
+        return 7, 0
+    cleaned = str(raw_time).strip().replace(".", ":")
+    m = re.match(r"^(\d{1,2})(?::(\d{1,2}))?$", cleaned)
+    if not m:
+        return None
+    hour = int(m.group(1))
+    minute = int(m.group(2) or 0)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour, minute
+
+
+def set_digest_config(
+    guild_id: int,
+    channel_id: int,
+    *,
+    enabled: bool,
+    hour: int = 7,
+    minute: int = 0,
+    topic: str | None = None,
+) -> dict | None:
+    """Mengatur atau menonaktifkan fitur Sapaan & Koran Pagi Otomatis (Morning Digest) per server."""
+    if not enabled:
+        digest_agent_guilds.pop(int(guild_id), None)
+        return None
+
+    existing = digest_agent_guilds.get(int(guild_id)) or {}
+    if topic is None:
+        clean_topic = str(
+            existing.get("topic") or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+        ).strip()
+    elif topic.strip() == "-":
+        clean_topic = "berita populer Indonesia, teknologi, & game terbaru hari ini"
+    else:
+        clean_topic = topic.strip()[:180]
+
+    digest_agent_guilds[int(guild_id)] = {
+        "enabled": True,
+        "channel_id": int(channel_id),
+        "hour": max(0, min(23, int(hour))),
+        "minute": max(0, min(59, int(minute))),
+        "topic": clean_topic,
+        "last_sent_date": str(existing.get("last_sent_date") or ""),
+    }
+    return digest_agent_guilds[int(guild_id)]
 
 
 def set_youtube_channel_config(
@@ -463,12 +607,22 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         try:
             gid = int(gid_str)
             style = gdata.get("style_preset", "akrab")
+            raw_entries = gdata.get("knowledge_entries") or []
+            cleaned_entries: list[dict] = []
+            if isinstance(raw_entries, list):
+                for item in raw_entries[:MAX_SERVER_KNOWLEDGE_ENTRIES]:
+                    if isinstance(item, dict):
+                        t = str(item.get("topic") or "").strip()[:80]
+                        c = str(item.get("content") or "").strip()[:500]
+                        if t and c:
+                            cleaned_entries.append({"topic": t, "content": c})
             guild_agent_settings[gid] = {
                 "nickname": str(gdata.get("nickname") or "").strip(),
                 "style_preset": style if style in STYLE_DESCRIPTIONS else "akrab",
                 "custom_prompt": str(gdata.get("custom_prompt") or "").strip(),
                 "timezone": str(gdata.get("timezone") or BOT_TIMEZONE).strip(),
                 "quiet_hours": bool(gdata.get("quiet_hours", True)),
+                "knowledge_entries": cleaned_entries,
             }
         except (ValueError, TypeError):
             continue
@@ -548,6 +702,24 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+    for gid_str, ddata in (raw.get("digest_guilds") or {}).items():
+        try:
+            gid = int(gid_str)
+            if not ddata.get("enabled", True):
+                continue
+            digest_agent_guilds[gid] = {
+                "enabled": True,
+                "channel_id": int(ddata["channel_id"]),
+                "hour": max(0, min(23, int(ddata.get("hour", 7)))),
+                "minute": max(0, min(59, int(ddata.get("minute", 0)))),
+                "topic": str(
+                    ddata.get("topic") or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+                ).strip()[:180],
+                "last_sent_date": str(ddata.get("last_sent_date") or "").strip(),
+            }
+        except (KeyError, ValueError, TypeError):
+            continue
+
     raw_histories = list((raw.get("channel_histories") or {}).items())[-60:]
     has_any_active_feature = bool(chat_agent_channels or youtube_agent_channels or search_agent_channels)
     for cid_str, hist in raw_histories:
@@ -580,6 +752,7 @@ async def save_agent_config_to_disk() -> None:
                 "youtube_channels": {str(k): v for k, v in youtube_agent_channels.items()},
                 "search_channels": {str(k): v for k, v in search_agent_channels.items()},
                 "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
+                "digest_guilds": {str(k): v for k, v in digest_agent_guilds.items()},
                 "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in recent_hist_items},
             }
             tmp_file = AGENT_CONFIG_FILE.with_suffix(".json.tmp")
@@ -922,6 +1095,20 @@ def _build_community_system_prompt(
     )
     if extra:
         prompt += f"\n\nKonteks Tambahan Komunitas: {extra}"
+
+    entries = guild_cfg.get("knowledge_entries") or []
+    if entries:
+        faq_lines = [
+            f"- [{str(it.get('topic') or '').strip()}]: {str(it.get('content') or '').strip()}"
+            for it in entries[:MAX_SERVER_KNOWLEDGE_ENTRIES]
+            if str(it.get("topic") or "").strip() and str(it.get("content") or "").strip()
+        ]
+        if faq_lines:
+            prompt += (
+                "\n\nINFORMASI PENTING & FAQ RESMI SERVER INI "
+                "(Jawab akurat sesuai data ini bila warga bertanya rules, link, IP, atau info komunitas):\n"
+                + "\n".join(faq_lines)
+            )
     return prompt
 
 
@@ -1499,4 +1686,138 @@ async def generate_welcome_greeting(
         await save_agent_config_to_disk()
 
     return reply
+
+
+async def generate_morning_digest(
+    guild_id: int,
+    bot_display_name: str,
+    *,
+    topic_override: str | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Menyusun Sapaan & Rangkuman Berita Pagi (Morning Digest) menggunakan live web search gratis + Gemini."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    guild_cfg = get_guild_settings(guild_id)
+    d_cfg = digest_agent_guilds.get(int(guild_id)) or {}
+    topic = (
+        topic_override
+        or str(d_cfg.get("topic") or "").strip()
+        or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+    )
+
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+    agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
+    style_key = guild_cfg.get("style_preset", "akrab")
+    style_guide = STYLE_DESCRIPTIONS.get(style_key, STYLE_DESCRIPTIONS["akrab"])
+
+    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+        live_ctx, live_sources = await free_live_web_search(topic, http_session=session)
+        system_prompt = (
+            f"Kamu adalah '{agent_name}', teman komunitas Discord yang asik dan pembawa rubrik Koran Pagi harian.\n"
+            f"Waktu sekarang: {time_ctx['summary']}.\n"
+            f"Gaya bicara: {style_guide}\n"
+            "JANGAN menyebut dirimu AI atau bot."
+        )
+        if live_ctx:
+            user_prompt = (
+                f"Topik Digest Pagi: {topic}\n\n"
+                f"{live_ctx}\n\n"
+                "Susun rubrik **☀️ Sapaan & Koran Pagi** yang hangat, ringkas, dan enak dibaca warga Discord:\n"
+                "1. Sapaan semangat pagi singkat (1–2 kalimat akrab sesuai hari ini).\n"
+                "2. **📰 Sorotan Hari Ini:** 3–4 poin berita/update terpenting dari referensi di atas.\n"
+                "3. **💡 Fakta / Pertanyaan Pagi:** 1 kalimat fakta unik atau pertanyaan santai pemantik obrolan warga."
+            )
+        else:
+            user_prompt = (
+                f"Buat sapaan semangat pagi yang hangat untuk komunitas Discord pada hari {time_ctx['day_name']} "
+                f"beserta 2 fakta menarik seputar ({topic}) dan 1 pertanyaan pemantik obrolan santai!"
+            )
+
+        reply = await _call_gemini_agent(
+            system_prompt,
+            [{"role": "user", "parts": [{"text": user_prompt}]}],
+            temperature=0.65,
+            max_tokens=2500,
+            thinking_level="low",
+            has_media=False,
+            http_session=session,
+        )
+        if not reply:
+            return None, "⚠️ Gagal menyusun Morning Digest saat ini, silakan coba sesaat lagi."
+
+        if live_sources:
+            footer = _format_grounding_footer(live_sources)
+            max_body = max(500, 3850 - len(footer))
+            clipped = reply[:max_body] + ("…" if len(reply_text := reply) > max_body else "")
+            reply = f"{clipped}{footer}"
+
+        return reply, None
+
+
+async def run_morning_digest_check(
+    bot: discord.Client,
+    http_session: aiohttp.ClientSession | None = None,
+) -> int:
+    """Memeriksa jadwal Morning Digest harian di seluruh server aktif (maksimal 1x kirim per tanggal lokal)."""
+    if not is_gemini_key_configured() or not bot.user:
+        return 0
+
+    sent_count = 0
+    for guild_id, d_cfg in list(digest_agent_guilds.items()):
+        if not d_cfg.get("enabled"):
+            continue
+
+        guild_cfg = get_guild_settings(guild_id)
+        t_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+        today_str = t_ctx["iso_date"]
+        if d_cfg.get("last_sent_date") == today_str:
+            continue
+
+        now_mins = int(t_ctx["hour"]) * 60 + int(t_ctx["minute"])
+        target_mins = int(d_cfg.get("hour", 7)) * 60 + int(d_cfg.get("minute", 0))
+        # Jendela aman 60 menit sejak jam terjadwal agar tetap terkirim walau bot baru restart tipis
+        if not (target_mins <= now_mins < target_mins + 60):
+            continue
+
+        channel_id = int(d_cfg["channel_id"])
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+
+        if not hasattr(channel, "send"):
+            continue
+
+        guild = getattr(channel, "guild", None)
+        bot_name = guild.me.display_name if (guild and guild.me) else bot.user.display_name
+        digest_text, err = await generate_morning_digest(
+            guild_id,
+            bot_name,
+            http_session=http_session,
+        )
+        if err or not digest_text:
+            continue
+
+        embed = discord.Embed(
+            title=f"☀️ Koran & Sapaan Pagi — {t_ctx['day_name']}, {t_ctx['date_str']}",
+            description=digest_text[:4090],
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Jadwal Digest Harian • Pukul {d_cfg['hour']:02d}:{d_cfg['minute']:02d} {t_ctx['tz_label']}")
+        try:
+            await channel.send(embed=embed)
+            d_cfg["last_sent_date"] = today_str
+            if channel_id in chat_agent_channels:
+                _append_channel_history(channel_id, "model", digest_text[:1200])
+            await save_agent_config_to_disk()
+            sent_count += 1
+        except discord.HTTPException as exc:
+            logger.warning("Gagal mengirim Morning Digest di channel %s: %s", channel_id, exc)
+
+    return sent_count
+
 

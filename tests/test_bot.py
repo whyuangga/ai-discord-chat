@@ -84,6 +84,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.youtube_agent_channels.clear()
     community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
+    community_agent.digest_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
@@ -92,6 +93,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     games.guild_game_scores.clear()
     games.active_channel_games.clear()
     games._recent_game_answers.clear()
+    utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
     yield
     storage.thread_chats.clear()
@@ -100,9 +102,13 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.youtube_agent_channels.clear()
+    community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
+    community_agent.digest_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
+    utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
 
 
@@ -378,7 +384,19 @@ def test_agent_command_group_registered():
     assert "agent" in cmd_names
     agent_cmd = next(cmd for cmd in bot_main.bot.tree.get_commands() if cmd.name == "agent")
     sub_names = {sub.name for sub in agent_cmd.commands}
-    assert {"chat", "gallery", "persona", "sapa", "status", "welcome", "youtube", "cari"} == sub_names
+    assert {
+        "chat",
+        "gallery",
+        "persona",
+        "sapa",
+        "status",
+        "welcome",
+        "youtube",
+        "cari",
+        "info",
+        "digest",
+        "panel",
+    } == sub_names
 
 
 class _FakeSticker:
@@ -1582,6 +1600,503 @@ async def test_forum_channel_posts_support_chat_gallery_youtube_and_search(monke
     yt_forum_post = _FakeForumPostChannel(9701, 9700, "Podcast seru soal AI", ("Video",))
     yt_forum_msg = _FakeForumMsg(9701, yt_forum_post, andi, "https://youtu.be/dQw4w9WgXcQ")
     assert community_agent.should_standalone_feature_reply(yt_forum_msg, bot_user) is True
+
+
+@pytest.mark.asyncio
+async def test_discord_command_and_view_hard_limits():
+    """Memastikan seluruh Slash Command, Subcommand, Parameter, Pilihan, Context Menu, & View mematuhi batas keras Discord API."""
+    all_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
+    msg_ctx_menus = bot_main.bot.tree.get_commands(type=discord.AppCommandType.message)
+    assert len(msg_ctx_menus) <= 5
+    ctx_names = {c.name for c in msg_ctx_menus}
+    assert "🔍 Cek Fakta / Hoaks" in ctx_names
+    for ctx_cmd in msg_ctx_menus:
+        assert 1 <= len(ctx_cmd.name) <= 32
+
+    def _validate_slash_cmd(cmd_obj):
+        assert 1 <= len(cmd_obj.name) <= 32
+        assert cmd_obj.name == cmd_obj.name.lower()
+        assert 1 <= len(cmd_obj.description) <= 100, f"Deskripsi {cmd_obj.name} melebihi 100 karakter!"
+        if isinstance(cmd_obj, discord.app_commands.Group):
+            assert len(cmd_obj.commands) <= 25
+            for sub in cmd_obj.commands:
+                _validate_slash_cmd(sub)
+        else:
+            for param in cmd_obj.parameters:
+                assert 1 <= len(param.name) <= 32
+                assert 1 <= len(param.description) <= 100, (
+                    f"Deskripsi parameter {cmd_obj.name}.{param.name} melebihi 100 karakter!"
+                )
+                for choice in getattr(param, "choices", []) or []:
+                    assert 1 <= len(choice.name) <= 100
+
+    for top_cmd in all_cmds:
+        _validate_slash_cmd(top_cmd)
+
+    # Pastikan ForumPostSolvedView juga persisten (timeout=None) dengan custom_id unik
+    persistent_views = [
+        views.MainPanelControlView(),
+        views.EndSessionView(),
+        views.ChatPersonaSwitchView(),
+        views.ImageSettingsView(),
+        views.ForumPostSolvedView(),
+    ]
+    seen_ids: set[str] = set()
+    for v in persistent_views:
+        assert v.is_persistent()
+        for child in v.children:
+            assert child.custom_id and child.custom_id not in seen_ids
+            seen_ids.add(child.custom_id)
+
+    admin_view = views.AgentAdminPanelView(admin_user_id=999, default_channel_id=1234)
+    rows_used = {child.row for child in admin_view.children if child.row is not None}
+    assert len(rows_used) <= 5
+    for child in admin_view.children:
+        if isinstance(child, discord.ui.Select):
+            for opt in child.options:
+                assert 1 <= len(opt.label) <= 100
+                if opt.description:
+                    assert len(opt.description) <= 100
+
+
+@pytest.mark.asyncio
+async def test_server_knowledge_faq_crud_and_prompt_injection(monkeypatch):
+    """Menguji fitur /agent info (FAQ Server): tambah, perbarui, hapus, simpan disk, & injeksi ke System Prompt."""
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    item1, st1 = community_agent.upsert_server_knowledge(
+        10, "IP Minecraft", "play.nusantara.id versi 1.21.4 (Buka 24 Jam)"
+    )
+    assert st1 == "added" and item1["topic"] == "IP Minecraft"
+
+    item2, st2 = community_agent.upsert_server_knowledge(
+        10, "Rules Server", "Dilarang toxic, spam link promosi, atau SARA."
+    )
+    assert st2 == "added" and len(community_agent.get_server_knowledge_entries(10)) == 2
+
+    # Update topik yang sama (case-insensitive) tidak menduplikasi entri
+    updated, st_upd = community_agent.upsert_server_knowledge(
+        10, "ip minecraft", "play.nusantara.id versi 1.21.5 terbaru"
+    )
+    assert st_upd == "updated"
+    assert len(community_agent.get_server_knowledge_entries(10)) == 2
+    assert "1.21.5" in updated["content"]
+
+    # Pastikan disuntikkan ke prompt komunitas maupun prompt konsultasi privat ai-...
+    g_cfg = community_agent.get_guild_settings(10)
+    t_ctx = utils.get_realtime_time_context()
+    comm_sys = community_agent._build_community_system_prompt(g_cfg, "Whas", t_ctx)
+    assert "play.nusantara.id versi 1.21.5" in comm_sys
+    assert "Rules Server" in comm_sys
+
+    srv_block = community_agent.format_server_knowledge_for_prompt(10)
+    mock_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "IP servernya play.nusantara.id versi 1.21.5 ya!"}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[mock_resp])
+    storage.init_thread_session(8811, "gemini_flash", owner_id=42)
+    ans = await ai_handler.get_ai_response(
+        8811,
+        "Apa IP server Minecraft kita?",
+        http_session=fake_http,
+        server_knowledge=srv_block,
+    )
+    assert "play.nusantara.id" in ans
+    sent_sys = fake_http.post_calls[0]["json"]["systemInstruction"]["parts"][0]["text"]
+    assert "play.nusantara.id versi 1.21.5" in sent_sys
+
+    # Uji simpan & muat ulang dari disk
+    await community_agent.save_agent_config_to_disk()
+    community_agent.guild_agent_settings.clear()
+    community_agent.load_agent_config_from_disk()
+    loaded_entries = community_agent.get_server_knowledge_entries(10)
+    assert len(loaded_entries) == 2
+
+    # Hapus berdasarkan nomor urut & bersihkan sisa
+    removed = community_agent.delete_server_knowledge(10, "1")
+    assert removed is not None and "minecraft" in removed["topic"].lower()
+    assert community_agent.clear_server_knowledge(10) == 1
+    assert community_agent.get_server_knowledge_entries(10) == []
+
+
+@pytest.mark.asyncio
+async def test_pdf_attachment_extraction_and_gemini_history_tag(monkeypatch):
+    """Menguji pembacaan dokumen .pdf native (application/pdf) di ruang privat & komunitas, serta penolakan di ruang gambar."""
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    class _FakePdfAttachment:
+        filename = "panduan_kuliah.pdf"
+        content_type = "application/pdf"
+        size = 512
+
+        async def read(self):
+            return b"%PDF-1.7 fake pdf content"
+
+    class _FakePdfMsg:
+        attachments = [_FakePdfAttachment()]
+        stickers = []
+
+    parts, names, txt_blocks, warns = await utils.extract_message_attachments(_FakePdfMsg())
+    assert warns == []
+    assert txt_blocks == []
+    assert names == ["pdf:panduan_kuliah.pdf"]
+    assert parts[0]["inlineData"]["mimeType"] == "application/pdf"
+
+    # Di ruang gambar (include_pdf=False), PDF ditolak secara sopan
+    parts_img, _, _, warns_img = await utils.extract_message_attachments(_FakePdfMsg(), include_pdf=False)
+    assert parts_img == []
+    assert any("PDF" in w for w in warns_img)
+
+    # Uji di get_ai_response saat pengguna kirim PDF tanpa teks pengantar
+    storage.init_thread_session(8812, "gemini_flash", owner_id=42)
+    pdf_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Ringkasan PDF: jadwal kuliah dimulai Senin pukul 08:00."}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[pdf_resp])
+    reply = await ai_handler.get_ai_response(
+        8812,
+        "",
+        image_parts=parts,
+        image_filenames=names,
+        http_session=fake_http,
+    )
+    assert "Ringkasan PDF" in reply
+    hist = storage.thread_chats[8812]["history"]
+    assert "[Pengguna melampirkan dokumen PDF: pdf:panduan_kuliah.pdf]" in hist[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_forum_auto_tagging_and_solved_button_view():
+    """Menguji pemilihan Tag Forum otomatis (0 API Call) dan tombol persisten ✅ Tandai Selesai."""
+    class _FakeForumTag:
+        def __init__(self, name: str, moderated: bool = False):
+            self.name = name
+            self.moderated = moderated
+
+    t_py = _FakeForumTag("Python")
+    t_bug = _FakeForumTag("Bug / Error")
+    t_game = _FakeForumTag("Game")
+    t_solved = _FakeForumTag("Selesai")
+    t_mod = _FakeForumTag("Pengumuman Resmi", moderated=True)
+    avail = [t_py, t_bug, t_game, t_solved, t_mod]
+
+    picked = utils.select_best_forum_tags(
+        "Tolong muncul Traceback Exception pas jalankan discord.py",
+        "Kenapa pip asyncio saya gagal terus ya?",
+        avail,
+    )
+    assert t_py in picked and t_bug in picked
+    assert t_solved not in picked and t_mod not in picked
+    assert utils.find_solved_forum_tag(avail) is t_solved
+
+    # Uji ForumPostSolvedView: tolak klik orang asing, izinkan pemilik postingan
+    class _FakeResp:
+        def __init__(self):
+            self.messages = []
+            self.deferred = False
+
+        async def send_message(self, content, ephemeral=False):
+            self.messages.append((content, ephemeral))
+
+        async def defer(self):
+            self.deferred = True
+
+    class _FakeFollowup:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content):
+            self.sent.append(content)
+
+    fake_parent = type("ParentForum", (), {"available_tags": avail})()
+    edited_calls: list[dict] = []
+
+    class _FakeForumThreadObj:
+        owner_id = 501
+        parent_id = 9500
+        name = "Error login aplikasi"
+        applied_tags = [t_bug]
+        parent = fake_parent
+
+        async def edit(self, **kwargs):
+            edited_calls.append(kwargs)
+
+    fake_thread = _FakeForumThreadObj()
+
+    view = views.ForumPostSolvedView()
+    btn = view.children[0]
+
+    # 1. Orang lain (bukan pemilik & bukan moderator) ditolak
+    stranger_ix = type(
+        "Ix",
+        (),
+        {
+            "channel": fake_thread,
+            "user": _FakeUser(999, "OrangLain"),
+            "response": _FakeResp(),
+            "followup": _FakeFollowup(),
+            "message": None,
+        },
+    )()
+    await btn.callback(stranger_ix)
+    assert len(stranger_ix.response.messages) == 1
+    assert edited_calls == []
+
+    # 2. Pemilik postingan (uid=501) berhasil menandai selesai + tambah tag Selesai + arsip
+    owner_ix = type(
+        "Ix",
+        (),
+        {
+            "channel": fake_thread,
+            "user": _FakeUser(501, "PemilikPost"),
+            "response": _FakeResp(),
+            "followup": _FakeFollowup(),
+            "message": None,
+        },
+    )()
+    await btn.callback(owner_ix)
+    assert owner_ix.response.deferred is True
+    assert len(edited_calls) == 1
+    assert edited_calls[0]["archived"] is True
+    assert edited_calls[0]["name"] == "✅ Error login aplikasi"
+    assert t_solved in edited_calls[0]["applied_tags"]
+    assert btn.disabled is True
+
+
+@pytest.mark.asyncio
+async def test_fact_check_context_menu_and_gemini_analysis(monkeypatch):
+    """Menguji fitur Context Menu 🔍 Cek Fakta / Hoaks beserta pencantuman sumber referensi berita."""
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    async def _mock_free_search(query, http_session=None):
+        return (
+            "1. Kominfo Pastikan Kabar Internet Mati Total Besok Adalah Hoaks",
+            [("Kompas Tekno", "https://tekno.kompas.com/read/cek-fakta-1")],
+        )
+
+    monkeypatch.setattr(ai_handler, "free_live_web_search", _mock_free_search)
+    gemini_resp = FakeMockResponse(
+        200,
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "**🏷️ Status Klaim:** `❌ Indikasi Hoaks / Keliru`\n"
+                                "**📌 Klaim Utama:** Internet mati total besok.\n"
+                                "**🔎 Hasil Pemeriksaan Fakta:** Klaim tersebut telah dibantah resmi."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+    fake_http = FakeHttpSession(post_responses=[gemini_resp])
+    res_txt, err = await ai_handler.fact_check_message_with_gemini(
+        "Guys beneran besok seluruh internet dunia bakal dimatikan total selama seminggu?",
+        http_session=fake_http,
+    )
+    assert err is None
+    assert "Indikasi Hoaks" in res_txt
+    assert "https://tekno.kompas.com/read/cek-fakta-1" in res_txt
+
+
+@pytest.mark.asyncio
+async def test_new_game_modes_image_guess_and_word_chain(monkeypatch):
+    """Menguji mode baru 🖼️ Tebak Gambar AI dan ⛓️ Sambung Kata (0 API Call per giliran + MVP menang)."""
+    # 1. Uji generator gambar misteri Tebak Gambar AI
+    fake_png = b"\x89PNG\r\n\x1a\n" + (b"x" * 1500)
+    img_get_resp = FakeMockResponse(200, raw_bytes=fake_png, headers={"Content-Type": "image/png"})
+    fake_http = FakeHttpSession(get_responses=[img_get_resp])
+    raw_img = await ai_handler.generate_mystery_game_image_bytes(
+        "A cute astronaut cat in space", http_session=fake_http
+    )
+    assert raw_img == fake_png
+    assert "no text" in urllib_unquote(fake_http.get_calls[0]["url"]).lower()
+
+    monkeypatch.setattr(games, "is_gemini_key_configured", lambda: False)
+    q_img = await games.generate_ai_game_question("image_guess", 88)
+    assert games._validate_game_payload("image_guess", q_img) is True
+
+    # 2. Uji validator & gameplay penuh Sambung Kata (word_chain)
+    assert games.is_valid_indonesian_chain_word("apel", "a", {"ayam"}) == (True, "ok")
+    assert games.is_valid_indonesian_chain_word("buku", "a", set()) == (False, "wrong_prefix")
+    assert games.is_valid_indonesian_chain_word("apel", "a", {"apel"}) == (False, "already_used")
+    assert games.is_valid_indonesian_chain_word("aaabbb", "a", set()) == (False, "gibberish")
+
+    sent_channel_msgs: list = []
+
+    class _FakeGameChannel:
+        id = 7788
+
+        async def send(self, content=None, embed=None):
+            sent_channel_msgs.append((content, embed))
+
+    fake_ch = _FakeGameChannel()
+    games.active_channel_games[7788] = {
+        "type": "word_chain",
+        "guild_id": 88,
+        "starter_id": 301,
+        "current_word": "NUSANTARA",
+        "answer": "NUSANTARA",
+        "used_words": {"nusantara"},
+        "chain_words": ["NUSANTARA"],
+        "chain_count": 0,
+        "points": 5,
+        "round_scores": {},
+        "view": None,
+    }
+
+    class _FakeChainMsg:
+        def __init__(self, uid: int, name: str, text: str):
+            self.channel = fake_ch
+            self.guild = type("G", (), {"id": 88})()
+            self.author = _FakeUser(uid, name)
+            self.content = text
+            self.mentions = []
+            self.reactions = []
+
+        async def add_reaction(self, emoji: str):
+            self.reactions.append(emoji)
+
+    # Giliran 1 oleh Rina ('APEL') -> valid (+5 poin, huruf lanjut 'L')
+    m1 = _FakeChainMsg(301, "Rina", "apel")
+    assert await games.handle_active_game_guess(m1) is True
+    assert "✅" in m1.reactions
+    assert games.active_channel_games[7788]["current_word"] == "APEL"
+
+    # Rina mencoba langsung nyambung sendiri < 8 detik -> ditahan lembut dengan reaksi ⏳
+    m1_spam = _FakeChainMsg(301, "Rina", "laut")
+    assert await games.handle_active_game_guess(m1_spam) is True
+    assert "⏳" in m1_spam.reactions
+    assert games.active_channel_games[7788]["current_word"] == "APEL"
+
+    # Giliran 2 oleh Budi ('LAUT') -> valid (+5 poin, huruf lanjut 'T')
+    m2 = _FakeChainMsg(302, "Budi", "laut")
+    assert await games.handle_active_game_guess(m2) is True
+    assert "✅" in m2.reactions
+
+    # Giliran 3 kembali ke Rina ('TAMAN') -> valid (+5 poin, Rina unggul 10 poin vs Budi 5 poin)
+    m3 = _FakeChainMsg(301, "Rina", "taman")
+    assert await games.handle_active_game_guess(m3) is True
+    assert "✅" in m3.reactions
+
+    # Akhiri ronde & pastikan Rina (MVP ronde) mendapat +1 win di papan skor!
+    await games.finish_word_chain_round(fake_ch, 7788, reason_title="🏁 Selesai!")
+    assert 7788 not in games.active_channel_games
+    rank_rina, pts_rina, wins_rina = games.get_user_rank_info(88, 301)
+    rank_budi, pts_budi, wins_budi = games.get_user_rank_info(88, 302)
+    assert (rank_rina, pts_rina, wins_rina) == (1, 10, 1)
+    assert (rank_budi, pts_budi, wins_budi) == (2, 5, 0)
+
+
+def urllib_unquote(url: str) -> str:
+    import urllib.parse
+
+    return urllib.parse.unquote(url)
+
+
+@pytest.mark.asyncio
+async def test_morning_digest_schedule_and_once_per_day_dedup(monkeypatch):
+    """Menguji jadwal Morning Digest (/agent digest) & proteksi anti-dobel kirim di tanggal yang sama."""
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    assert community_agent.parse_digest_time("07:00") == (7, 0)
+    assert community_agent.parse_digest_time("6.30") == (6, 30)
+    assert community_agent.parse_digest_time("25:00") is None
+
+    community_agent.set_digest_config(10, 5500, enabled=True, hour=7, minute=0, topic="Teknologi & Game")
+    await community_agent.save_agent_config_to_disk()
+    community_agent.digest_agent_guilds.clear()
+    community_agent.load_agent_config_from_disk()
+    assert community_agent.digest_agent_guilds[10]["topic"] == "Teknologi & Game"
+
+    # Palsukan jam lokal server pukul 07:15 pada 2026-11-03
+    monkeypatch.setattr(
+        community_agent,
+        "get_realtime_time_context",
+        lambda tz=None: {
+            "iso_date": "2026-11-03",
+            "hour": 7,
+            "minute": 15,
+            "clock": "07:15 WIB",
+            "day_name": "Selasa",
+            "date_str": "3 November 2026",
+            "tz_label": "WIB",
+            "vibe": "Pagi hari",
+            "summary": "Selasa, 3 November 2026 | Pukul 07:15 WIB",
+        },
+    )
+
+    async def _mock_digest_search(q, http_session=None):
+        return ("1. Rilis Python terbaru makin kencang", [("DetikInet", "https://inet.detik.com/1")])
+
+    monkeypatch.setattr(community_agent, "free_live_web_search", _mock_digest_search)
+
+    sent_embeds: list = []
+
+    class _FakeDigestChannel:
+        id = 5500
+        guild = type("G", (), {"id": 10, "me": _FakeUser(100, "Whas")})()
+
+        async def send(self, embed=None):
+            sent_embeds.append(embed)
+
+    fake_bot = type(
+        "FakeBot",
+        (),
+        {"user": _FakeUser(100, "Whas"), "get_channel": lambda self, cid: _FakeDigestChannel() if cid == 5500 else None},
+    )()
+
+    digest_ai_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Selamat pagi warga! Berikut sorotan berita hari ini."}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[digest_ai_resp])
+
+    sent_first = await community_agent.run_morning_digest_check(fake_bot, http_session=fake_http)
+    assert sent_first == 1
+    assert len(sent_embeds) == 1
+    assert community_agent.digest_agent_guilds[10]["last_sent_date"] == "2026-11-03"
+
+    # Panggilan kedua di tanggal yang sama TIDAK mengirim ulang (0 API call tambahan!)
+    sent_second = await community_agent.run_morning_digest_check(fake_bot, http_session=fake_http)
+    assert sent_second == 0
+    assert len(sent_embeds) == 1
+
+
+@pytest.mark.asyncio
+async def test_free_tier_member_cooldown_and_admin_panel_view():
+    """Menguji cooldown anti-spam per-member (Admin bebas jeda) serta fungsi toggle pada AgentAdminPanelView."""
+    # Member biasa terkena jeda saat memanggil beruntun
+    assert utils.check_user_cooldown(701, "cari", cooldown_sec=10, is_admin=False) == 0
+    rem = utils.check_user_cooldown(701, "cari", cooldown_sec=10, is_admin=False)
+    assert rem >= 1
+    # Bucket command berbeda tidak saling mengunci
+    assert utils.check_user_cooldown(701, "ringkas", cooldown_sec=10, is_admin=False) == 0
+    # Admin bebas jeda kapan saja
+    assert utils.check_user_cooldown(701, "cari", cooldown_sec=10, is_admin=True) == 0
+
+    # Uji build_agent_status_embed & AgentAdminPanelView
+    fake_guild = type(
+        "FakeGuild",
+        (),
+        {
+            "id": 10,
+            "name": "Server Komunitas Kita",
+            "me": _FakeUser(100, "Whas"),
+            "get_channel": lambda self, cid: None,
+        },
+    )()
+    status_emb = views.build_agent_status_embed(fake_guild)
+    assert "v1.3.0-beta" in status_emb.title
+    assert any("FAQ" in f.name for f in status_emb.fields)
+
 
 
 

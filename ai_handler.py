@@ -270,8 +270,9 @@ async def get_ai_response(
     http_session: aiohttp.ClientSession | None = None,
     thread: discord.Thread | None = None,
     bot_user_id: int | None = None,
+    server_knowledge: str = "",
 ) -> str:
-    """Mendapatkan balasan percakapan (Teks + Vision + Audio + YouTube/Web + Live Search) dari Google Gemini API."""
+    """Mendapatkan balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search) dari Google Gemini API."""
     global _paid_google_search_available
     if not is_gemini_key_configured():
         return (
@@ -338,11 +339,19 @@ async def get_ai_response(
     has_audio_only = bool(image_filenames) and all(
         fn.startswith(("voice_note:", "audio:")) for fn in image_filenames
     )
+    has_pdf_only = bool(image_filenames) and all(
+        fn.startswith("pdf:") for fn in image_filenames
+    )
     if not prompt_sections and combined_media_parts:
         if has_audio_only:
             prompt_sections.append(
                 "Dengarkan pesan suara (voice note) atau audio yang saya kirim ini dengan saksama, "
                 "lalu jawab atau tanggapi langsung isi ucapannya secara jelas, ramah, dan relevan."
+            )
+        elif has_pdf_only:
+            prompt_sections.append(
+                "Baca dokumen PDF yang saya lampirkan ini dengan saksama, lalu berikan ringkasan terstruktur "
+                "poin-poin utamanya dalam bahasa Indonesia yang jelas."
             )
         else:
             prompt_sections.append("Tolong jelaskan dan analisis lampiran media/gambar yang saya kirim ini.")
@@ -352,7 +361,12 @@ async def get_ai_response(
     history_note_parts: list[str] = []
     if image_filenames:
         files_label = ", ".join(image_filenames)
-        media_tag = "pesan suara/audio" if has_audio_only else "gambar"
+        if has_audio_only:
+            media_tag = "pesan suara/audio"
+        elif has_pdf_only:
+            media_tag = "dokumen PDF"
+        else:
+            media_tag = "gambar"
         history_note_parts.append(f"[Pengguna melampirkan {media_tag}: {files_label}]")
     if yt_urls:
         history_note_parts.append(f"[Video YouTube: {', '.join(yt_urls)}]")
@@ -369,9 +383,11 @@ async def get_ai_response(
     )
 
     time_ctx = get_realtime_time_context()
+    knowledge_section = f"\n\n{server_knowledge.strip()}" if server_knowledge and server_knowledge.strip() else ""
     system_text = (
         f"{model_info['system_prompt']}\n"
         f"[Informasi Waktu Saat Ini: {time_ctx['summary']}]"
+        f"{knowledge_section}"
     )
 
     desired_thinking = model_info.get("thinking_level", "low")
@@ -1095,4 +1111,141 @@ async def transform_message_with_gemini(
                 continue
 
     return None, f"⚠️ Gagal memproses pesan: {last_err}"
+
+
+async def fact_check_message_with_gemini(
+    message_text: str,
+    *,
+    media_parts: list[dict] | None = None,
+    text_blocks: list[str] | None = None,
+    timezone_name: str = BOT_TIMEZONE,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Memeriksa kebenaran klaim/berita/tangkapan layar (Cek Fakta / Hoaks) dengan pencarian web live gratis + Gemini."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    combined_text_parts = [p for p in [message_text.strip(), *(text_blocks or [])] if p]
+    full_text = "\n\n".join(combined_text_parts).strip()
+
+    if not full_text and not media_parts:
+        return None, "⚠️ Pesan tersebut kosong dan tidak memiliki klaim teks maupun gambar/dokumen yang bisa diperiksa."
+
+    time_ctx = get_realtime_time_context(timezone_name)
+    system_prompt = (
+        "Kamu adalah pemeriksa fakta (fact-checker) independen yang objektif, kritis, dan teliti.\n"
+        f"Waktu saat ini: {time_ctx['summary']}.\n\n"
+        "TUGASMU:\n"
+        "Periksa klaim di dalam teks pesan maupun tangkapan layar/gambar/dokumen terlampir secara jujur dan netral.\n"
+        "Gunakan struktur ringkas berikut dalam Bahasa Indonesia:\n"
+        "**🏷️ Status Klaim:** Pilih salah satu (`✅ Fakta Valid`, `⚠️ Perlu Konteks / Sebagian Benar`, "
+        "`❌ Indikasi Hoaks / Keliru`, atau `❓ Belum Dapat Diverifikasi Pasti`)\n"
+        "**📌 Klaim Utama:** (1 kalimat inti klaim yang diperiksa)\n"
+        "**🔎 Hasil Pemeriksaan Fakta:** (Penjelasan singkat, padat, dan berbasis bukti/sumber terbaru)"
+    )
+
+    req_timeout = CHAT_TIMEOUT if media_parts else FAST_TEXT_TIMEOUT
+    active_keys = get_gemini_keys_rotated()
+    models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    last_err = "Server Gemini sedang sibuk."
+
+    async with _borrow_session(http_session, req_timeout) as session:
+        live_ctx = ""
+        live_sources: list = []
+        # Jika ada teks klaim yang cukup jelas, cari referensi berita/web terbaru secara gratis
+        search_seed = re.sub(r"https?://\S+", " ", message_text).strip()
+        if len(search_seed) >= 8:
+            live_ctx, live_sources = await free_live_web_search(search_seed[:180], http_session=session)
+
+        prompt_parts_text: list[str] = []
+        if full_text:
+            prompt_parts_text.append(f"Klaim / Pesan yang Diperiksa:\n{full_text}")
+        else:
+            prompt_parts_text.append(
+                "Baca teks/klaim atau tangkapan layar berita pada media lampiran ini lalu periksa kebenaran faktanya!"
+            )
+        if live_ctx:
+            prompt_parts_text.append(f"Referensi Web & Berita Terbaru:\n{live_ctx}")
+
+        parts: list[dict] = [*(media_parts or []), {"text": "\n\n".join(prompt_parts_text)}]
+
+        for idx, model_id in enumerate(models_to_try):
+            gen_config: dict = {"temperature": 0.25, "maxOutputTokens": 3072}
+            t_cfg = build_thinking_config(model_id, "low")
+            if t_cfg:
+                gen_config["thinkingConfig"] = t_cfg
+
+            payload = {
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": gen_config,
+            }
+            api_key = active_keys[idx % len(active_keys)]
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                        if reply_text:
+                            if live_sources:
+                                footer = _format_grounding_footer(live_sources)
+                                max_body = max(500, 3850 - len(footer))
+                                clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+                                reply_text = f"{clipped}{footer}"
+                            return reply_text, None
+                        if block_msg and not should_retry:
+                            return None, block_msg
+                        continue
+
+                    if resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+                    err_detail = (
+                        data.get("error", {}).get("message", f"HTTP {resp.status}")
+                        if isinstance(data, dict)
+                        else f"HTTP {resp.status}"
+                    )
+                    last_err = sanitize_error_message(err_detail)
+            except (asyncio.TimeoutError, aiohttp.ClientError):
+                mark_model_unhealthy(model_id)
+                continue
+
+    return None, f"⚠️ Gagal memeriksa fakta pesan: {last_err}"
+
+
+async def generate_mystery_game_image_bytes(
+    visual_prompt: str,
+    *,
+    http_session: aiohttp.ClientSession | None = None,
+) -> bytes | None:
+    """Membuat gambar petunjuk bebas-teks ukuran ringan (512x512) untuk mini-game 🖼️ Tebak Gambar AI (100% Free Tier)."""
+    clean_desc = (visual_prompt or "").strip()
+    if not clean_desc or not ENABLE_IMAGE_FALLBACK:
+        return None
+
+    full_prompt = (
+        f"{clean_desc}, clear recognizable illustration, vibrant colors, centered subject, "
+        "strictly no text, no letters, no words, no numbers, no watermark"
+    )
+    seed = random.randint(1, 999_999_999)
+    encoded = urllib.parse.quote(full_prompt)
+    url = (
+        f"https://image.pollinations.ai/prompt/{encoded}"
+        f"?width=512&height=512&seed={seed}&nologo=true&model=flux"
+    )
+    game_img_timeout = aiohttp.ClientTimeout(total=20, connect=8)
+    async with _borrow_session(http_session, game_img_timeout) as session:
+        try:
+            async with session.get(url, timeout=game_img_timeout) as resp:
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                if resp.status == 200 and ctype.startswith("image/"):
+                    img_bytes = await resp.read()
+                    if len(img_bytes) > 1024:
+                        return img_bytes
+        except Exception:
+            return None
+    return None
+
 

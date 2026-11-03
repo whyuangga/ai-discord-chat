@@ -5,12 +5,38 @@ import time
 import discord
 
 from config import (
+    AGENT_DEFAULT_IDLE_MINUTES,
     AI_MODELS,
+    BOT_VERSION,
     DEFAULT_IMAGE_SETTINGS,
+    ENABLE_GOOGLE_SEARCH,
+    ENABLE_URL_READER,
     MAX_THREADS_PER_USER,
     RATIO_OPTIONS,
     STYLE_OPTIONS,
     resolve_model_key,
+)
+from community_agent import (
+    STYLE_DESCRIPTIONS,
+    chat_agent_channels,
+    digest_agent_guilds,
+    format_idle_duration,
+    gallery_agent_channels,
+    get_guild_search_channels,
+    get_guild_settings,
+    get_guild_youtube_channels,
+    get_server_knowledge_entries,
+    save_agent_config_to_disk,
+    search_agent_channels,
+    set_chat_channel_config,
+    set_digest_config,
+    set_gallery_channel_config,
+    set_search_channel_config,
+    set_welcome_config,
+    set_youtube_channel_config,
+    upsert_server_knowledge,
+    welcome_agent_guilds,
+    youtube_agent_channels,
 )
 from storage import (
     get_image_settings,
@@ -25,7 +51,12 @@ from storage import (
     thread_chats,
     unmark_thread_closing,
 )
-from utils import build_session_transcript, sanitize_error_message
+from utils import (
+    build_session_transcript,
+    find_solved_forum_tag,
+    get_realtime_time_context,
+    sanitize_error_message,
+)
 
 logger = logging.getLogger("gemini_bot.views")
 
@@ -37,16 +68,16 @@ def build_main_panel_embed() -> discord.Embed:
         description=(
             "Selamat datang di pusat layanan **Google Gemini AI**!\n"
             "Pilih jenis ruang privat yang ingin Anda buat melalui tombol di bawah ini:\n\n"
-            "💬 **Chat AI, Vision, Voice Note, YouTube & Live Search**\n"
+            "💬 **Chat AI, Vision, Voice Note, PDF, YouTube & Live Search**\n"
             "> • Bebas pilih 5 mode kepribadian Gemini terbaru (Asisten, Kilat, Koding, Riset, Curhat).\n"
-            "> • **Multimodal Lengkap:** Kirim **Voice Note (🎤)**, link **YouTube / artikel web**, foto/screenshot error, atau file kode untuk dianalisis langsung!\n"
-            "> • **Info Hari Ini:** Otomatis terhubung ke **Google Search** saat menanyakan berita/info terkini.\n\n"
+            "> • **Multimodal Lengkap:** Kirim **Voice Note (🎤)**, dokumen **`.pdf`**, link **YouTube / web**, foto/screenshot error, atau file kode untuk dianalisis langsung!\n"
+            "> • **Info Hari Ini:** Otomatis mencari berita & fakta terkini saat menanyakan topik terbaru.\n\n"
             "🎨 **Generate & Edit Gambar AI**\n"
             "> • Buat ilustrasi berkualitas tinggi cukup dengan mengetik deskripsi.\n"
             "> • Bebas atur **7 Gaya Art** & **5 Ukuran Rasio**, serta bisa edit gambar!\n\n"
             "⚡ **Fitur Pintas di Seluruh Server:**\n"
-            "> • **Tekan-Tahan Pesan ➔ Apps:** `🌐 Terjemahkan ke Indonesia` & `💡 Jelaskan Pesan Ini`\n"
-            "> • `/cari` • `/ringkas_link` • `/ringkas` • `/game mulai` • `/bantuan`"
+            "> • **Tekan-Tahan Pesan ➔ Apps:** `🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`\n"
+            "> • `/cari` • `/ringkas_link` • `/ringkas` • `/game mulai` (6 Mode!) • `/bantuan`"
         ),
         color=discord.Color.blurple(),
     )
@@ -555,3 +586,429 @@ class MainPanelControlView(discord.ui.View):
                 content=f"⚠️ Gagal membuat ruang gambar: {sanitize_error_message(exc)}",
                 ephemeral=True,
             )
+
+
+# ==============================================================================
+# TOMBOL PERSISTEN FORUM POST: ✅ TANDAI SELESAI / TERJAWAB
+# ==============================================================================
+class ForumPostSolvedView(discord.ui.View):
+    """Tombol persisten pada Postingan Forum agar penanya/Moderator bisa menandai diskusi selesai."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Tandai Selesai",
+        style=discord.ButtonStyle.success,
+        emoji="✅",
+        custom_id="gemini_panel:forum_solved",
+    )
+    async def mark_solved_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = interaction.channel
+        if not isinstance(channel, discord.Thread) and getattr(channel, "parent_id", None) is None:
+            await interaction.response.send_message(
+                "⚠️ Tombol ini hanya berfungsi di dalam Postingan Forum / Thread.",
+                ephemeral=True,
+            )
+            return
+
+        is_owner = getattr(channel, "owner_id", None) == interaction.user.id
+        is_mod = isinstance(interaction.user, discord.Member) and (
+            interaction.user.guild_permissions.administrator
+            or interaction.user.guild_permissions.manage_threads
+            or interaction.user.guild_permissions.manage_messages
+        )
+        if not is_owner and not is_mod:
+            await interaction.response.send_message(
+                "⚠️ Hanya **pembuat postingan ini** atau **Moderator** yang dapat menandai diskusi sebagai selesai.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+
+        button.disabled = True
+        button.label = "Diskusi Selesai"
+        try:
+            if interaction.message:
+                await interaction.message.edit(view=self)
+        except discord.HTTPException:
+            pass
+
+        cur_name = (channel.name or "").strip()
+        new_name = cur_name if cur_name.startswith("✅") else f"✅ {cur_name}"[:100]
+
+        parent = getattr(channel, "parent", None)
+        avail_tags = getattr(parent, "available_tags", None) or []
+        solved_tag = find_solved_forum_tag(avail_tags)
+        current_tags = list(getattr(channel, "applied_tags", None) or [])
+        if solved_tag is not None and solved_tag not in current_tags:
+            current_tags = ([solved_tag] + current_tags)[:5]
+
+        await interaction.followup.send(
+            f"✅ Postingan ini telah ditandai **Selesai / Terjawab** oleh {interaction.user.mention}! "
+            "Terima kasih sudah berdiskusi 🙌"
+        )
+
+        edit_kwargs: dict = {"archived": True}
+        if new_name and new_name != cur_name:
+            edit_kwargs["name"] = new_name
+        if solved_tag is not None:
+            edit_kwargs["applied_tags"] = current_tags
+
+        try:
+            await channel.edit(**edit_kwargs)
+        except discord.HTTPException:
+            # Jika gagal arsip/ubah tag karena izin terbatas, coba minimal ubah judul
+            try:
+                if new_name != cur_name:
+                    await channel.edit(name=new_name)
+            except discord.HTTPException:
+                pass
+
+
+# ==============================================================================
+# DASHBOARD STATUS & PANEL KONTROL ADMIN INTERAKTIF (/agent status & /agent panel)
+# ==============================================================================
+def build_agent_status_embed(guild: discord.Guild) -> discord.Embed:
+    """Menyusun Embed ringkasan status lengkap AI Community Agent untuk suatu server Discord."""
+    guild_id = guild.id
+    cfg = get_guild_settings(guild_id)
+    t_ctx = get_realtime_time_context(cfg.get("timezone"))
+    faq_entries = get_server_knowledge_entries(guild_id)
+
+    guild_chats = [
+        (cid, cdata)
+        for cid, cdata in chat_agent_channels.items()
+        if cdata.get("guild_id") == guild_id and cdata.get("enabled")
+    ]
+    guild_galleries = [
+        (cid, gdata)
+        for cid, gdata in gallery_agent_channels.items()
+        if gdata.get("guild_id") == guild_id and gdata.get("enabled")
+    ]
+    guild_yt = get_guild_youtube_channels(guild_id)
+    guild_search = get_guild_search_channels(guild_id)
+
+    chat_lines = []
+    for cid, cdata in guild_chats:
+        idle_s = int(cdata.get("idle_seconds", int(cdata.get("idle_minutes", 0)) * 60))
+        idle_lbl = format_idle_duration(idle_s) if idle_s > 0 else "Mati"
+        chat_lines.append(f"• <#{cid}> — Mode `{cdata.get('reply_mode')}`, Pemecah Sepi: `{idle_lbl}`")
+
+    gal_lines = [
+        f"• <#{cid}> — Auto-Reaction: `{'ON' if gdata.get('auto_reaction', True) else 'OFF'}`"
+        for cid, gdata in guild_galleries
+    ]
+
+    if not ENABLE_URL_READER:
+        yt_text = "⛔ **Nonaktif Global di `.env`** (`ENABLE_URL_READER=false`)"
+    elif guild_yt:
+        yt_lines = [
+            f"• <#{cid}> — Auto-Rangkum: `{'ON' if ydata.get('auto_in_chat') else 'OFF (Panggil Bot / /ringkas_link)'}`"
+            for cid, ydata in guild_yt
+        ]
+        yt_text = "\n".join(yt_lines)
+    else:
+        yt_text = "_Belum ada channel (aktifkan via panel di bawah atau `/agent youtube`)_"
+
+    if not ENABLE_GOOGLE_SEARCH:
+        search_text = "⛔ **Nonaktif Global di `.env`** (`ENABLE_GOOGLE_SEARCH=false`)"
+    elif guild_search:
+        s_lines = [
+            f"• <#{cid}> — `/cari`: `ON` | Auto di Obrolan: `{'ON' if sdata.get('auto_in_chat', True) else 'OFF'}`"
+            for cid, sdata in guild_search
+        ]
+        search_text = "\n".join(s_lines)
+    else:
+        search_text = "_Belum ada channel (aktifkan via panel di bawah atau `/agent cari`)_"
+
+    w_cfg = welcome_agent_guilds.get(guild_id)
+    if w_cfg and w_cfg.get("enabled"):
+        w_note = f"\n• Info Diselipkan: _{w_cfg['extra_note']}_" if w_cfg.get("extra_note") else ""
+        welcome_text = f"✅ Aktif di <#{w_cfg['channel_id']}>{w_note}"
+    else:
+        welcome_text = "_Belum diaktifkan_"
+
+    d_cfg = digest_agent_guilds.get(guild_id)
+    if d_cfg and d_cfg.get("enabled"):
+        digest_text = (
+            f"✅ Aktif di <#{d_cfg['channel_id']}> setiap **`{d_cfg['hour']:02d}:{d_cfg['minute']:02d}`** "
+            f"({t_ctx['tz_label']})\n• Topik: _{d_cfg.get('topic')}_"
+        )
+    else:
+        digest_text = "_Belum diaktifkan (gunakan `/agent digest` atau panel di bawah)_"
+
+    bot_disp = guild.me.display_name if guild.me else "Bot"
+    embed = discord.Embed(
+        title=f"🤖 Status AI Community Agent (`v{BOT_VERSION}`)",
+        description=f"🕒 **Waktu Bot Saat Ini:** {t_ctx['summary']}",
+        color=discord.Color.blurple(),
+    )
+    embed.add_field(
+        name="🎭 Persona & Memori FAQ Server",
+        value=(
+            f"• **Nama Panggilan:** `{cfg.get('nickname') or bot_disp}`\n"
+            f"• **Gaya Bahasa:** `{cfg.get('style_preset')}` | **Tahu Jam Tidur:** `{'Ya' if cfg.get('quiet_hours', True) else 'Tidak'}`\n"
+            f"• **Catatan Server:** {cfg.get('custom_prompt') or '_(Default)_'}\n"
+            f"• **Memori Info / FAQ Server (`/agent info`):** `{len(faq_entries)} entri tersimpan`"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="💬 Channel & Forum Auto-Chat",
+        value="\n".join(chat_lines) if chat_lines else "_Belum ada channel_",
+        inline=False,
+    )
+    embed.add_field(
+        name="🎨 Channel & Forum Galeri Karya",
+        value="\n".join(gal_lines) if gal_lines else "_Belum ada channel_",
+        inline=False,
+    )
+    embed.add_field(
+        name="▶️ Perangkum YouTube & Link Web",
+        value=yt_text,
+        inline=False,
+    )
+    embed.add_field(
+        name="🌐 Pencarian Berita & Web Terkini",
+        value=search_text,
+        inline=False,
+    )
+    embed.add_field(
+        name="👋 Sambutan Member & ☀️ Koran Pagi",
+        value=f"**Welcome:** {welcome_text}\n**Morning Digest:** {digest_text}",
+        inline=False,
+    )
+    return embed
+
+
+class EditPersonaModal(discord.ui.Modal, title="🎭 Ubah Kepribadian AI Server"):
+    nickname_input = discord.ui.TextInput(
+        label="Nama Panggilan Akrab Bot (kosongkan = default)",
+        placeholder="Contoh: Bimo / Neko / Asisten",
+        required=False,
+        max_length=32,
+    )
+    style_input = discord.ui.TextInput(
+        label="Gaya Bahasa (akrab / gaul / ramah)",
+        placeholder="Ketik: akrab, gaul, atau ramah",
+        default="akrab",
+        required=True,
+        max_length=12,
+    )
+    prompt_input = discord.ui.TextInput(
+        label="Konteks Komunitas (kosongkan = hapus)",
+        style=discord.TextStyle.paragraph,
+        placeholder="Contoh: Ini server komunitas developer indie & mabar Valorant Indonesia.",
+        required=False,
+        max_length=350,
+    )
+
+    def __init__(self, guild_id: int):
+        super().__init__()
+        cfg = get_guild_settings(guild_id)
+        self.nickname_input.default = cfg.get("nickname") or ""
+        self.style_input.default = cfg.get("style_preset") or "akrab"
+        self.prompt_input.default = cfg.get("custom_prompt") or ""
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            return
+        cfg = get_guild_settings(interaction.guild.id)
+        cfg["nickname"] = self.nickname_input.value.strip()
+        raw_style = self.style_input.value.strip().lower()
+        if raw_style in STYLE_DESCRIPTIONS:
+            cfg["style_preset"] = raw_style
+        cfg["custom_prompt"] = self.prompt_input.value.strip()
+        await save_agent_config_to_disk()
+        await interaction.response.edit_message(embed=build_agent_status_embed(interaction.guild))
+
+
+class AddServerInfoModal(discord.ui.Modal, title="📌 Tambah Memori Info / FAQ Server"):
+    topic_input = discord.ui.TextInput(
+        label="Topik / Kata Kunci FAQ",
+        placeholder="Contoh: IP Server Minecraft / Rules / Jadwal Mabar",
+        required=True,
+        max_length=80,
+    )
+    content_input = discord.ui.TextInput(
+        label="Isi Informasi Resmi Server",
+        style=discord.TextStyle.paragraph,
+        placeholder="Contoh: IP Minecraft play.contoh.id versi 1.21.4, buka 24 jam tanpa whitelist.",
+        required=True,
+        max_length=500,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.guild is None:
+            return
+        item, status = upsert_server_knowledge(
+            interaction.guild.id,
+            self.topic_input.value,
+            self.content_input.value,
+        )
+        if status == "full" or item is None:
+            await interaction.response.send_message(
+                "⚠️ Kapasitas FAQ Server sudah penuh (maksimal 25 entri). Hapus salah satu lewat `/agent info hapus`.",
+                ephemeral=True,
+            )
+            return
+        await save_agent_config_to_disk()
+        await interaction.response.edit_message(embed=build_agent_status_embed(interaction.guild))
+
+
+class AgentAdminPanelView(discord.ui.View):
+    """Panel Kontrol Admin Interaktif (/agent panel) dengan ChannelSelect, Toggle Fitur, & Modal."""
+
+    def __init__(self, admin_user_id: int, default_channel_id: int | None = None):
+        super().__init__(timeout=600)
+        self.admin_user_id = admin_user_id
+        self.selected_channel_id: int | None = default_channel_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_user_id:
+            await interaction.response.send_message(
+                "⚠️ Panel kontrol ini hanya dapat dioperasikan oleh Admin yang membukanya.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[
+            discord.ChannelType.text,
+            discord.ChannelType.news,
+            discord.ChannelType.forum,
+            discord.ChannelType.media,
+        ],
+        placeholder="1️⃣ Pilih Channel / Forum target yang ingin diatur...",
+        min_values=1,
+        max_values=1,
+        row=0,
+    )
+    async def pick_channel(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        picked = select.values[0]
+        self.selected_channel_id = picked.id
+        await interaction.response.send_message(
+            f"📍 Channel target dipilih: <#{picked.id}>. Sekarang pilih fitur di menu **2️⃣** untuk mengaktifkan/mematikannya!",
+            ephemeral=True,
+        )
+
+    @discord.ui.select(
+        placeholder="2️⃣ Toggle ON / OFF fitur pada channel terpilih...",
+        options=[
+            discord.SelectOption(
+                label="Toggle Auto-Chat Pintar (ON / OFF)",
+                value="toggle_chat",
+                emoji="💬",
+                description="Aktifkan/matikan ngobrol otomatis & jawab Forum di channel ini",
+            ),
+            discord.SelectOption(
+                label="Toggle Komentator Galeri (ON / OFF)",
+                value="toggle_gallery",
+                emoji="🎨",
+                description="Aktifkan/matikan apresiasi foto, video, & stiker di channel ini",
+            ),
+            discord.SelectOption(
+                label="Toggle Rangkum YouTube & Link (ON / OFF)",
+                value="toggle_youtube",
+                emoji="▶️",
+                description="Aktifkan/matikan pembaca link YouTube & web di channel ini",
+            ),
+            discord.SelectOption(
+                label="Toggle Pencarian Berita /cari (ON / OFF)",
+                value="toggle_search",
+                emoji="🌐",
+                description="Aktifkan/matikan fitur /cari & berita terkini di channel ini",
+            ),
+            discord.SelectOption(
+                label="Toggle Sambutan Member Baru (ON / OFF)",
+                value="toggle_welcome",
+                emoji="👋",
+                description="Jadikan channel teks ini tempat menyapa member baru otomatis",
+            ),
+            discord.SelectOption(
+                label="Toggle Koran Pagi 07:00 (ON / OFF)",
+                value="toggle_digest",
+                emoji="☀️",
+                description="Kirim sapaan & rangkuman berita pagi harian pukul 07:00 di sini",
+            ),
+        ],
+        row=1,
+    )
+    async def toggle_feature(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if interaction.guild is None:
+            return
+        cid = self.selected_channel_id
+        if cid is None:
+            await interaction.response.send_message(
+                "⚠️ Pilih channel terlebih dahulu pada menu **1️⃣** di atas!",
+                ephemeral=True,
+            )
+            return
+
+        guild_id = interaction.guild.id
+        target_ch = interaction.guild.get_channel(cid)
+        is_forum_like = isinstance(target_ch, discord.ForumChannel)
+        action = select.values[0]
+
+        if action == "toggle_chat":
+            currently_on = bool(chat_agent_channels.get(cid, {}).get("enabled"))
+            set_chat_channel_config(
+                guild_id,
+                cid,
+                enabled=not currently_on,
+                reply_mode="smart",
+                idle_minutes=0 if is_forum_like else AGENT_DEFAULT_IDLE_MINUTES,
+            )
+        elif action == "toggle_gallery":
+            currently_on = bool(gallery_agent_channels.get(cid, {}).get("enabled"))
+            set_gallery_channel_config(guild_id, cid, enabled=not currently_on, auto_reaction=True)
+        elif action == "toggle_youtube":
+            currently_on = bool(youtube_agent_channels.get(cid, {}).get("enabled"))
+            set_youtube_channel_config(guild_id, cid, enabled=not currently_on, auto_in_chat=False)
+        elif action == "toggle_search":
+            currently_on = bool(search_agent_channels.get(cid, {}).get("enabled"))
+            set_search_channel_config(guild_id, cid, enabled=not currently_on, auto_in_chat=True)
+        elif action == "toggle_welcome":
+            if is_forum_like:
+                await interaction.response.send_message(
+                    "⚠️ Sambutan Member Baru hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
+                    ephemeral=True,
+                )
+                return
+            w_cur = welcome_agent_guilds.get(guild_id)
+            turn_on = not (w_cur and w_cur.get("enabled") and w_cur.get("channel_id") == cid)
+            set_welcome_config(guild_id, cid, enabled=turn_on)
+        elif action == "toggle_digest":
+            if is_forum_like:
+                await interaction.response.send_message(
+                    "⚠️ Koran Pagi (Morning Digest) hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
+                    ephemeral=True,
+                )
+                return
+            d_cur = digest_agent_guilds.get(guild_id)
+            turn_on = not (d_cur and d_cur.get("enabled") and d_cur.get("channel_id") == cid)
+            set_digest_config(guild_id, cid, enabled=turn_on, hour=7, minute=0)
+
+        await save_agent_config_to_disk()
+        await interaction.response.edit_message(embed=build_agent_status_embed(interaction.guild), view=self)
+
+    @discord.ui.button(label="Ubah Persona", style=discord.ButtonStyle.primary, emoji="🎭", row=2)
+    async def edit_persona_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None:
+            return
+        await interaction.response.send_modal(EditPersonaModal(interaction.guild.id))
+
+    @discord.ui.button(label="Tambah Info / FAQ", style=discord.ButtonStyle.success, emoji="📌", row=2)
+    async def add_faq_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AddServerInfoModal())
+
+    @discord.ui.button(label="Segarkan Status", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None:
+            return
+        await interaction.response.edit_message(embed=build_agent_status_embed(interaction.guild), view=self)
+

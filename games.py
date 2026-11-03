@@ -42,11 +42,17 @@ _scores_disk_lock = asyncio.Lock()
 
 GAME_ROUND_TIMEOUT_SEC = 75
 
+WORD_CHAIN_TURN_TIMEOUT_SEC = 45
+WORD_CHAIN_MAX_TURNS = 15
+WORD_CHAIN_SOLO_COOLDOWN_SEC = 8.0
+
 GAME_POINTS_BY_MODE: dict[str, int] = {
     "trivia": 15,
     "emoji": 20,
     "riddle": 20,
     "scramble": 15,
+    "image_guess": 25,
+    "word_chain": 5,
 }
 
 # Bank soal cadangan berkualitas jika API sedang sibuk
@@ -127,6 +133,45 @@ _FALLBACK_SCRAMBLE: list[dict] = [
     {"answer": "BEGADANG", "category": "Kebiasaan Malam", "extra_hint": "Tidak tidur sampai larut malam atau subuh."},
 ]
 
+_FALLBACK_IMAGE_GUESS: list[dict] = [
+    {
+        "visual_prompt": "A delicious plate of Indonesian fried rice topped with a sunny side up fried egg, prawn crackers, cucumber and tomato slices on a wooden table",
+        "category": "Kuliner Nusantara",
+        "answer": "Nasi Goreng",
+        "aliases": ["nasgor", "fried rice"],
+        "extra_hint": "Makanan favorit sejuta umat di Indonesia, enak disantap malam-malam pakai kerupuk dan telur ceplok.",
+    },
+    {
+        "visual_prompt": "A cute orange tabby cat wearing a white space astronaut helmet floating among stars and planet Saturn",
+        "category": "Kombinasi Unik",
+        "answer": "Kucing Astronot",
+        "aliases": ["astronot kucing", "kucing luar angkasa", "cat astronaut"],
+        "extra_hint": "Hewan peliharaan berbulu imut yang sedang memakai helm penjelajah luar angkasa.",
+    },
+    {
+        "visual_prompt": "Majestic ancient stone stupa temple Borobudur at golden sunrise surrounded by misty green mountains in Java",
+        "category": "Ikon Indonesia",
+        "answer": "Candi Borobudur",
+        "aliases": ["borobudur"],
+        "extra_hint": "Candi Buddha terbesar di dunia yang terletak di Magelang, Jawa Tengah.",
+    },
+    {
+        "visual_prompt": "A giant prehistoric Komodo dragon lizard walking on a sunny tropical pink sandy beach island",
+        "category": "Satwa Langka",
+        "answer": "Komodo",
+        "aliases": ["biawak komodo", "komodo dragon"],
+        "extra_hint": "Kadal raksasa purba kebanggaan Indonesia dari Nusa Tenggara Timur.",
+    },
+]
+
+_FALLBACK_WORD_CHAIN: list[dict] = [
+    {"start_word": "NUSANTARA", "category": "Sambung Kata Indonesia"},
+    {"start_word": "PELANGI", "category": "Sambung Kata Indonesia"},
+    {"start_word": "SAMUDRA", "category": "Sambung Kata Indonesia"},
+    {"start_word": "SAHABAT", "category": "Sambung Kata Indonesia"},
+    {"start_word": "PETUALANG", "category": "Sambung Kata Indonesia"},
+]
+
 
 def load_game_scores_from_disk() -> int:
     """Memuat papan skor mini-game dari data/game_scores.json."""
@@ -168,14 +213,22 @@ async def save_game_scores_to_disk() -> None:
             logger.error("Gagal menyimpan %s: %s", GAME_SCORES_FILE, exc)
 
 
-def award_game_points(guild_id: int, user_id: int, display_name: str, points: int) -> tuple[int, int]:
+def award_game_points(
+    guild_id: int,
+    user_id: int,
+    display_name: str,
+    points: int,
+    *,
+    increment_win: bool = True,
+) -> tuple[int, int]:
     """Menambahkan poin kemenangan member dan mengembalikan (total_poin_baru, total_menang_baru)."""
     g_map = guild_game_scores.setdefault(int(guild_id), {})
     uid_key = str(int(user_id))
     entry = g_map.get(uid_key) or {"name": display_name[:40], "points": 0, "wins": 0}
     entry["name"] = display_name[:40]
     entry["points"] = int(entry.get("points") or 0) + int(points)
-    entry["wins"] = int(entry.get("wins") or 0) + 1
+    if increment_win:
+        entry["wins"] = int(entry.get("wins") or 0) + 1
     g_map[uid_key] = entry
     return entry["points"], entry["wins"]
 
@@ -330,6 +383,19 @@ async def generate_ai_game_question(
             '"answer": "Kata Jawaban", "aliases": ["sinonim jika ada"], "extra_hint": "Petunjuk tambahan singkat"}'
             f"{avoid_note}"
         )
+    elif mode == "image_guess":
+        prompt = (
+            "Buat 1 soal permainan 'Tebak Gambar AI' seru untuk komunitas Discord Indonesia.\n"
+            "Pilih objek, makanan khas Indonesia, hewan unik, tempat ikonik, atau kombinasi karakter lucu (1–2 kata Bahasa Indonesia yang mudah ditebak).\n"
+            "`visual_prompt` WAJIB dalam bahasa Inggris deskriptif visual tanpa menyebut teks/tulisan.\n"
+            "Balas HANYA dalam JSON murni dengan format:\n"
+            '{"visual_prompt": "Detailed visual description in English without any text...", '
+            '"category": "...", "answer": "Jawaban Indonesia", "aliases": ["variasi ejaan"], '
+            '"extra_hint": "1 kalimat petunjuk Bahasa Indonesia tanpa membocorkan jawaban"}'
+            f"{avoid_note}"
+        )
+    elif mode == "word_chain":
+        return random.choice(_FALLBACK_WORD_CHAIN).copy()
     else:  # scramble
         prompt = (
             "Pilih 1 kata benda/istilah populer Bahasa Indonesia (1 kata tunggal tanpa spasi, panjang 6–9 huruf, "
@@ -387,6 +453,10 @@ async def generate_ai_game_question(
         return random.choice(_FALLBACK_EMOJI).copy()
     if mode == "riddle":
         return random.choice(_FALLBACK_RIDDLE).copy()
+    if mode == "image_guess":
+        return random.choice(_FALLBACK_IMAGE_GUESS).copy()
+    if mode == "word_chain":
+        return random.choice(_FALLBACK_WORD_CHAIN).copy()
     return random.choice(_FALLBACK_SCRAMBLE).copy()
 
 
@@ -406,10 +476,44 @@ def _validate_game_payload(mode: str, data: dict) -> bool:
     if mode == "riddle":
         clues = data.get("clues")
         return isinstance(clues, list) and len(clues) >= 2 and bool(data.get("answer"))
+    if mode == "image_guess":
+        return bool(data.get("visual_prompt")) and bool(data.get("answer"))
+    if mode == "word_chain":
+        sw = str(data.get("start_word") or "").strip()
+        return sw.isalpha() and len(sw) >= 3
     if mode == "scramble":
         ans = str(data.get("answer") or "").strip()
         return ans.isalpha() and 4 <= len(ans) <= 14
     return False
+
+
+def is_valid_indonesian_chain_word(word: str, required_letter: str, used_words: set[str]) -> tuple[bool, str]:
+    """Memvalidasi kata pada permainan Sambung Kata secara instan tanpa memakan kuota API Gemini (0 API Call!)."""
+    cleaned = (word or "").strip().lower()
+    if not cleaned or " " in cleaned or not cleaned.isalpha():
+        return False, "not_single_alpha"
+    if len(cleaned) < 3 or len(cleaned) > 22:
+        return False, "invalid_length"
+    req = (required_letter or "").strip().lower()
+    if req and not cleaned.startswith(req):
+        return False, "wrong_prefix"
+    if cleaned in used_words:
+        return False, "already_used"
+
+    vowels = set("aiueo")
+    has_vowel = any(ch in vowels for ch in cleaned)
+    has_consonant = any(ch not in vowels for ch in cleaned)
+    if not (has_vowel and has_consonant):
+        return False, "gibberish"
+
+    # Cegah ketikan asal seperti 'aaabbb' atau deretan konsonan tak wajar >= 5 huruf
+    if re.search(r"(.)\1\1", cleaned):
+        return False, "gibberish"
+    reduced = re.sub(r"(ng|ny|sy|kh)", "x", cleaned)
+    if re.search(r"[^aiueo]{4,}", reduced):
+        return False, "gibberish"
+
+    return True, "ok"
 
 
 # ==============================================================================
@@ -591,6 +695,135 @@ class TextGuessControlView(discord.ui.View):
         )
 
 
+async def finish_word_chain_round(
+    channel: discord.abc.Messageable,
+    channel_id: int,
+    *,
+    reason_title: str,
+) -> None:
+    """Mengakhiri sesi Sambung Kata, mencatat 1 kemenangan untuk peraih skor tertinggi ronde, dan mengirim rekap."""
+    state = active_channel_games.pop(channel_id, None)
+    if not state:
+        return
+
+    task = state.get("timeout_task")
+    if task and not task.done() and task is not asyncio.current_task():
+        task.cancel()
+
+    view_obj: discord.ui.View | None = state.get("view")
+    msg_obj: discord.Message | None = state.get("message")
+    if view_obj and msg_obj:
+        for child in view_obj.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        try:
+            await msg_obj.edit(view=view_obj)
+        except discord.HTTPException:
+            pass
+
+    round_scores: dict[int, dict] = state.get("round_scores") or {}
+    guild_id = int(state.get("guild_id") or 0)
+    chain_words: list[str] = state.get("chain_words") or [state.get("current_word", "")]
+
+    if round_scores and guild_id:
+        sorted_players = sorted(
+            round_scores.items(),
+            key=lambda kv: (kv[1]["points"], kv[1]["words"]),
+            reverse=True,
+        )
+        mvp_uid, mvp_info = sorted_players[0]
+        g_map = guild_game_scores.setdefault(guild_id, {})
+        uid_key = str(mvp_uid)
+        if uid_key in g_map:
+            g_map[uid_key]["wins"] = int(g_map[uid_key].get("wins") or 0) + 1
+        else:
+            award_game_points(guild_id, mvp_uid, mvp_info["name"], 0, increment_win=True)
+        await save_game_scores_to_disk()
+
+        ranking_lines = [
+            f"**{idx}.** <@{uid}> — **+{info['points']} Poin** ({info['words']} kata)"
+            for idx, (uid, info) in enumerate(sorted_players[:5], start=1)
+        ]
+        summary_body = "\n".join(ranking_lines)
+    else:
+        summary_body = "Belum ada kata sambungan yang berhasil dijawab di ronde ini."
+
+    chain_preview = " ➔ ".join(f"`{w.upper()}`" for w in chain_words[-10:])
+    if len(chain_words) > 10:
+        chain_preview = f"... ➔ {chain_preview}"
+
+    embed = discord.Embed(
+        title=reason_title,
+        description=(
+            f"🔗 **Total Rantai Terbentuk:** **{max(0, len(chain_words) - 1)}** sambungan kata\n"
+            f"📜 **Jejak Kata:** {chain_preview}\n\n"
+            f"🏆 **Perolehan Poin Ronde Ini:**\n{summary_body}"
+        ),
+        color=discord.Color.gold() if round_scores else discord.Color.orange(),
+    )
+    try:
+        await channel.send(embed=embed)
+    except discord.HTTPException:
+        pass
+
+
+def schedule_word_chain_timeout(channel: discord.abc.Messageable, channel_id: int) -> None:
+    """Menjadwalkan ulang batas waktu giliran Sambung Kata (45 detik sejak kata valid terakhir)."""
+    state = active_channel_games.get(channel_id)
+    if not state:
+        return
+    old_task = state.get("timeout_task")
+    if old_task and not old_task.done():
+        old_task.cancel()
+
+    async def _timer() -> None:
+        await asyncio.sleep(WORD_CHAIN_TURN_TIMEOUT_SEC)
+        cur = active_channel_games.get(channel_id)
+        if cur and cur.get("type") == "word_chain":
+            req_letter = str(cur.get("current_word", "A"))[-1].upper()
+            await finish_word_chain_round(
+                channel,
+                channel_id,
+                reason_title=f"⌛ Waktu Habis! Tidak ada sambungan huruf '{req_letter}'",
+            )
+
+    state["timeout_task"] = asyncio.create_task(_timer())
+
+
+class WordChainControlView(discord.ui.View):
+    """Tombol penghenti ronde Sambung Kata oleh pemulai atau Moderator."""
+
+    def __init__(self, channel_id: int, starter_id: int):
+        super().__init__(timeout=WORD_CHAIN_TURN_TIMEOUT_SEC * (WORD_CHAIN_MAX_TURNS + 1))
+        self.channel_id = channel_id
+        self.starter_id = starter_id
+
+    @discord.ui.button(label="🛑 Akhiri & Rekap Skor", style=discord.ButtonStyle.danger)
+    async def stop_chain_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        state = active_channel_games.get(self.channel_id)
+        if not state or state.get("type") != "word_chain":
+            await interaction.response.send_message("⏳ Permainan Sambung Kata sudah berakhir.", ephemeral=True)
+            return
+
+        is_mod = isinstance(interaction.user, discord.Member) and (
+            interaction.user.guild_permissions.administrator
+            or interaction.user.guild_permissions.manage_messages
+        )
+        if interaction.user.id != self.starter_id and not is_mod:
+            await interaction.response.send_message(
+                "⚠️ Hanya pemulai ronde ini (atau Moderator) yang bisa mengakhiri permainan.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+        await finish_word_chain_round(
+            interaction.channel,
+            self.channel_id,
+            reason_title=f"🏁 Sambung Kata Diakhiri oleh {interaction.user.display_name}",
+        )
+
+
 async def handle_active_game_guess(message: discord.Message) -> bool:
     """Memeriksa apakah pesan teks di channel merupakan tebakan untuk Mini-Game yang sedang berlangsung.
 
@@ -605,6 +838,91 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
     content = (message.content or "").strip()
     if not content:
         return False
+
+    # Mode Khusus: ⛓️ Sambung Kata (0 panggilan API Gemini per giliran!)
+    if state.get("type") == "word_chain":
+        # Abaikan kalimat ngobrol panjang (> 1 kata) agar warga lain tetap bisa berdiskusi normal
+        raw_tokens = content.split()
+        if len(raw_tokens) != 1 or message.mentions:
+            return False
+
+        candidate = re.sub(r"[^a-zA-Z]", "", raw_tokens[0]).lower()
+        if not candidate:
+            return False
+
+        req_letter = str(state["current_word"])[-1].lower()
+        used_words: set[str] = state["used_words"]
+        ok, reason = is_valid_indonesian_chain_word(candidate, req_letter, used_words)
+        if not ok:
+            if reason == "already_used":
+                try:
+                    await message.add_reaction("🔁")
+                except discord.HTTPException:
+                    pass
+            return True
+
+        now_mono = time.monotonic()
+        if (
+            state.get("last_user_id") == message.author.id
+            and (now_mono - float(state.get("last_turn_at") or 0.0)) < WORD_CHAIN_SOLO_COOLDOWN_SEC
+        ):
+            try:
+                await message.add_reaction("⏳")
+            except discord.HTTPException:
+                pass
+            return True
+
+        # Kata Valid!
+        used_words.add(candidate)
+        state["current_word"] = candidate.upper()
+        state["last_user_id"] = message.author.id
+        state["last_turn_at"] = now_mono
+        state["chain_count"] = int(state.get("chain_count") or 0) + 1
+        state.setdefault("chain_words", []).append(candidate.upper())
+
+        pts = int(state.get("points") or GAME_POINTS_BY_MODE["word_chain"])
+        guild_id = message.guild.id if message.guild else int(state.get("guild_id") or 0)
+        award_game_points(
+            guild_id,
+            message.author.id,
+            message.author.display_name,
+            pts,
+            increment_win=False,
+        )
+        await save_game_scores_to_disk()
+
+        r_scores = state.setdefault("round_scores", {})
+        p_entry = r_scores.setdefault(
+            message.author.id,
+            {"name": message.author.display_name[:40], "points": 0, "words": 0},
+        )
+        p_entry["points"] += pts
+        p_entry["words"] += 1
+
+        try:
+            await message.add_reaction("✅")
+        except discord.HTTPException:
+            pass
+
+        if state["chain_count"] >= WORD_CHAIN_MAX_TURNS:
+            await finish_word_chain_round(
+                message.channel,
+                message.channel.id,
+                reason_title=f"🎉 TARGET {WORD_CHAIN_MAX_TURNS} RANTAI KATA TERCAPAI!",
+            )
+            return True
+
+        next_letter = candidate[-1].upper()
+        schedule_word_chain_timeout(message.channel, message.channel.id)
+        try:
+            await message.channel.send(
+                f"⛓️ **#{state['chain_count']} — `{candidate.upper()}`** "
+                f"(+{pts} poin untuk {message.author.mention})! "
+                f"Lanjut kata berawalan huruf **`{next_letter}`** 👇 *(maks {WORD_CHAIN_TURN_TIMEOUT_SEC} detik)*"
+            )
+        except discord.HTTPException:
+            pass
+        return True
 
     valid_list = [state["answer"], *state.get("aliases", [])]
     if is_matching_guess(content, valid_list):
