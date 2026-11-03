@@ -1,6 +1,6 @@
 [project]
 name = "ai-discord-chat"
-version = "1.2.1b0"
+version = "1.2.2b0"
 description = "Discord AI Chat, Vision, Image Generator & Community Agent Bot powered by Google Gemini"
 readme = "README.md"
 requires-python = ">=3.11"

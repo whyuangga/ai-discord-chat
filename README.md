@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.2.1-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.2.2-beta`)
 
 Bot Discord lengkap berbasis **100% Google Gemini API terbaru** yang menggabungkan **tiga sistem pintar dalam satu bot ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -47,8 +47,8 @@ Saat menekan tombol **💬 Chat AI (Teks & Vision)**, member bebas memilih 1 dar
 #### 2. 🎙️ Mendengar *Voice Note* (🎤), *Vision* Gambar, Link YouTube/Web, & *Live Search*
 Di dalam ruang chat privat `ai-...`, member bisa langsung mengirim:
 - **Voice Note / Pesan Suara Discord (🎤) & File Audio** (`.ogg`, `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac` — maks. 12 MB): Cukup tekan tombol mikrofon di Discord HP/PC lalu bicara — Gemini mendengarkan langsung isi ucapan beserta intonasinya dan menjawab nyambung tanpa perlu mengetik!
-- **Link Video YouTube & Artikel Website**: Tempel langsung link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau URL berita/artikel untuk dirangkum dan didiskusikan isinya secara instan (mengikuti pengaturan ON/OFF `/agent youtube`).
-- **Pertanyaan Berita & Info Terkini Hari Ini**: Tanyakan berita terbaru, skor pertandingan, cuaca, harga emas/kurs, atau rilis teknologi terbaru — bot otomatis mencarikan sumber web aktual secara gratis (mengikuti pengaturan ON/OFF `/agent cari`).
+- **Link Video YouTube & Artikel Website**: Tempel langsung link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau URL berita/artikel untuk dirangkum dan didiskusikan isinya secara instan di ruang privat.
+- **Pertanyaan Berita & Info Terkini Hari Ini**: Tanyakan berita terbaru, skor pertandingan, cuaca, harga emas/kurs, atau rilis teknologi terbaru — bot otomatis mencarikan sumber web aktual secara gratis di ruang privat.
 - **Gambar / Screenshot** (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif` — maks. 8 MB per gambar, hingga 4 gambar sekaligus): Cocok untuk menanyakan soal bergambar, desain UI, atau *screenshot* pesan *error* koding.
 - **File Kode & Dokumen Teks** (`.py`, `.js`, `.ts`, `.tsx`, `.json`, `.yaml`, `.html`, `.css`, `.sql`, `.csv`, `.txt`, `.md`, `.log`, `.c`, `.cpp`, `.java`, `.go`, `.rs`, `.php`, dll. — maks. 100 KB per file): Bot otomatis membaca isi file dan memasukkannya sebagai konteks ke Gemini.
 - **Stiker Discord**: Bot ikut mengenali visual stiker yang dikirim.
@@ -133,18 +133,20 @@ Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pe
   - **`💡 Jelaskan Pesan Ini`** — Menjelaskan maksud istilah teknis, potongan kode/error, pengumuman panjang, atau meme secara ringkas & mudah dimengerti.
 - **Cara pakai di PC/Laptop:** Klik kanan pesan ➔ sorot **Apps** ➔ pilih menu di atas. Hasilnya tampil privat (*ephemeral*) hanya untuk Anda!
 
-#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web (`/ringkas_link` & Kontrol ON/OFF `/agent youtube`)
-- **Command `/ringkas_link` & Ruang Privat `ai-...`:** Tempel link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau artikel web untuk langsung mendapatkan rangkuman poin penting dalam hitungan detik (100% gratis memakai fitur *YouTube Video Understanding* Gemini)!
-- **Panggil Nama Bot + Kirim / Reply Link di Channel Publik (Otomatis Jalan!):** Di channel Auto-Chat, member cukup memanggil **nama panggilan bot** / `@mention` / *reply* ke bot sambil menyertakan link YouTube/web — **atau me-*reply* pesan teman yang berisi link YouTube sambil memanggil bot** (contoh: *"Whas rangkumin video YouTube ini dong"*). Bot akan langsung menonton & merangkum isi videonya!
-- **Tidak Mengganggu Saat Share Link Biasa (Default `auto_di_channel: False`):** Jika member hanya sekadar membagikan link lagu/video YouTube di `#welcome` atau `#general` **tanpa memanggil bot**, bot otomatis **diam** agar tidak mengganggu obrolan warga.
-- **Kontrol ON/OFF Penuh (`/agent youtube`):** Admin bebas mematikan fitur YouTube sepenuhnya di seluruh server (`aktif:False`) atau menyalakan auto-komentar untuk semua link YouTube di channel (`auto_di_channel:True`) kapan saja.
+#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web Per-Channel (`/ringkas_link` & `/agent youtube`)
+- **Diatur Per-Channel (Bisa Aktif di Beberapa Channel Sekaligus!):** Persis seperti `/agent chat` dan `/agent gallery`, Admin bebas memilih channel mana saja yang mengaktifkan fitur rangkum YouTube & link web lewat **`/agent youtube channel:#nama-channel aktif:True`** (bahkan tetap bekerja walaupun channel tersebut tidak menyalakan Auto-Chat!).
+- **Command `/ringkas_link` & Ruang Privat `ai-...`:** Tempel link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau artikel web untuk mendapatkan rangkuman poin penting dalam hitungan detik (100% gratis memakai fitur *YouTube Video Understanding* Gemini)!
+- **Panggil Nama Bot + Kirim / Reply Link di Channel Aktif:** Di channel yang sudah diaktifkan `/agent youtube`, member cukup memanggil **nama panggilan bot** / `@mention` / *reply* ke bot sambil menyertakan link YouTube/web — **atau me-*reply* pesan teman yang berisi link YouTube sambil memanggil bot** (contoh: *"Whas rangkumin video YouTube ini dong"*).
+- **2 Mode Fleksibel Per-Channel (`auto_di_channel`):**
+  - `auto_di_channel: False` (**Default & Rekomendasi**): Diam saat warga sekadar share link biasa di channel tersebut, namun langsung merangkum saat nama bot dipanggil atau memakai `/ringkas_link`.
+  - `auto_di_channel: True` (**Mode Channel Khusus Video**): Setiap link YouTube/Web yang dikirim warga di channel tersebut otomatis dirangkum tanpa perlu memanggil nama bot!
 
-#### 10. 🌍 Live Web & News Search Gratis — Cek Info & Berita Hari Ini (`/cari` & Kontrol ON/OFF `/agent cari`)
+#### 10. 🌍 Live Web & News Search Gratis Per-Channel (`/cari` & `/agent cari`)
 - **100% Gratis di *Free Tier* (Bebas Error `You exceeded your current quota`):** Menggunakan mesin pencari web & berita *real-time* mandiri (**Google News RSS Indonesia + DuckDuckGo Web** + pembaca isi artikel berita) yang dirangkum oleh model Gemini gratis lengkap dengan daftar tautan **🌐 Sumber Web**! *(Juga mendukung opsi Google Search Grounding Paid Tier via `GEMINI_PAID_SEARCH_ENABLED=true`).*
-- **Bisa Lewat `/cari` ATAU Panggil Nama Bot Langsung Tanpa Command:**
-  - Ketik **`/cari pertanyaan:berita timnas indonesia hari ini`** di channel mana pun, **ATAU**
-  - Langsung panggil nama panggilan bot di channel Auto-Chat (contoh: *"Whas coba cari berita hari ini tentang harga emas Antam"* atau *"Whas skor Liga Inggris tadi malam berapa?"*) — nama panggilan bot otomatis dibersihkan dari kata kunci pencarian sehingga hasil berita akurat!
-- **Kontrol ON/OFF Penuh (`/agent cari`):** Admin dapat menyalakan/mematikan fitur pencarian kapan saja (`aktif:False`), atau mematikan pencarian otomatis di chat saja (`auto_di_chat:False`) sehingga pencarian hanya aktif saat member mengetik `/cari`.
+- **Diatur Per-Channel (Bisa Aktif di Beberapa Channel Sekaligus!):** Admin bebas mengaktifkan fitur pencarian di satu atau beberapa channel pilihan lewat **`/agent cari channel:#nama-channel aktif:True`** (bekerja baik di channel Auto-Chat maupun channel mandiri khusus berita!).
+- **Bisa Lewat `/cari` ATAU Panggil Nama Bot Langsung di Channel Aktif:**
+  - Ketik **`/cari pertanyaan:berita timnas indonesia hari ini`** di channel yang aktif (atau ruang privat `ai-...`), **ATAU**
+  - Langsung panggil nama panggilan bot di channel yang mengaktifkan `auto_di_chat:True` (contoh: *"Whas coba cari berita hari ini tentang harga emas Antam"*) — nama panggilan bot otomatis dibersihkan dari kata kunci pencarian sehingga hasil berita akurat!
 
 #### 11. 🎮 Mini-Game Tongkrongan AI (`/game`) + Papan Skor Server (*Leaderboard*)
 Bikin channel tongkrongan makin ramai dengan 4 permainan interaktif yang soalnya dibuat dinamis oleh Gemini AI (anti-bosan & tidak berulang!):
@@ -251,17 +253,20 @@ Sesuaikan karakter AI Agent dengan gaya tongkrongan server Anda:
 ```
 *(Tips: Setelah mengatur `nama_panggilan:Whas`, member bisa langsung memanggil nama **Whas** di chat tanpa perlu `@mention` atau slash command!)*
 
-#### G. Mengatur Rangkum YouTube/Web & Pencarian Berita (`/agent youtube` & `/agent cari`)
-- **Kontrol Rangkum YouTube & Link Web:**
+#### G. Mengaktifkan Rangkum YouTube/Web & Pencarian Berita Per-Channel (`/agent youtube` & `/agent cari`)
+Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu channel maupun di beberapa channel sekaligus!
+- **Aktifkan Rangkum YouTube & Link Web di Channel Pilihan:**
   ```text
-  /agent youtube aktif:True auto_di_channel:False
+  /agent youtube channel:#share-video aktif:True auto_di_channel:False
   ```
-  - Dengan `auto_di_channel:False` (**Rekomendasi & Default**), bot diam saat warga sekadar share link YouTube di channel publik, namun **langsung merangkum otomatis** jika nama bot dipanggil / di-*mention* / di-*reply* bersama link tersebut, atau lewat command `/ringkas_link url:...`.
-- **Kontrol Pencarian Berita & Web Terkini:**
+  - `auto_di_channel:False` (**Rekomendasi & Default**): Bot diam saat warga sekadar share link biasa di channel tersebut, namun **langsung merangkum** jika nama bot dipanggil / di-*mention* / di-*reply* bersama link tersebut, atau lewat `/ringkas_link`.
+  - `auto_di_channel:True`: Bot otomatis merangkum setiap link YouTube/Web yang dikirim di channel tersebut (cocok untuk channel khusus `#rangkum-youtube`).
+- **Aktifkan Pencarian Berita & Web Terkini di Channel Pilihan:**
   ```text
-  /agent cari aktif:True auto_di_chat:True
+  /agent cari channel:#berita-terkini aktif:True auto_di_chat:True
   ```
-  - Dengan `auto_di_chat:True`, member bisa mengetik `/cari pertanyaan:...` **ataupun** cukup memanggil nama bot di chat (contoh: *"Whas coba cari berita hari ini tentang Timnas Indonesia"*).
+  - `auto_di_chat:True` (**Default**): Di channel tersebut member bisa memakai `/cari pertanyaan:...` **sekaligus** memanggil nama bot langsung di chat (contoh: *"Whas coba cari berita hari ini tentang Timnas Indonesia"*).
+  - `auto_di_chat:False`: Pencarian di channel tersebut hanya jalan lewat command `/cari`.
 
 #### H. Bermain Mini-Game Tongkrongan (`/game`) & Pintasan Tekan-Tahan Pesan (*Apps*)
 - **Mulai Mini-Game Interaktif:**
@@ -272,8 +277,8 @@ Sesuaikan karakter AI Agent dengan gaya tongkrongan server Anda:
 - **Terjemahkan / Jelaskan Pesan Tanpa Command:**
   Tekan-tahan pesan di HP (atau klik kanan di PC) ➔ pilih menu **Apps** ➔ klik **`🌐 Terjemahkan ke Indonesia`** atau **`💡 Jelaskan Pesan Ini`**.
 
-#### I. Mengecek Status Fitur & Sisa Hitung Mundur (`/agent status` & `/status`)
-- Ketik **`/agent status`** untuk melihat daftar channel Auto-Chat & Galeri yang sedang aktif, status ON/OFF YouTube & `/cari`, beserta **sisa waktu hitung mundur pemecah sepi** secara *real-time* (contoh: `sapa dlm ~12 mnt 30 dtk`).
+#### I. Mengecek Daftar Channel Aktif & Sisa Hitung Mundur (`/agent status` & `/status`)
+- Ketik **`/agent status`** untuk melihat seluruh daftar channel yang aktif (Auto-Chat, Welcome, Galeri, **YouTube**, dan **Pencarian `/cari`**) beserta **sisa waktu hitung mundur pemecah sepi** secara *real-time*.
 - Ketik **`/status`** untuk mengecek ping koneksi Discord, pemakaian RAM Wispbyte, *uptime*, dan model Gemini yang sedang aktif.
 
 ---
@@ -289,10 +294,10 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Matikan AI Auto-Welcomer member baru** | `/agent welcome channel:#welcome aktif:False` |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
-| **Matikan fitur Rangkum YouTube & Link Web sepenuhnya** *(termasuk `/ringkas_link` & panggilan nama)* | `/agent youtube aktif:False` |
-| **Matikan Auto-Chat saat share link YouTube biasa di Text Channel** *(tapi tetap rangkum saat nama bot dipanggil / pakai `/ringkas_link` — **Default**)* | `/agent youtube aktif:True auto_di_channel:False` |
-| **Matikan fitur Pencarian Berita/Web (`/cari`) sepenuhnya** | `/agent cari aktif:False` |
-| **Matikan Auto-Search saat ngobrol di chat** *(agar pencarian hanya jalan kalau ketik `/cari`)* | `/agent cari aktif:True auto_di_chat:False` |
+| **Matikan fitur Rangkum YouTube & Link Web** di suatu channel | `/agent youtube channel:#share-video aktif:False` |
+| **Matikan Auto-Rangkum semua link** di channel YouTube *(agar hanya rangkum saat dipanggil / `/ringkas_link` — **Default**)* | `/agent youtube channel:#share-video aktif:True auto_di_channel:False` |
+| **Matikan fitur Pencarian Berita/Web (`/cari`)** di suatu channel | `/agent cari channel:#berita-terkini aktif:False` |
+| **Matikan Auto-Search saat ngobrol** di channel Cari *(agar hanya jalan kalau ketik `/cari`)* | `/agent cari channel:#berita-terkini aktif:True auto_di_chat:False` |
 | **Matikan Jam Tenang Malam (23:00–06:00)** *(agar sapaan tetap jalan tengah malam)* | `/agent persona jam_tenang_malam:False` |
 | **Reset Nama Panggilan / Konteks Komunitas kembali ke default** | `/agent persona nama_panggilan:- konteks_komunitas:-` *(isi tanda strip `-`)* |
 | **Tutup 1 Ruang Sesi Privat (`ai-...` / `draw-...`)** | Klik tombol merah **🔴 Akhiri Sesi** di dalam thread tersebut |
@@ -330,8 +335,8 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | `/agent chat` | `channel`, `aktif`, `mode_balas`, `menit_sepi` | Mengaktifkan/mematikan Auto-Chat & Pemecah Sepi otomatis di channel publik. |
 | `/agent welcome` | `channel`, `aktif`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan/mematikan AI Auto-Welcomer natural untuk member baru. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di channel Galeri/Showcase. |
-| `/agent youtube` | `aktif`, `auto_di_channel` | Mengaktifkan/mematikan fitur rangkum YouTube/Web (`/ringkas_link`) & izin auto-baca di Text Channel publik (default `auto_di_channel=False`). |
-| `/agent cari` | `aktif`, `auto_di_chat` | Mengaktifkan/mematikan fitur pencarian berita/web (`/cari` & auto-search di obrolan). |
+| `/agent youtube` | `channel`, `aktif`, `auto_di_channel` | Mengaktifkan/mematikan rangkum YouTube/Web (`/ringkas_link` & baca link) pada satu/beberapa channel pilihan. |
+| `/agent cari` | `channel`, `aktif`, `auto_di_chat` | Mengaktifkan/mematikan pencarian berita/web (`/cari` & auto-search) pada satu/beberapa channel pilihan. |
 | `/agent persona` | `gaya_bahasa`, `nama_panggilan`, `zona_waktu`, `jam_tenang_malam`, `konteks_komunitas` | Mengubah nama akrab AI, gaya bicara (*Akrab / Gaul / Ramah*), zona waktu (*WIB/WITA/WIT*), Jam Tenang, & deskripsi komunitas. |
 | `/agent sapa` | `channel` *(opsional)* | Memicu AI Agent langsung menyapa / memecah sepi detik ini juga (untuk tes instan). |
 | `/agent status` | — | Melihat status profil AI Agent, daftar channel aktif, & sisa hitung mundur pemecah sepi. |
@@ -350,8 +355,8 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `GEMINI_DEFAULT_MODEL` | Opsional | `gemini-3.5-flash-lite` | Model utama cepat & stabil (bebas *503 overload* di *Free Tier*) untuk chat umum, curhat, Vision, & AI Agent. |
 | `GEMINI_FAST_MODEL` | Opsional | `gemini-3.1-flash-lite` | Model ultra-kilat untuk mode Respon Kilat & cadangan instan. |
 | `GEMINI_REASONING_MODEL` | Opsional | `gemini-3.6-flash` | Model penalaran untuk mode Pakar Koding & Riset. |
-| `ENABLE_GOOGLE_SEARCH` | Opsional | `true` | Default awal fitur `/cari` & Live Search (bisa di-ON/OFF langsung dari Discord lewat `/agent cari`). |
-| `ENABLE_URL_READER` | Opsional | `true` | Default awal fitur perangkum link YouTube/Web (bisa di-ON/OFF langsung dari Discord lewat `/agent youtube`). |
+| `ENABLE_GOOGLE_SEARCH` | Opsional | `true` | Mengizinkan modul Live Search aktif (pengaturan per-channel dikontrol dari Discord lewat `/agent cari`). |
+| `ENABLE_URL_READER` | Opsional | `true` | Mengizinkan modul perangkum YouTube/Web aktif (pengaturan per-channel dikontrol dari Discord lewat `/agent youtube`). |
 | `GEMINI_PAID_SEARCH_ENABLED` | Opsional | `false` | Biarkan `false` pada *Free Tier* agar memakai mesin pencari web & berita gratis mandiri tanpa error kuota 0. Ubah ke `true` hanya jika akun AI Studio sudah *Paid/Billing*. |
 | `GEMINI_SEARCH_MODEL` | Opsional | `gemini-2.5-flash` | Model yang dipakai jika `GEMINI_PAID_SEARCH_ENABLED=true`. |
 | `GEMINI_PAID_IMAGE_ENABLED` | Opsional | `false` | Biarkan `false` pada *Free Tier* agar langsung memakai Flux gratis secara instan. Ubah ke `true` jika akun AI Studio sudah *Paid/Billing* untuk memakai Nano Banana / Pro. |
@@ -412,7 +417,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.2.1-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.2.2-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/setup_panel`** di channel panel AI privat.
@@ -470,8 +475,8 @@ Proyek ini dirilis menggunakan **[MIT License](LICENSE)** — bebas digunakan, d
 
 - **Apakah semua fitur (termasuk `/cari` berita, rangkum YouTube, & buat gambar) aman untuk akun Gemini *Free Tier* tanpa kartu kredit?**
   **100% aman & langsung jalan!** Secara default (`GEMINI_PAID_SEARCH_ENABLED=false` dan `GEMINI_PAID_IMAGE_ENABLED=false`), bot menggunakan mesin pencari web/berita gratis mandiri dan generator gambar Flux gratis sehingga bebas dari error `You exceeded your current quota`.
-- **Kenapa bot diam saat ada member kirim link YouTube / Spotify / web di channel publik?**
-  Itu adalah fitur **Etika Anti-Nimbrung** default (`auto_di_channel: False`) agar bot tidak mengganggu tongkrongan saat warga sekadar berbagi link lagu/video. Untuk meminta bot merangkumnya di channel publik, cukup **panggil nama akrab bot / `@mention` / *reply*** sambil menyertakan link tersebut, atau gunakan command **`/ringkas_link`**. *(Jika ingin bot selalu mengomentari setiap link YouTube otomatis, Admin bisa menjalankan `/agent youtube aktif:True auto_di_channel:True`).*
+- **Kenapa bot diam atau menolak saat ada member kirim link YouTube / ketik `/cari` di channel publik?**
+  Fitur YouTube dan Pencarian Web kini diatur **per-channel** agar rapi dan tidak mengganggu obrolan warga di sembarang tempat. Pastikan Admin sudah mengaktifkan channel tersebut lewat **`/agent youtube channel:#nama-channel aktif:True`** atau **`/agent cari channel:#nama-channel aktif:True`**. Di channel YouTube yang aktif dengan `auto_di_channel:False` (default), cukup **panggil nama akrab bot / `@mention` / *reply*** bersama link tersebut atau gunakan **`/ringkas_link`**. *(Jika ingin bot otomatis merangkum setiap link di channel khusus, gunakan `auto_di_channel:True`).*
 - **Slash Commands (`/setup_panel`, `/agent`) belum muncul atau tampilannya belum ter-update di HP?**
   Isi `DISCORD_GUILD_ID` di `.env` dengan ID Server Discord Anda agar sinkronisasi instan (<1 detik), lalu *restart* bot. Jika memakai aplikasi Discord di HP (Android/iOS), **tutup paksa (*force close*) lalu buka ulang aplikasi Discord sekali** agar cache tampilan *Slash Command* di HP diperbarui.
 - **Pemecah Sepi (`menit_sepi`) belum menyapa saat dites malam hari?**

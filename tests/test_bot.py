@@ -81,9 +81,12 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.youtube_agent_channels.clear()
+    community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
     community_agent._recent_channel_speakers.clear()
+    community_agent._standalone_last_reply_at.clear()
     community_agent.channel_histories.clear()
     games.guild_game_scores.clear()
     games.active_channel_games.clear()
@@ -1147,14 +1150,25 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
 
-    # Pastikan subcommand baru /agent youtube & /agent cari terdaftar di CommandTree
+    # Pastikan subcommand /agent youtube & /agent cari terdaftar lengkap dengan parameter 'channel'
     agent_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "agent")
-    agent_sub_names = {sc.name for sc in agent_cmd.commands}
-    assert {"youtube", "cari"}.issubset(agent_sub_names)
+    agent_sub_map = {sc.name: sc for sc in agent_cmd.commands}
+    assert {"youtube", "cari"}.issubset(agent_sub_map.keys())
+    assert "channel" in {p.name for p in agent_sub_map["youtube"].parameters}
+    assert "channel" in {p.name for p in agent_sub_map["cari"].parameters}
 
     bot_user = _FakeUser(100, "Whas")
     member = _FakeUser(205, "Dika")
+    community_agent.get_guild_settings(10)["nickname"] = "Whas"
     community_agent.set_chat_channel_config(10, 6100, enabled=True, reply_mode="all", idle_minutes=30)
+
+    # Aktifkan fitur YouTube di DUA channel sekaligus (6100 & 6200), sedangkan 6300 dibiarkan OFF
+    community_agent.set_youtube_channel_config(10, 6100, enabled=True, auto_in_chat=False)
+    community_agent.set_youtube_channel_config(10, 6200, enabled=True, auto_in_chat=True)
+    assert {cid for cid, _ in community_agent.get_guild_youtube_channels(10)} == {6100, 6200}
+    assert community_agent.is_youtube_enabled_in_channel(6100) is True
+    assert community_agent.is_youtube_enabled_in_channel(6200, require_auto_in_chat=True) is True
+    assert community_agent.is_youtube_enabled_in_channel(6300) is False
 
     yt_msg = _FakeCommunityMessage(
         channel_id=6100,
@@ -1164,12 +1178,12 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
         content="Guys cobain tonton https://youtu.be/dQw4w9WgXcQ kocak banget",
     )
 
-    # 1. DEFAULT: youtube_auto_chat == False -> kirim link YouTube biasa tanpa panggil bot TIDAK memicu auto-chat!
+    # 1. DEFAULT di 6100 (auto_in_chat=False): kirim link YouTube biasa tanpa panggil bot TIDAK memicu auto-chat!
     should_reply_default, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
     assert should_reply_default is False
 
-    # 1B. TAPI jika member memanggil nama panggilan bot (misal 'Whas') + link YouTube, bot LANGSUNG menonton & merangkumnya!
-    community_agent.get_guild_settings(10)["nickname"] = "Whas"
+    # 1B. TAPI jika member memanggil nama panggilan bot ('Whas') + link YouTube di channel aktif 6100,
+    #     bot LANGSUNG menonton & merangkumnya!
     yt_called_msg = _FakeCommunityMessage(
         channel_id=6100,
         guild_id=10,
@@ -1193,8 +1207,31 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     called_parts = fake_http_called.post_calls[0]["json"]["contents"][-1]["parts"]
     assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in called_parts)
 
-    # 2. Saat Admin mengaktifkan /agent youtube aktif:True auto_di_channel:True, barulah bot ikut membaca YouTube di channel
-    community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)
+    # 1C. Sebaliknya di channel Auto-Chat lain (6300) yang BELUM diaktifkan /agent youtube,
+    #     bot hanya membalas teks tanpa memproses fileData YouTube!
+    community_agent.set_chat_channel_config(10, 6300, enabled=True, reply_mode="smart", idle_minutes=30)
+    yt_unactivated_ch_msg = _FakeCommunityMessage(
+        channel_id=6300,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas lihat https://youtu.be/dQw4w9WgXcQ",
+    )
+    plain_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Ada apa tuh Dika?"}]}}]},
+    )
+    fake_http_plain = FakeHttpSession(post_responses=[plain_resp])
+    await community_agent.generate_community_chat_reply(
+        yt_unactivated_ch_msg,
+        bot_user,
+        http_session=fake_http_plain,
+    )
+    unact_parts = fake_http_plain.post_calls[0]["json"]["contents"][-1]["parts"]
+    assert all("fileData" not in p for p in unact_parts)
+
+    # 2. Saat Admin mengaktifkan auto_di_channel:True pada 6100, kirim link YouTube biasa langsung dirangkum!
+    community_agent.set_youtube_channel_config(10, 6100, enabled=True, auto_in_chat=True)
     community_agent.chat_agent_channels[6100]["last_bot_reply_at"] = 0.0
     should_reply_on, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
     assert should_reply_on is True
@@ -1209,27 +1246,59 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     sent_parts = fake_http.post_calls[0]["json"]["contents"][-1]["parts"]
     assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in sent_parts)
 
-    # 3. Uji saklar ON/OFF /agent youtube & /agent cari + penyimpanan ke agent_config.json
-    community_agent.set_youtube_feature_config(10, enabled=False)
-    community_agent.set_search_feature_config(10, enabled=False)
-    assert community_agent.is_youtube_enabled_for_guild(10) is False
-    assert community_agent.is_search_enabled_for_guild(10) is False
+    # 3. Uji multi-channel /agent cari & /agent youtube + penyimpanan atomik ke agent_config.json
+    community_agent.set_search_channel_config(10, 6100, enabled=True, auto_in_chat=True)
+    community_agent.set_search_channel_config(10, 6250, enabled=True, auto_in_chat=False)
+    assert {cid for cid, _ in community_agent.get_guild_search_channels(10)} == {6100, 6250}
+    assert community_agent.is_search_enabled_in_channel(6100, for_auto_chat=True) is True
+    assert community_agent.is_search_enabled_in_channel(6250, for_auto_chat=False) is True
+    assert community_agent.is_search_enabled_in_channel(6250, for_auto_chat=True) is False
+    assert community_agent.is_search_enabled_in_channel(6300, for_auto_chat=False) is False
+
+    # Matikan hanya di 6200 -> 6100 tetap aktif!
+    community_agent.set_youtube_channel_config(10, 6200, enabled=False)
+    assert {cid for cid, _ in community_agent.get_guild_youtube_channels(10)} == {6100}
 
     await community_agent.save_agent_config_to_disk()
-    community_agent.guild_agent_settings.clear()
+    community_agent.youtube_agent_channels.clear()
+    community_agent.search_agent_channels.clear()
     community_agent.load_agent_config_from_disk()
-    assert community_agent.is_youtube_enabled_for_guild(10) is False
-    assert community_agent.is_search_enabled_for_guild(10) is False
+    assert {cid for cid, _ in community_agent.get_guild_youtube_channels(10)} == {6100}
+    assert {cid for cid, _ in community_agent.get_guild_search_channels(10)} == {6100, 6250}
+    assert community_agent.is_search_enabled_in_channel(6250, for_auto_chat=True) is False
 
-    # Nyalakan kembali fitur cari hanya untuk command /cari (auto_in_chat=False)
-    community_agent.set_search_feature_config(10, enabled=True, auto_in_chat=False)
-    assert community_agent.is_search_enabled_for_guild(10, for_auto_chat=False) is True
-    assert community_agent.is_search_enabled_for_guild(10, for_auto_chat=True) is False
+    # 4. Uji channel khusus YouTube / Cari TANPA /agent chat (standalone feature channel)
+    community_agent.set_youtube_channel_config(10, 6400, enabled=True, auto_in_chat=False)
+    community_agent.set_search_channel_config(10, 6400, enabled=True, auto_in_chat=True)
+    # Chat biasa di channel standalone harus diabaikan (karena /agent chat tidak aktif di 6400)
+    msg_plain_6400 = _FakeCommunityMessage(
+        channel_id=6400, guild_id=10, author=member, bot_user=bot_user, content="Halo siang teman-teman"
+    )
+    assert community_agent.should_standalone_feature_reply(msg_plain_6400, bot_user) is False
+    # Link biasa tanpa panggil bot (auto_in_chat=False) diabaikan
+    msg_uncalled_yt_6400 = _FakeCommunityMessage(
+        channel_id=6400, guild_id=10, author=member, bot_user=bot_user, content="https://youtu.be/dQw4w9WgXcQ"
+    )
+    assert community_agent.should_standalone_feature_reply(msg_uncalled_yt_6400, bot_user) is False
+    # Panggil nama bot + link YouTube atau panggil nama bot + tanya berita -> AKTIF!
+    msg_called_yt_6400 = _FakeCommunityMessage(
+        channel_id=6400,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas rangkumin https://youtu.be/dQw4w9WgXcQ",
+    )
+    msg_called_news_6400 = _FakeCommunityMessage(
+        channel_id=6400,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas cari berita timnas hari ini",
+    )
+    assert community_agent.should_standalone_feature_reply(msg_called_yt_6400, bot_user) is True
+    assert community_agent.should_standalone_feature_reply(msg_called_news_6400, bot_user) is True
 
-    # Nyalakan penuh untuk menguji pencarian berita gratis di Auto-Chat
-    community_agent.set_search_feature_config(10, enabled=True, auto_in_chat=True)
-    community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)
-
+    # 5. Uji pencarian berita gratis di channel 6100 yang aktif
     async def _fake_free_search(q, **kwargs):
         return "1. **Pecco Juara MotoGP** — Balapan tadi malam dimenangkan Pecco.", [
             {"title": "MotoGP News", "url": "https://motogp.example.com"}
@@ -1340,6 +1409,78 @@ def test_anti_disturbance_etiquette_in_public_chat():
         content="Whas menurutmu gimana?",
     )
     assert community_agent.should_agent_reply_in_chat(msg_call_bot, bot_user) == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_slash_ringkas_link_and_cari_per_channel_gating(monkeypatch):
+    # Aktifkan YouTube di #8100 & #8200, serta Cari di #8300
+    community_agent.set_youtube_channel_config(10, 8100, enabled=True, auto_in_chat=False)
+    community_agent.set_youtube_channel_config(10, 8200, enabled=True, auto_in_chat=True)
+    community_agent.set_search_channel_config(10, 8300, enabled=True, auto_in_chat=True)
+
+    class _FakeResp:
+        def __init__(self):
+            self.sent = []
+            self.deferred = False
+
+        async def send_message(self, content=None, *, embed=None, ephemeral=False):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+        async def defer(self, *, ephemeral=False):
+            self.deferred = True
+
+    class _FakeFollowup:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, *, embed=None, ephemeral=False):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+    class _FakeInteraction:
+        def __init__(self, channel_id: int, guild_id: int = 10):
+            self.channel = type("Ch", (), {"id": channel_id, "name": "general"})()
+            self.guild = type("G", (), {"id": guild_id})()
+            self.user = type("U", (), {"id": 501, "display_name": "Rina"})()
+            self.response = _FakeResp()
+            self.followup = _FakeFollowup()
+
+    # 1. Jalankan /ringkas_link di channel #9999 yang BELUM diaktifkan -> ditolak sopan via ephemeral + petunjuk <#8100>, <#8200>
+    ix_blocked_yt = _FakeInteraction(channel_id=9999)
+    await bot_main.slash_ringkas_link.callback(ix_blocked_yt, url="https://youtu.be/dQw4w9WgXcQ")
+    assert ix_blocked_yt.response.deferred is False
+    assert len(ix_blocked_yt.response.sent) == 1
+    assert ix_blocked_yt.response.sent[0]["ephemeral"] is True
+    assert "<#8100>" in ix_blocked_yt.response.sent[0]["content"]
+    assert "<#8200>" in ix_blocked_yt.response.sent[0]["content"]
+
+    # 2. Jalankan /cari di channel #9999 yang BELUM diaktifkan -> ditolak sopan via ephemeral + petunjuk <#8300>
+    ix_blocked_cari = _FakeInteraction(channel_id=9999)
+    await bot_main.slash_cari.callback(ix_blocked_cari, pertanyaan="berita hari ini")
+    assert ix_blocked_cari.response.deferred is False
+    assert len(ix_blocked_cari.response.sent) == 1
+    assert ix_blocked_cari.response.sent[0]["ephemeral"] is True
+    assert "<#8300>" in ix_blocked_cari.response.sent[0]["content"]
+
+    # 3. Jalankan /ringkas_link di #8100 & /cari di #8300 yang SUDAH diaktifkan -> sukses!
+    async def _fake_analyze_link(url, **kwargs):
+        return "Inti video berhasil dirangkum!", None
+
+    async def _fake_search_web(q, **kwargs):
+        return "Berita hari ini berhasil ditemukan!", None
+
+    monkeypatch.setattr(bot_main, "analyze_link_with_gemini", _fake_analyze_link)
+    monkeypatch.setattr(bot_main, "search_web_with_gemini", _fake_search_web)
+
+    ix_ok_yt = _FakeInteraction(channel_id=8100)
+    await bot_main.slash_ringkas_link.callback(ix_ok_yt, url="https://youtu.be/dQw4w9WgXcQ")
+    assert ix_ok_yt.response.deferred is True
+    assert "Inti video" in ix_ok_yt.followup.sent[0]["embed"].description
+
+    ix_ok_cari = _FakeInteraction(channel_id=8300)
+    await bot_main.slash_cari.callback(ix_ok_cari, pertanyaan="berita hari ini")
+    assert ix_ok_cari.response.deferred is True
+    assert "Berita hari ini" in ix_ok_cari.followup.sent[0]["embed"].description
+
 
 
 

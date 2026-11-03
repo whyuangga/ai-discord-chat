@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.2.1-beta"
+BOT_VERSION = "1.2.2-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)

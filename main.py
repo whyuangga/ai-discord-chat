@@ -27,22 +27,27 @@ from community_agent import (
     generate_idle_icebreaker,
     generate_welcome_greeting,
     get_agent_channel_lock,
+    get_guild_search_channels,
     get_guild_settings,
-    is_search_enabled_for_guild,
-    is_youtube_enabled_for_guild,
+    get_guild_youtube_channels,
+    is_search_enabled_in_channel,
+    is_youtube_enabled_in_channel,
     load_agent_config_from_disk,
     parse_idle_duration,
     record_human_channel_activity,
     run_idle_chat_check,
     save_agent_config_to_disk,
+    search_agent_channels,
     set_chat_channel_config,
     set_gallery_channel_config,
-    set_search_feature_config,
+    set_search_channel_config,
     set_welcome_config,
-    set_youtube_feature_config,
+    set_youtube_channel_config,
     should_agent_reply_in_chat,
     should_process_member_welcome,
+    should_standalone_feature_reply,
     welcome_agent_guilds,
+    youtube_agent_channels,
 )
 from config import (
     AGENT_DEFAULT_IDLE_MINUTES,
@@ -52,6 +57,8 @@ from config import (
     BOT_VERSION,
     DISCORD_BOT_TOKEN,
     DISCORD_GUILD_ID,
+    ENABLE_GOOGLE_SEARCH,
+    ENABLE_URL_READER,
     GEMINI_DEFAULT_MODEL,
     GEMINI_FAST_MODEL,
     GEMINI_IMAGE_MODEL,
@@ -174,11 +181,13 @@ class GeminiDiscordBot(commands.Bot):
         loaded_agent_chats, loaded_galleries = load_agent_config_from_disk()
         loaded_score_guilds = load_game_scores_from_disk()
         logger.info(
-            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d papan skor server.",
+            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
             loaded_imgs,
             loaded_agent_chats,
             loaded_galleries,
+            len(youtube_agent_channels),
+            len(search_agent_channels),
             loaded_score_guilds,
         )
 
@@ -667,94 +676,107 @@ async def agent_welcome_cmd(
 
 @agent_group.command(
     name="youtube",
-    description="Aktifkan/matikan fitur perangkum link YouTube & kontrol auto-baca di Text Channel",
+    description="Aktifkan/nonaktifkan fitur perangkum link YouTube & Web di channel pilihan",
 )
 @app_commands.describe(
-    aktif="True = aktifkan /ringkas_link & baca link di ruang ai-..., False = matikan semua",
-    auto_di_channel="False (Default) = jangan auto-chat saat member kirim link YouTube di channel publik, True = nyalakan",
+    channel="Channel teks tempat fitur rangkum YouTube & link web diaktifkan/dimatikan",
+    aktif="True untuk mengaktifkan di channel ini, False untuk mematikan di channel ini",
+    auto_di_channel="False (Default) = rangkum saat dipanggil / /ringkas_link, True = otomatis rangkum semua link",
 )
 async def agent_youtube_cmd(
     interaction: discord.Interaction,
+    channel: discord.TextChannel,
     aktif: bool,
-    auto_di_channel: bool | None = None,
+    auto_di_channel: bool = False,
 ):
     if interaction.guild is None:
         return
 
-    cfg = set_youtube_feature_config(
+    cfg = set_youtube_channel_config(
         interaction.guild.id,
+        channel.id,
         enabled=aktif,
         auto_in_chat=auto_di_channel,
     )
     await save_agent_config_to_disk()
 
-    if not cfg["youtube_enabled"]:
+    active_list = [f"<#{cid}>" for cid, _ in get_guild_youtube_channels(interaction.guild.id)]
+    active_summary = ", ".join(active_list) if active_list else "*Belum ada channel aktif*"
+
+    if not aktif or cfg is None:
         await interaction.response.send_message(
-            "🛑 **Fitur Perangkum YouTube & Link Web telah DINONAKTIFKAN** di server ini.\n"
-            "• Command `/ringkas_link`, pembacaan link di `ai-...`, serta auto-baca di channel publik dimatikan.",
+            f"🛑 **Fitur Perangkum YouTube & Link Web** telah **dinonaktifkan** di {channel.mention}.\n"
+            f"• **Channel YouTube yang masih aktif:** {active_summary}",
             ephemeral=True,
         )
         return
 
-    auto_status = (
-        "✅ **AKTIF** *(bot ikut membaca & mengomentari link YouTube di Text Channel Auto-Chat)*"
-        if cfg["youtube_auto_chat"]
-        else "🔕 **NONAKTIF (Rekomendasi)** *(bot TIDAK ikut nimbrung saat warga kirim link YouTube di Text Channel)*"
+    mode_info = (
+        "✅ **Otomatis Baca Semua Link** *(setiap link YouTube/Web yang dikirim di channel ini langsung dirangkum)*"
+        if cfg["auto_in_chat"]
+        else "🔕 **Hanya Saat Dipanggil & `/ringkas_link` (Rekomendasi)** *(diam saat warga sekadar share link biasa, namun langsung merangkum saat nama bot dipanggil / pakai `/ringkas_link`)*"
     )
     await interaction.response.send_message(
-        f"🎬 **Pengaturan Perangkum YouTube & Link Web Disimpan!**\n"
-        f"• **Command `/ringkas_link` & Ruang Privat `ai-...`:** ✅ **AKTIF**\n"
-        f"• **Auto-Chat saat kirim link YouTube di Channel Publik:** {auto_status}",
+        f"🎬 **Fitur Perangkum YouTube & Link Web aktif di {channel.mention}!**\n"
+        f"• **Mode di Channel Ini:** {mode_info}\n"
+        f"• **Daftar Channel YouTube Aktif di Server:** {active_summary}",
         ephemeral=True,
     )
 
 
 @agent_group.command(
     name="cari",
-    description="Aktifkan/matikan fitur pencarian berita & informasi terkini (/cari & auto-search)",
+    description="Aktifkan/nonaktifkan fitur pencarian berita & web (/cari & auto-search) di channel pilihan",
 )
 @app_commands.describe(
-    aktif="True = aktifkan fitur pencarian berita/web (/cari), False = matikan total di server ini",
-    auto_di_chat="True = otomatis cari berita saat ditanya di chat, False = hanya aktif lewat command /cari",
+    channel="Channel teks tempat fitur pencarian berita/web diaktifkan/dimatikan",
+    aktif="True untuk mengaktifkan di channel ini, False untuk mematikan di channel ini",
+    auto_di_chat="True (Default) = bisa lewat /cari maupun panggil nama bot di chat, False = khusus command /cari",
 )
 async def agent_cari_cmd(
     interaction: discord.Interaction,
+    channel: discord.TextChannel,
     aktif: bool,
-    auto_di_chat: bool | None = None,
+    auto_di_chat: bool = True,
 ):
     if interaction.guild is None:
         return
 
-    cfg = set_search_feature_config(
+    cfg = set_search_channel_config(
         interaction.guild.id,
+        channel.id,
         enabled=aktif,
         auto_in_chat=auto_di_chat,
     )
     await save_agent_config_to_disk()
 
-    if not cfg["search_enabled"]:
+    active_list = [f"<#{cid}>" for cid, _ in get_guild_search_channels(interaction.guild.id)]
+    active_summary = ", ".join(active_list) if active_list else "*Belum ada channel aktif*"
+
+    if not aktif or cfg is None:
         await interaction.response.send_message(
-            "🛑 **Fitur Pencarian Web (`/cari` & Auto-Search) telah DINONAKTIFKAN** di server ini.",
+            f"🛑 **Fitur Pencarian Berita & Web (`/cari`)** telah **dinonaktifkan** di {channel.mention}.\n"
+            f"• **Channel Pencarian yang masih aktif:** {active_summary}",
             ephemeral=True,
         )
         return
 
-    auto_info = (
-        "✅ **AKTIF** *(otomatis mencari info terbaru saat ditanya di ruang chat)*"
-        if cfg["search_auto_chat"]
-        else "🔕 **NONAKTIF** *(pencarian web hanya jalan saat member mengetik `/cari`)*"
+    mode_info = (
+        "✅ **`/cari` & Panggil Nama di Chat** *(member bisa ketik `/cari` maupun panggil nama bot langsung untuk tanya berita terbaru)*"
+        if cfg["auto_in_chat"]
+        else "🔎 **Khusus Command `/cari`** *(pencarian berita di channel ini hanya jalan saat mengetik `/cari`)*"
     )
     await interaction.response.send_message(
-        f"🔎 **Pengaturan Fitur Pencarian Web (`/cari`) Disimpan!**\n"
-        f"• **Command `/cari`:** ✅ **AKTIF**\n"
-        f"• **Auto-Search di Obrolan Chat:** {auto_info}",
+        f"🔎 **Fitur Pencarian Berita & Web aktif di {channel.mention}!**\n"
+        f"• **Mode di Channel Ini:** {mode_info}\n"
+        f"• **Daftar Channel Pencarian Aktif di Server:** {active_summary}",
         ephemeral=True,
     )
 
 
 @agent_group.command(
     name="status",
-    description="Lihat daftar channel Auto-Chat, Pemecah Sepi, Galeri, & status ON/OFF fitur server",
+    description="Lihat daftar channel Auto-Chat, Pemecah Sepi, Galeri, YouTube, & Pencarian di server",
 )
 async def agent_status_cmd(interaction: discord.Interaction):
     if interaction.guild is None:
@@ -775,6 +797,8 @@ async def agent_status_cmd(interaction: discord.Interaction):
         for cid, gdata in gallery_agent_channels.items()
         if gdata.get("guild_id") == gid and gdata.get("enabled")
     ]
+    active_youtubes = get_guild_youtube_channels(gid)
+    active_searches = get_guild_search_channels(gid)
 
     now_ts = time.time()
     chat_lines: list[str] = []
@@ -801,6 +825,22 @@ async def agent_status_cmd(interaction: discord.Interaction):
         for cid, d in active_galleries
     ] or ["*Belum ada channel Galeri aktif (gunakan `/agent gallery`)*"]
 
+    youtube_lines = [
+        (
+            f"• <#{cid}> — Mode: "
+            f"`{'Otomatis Semua Link' if d.get('auto_in_chat', False) else 'Saat Dipanggil & /ringkas_link'}`"
+        )
+        for cid, d in active_youtubes
+    ] or ["*Belum ada channel YouTube aktif (gunakan `/agent youtube`)*"]
+
+    search_lines = [
+        (
+            f"• <#{cid}> — Mode: "
+            f"`{'/cari & Panggil di Chat' if d.get('auto_in_chat', True) else 'Khusus /cari'}`"
+        )
+        for cid, d in active_searches
+    ] or ["*Belum ada channel Pencarian aktif (gunakan `/agent cari`)*"]
+
     embed = discord.Embed(
         title="🤖 Status AI Agent & Otomasi Komunitas",
         color=discord.Color.blurple(),
@@ -815,24 +855,6 @@ async def agent_status_cmd(interaction: discord.Interaction):
         ),
         inline=False,
     )
-    yt_status = (
-        f"✅ ON *(Auto di Text Channel: {'ON' if g_cfg.get('youtube_auto_chat', False) else 'OFF'})*"
-        if g_cfg.get("youtube_enabled", True)
-        else "🛑 OFF"
-    )
-    cari_status = (
-        f"✅ ON *(Auto di Chat: {'ON' if g_cfg.get('search_auto_chat', True) else 'OFF'})*"
-        if g_cfg.get("search_enabled", True)
-        else "🛑 OFF"
-    )
-    embed.add_field(
-        name="⚙️ Saklar Fitur Pintar (`/agent youtube` & `/agent cari`)",
-        value=(
-            f"🎬 **Rangkum YouTube & Link:** {yt_status}\n"
-            f"🔎 **Pencarian Web (`/cari`):** {cari_status}"
-        ),
-        inline=False,
-    )
     w_cfg = welcome_agent_guilds.get(gid)
     if w_cfg and w_cfg.get("enabled"):
         w_note = f" | Info: `{w_cfg['extra_note']}`" if w_cfg.get("extra_note") else ""
@@ -843,6 +865,8 @@ async def agent_status_cmd(interaction: discord.Interaction):
     embed.add_field(name="💬 Channel Auto-Chat & Pemecah Sepi", value="\n".join(chat_lines), inline=False)
     embed.add_field(name="👋 Auto-Welcomer Member Baru", value=welcome_line, inline=False)
     embed.add_field(name="📸 Channel Auto-Komentar Galeri (Foto & Video)", value="\n".join(gallery_lines), inline=False)
+    embed.add_field(name="🎬 Channel Rangkum YouTube & Link Web", value="\n".join(youtube_lines), inline=False)
+    embed.add_field(name="🔎 Channel Pencarian Berita & Web (`/cari`)", value="\n".join(search_lines), inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -1180,6 +1204,22 @@ async def context_explain_message(interaction: discord.Interaction, message: dis
 # ==============================================================================
 # FITUR 2 & 3: PERANGKUM YOUTUBE/WEB (/ringkas_link) & GOOGLE SEARCH (/cari)
 # ==============================================================================
+def _resolve_public_feature_channel_id(
+    channel: discord.abc.Messageable | None,
+) -> tuple[int | None, bool]:
+    """Mengembalikan `(effective_channel_id, is_private_session_or_dm)`.
+    Jika berada di dalam ruang privat `ai-...`/`draw-...` atau DM, kembalikan `(None, True)`.
+    Jika berada di dalam Thread publik, gunakan `parent_id` TextChannel induknya.
+    """
+    if channel is None or isinstance(channel, discord.DMChannel):
+        return None, True
+    if isinstance(channel, discord.Thread):
+        if (channel.name or "").startswith(("ai-", "draw-")):
+            return None, True
+        return getattr(channel, "parent_id", None) or channel.id, False
+    return getattr(channel, "id", None), False
+
+
 @bot.tree.command(
     name="ringkas_link",
     description="Rangkum isi video YouTube atau artikel website secara instan tanpa perlu menonton/baca penuh",
@@ -1195,11 +1235,27 @@ async def slash_ringkas_link(
     pertanyaan: str | None = None,
     publik: bool = False,
 ):
-    guild_id = interaction.guild.id if interaction.guild is not None else None
-    if not is_youtube_enabled_for_guild(guild_id):
+    eff_cid, is_priv = _resolve_public_feature_channel_id(interaction.channel)
+    if is_priv:
+        if not ENABLE_URL_READER:
+            await interaction.response.send_message(
+                "🛑 Fitur pembaca link sedang dinonaktifkan pada konfigurasi bot.",
+                ephemeral=True,
+            )
+            return
+    elif not is_youtube_enabled_in_channel(eff_cid):
+        active_yt = (
+            [f"<#{cid}>" for cid, _ in get_guild_youtube_channels(interaction.guild.id)]
+            if interaction.guild is not None
+            else []
+        )
+        where_hint = (
+            f"\n👉 Silakan gunakan di {', '.join(active_yt)} *(atau buka ruang privat AI)*."
+            if active_yt
+            else "\n👉 Admin dapat mengaktifkannya lewat `/agent youtube channel:#nama-channel aktif:True` *(atau gunakan ruang privat AI)*."
+        )
         await interaction.response.send_message(
-            "🛑 Fitur perangkum YouTube & link web sedang **dinonaktifkan** di server ini oleh Admin "
-            "*(Admin dapat mengaktifkannya kembali lewat `/agent youtube aktif:True`)*.",
+            f"🛑 Fitur perangkum YouTube & link web **belum diaktifkan di channel ini**.{where_hint}",
             ephemeral=True,
         )
         return
@@ -1246,11 +1302,27 @@ async def slash_cari(
     pertanyaan: str,
     publik: bool = False,
 ):
-    guild_id = interaction.guild.id if interaction.guild is not None else None
-    if not is_search_enabled_for_guild(guild_id, for_auto_chat=False):
+    eff_cid, is_priv = _resolve_public_feature_channel_id(interaction.channel)
+    if is_priv:
+        if not ENABLE_GOOGLE_SEARCH:
+            await interaction.response.send_message(
+                "🛑 Fitur pencarian web sedang dinonaktifkan pada konfigurasi bot.",
+                ephemeral=True,
+            )
+            return
+    elif not is_search_enabled_in_channel(eff_cid, for_auto_chat=False):
+        active_srch = (
+            [f"<#{cid}>" for cid, _ in get_guild_search_channels(interaction.guild.id)]
+            if interaction.guild is not None
+            else []
+        )
+        where_hint = (
+            f"\n👉 Silakan gunakan di {', '.join(active_srch)} *(atau buka ruang privat AI)*."
+            if active_srch
+            else "\n👉 Admin dapat mengaktifkannya lewat `/agent cari channel:#nama-channel aktif:True` *(atau gunakan ruang privat AI)*."
+        )
         await interaction.response.send_message(
-            "🛑 Fitur pencarian web (`/cari`) sedang **dinonaktifkan** di server ini oleh Admin "
-            "*(Admin dapat mengaktifkannya kembali lewat `/agent cari aktif:True`)*.",
+            f"🛑 Fitur pencarian berita & web (`/cari`) **belum diaktifkan di channel ini**.{where_hint}",
             ephemeral=True,
         )
         return
@@ -1600,8 +1672,8 @@ async def slash_bantuan(interaction: discord.Interaction):
     embed.add_field(
         name="3️⃣ Ringkas Chat, YouTube, Web & Info Terbaru Hari Ini",
         value=(
-            "• `/cari` — Cek berita, skor, cuaca, harga, atau info terbaru hari ini (Google Search).\n"
-            "• `/ringkas_link` — Rangkum isi video YouTube atau artikel web dalam hitungan detik.\n"
+            "• `/cari` — Cek berita, skor, cuaca, harga, atau info terbaru hari ini (di channel aktif / ruang privat).\n"
+            "• `/ringkas_link` — Rangkum isi video YouTube atau artikel web instan (di channel aktif / ruang privat).\n"
             "• `/ringkas` — Rangkum 25–150 chat terakhir di channel agar tidak ketinggalan obrolan."
         ),
         inline=False,
@@ -1649,6 +1721,7 @@ async def slash_status(interaction: discord.Interaction):
         name="🌐 Agent & Game",
         value=(
             f"`{len(chat_agent_channels)}` chat | `{len(gallery_agent_channels)}` galeri | "
+            f"`{len(youtube_agent_channels)}` yt | `{len(search_agent_channels)}` cari | "
             f"`{len(active_channel_games)}` game"
         ),
         inline=True,
@@ -1718,7 +1791,6 @@ async def on_message(message: discord.Message):
                     await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
                 return
 
-            gid = message.guild.id if message.guild is not None else None
             lock = get_thread_lock(message.channel.id)
             async with lock:
                 async with message.channel.typing():
@@ -1729,8 +1801,8 @@ async def on_message(message: discord.Message):
                             image_parts=image_parts,
                             image_filenames=image_filenames,
                             text_blocks=text_blocks,
-                            allow_url_reader=is_youtube_enabled_for_guild(gid),
-                            allow_web_search=is_search_enabled_for_guild(gid, for_auto_chat=True),
+                            allow_url_reader=ENABLE_URL_READER,
+                            allow_web_search=ENABLE_GOOGLE_SEARCH,
                             http_session=bot.http_session,
                             thread=message.channel,
                             bot_user_id=bot.user.id if bot.user else None,
@@ -1865,6 +1937,26 @@ async def on_message(message: discord.Message):
                             chunks = split_discord_message(reply_text)
                             for idx, chunk in enumerate(chunks):
                                 if idx == 0 and use_reply_ref:
+                                    await message.reply(chunk, mention_author=False)
+                                else:
+                                    await message.channel.send(chunk)
+                return
+
+        # 2D. CHANNEL KHUSUS YOUTUBE / PENCARIAN BERITA (Aktif walau tanpa /agent chat!)
+        elif channel_id in youtube_agent_channels or channel_id in search_agent_channels:
+            if should_standalone_feature_reply(message, bot.user):
+                lock = get_agent_channel_lock(channel_id)
+                async with lock:
+                    async with message.channel.typing():
+                        reply_text = await generate_community_chat_reply(
+                            message,
+                            bot.user,
+                            http_session=bot.http_session,
+                        )
+                        if reply_text:
+                            chunks = split_discord_message(reply_text)
+                            for idx, chunk in enumerate(chunks):
+                                if idx == 0:
                                     await message.reply(chunk, mention_author=False)
                                 else:
                                     await message.channel.send(chunk)
