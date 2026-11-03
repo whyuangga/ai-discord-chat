@@ -1331,6 +1331,15 @@ def clear_user_cooldowns() -> None:
     _user_command_cooldowns.clear()
 
 
+def prune_expired_user_cooldowns() -> int:
+    """Membersihkan entri cooldown member yang sudah kadaluarsa dari RAM."""
+    now = time.monotonic()
+    expired_keys = [k for k, exp_at in list(_user_command_cooldowns.items()) if exp_at <= now]
+    for k in expired_keys:
+        _user_command_cooldowns.pop(k, None)
+    return len(expired_keys)
+
+
 def find_solved_forum_tag(available_tags: list) -> object | None:
     """Mencari objek ForumTag bertema 'Selesai / Solved / Terjawab' pada sebuah ForumChannel."""
     for tag in available_tags or []:

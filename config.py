@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.3.0-beta"
+BOT_VERSION = "1.5.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -126,6 +126,21 @@ DATA_DIR = BASE_DIR / "data"
 SESSIONS_FILE = DATA_DIR / "sessions.json"
 AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
 GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
+SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
+
+# ==============================================================================
+# FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
+# ==============================================================================
+# Penjaga link phishing aktif secara default agar server aman sejak hari pertama.
+ENABLE_PHISHING_GUARD: bool = _env_bool("ENABLE_PHISHING_GUARD", True)
+# Interval pembaruan nama Voice Channel statistik (detik). Discord membatasi 2 rename / 10 menit per channel,
+# jadi nilai minimum aman adalah 600 detik (10 menit).
+SERVERSTATS_UPDATE_SEC: int = _env_int("SERVERSTATS_UPDATE_SEC", 600, minimum=600)
+# Jam default pengiriman Fakta Unik Dunia (format 24 jam) & menitnya
+FACTS_DEFAULT_HOUR: int = min(23, _env_int("FACTS_DEFAULT_HOUR", 8, minimum=0))
+FACTS_DEFAULT_MINUTE: int = min(59, _env_int("FACTS_DEFAULT_MINUTE", 0, minimum=0))
+# Jumlah maksimal role yang otomatis diberikan saat member bergabung
+AUTOROLE_MAX_ROLES: int = _env_int("AUTOROLE_MAX_ROLES", 3, minimum=1)
 
 # ==============================================================================
 # DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI - RESPONS CEPAT)

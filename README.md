@@ -1,9 +1,10 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.3.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.5.0-beta`)
 
-Bot Discord lengkap berbasis **100% Google Gemini API terbaru** yang menggabungkan **tiga sistem pintar dalam satu bot ringan**:
-1. **🔒 Panel Ruang Sesi Privat (*Private Thread*)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
-2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum*)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, **Panel Kontrol Admin Interaktif (`/agent panel`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
-3. **🎮 Hiburan & Pintasan Pintar Seluruh Server** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), pencari info terkini **`/cari`**, perangkum link **`/ringkas_link`**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** (termasuk **🖼️ Tebak Gambar AI** & **⛓️ Sambung Kata**) lengkap dengan Papan Skor (*Leaderboard*) server!
+Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
+1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
+2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum* — `/agent`)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Panel Kontrol Admin Interaktif (`/agent panel`)** dengan *Spotlight Channel* & pengelola FAQ 1-klik, **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
+3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
+4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** setiap pagi pukul **08:00**, serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -14,6 +15,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [A. Fitur Ruang Sesi Privat (Panel AI)](#a-fitur-ruang-sesi-privat-panel-ai)
    - [B. Fitur AI Agent & Otomasi Komunitas](#b-fitur-ai-agent--otomasi-komunitas)
    - [C. Fitur Keamanan, Ketahanan & Performa](#c-fitur-keamanan-ketahanan--performa)
+   - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
@@ -30,7 +32,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
 
 ### A. Fitur Ruang Sesi Privat (Panel AI)
 
-Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assistant`) menggunakan `/setup_panel`. Dari panel tersebut, setiap member dapat membuka ruang privat (*Private Thread*) yang hanya bisa dilihat oleh member itu sendiri.
+Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assistant`) menggunakan `/sesi panel` (atau `!setup_panel`). Dari panel tersebut, setiap member dapat membuka ruang privat (*Private Thread*) yang hanya bisa dilihat oleh member itu sendiri.
 
 #### 1. 💬 Chat AI Multi-Persona (5 Kepribadian Gemini)
 Saat menekan tombol **💬 Chat AI (Teks & Vision)**, member bebas memilih 1 dari 5 mode kepribadian:
@@ -42,7 +44,7 @@ Saat menekan tombol **💬 Chat AI (Teks & Vision)**, member bebas memilih 1 dar
 | **🧠 Gemini - Penalaran & Riset** | `gemini-3.6-flash` | Analitis & sistematis *step-by-step* untuk matematika, sains, tugas, & riset. |
 | **🛋️ Gemini - Teman Curhat** | `gemini-3.5-flash-lite` | Pendengar yang hangat, empatik, tidak menghakimi, dan suportif ala sahabat dekat. |
 
-> 💡 **Ganti Mode Kapan Saja:** Di dalam ruang `ai-...`, tersedia menu *dropdown* dan command `/model` untuk mengganti kepribadian Gemini di tengah percakapan **tanpa menghapus riwayat obrolan sebelumnya**.
+> 💡 **Ganti Mode Kapan Saja:** Di dalam ruang `ai-...`, tersedia menu *dropdown* dan command `/sesi model` untuk mengganti kepribadian Gemini di tengah percakapan **tanpa menghapus riwayat obrolan sebelumnya**.
 
 #### 2. 🎙️ Mendengar *Voice Note* (🎤), *Vision* Gambar, Link YouTube/Web, & *Live Search*
 Di dalam ruang chat privat `ai-...`, member bisa langsung mengirim:
@@ -72,8 +74,8 @@ Saat menekan tombol **🎨 Generate Gambar AI**, bot membuatkan studio gambar pr
   - Jika akun Google AI Studio Anda sudah mengaktifkan *Billing/Paid Tier*, ubah `GEMINI_PAID_IMAGE_ENABLED=true` di `.env` untuk memakai **Google Gemini Native Image (`gemini-3.1-flash-lite-image` / Nano Banana Pro `gemini-3-pro-image`)**.
 
 #### 4. 🔄 Reset Memori & 📜 Rekap Transkrip Lengkap ke DM
-- **Tombol 🔄 Reset Sesi (atau `/reset`):** Menghapus ingatan obrolan di ruang `ai-...` untuk ganti topik baru, atau mengembalikan setelan gaya/rasio gambar ke awal di ruang `draw-...` tanpa perlu membuat thread baru.
-- **Tombol 🔴 Akhiri Sesi:**
+- **Tombol 🔄 Reset Sesi (atau `/sesi reset`):** Menghapus ingatan obrolan di ruang `ai-...` untuk ganti topik baru, atau mengembalikan setelan gaya/rasio gambar ke awal di ruang `draw-...` tanpa perlu membuat thread baru.
+- **Tombol 🔴 Akhiri Sesi (atau `/sesi tutup`):**
   - Merangkum percakapan ke dalam **Embed Discord** yang rapi **sekaligus melampirkan file `rekap-nama-ruang.txt`** berisi transkrip percakapan utuh dari awal sampai akhir ke **DM pribadi member**.
   - Jika DM member dikunci/tertutup, bot otomatis mengirimkan file `.txt` tersebut di dalam thread dan memberi waktu **10 detik** untuk mengunduhnya sebelum ruang privat dihapus.
 
@@ -124,9 +126,16 @@ Fitur ini membuat bot berbaur di channel publik server — baik di **Text Channe
   2. Memberikan **reaksi emoji otomatis** (`✨`, `🔥`, `😍`, `👏`, atau `🙌` — bisa dinyalakan/dimatikan).
   3. Membalas (*reply*) postingan tersebut dengan komentar spesifik yang menyebutkan detail unik di dalam foto/video (seperti warna kostum, karakter, latar tempat, atau momen serunya).
 
-#### 6. 👋 AI Auto-Welcomer Member Baru (`/agent welcome`)
-- Begitu ada member baru bergabung ke server, AI Agent otomatis menyapanya di channel sambutan (`#welcome`) dengan kalimat kreatif yang **selalu gonta-ganti** (anti-monoton), menyesuaikan nama member baru, jam lokal saat ia masuk, gaya bahasa, serta `konteks_komunitas` server Anda!
-- Bisa ditambahkan `pesan_tambahan` (contoh: *"Jangan lupa ambil role di #roles ya"*) yang akan dirangkai secara luwes oleh AI, serta dilengkapi tombol `tes_sekarang:True` untuk langsung melihat contoh sambutannya.
+#### 6. 👋 AI Auto-Welcomer Member Baru + Persona Sambutan Khusus (`/agent welcome`)
+- **Persona sambutan TERPISAH dari persona Auto-Chat!** Pilih gaya sambutan lewat `persona:` — **🤗 Hangat & Tulus**, **😂 Lucu & Receh**, **😎 Santai & Akrab**, atau **🙂 Normal & Sopan**. Mengubah `/agent persona` (gaya obrolan harian) **tidak akan** mengacaukan gaya sambutan, begitu pula sebaliknya.
+- **Kata sapaan "halo/hai" berganti-ganti bahasa Asia Timur & Asia Tenggara** — misalnya `こんにちは` (Jepang), `안녕하세요` (Korea), `你好` (Mandarin), `สวัสดี` (Thailand), `Xin chào` (Vietnam), `Kumusta` (Filipina), `မင်္ဂလာပါ` (Myanmar), `សួស្តី` (Kamboja), `ສະບາຍດີ` (Laos), `Ola` (Timor Leste), dan masih banyak lagi. **Hanya kata sapaan pembuka** yang berbahasa asing — seluruh kalimat sambutan tetap **Bahasa Indonesia** yang hangat/lucu sesuai persona.
+- Bisa memilih **satu bahasa** tertentu (`bahasa_sapaan:jepang`) atau **acak semua bahasa** (default) agar setiap member baru mendapat sapaan yang berbeda.
+- Bisa ditambahkan `pesan_tambahan` (contoh: *"Jangan lupa ambil role di #roles ya"*) yang akan dirangkai secara luwes oleh AI, serta `tes_sekarang:True` untuk langsung melihat contoh sambutannya.
+
+#### 6b. 👣 AI Auto-Goodbye: Kartu Perpisahan Member Keluar (`/agent goodbye`)
+- Saat ada member keluar dari server, bot otomatis mengirim **kartu perpisahan** berisi pesan hangat + foto profil + **lama masa kebersamaan** (jumlah hari sejak bergabung).
+- Punya **persona perpisahan sendiri** (Hangat / Lucu / Santai / Normal) dan **kata perpisahan bahasa Asia** seperti `またね` (Jepang), `안녕히 가세요` (Korea), `再见` (Mandarin), `ลาก่อน` (Thailand), `Tạm biệt` (Vietnam), `Paalam` (Filipina), `Selamat jalan` (Melayu), dan lainnya — sisa kalimat tetap Bahasa Indonesia.
+- Anti-dobel: tetap ramah kuota karena hanya 1 pesan per member keluar dan ada deduplikasi otomatis.
 
 #### 7. 📝 Perangkum Obrolan Channel Tertinggal (`/ringkas`)
 - Ketinggalan **99+ notifikasi chat** di grup? Siapa pun member bisa mengetik **`/ringkas`** (pilih `25`, `50`, `100`, atau `150` pesan terakhir).
@@ -140,12 +149,12 @@ Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pe
   - **`🔍 Cek Fakta / Hoaks`** — Memeriksa kebenaran klaim berita heboh, rumor, atau tangkapan layar secara objektif menggunakan pencarian berita & web live gratis lengkap dengan tautan sumber buktinya!
 - **Cara pakai di PC/Laptop:** Klik kanan pesan ➔ sorot **Apps** ➔ pilih menu di atas. Hasilnya tampil privat (*ephemeral*) hanya untuk Anda!
 
-#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web Per-Channel (`/ringkas_link` & `/agent youtube`)
+#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web Per-Channel (`/ringkas link` & `/agent youtube`)
 - **Diatur Per-Channel (Bisa Aktif di Beberapa Channel Sekaligus!):** Persis seperti `/agent chat` dan `/agent gallery`, Admin bebas memilih channel mana saja yang mengaktifkan fitur rangkum YouTube & link web lewat **`/agent youtube channel:#nama-channel aktif:True`** (bahkan tetap bekerja walaupun channel tersebut tidak menyalakan Auto-Chat!).
-- **Command `/ringkas_link` & Ruang Privat `ai-...`:** Tempel link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau artikel web untuk mendapatkan rangkuman poin penting dalam hitungan detik (100% gratis memakai fitur *YouTube Video Understanding* Gemini)!
+- **Command `/ringkas link` & Ruang Privat `ai-...`:** Tempel link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau artikel web untuk mendapatkan rangkuman poin penting dalam hitungan detik (100% gratis memakai fitur *YouTube Video Understanding* Gemini)!
 - **Panggil Nama Bot + Kirim / Reply Link di Channel Aktif:** Di channel yang sudah diaktifkan `/agent youtube`, member cukup memanggil **nama panggilan bot** / `@mention` / *reply* ke bot sambil menyertakan link YouTube/web — **atau me-*reply* pesan teman yang berisi link YouTube sambil memanggil bot** (contoh: *"Whas rangkumin video YouTube ini dong"*).
 - **2 Mode Fleksibel Per-Channel (`auto_di_channel`):**
-  - `auto_di_channel: False` (**Default & Rekomendasi**): Diam saat warga sekadar share link biasa di channel tersebut, namun langsung merangkum saat nama bot dipanggil atau memakai `/ringkas_link`.
+  - `auto_di_channel: False` (**Default & Rekomendasi**): Diam saat warga sekadar share link biasa di channel tersebut, namun langsung merangkum saat nama bot dipanggil atau memakai `/ringkas link`.
   - `auto_di_channel: True` (**Mode Channel Khusus Video**): Setiap link YouTube/Web yang dikirim warga di channel tersebut otomatis dirangkum tanpa perlu memanggil nama bot!
 
 #### 10. 🌍 Live Web & News Search Gratis Per-Channel (`/cari` & `/agent cari`)
@@ -168,7 +177,7 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 #### 12. 📌 Memori Info & FAQ Resmi Server (`/agent info`), ☀️ Koran Pagi (`/agent digest`), & 🎛️ Panel Admin (`/agent panel`)
 - **Memori Info & FAQ Server (`/agent info`):** Admin dapat menyimpan hingga **25 entri pengetahuan resmi server** (seperti *Rules*, IP Server Minecraft/FiveM, jadwal mabar, cara *open ticket*, atau link sosial media). AI otomatis menghafal dan menjawab akurat berdasarkan data ini baik di channel publik, Forum, maupun ruang konsultasi privat!
 - **Koran & Sapaan Pagi Otomatis (`/agent digest`):** Setiap pagi sesuai jam pilihan (default **`07:00`** waktu lokal), bot otomatis merangkum berita terhangat hari ini + fakta unik pembuka hari ke channel pilihan (dilengkapi proteksi anti-dobel kirim di tanggal yang sama).
-- **Panel Kontrol Admin Interaktif (`/agent panel`):** Atur semua fitur channel (Auto-Chat, Galeri, YouTube, Cari, Welcome, Digest), ubah Persona, hingga tambah FAQ Server langsung lewat menu *dropdown* & *popup form (Modal)* tanpa perlu menghafal banyak parameter command!
+- **Panel Kontrol Admin Interaktif (`/agent panel`):** Atur semua fitur channel (Auto-Chat, Galeri, YouTube, Cari, **Welcome, Goodbye, Digest, Fakta Harian**), ubah Persona, hingga tambah FAQ Server langsung lewat menu *dropdown* & *popup form (Modal)* tanpa perlu menghafal banyak parameter command!
 
 ---
 
@@ -188,6 +197,36 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 
 ---
 
+### D. Fitur Server Otomatis (Statistik, Auto Role, Fakta, & Anti-Phishing)
+
+#### 1. 📊 Statistik Server seperti Bot Serverstats (`/serverstats`)
+- **`/serverstats lihat`** — kartu statistik lengkap: total anggota, manusia vs bot, perkiraan member online, boost & level, jumlah channel teks/suara/forum, role, emoji, stiker, tanggal server dibuat, pemilik, dan level verifikasi.
+- **`/serverstats otomatis aktif:True`** *(Admin)* — membuat kategori **`📊 Statistik Server`** berisi Voice Channel penghitung yang **ter-update otomatis setiap ±10 menit**:
+  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7`
+- Warga **tidak bisa masuk** ke channel penghitung (hanya bisa melihat angka), dan update dibatasi aman dari *rate limit* Discord (maks. 2 rename / 10 menit per channel).
+
+#### 2. 🎭 Auto Role Member Baru (`/autorole`) *(Admin)*
+- **`/autorole atur role:@Member role2:@Notif aktif:True`** — berikan **hingga 3 role** otomatis setiap ada member baru bergabung, tanpa perlu verifikasi manual.
+- **`/autorole status`** — cek daftar role aktif & peringatan otomatis jika posisi role bot terlalu rendah.
+- **`/autorole isi`** — berikan Auto Role ke member lama yang belum memilikinya (maks. 150 member per eksekusi, aman dari rate limit).
+- Role bot/integrasi, `@everyone`, dan role di atas posisi bot otomatis dilewati agar tidak error.
+
+#### 3. 🌍 Fakta Unik Dunia Setiap Pagi 08:00 (`/fakta`)
+- **`/fakta atur channel:#umum jam:08:00`** — setiap pagi bot mengirim **3–4 fakta menarik dari negara berbeda** (bendera + nama negara + penjelasan ringkas), misalnya dari Jepang, Islandia, Brasil, Mesir, dan lainnya.
+- Fakta hari sebelumnya **tidak diulang** (anti-monoton), dan jika Gemini sedang sibuk bot otomatis memakai **bank fakta offline** agar rubrik tetap terkirim.
+- **`/fakta sekarang`** untuk kirim contoh langsung, **`/fakta status`** untuk melihat jadwal & tanggal terakhir.
+
+#### 4. 🛡️ Anti-Phishing Guard Tanpa API Berbayar (`/keamanan`)
+- **`/keamanan phising aktif:True`** *(Admin)* — bot memindai setiap link di pesan warga dan otomatis:
+  1. **Menghapus** pesan yang berisi link phishing tingkat **berbahaya**.
+  2. **Memperingatkan** pengirim & warga lain di channel.
+  3. **Mencatat** detailnya ke channel log moderator (opsional).
+- **Deteksi lokal gratis** (tanpa API berbayar / tanpa kartu kredit): domain tiruan brand populer (Discord, Steam, Roblox, Netflix, Binance, Shopee, DANA, BCA, dll.), karakter **punycode `xn--`**, link berbasis **IP langsung**, **TLD berisiko** (`.tk`, `.ml`, `.ga`, `.zip`, dll.), **pemendek URL** (`bit.ly` dsb.), trik `@` pada URL, dan **daftar hitam** domain phishing yang sudah dikenal.
+- **`/keamanan cek link:https://...`** bisa dipakai **semua member** untuk memeriksa keamanan link sebelum membuka.
+- Bisa dibatasi hanya ke channel tertentu, dan mode **ketat** (`ketat:True`) juga menindak link yang baru *mencurigakan*.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -196,10 +235,10 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 1. Buat atau buka channel teks khusus untuk panel AI (misal `#ai-assistant`).
 2. Ketik perintah berikut lalu tekan Enter:
    ```text
-   /setup_panel
+   /sesi panel
    ```
    *(Atau bisa juga menggunakan prefix `!setup_panel`).*
-3. Bot akan menampilkan kotak **✨ GEMINI AI AUTOMATION PANEL** dengan dua tombol permanen yang siap dipakai seluruh member 24/7.
+3. Bot akan menampilkan kotak **✨ PANEL RUANG PRIVAT GOOGLE GEMINI AI** dengan dua tombol permanen yang siap dipakai seluruh member 24/7.
 
 #### 👤 Untuk Member Server:
 - **Mulai Ruang Chat AI, Vision & Koding:**
@@ -207,10 +246,10 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
   2. Pilih salah satu dari **5 Mode Kepribadian Gemini** (Utama, Kilat, Koding, Riset, atau Curhat).
   3. Klik tautan thread privat `ai-namakamu` yang dibuatkan bot, lalu:
      - Ketik pertanyaan apa saja untuk mengobrol.
-     - Lampirkan **foto/screenshot** atau **file kode** (`.py`, `.js`, `.txt`, dll.) jika ingin dianalisis langsung.
-     - Pilih menu dropdown **🎭 Ganti Mode** (atau ketik `/model`) jika ingin berganti kepribadian di tengah obrolan.
-     - Klik **🔄 Reset Sesi** (atau `/reset`) untuk menghapus ingatan topik lama.
-     - Klik **🔴 Akhiri Sesi** jika sudah selesai — rekap percakapan lengkap dalam bentuk file `.txt` akan dikirim otomatis ke DM Anda!
+     - Lampirkan **foto/screenshot**, **PDF**, **Voice Note (🎤)**, atau **file kode** (`.py`, `.js`, `.txt`, dll.) jika ingin dianalisis langsung.
+     - Pilih menu dropdown **🎭 Ganti Mode** (atau ketik `/sesi model`) jika ingin berganti kepribadian di tengah obrolan.
+     - Klik **🔄 Reset Sesi** (atau `/sesi reset`) untuk menghapus ingatan topik lama.
+     - Klik **🔴 Akhiri Sesi** (atau `/sesi tutup`) jika sudah selesai — rekap percakapan lengkap dalam bentuk file `.txt` akan dikirim otomatis ke DM Anda!
 
 - **Mulai Ruang Generate & Edit Gambar AI:**
   1. Klik tombol biru **🎨 Generate Gambar AI** pada panel.
@@ -254,10 +293,10 @@ Agar setiap member baru disambut hangat secara otomatis & anti-monoton:
 /agent welcome channel:#welcome aktif:True pesan_tambahan:Jangan lupa mampir ambil role di #roles ya tes_sekarang:True
 ```
 
-#### E. Merangkum Chat yang Ketinggalan (`/ringkas`)
+#### E. Merangkum Chat yang Ketinggalan (`/ringkas chat`)
 Bisa dipakai oleh semua member saat baru buka Discord dan tertinggal obrolan panjang:
 ```text
-/ringkas jumlah:50 Pesan Terakhir - Default publik:False
+/ringkas chat jumlah:50 Pesan Terakhir - Default publik:False
 ```
 
 #### F. Mengatur Kepribadian, Nama Akrab, Zona Waktu, & Jam Tenang (`/agent persona`)
@@ -273,7 +312,7 @@ Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu c
   ```text
   /agent youtube channel:#share-video aktif:True auto_di_channel:False
   ```
-  - `auto_di_channel:False` (**Rekomendasi & Default**): Bot diam saat warga sekadar share link biasa di channel tersebut, namun **langsung merangkum** jika nama bot dipanggil / di-*mention* / di-*reply* bersama link tersebut, atau lewat `/ringkas_link`.
+  - `auto_di_channel:False` (**Rekomendasi & Default**): Bot diam saat warga sekadar share link biasa di channel tersebut, namun **langsung merangkum** jika nama bot dipanggil / di-*mention* / di-*reply* bersama link tersebut, atau lewat `/ringkas link`.
   - `auto_di_channel:True`: Bot otomatis merangkum setiap link YouTube/Web yang dikirim di channel tersebut (cocok untuk channel khusus `#rangkum-youtube`).
 - **Aktifkan Pencarian Berita & Web Terkini di Channel Pilihan:**
   ```text
@@ -295,6 +334,25 @@ Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu c
 - Ketik **`/agent status`** untuk melihat seluruh daftar channel yang aktif (Auto-Chat, Welcome, Galeri, **YouTube**, dan **Pencarian `/cari`**) beserta **sisa waktu hitung mundur pemecah sepi** secara *real-time*.
 - Ketik **`/status`** untuk mengecek ping koneksi Discord, pemakaian RAM Wispbyte, *uptime*, dan model Gemini yang sedang aktif.
 
+#### J. Mengatur Sambutan Persona & Sapaan Bahasa Asia (`/agent welcome`) + Perpisahan (`/agent goodbye`)
+```text
+/agent welcome channel:#welcome aktif:True persona:lucu bahasa_sapaan:auto tes_sekarang:True
+/agent goodbye channel:#perpisahan aktif:True persona:hangat bahasa_sapaan:korea
+```
+- `persona:` menentukan gaya **sambutan/perpisahan** saja (Hangat / Lucu / Santai / Normal) — tidak mengubah gaya obrolan AI harian.
+- `bahasa_sapaan:` memilih bahasa kata sapaan pembuka (`auto` = acak semua bahasa Asia Timur & Tenggara). Isi kalimat tetap Bahasa Indonesia.
+
+#### K. Memasang Fitur Server (Statistik, Auto Role, Fakta, & Anti-Phishing)
+```text
+/serverstats otomatis aktif:True
+/autorole atur role:@Member role2:@Notif
+/fakta atur channel:#umum jam:08:00
+/keamanan phising aktif:True aksi:hapus_peringat log_channel:#mod-log
+```
+- `/serverstats otomatis` membuat Voice Channel penghitung yang diperbarui ±10 menit sekali.
+- `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu 08:00).
+- `/keamanan cek link:https://...` bisa dipakai semua member untuk memeriksa link.
+
 ---
 
 ## 🛑 Cara Mematikan (*Disable*) Fitur Kapan Saja
@@ -306,20 +364,27 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Matikan Auto-Chat & Pemecah Sepi total** di suatu channel | `/agent chat channel:#welcome aktif:False` |
 | **Matikan Pemecah Sepi saja** *(tapi Auto-Chat tetap aktif membalas warga)* | `/agent chat channel:#welcome aktif:True menit_sepi:0` |
 | **Matikan AI Auto-Welcomer member baru** | `/agent welcome channel:#welcome aktif:False` |
+| **Matikan Pesan Perpisahan (Goodbye)** | `/agent goodbye channel:#perpisahan aktif:False` |
+| **Matikan Rubrik Fakta Unik Dunia** | `/fakta atur channel:#umum aktif:False` |
+| **Matikan Voice Channel Statistik Server** | `/serverstats otomatis aktif:False` |
+| **Matikan Auto Role** | `/autorole atur role:@Member aktif:False` |
+| **Matikan Anti-Phishing Guard** | `/keamanan phising aktif:False` |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
 | **Matikan fitur Rangkum YouTube & Link Web** di suatu channel | `/agent youtube channel:#share-video aktif:False` |
-| **Matikan Auto-Rangkum semua link** di channel YouTube *(agar hanya rangkum saat dipanggil / `/ringkas_link` — **Default**)* | `/agent youtube channel:#share-video aktif:True auto_di_channel:False` |
+| **Matikan Auto-Rangkum semua link** di channel YouTube *(agar hanya rangkum saat dipanggil / `/ringkas link` — **Default**)* | `/agent youtube channel:#share-video aktif:True auto_di_channel:False` |
 | **Matikan fitur Pencarian Berita/Web (`/cari`)** di suatu channel | `/agent cari channel:#berita-terkini aktif:False` |
 | **Matikan Auto-Search saat ngobrol** di channel Cari *(agar hanya jalan kalau ketik `/cari`)* | `/agent cari channel:#berita-terkini aktif:True auto_di_chat:False` |
 | **Matikan Jam Tenang Malam (23:00–06:00)** *(agar sapaan tetap jalan tengah malam)* | `/agent persona jam_tenang_malam:False` |
 | **Reset Nama Panggilan / Konteks Komunitas kembali ke default** | `/agent persona nama_panggilan:- konteks_komunitas:-` *(isi tanda strip `-`)* |
-| **Tutup 1 Ruang Sesi Privat (`ai-...` / `draw-...`)** | Klik tombol merah **🔴 Akhiri Sesi** di dalam thread tersebut |
-| **Nonaktifkan Panel Utama AI** di suatu channel | Hapus pesan Embed **✨ GEMINI AI AUTOMATION PANEL** di channel tersebut |
+| **Tutup 1 Ruang Sesi Privat (`ai-...` / `draw-...`)** | Klik tombol merah **🔴 Akhiri Sesi** atau ketik `/sesi tutup` |
+| **Nonaktifkan Panel Utama AI** di suatu channel | Hapus pesan Embed **✨ PANEL RUANG PRIVAT GOOGLE GEMINI AI** di channel tersebut |
 
 ---
 
 ## 📋 Daftar Lengkap Command & Tombol
+
+Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (hemat kuota batas command global Discord & siap dikembangkan ke modul *All-in-One* berikutnya):
 
 ### 1. Menu Tekan-Tahan Pesan / Klik Kanan (*Apps*)
 | Menu Apps | Akses | Keterangan |
@@ -328,36 +393,53 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **`💡 Jelaskan Pesan Ini`** | Semua Member | Tekan-tahan / klik kanan pesan rumit, istilah asing, error koding, atau meme untuk mendapatkan penjelasan ringkas. |
 | **`🔍 Cek Fakta / Hoaks`** | Semua Member | Tekan-tahan / klik kanan pesan klaim berita atau *screenshot* untuk memeriksa kebenaran faktanya secara objektif beserta tautan sumber berita. |
 
-### 2. Slash & Prefix Commands Umum, Pintasan & Hiburan
+### 2. Slash & Prefix Commands Ruang Privat, Pintasan & Hiburan
 | Command | Akses | Keterangan |
 | :--- | :--- | :--- |
-| `/setup_panel` atau `!setup_panel` | Administrator | Memasang Embed & tombol Panel Utama AI (Chat & Gambar) di channel saat ini. |
+| `/sesi panel` atau `!setup_panel` | Administrator | Memasang Embed & tombol Panel Ruang Privat AI (Chat & Gambar) di channel saat ini. |
+| `/sesi model` | Pemilik Ruang Sesi | Mengganti mode kepribadian Gemini (Utama, Kilat, Koding, Riset, Curhat) di ruang `ai-...`. |
+| `/sesi reset` | Pemilik Sesi / Moderator | Menghapus memori obrolan di `ai-...` atau mereset setelan gambar di `draw-...`. |
+| `/sesi tutup` | Pemilik Sesi / Moderator | Mengakhiri ruang sesi privat saat ini & mengirim rekap transkrip lengkap ke DM. |
+| `/ringkas chat` | Semua Member | Merangkum `25`–`150` obrolan terakhir di channel/thread agar tidak ketinggalan topik (*TL;DR*). |
+| `/ringkas link` | Semua Member | Merangkum isi video **YouTube** atau artikel website secara instan (bisa disertai pertanyaan). |
 | `/cari` | Semua Member | Mencari berita, skor, cuaca, kurs, & fakta terbaru hari ini via **Live Web & News Search** gratis + sumber web. |
-| `/ringkas_link` | Semua Member | Merangkum isi video **YouTube** atau artikel website secara instan (bisa disertai pertanyaan). |
-| `/ringkas` | Semua Member | Merangkum `25`–`150` obrolan terakhir di channel agar tidak ketinggalan topik (*TL;DR*). |
 | `/game mulai` | Semua Member | Memulai ronde Mini-Game AI (`emoji`, `image_guess`, `word_chain`, `trivia`, `riddle`, `scramble`, atau acak kejutan). |
 | `/game papan_skor` | Semua Member | Menampilkan Top 10 Klasemen Papan Skor Mini-Game server beserta peringkat Anda. |
 | `/game stop` | Pemulai / Moderator | Menghentikan ronde Mini-Game yang sedang berjalan di channel saat ini. |
 | `/game reset_skor` | Administrator | Mereset seluruh Papan Skor Mini-Game server kembali ke `0` untuk musim baru. |
-| `/bantuan` | Semua Member | Menampilkan panduan ringkas seluruh fitur & cara pakai bot di Discord. |
-| `/model` | Pemilik Ruang Sesi | Mengganti mode kepribadian Gemini (Utama, Kilat, Koding, Riset, Curhat) di ruang `ai-...`. |
-| `/reset` | Pemilik Sesi / Moderator | Menghapus memori obrolan di `ai-...` atau mereset setelan gambar di `draw-...`. |
+| `/bantuan` | Semua Member | Membuka **Pusat Panduan Interaktif** dengan menu *dropdown* 5 kategori fitur. |
 | `/status` | Semua Member | Menampilkan ping Discord, pemakaian RAM (MB), uptime, jam AI, model aktif, & jumlah sesi. |
 
 ### 3. Slash Commands Admin untuk AI Agent Komunitas (`/agent`)
 | Command | Parameter Utama | Keterangan |
 | :--- | :--- | :--- |
-| `/agent panel` | — | Membuka **Panel Kontrol Admin Interaktif** (dropdown pilih channel, toggle fitur klik langsung, & form Modal Persona/FAQ). |
+| `/agent panel` | — | Membuka **Panel Kontrol Admin Interaktif** (*Spotlight Channel*, toggle fitur klik langsung, form Modal Persona, & pengelola FAQ 1-klik). |
 | `/agent info` | `aksi`, `topik`, `isi` | Mengelola **Memori Info & FAQ Resmi Server** (maks. 25 entri: rules, IP server, jadwal, link) agar AI selalu menjawab akurat. |
 | `/agent digest` | `channel`, `aktif`, `jam`, `topik`, `tes_sekarang` | Mengaktifkan/mematikan jadwal pengiriman **Koran & Sapaan Pagi Otomatis** setiap hari di channel pilihan. |
 | `/agent chat` | `channel`, `aktif`, `mode_balas`, `menit_sepi` | Mengaktifkan/mematikan Auto-Chat di Text Channel maupun **Channel Forum** (+ Pemecah Sepi di Text Channel). |
-| `/agent welcome` | `channel`, `aktif`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan/mematikan AI Auto-Welcomer natural untuk member baru. |
+| `/agent welcome` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Auto-Welcomer dengan **persona sambutan khusus** + **kata sapaan bahasa Asia** yang berganti-ganti. |
+| `/agent goodbye` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan kartu perpisahan AI + masa kebersamaan untuk member yang keluar. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di Text Channel maupun **Forum/Media Showcase**. |
-| `/agent youtube` | `channel`, `aktif`, `auto_di_channel` | Mengaktifkan/mematikan rangkum YouTube/Web (`/ringkas_link` & baca link) pada satu/beberapa Text Channel atau **Channel Forum**. |
+| `/agent youtube` | `channel`, `aktif`, `auto_di_channel` | Mengaktifkan/mematikan rangkum YouTube/Web (`/ringkas link` & baca link) pada satu/beberapa Text Channel atau **Channel Forum**. |
 | `/agent cari` | `channel`, `aktif`, `auto_di_chat` | Mengaktifkan/mematikan pencarian berita/web (`/cari` & auto-search) pada satu/beberapa Text Channel atau **Channel Forum**. |
 | `/agent persona` | `gaya_bahasa`, `nama_panggilan`, `zona_waktu`, `jam_tenang_malam`, `konteks_komunitas` | Mengubah nama akrab AI, gaya bicara (*Akrab / Gaul / Ramah*), zona waktu (*WIB/WITA/WIT*), Jam Tenang, & deskripsi komunitas. |
 | `/agent sapa` | `channel` *(opsional)* | Memicu AI Agent langsung menyapa / memecah sepi detik ini juga (untuk tes instan). |
-| `/agent status` | — | Melihat status profil AI Agent, daftar channel aktif, & sisa hitung mundur pemecah sepi. |
+| `/agent status` | — | Melihat dashboard status AI Agent terpadu, daftar channel aktif, & sisa hitung mundur pemecah sepi. |
+
+
+### 4. Slash Commands Fitur Server (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)
+| Command | Parameter Utama | Keterangan |
+| :--- | :--- | :--- |
+| `/serverstats lihat` | — | Kartu statistik server: anggota, online, boost, channel, role, emoji, stiker, tanggal dibuat, & pemilik. |
+| `/serverstats otomatis` | `aktif` | *(Admin)* Membuat/mematikan Voice Channel penghitung statistik yang diperbarui ±10 menit. |
+| `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
+| `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |
+| `/autorole isi` | — | *(Admin)* Berikan Auto Role ke member lama yang belum memilikinya (maks. 150). |
+| `/fakta atur` | `channel`, `aktif`, `jam` | *(Admin)* Jadwalkan rubrik 3–4 Fakta Unik Dunia (default pukul `08:00`). |
+| `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga. |
+| `/fakta status` | — | Lihat channel, jadwal, & tanggal terakhir fakta terkirim. |
+| `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
+| `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
 
 ---
 
@@ -385,7 +467,12 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `BOT_TIMEZONE` | Opsional | `Asia/Jakarta` | Zona waktu default (`Asia/Jakarta`, `Asia/Makassar`, atau `Asia/Jayapura`). |
 | `AGENT_DEFAULT_IDLE_MINUTES` | Opsional | `30` | Durasi hening default (menit) sebelum AI Agent memecah kesunyian. |
 | `SESSION_EXPIRE_DAYS` | Opsional | `7` | Otomatis membersihkan data sesi privat yang sudah menganggur lebih dari N hari (`0` = nonaktif). |
-| `USER_COMMAND_COOLDOWN_SEC` | Opsional | `10` | Jeda wajar per-member (detik) antar pemakaian command berat (`/cari`, `/ringkas_link`, `/ringkas`) demi melindungi kuota *Free Tier* (`0` = nonaktif; Admin otomatis bebas jeda). |
+| `USER_COMMAND_COOLDOWN_SEC` | Opsional | `10` | Jeda wajar per-member (detik) antar pemakaian command berat (`/cari`, `/ringkas link`, `/ringkas chat`) demi melindungi kuota *Free Tier* (`0` = nonaktif; Admin otomatis bebas jeda). |
+| `ENABLE_PHISHING_GUARD` | Opsional | `true` | Mengaktifkan mesin Anti-Phishing lokal (tetap perlu dinyalakan per server lewat `/keamanan phising`). |
+| `SERVERSTATS_UPDATE_SEC` | Opsional | `600` | Interval pembaruan Voice Channel statistik (minimum `600` detik agar aman dari rate limit Discord). |
+| `FACTS_DEFAULT_HOUR` | Opsional | `8` | Jam default rubrik Fakta Unik Dunia (format 24 jam). |
+| `FACTS_DEFAULT_MINUTE` | Opsional | `0` | Menit default rubrik Fakta Unik Dunia. |
+| `AUTOROLE_MAX_ROLES` | Opsional | `3` | Jumlah maksimal role yang bisa dipasang lewat Auto Role. |
 
 ---
 
@@ -436,11 +523,11 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.3.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.5.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
-   - Ketik **`/setup_panel`** di channel panel AI privat.
-   - Ketik **`/agent chat`** di channel obrolan umum dan **`/agent gallery`** di channel galeri!
+   - Ketik **`/sesi panel`** di channel panel AI privat.
+   - Ketik **`/agent panel`** untuk menyalakan fitur obrolan umum, galeri, digest pagi, maupun FAQ lewat klik tombol!
 
 ---
 
@@ -463,23 +550,32 @@ python main.py
 
 ---
 
-## 📂 Struktur File Proyek
+## 📂 Struktur File Proyek (Modular `cogs/`)
 
 ```text
 ai-discord-chat/
-├── main.py             # Entrypoint utama bot, Context Menus, Slash Commands, & event handler
-├── community_agent.py  # Mesin AI Agent Komunitas (Auto-Chat anti-nimbrung, Welcome, Pemecah Sepi, & Galeri)
-├── games.py            # Mesin Mini-Game Tongkrongan AI (Trivia, Emoji, Misteri, Acak Kata) & Papan Skor
-├── ai_handler.py       # Klien async Gemini API (Chat, Vision, Voice Note, YouTube/Web, & Free Live Search)
-├── views.py            # Komponen tombol & dropdown UI Discord persisten tahan restart
+├── main.py             # Entrypoint ringan (Wispbyte Startup File), sinkronisasi tree, & background loop
+├── cogs/               # Modul fitur terpisah (siap ekspansi All-in-One)
+│   ├── session_cog.py  # Grup /sesi (panel, model, reset, tutup) & perute ruang privat ai-/draw-
+│   ├── tools_cog.py    # Grup /ringkas (chat & link), /cari, /bantuan, /status, & 3 Context Menus
+│   ├── agent_cog.py    # Grup /agent (panel, status, chat, gallery, persona, welcome, digest, info, dll.)
+│   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
+│   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
+│   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
+│   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
+├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
+├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
+├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
+├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
+├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
 ├── storage.py          # Penyimpanan sesi privat JSON atomik & auto-recovery dari Discord Thread
-├── utils.py            # Pemotong kode Markdown, Live Web/News Search gratis, filter etika chat, & jam lokal
+├── utils.py            # Pemotong kode Markdown, Live Web/News Search gratis, SSRF guard, & jam lokal
 ├── config.py           # Konfigurasi variabel .env, daftar 5 kepribadian Gemini, gaya & rasio gambar
 ├── requirements.txt    # Daftar dependensi Python super ringan
 ├── .env.example        # Template contoh pengisian variabel .env
 ├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 40 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 45 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---
@@ -495,14 +591,20 @@ Proyek ini dirilis menggunakan **[MIT License](LICENSE)** — bebas digunakan, d
 - **Apakah semua fitur (termasuk `/cari` berita, rangkum YouTube, & buat gambar) aman untuk akun Gemini *Free Tier* tanpa kartu kredit?**
   **100% aman & langsung jalan!** Secara default (`GEMINI_PAID_SEARCH_ENABLED=false` dan `GEMINI_PAID_IMAGE_ENABLED=false`), bot menggunakan mesin pencari web/berita gratis mandiri dan generator gambar Flux gratis sehingga bebas dari error `You exceeded your current quota`.
 - **Apakah bot bisa dipakai di dalam Channel Forum Discord (`Forum Channel`)?**
-  **Bisa penuh!** Anda tinggal memilih nama Channel Forum pada parameter `channel:` saat menjalankan `/agent chat`, `/agent gallery`, `/agent youtube`, atau `/agent cari`. Bot akan otomatis membaca **Judul Postingan, Tag Forum, isi teks, gambar, Voice Note, maupun file kode** di setiap postingan forum tersebut tanpa mencampur ingatan antar-postingan (serta mendukung `/ringkas`, `/ringkas_link`, `/cari`, `/game`, dan tekan-tahan pesan *Apps* di dalam postingan forum).
+  **Bisa penuh!** Anda tinggal memilih nama Channel Forum pada parameter `channel:` saat menjalankan `/agent panel`, `/agent chat`, `/agent gallery`, `/agent youtube`, atau `/agent cari`. Bot akan otomatis membaca **Judul Postingan, Tag Forum, isi teks, gambar, PDF, Voice Note, maupun file kode** di setiap postingan forum tersebut tanpa mencampur ingatan antar-postingan (serta mendukung `/ringkas chat`, `/ringkas link`, `/cari`, `/game`, dan tekan-tahan pesan *Apps* di dalam postingan forum).
 - **Kenapa bot diam atau menolak saat ada member kirim link YouTube / ketik `/cari` di channel publik?**
-  Fitur YouTube dan Pencarian Web kini diatur **per-channel** agar rapi dan tidak mengganggu obrolan warga di sembarang tempat. Pastikan Admin sudah mengaktifkan channel tersebut lewat **`/agent youtube channel:#nama-channel aktif:True`** atau **`/agent cari channel:#nama-channel aktif:True`**. Di channel YouTube yang aktif dengan `auto_di_channel:False` (default), cukup **panggil nama akrab bot / `@mention` / *reply*** bersama link tersebut atau gunakan **`/ringkas_link`**. *(Jika ingin bot otomatis merangkum setiap link di channel khusus, gunakan `auto_di_channel:True`).*
-- **Slash Commands (`/setup_panel`, `/agent`) belum muncul atau tampilannya belum ter-update di HP?**
+  Fitur YouTube dan Pencarian Web kini diatur **per-channel** agar rapi dan tidak mengganggu obrolan warga di sembarang tempat. Pastikan Admin sudah mengaktifkan channel tersebut lewat **`/agent panel`** (atau `/agent youtube` / `/agent cari`). Di channel YouTube yang aktif dengan `auto_di_channel:False` (default), cukup **panggil nama akrab bot / `@mention` / *reply*** bersama link tersebut atau gunakan **`/ringkas link`**. *(Jika ingin bot otomatis merangkum setiap link di channel khusus, gunakan `auto_di_channel:True`).*
+- **Slash Commands (`/sesi`, `/ringkas`, `/agent`) belum muncul atau tampilannya belum ter-update di HP?**
   Isi `DISCORD_GUILD_ID` di `.env` dengan ID Server Discord Anda agar sinkronisasi instan (<1 detik), lalu *restart* bot. Jika memakai aplikasi Discord di HP (Android/iOS), **tutup paksa (*force close*) lalu buka ulang aplikasi Discord sekali** agar cache tampilan *Slash Command* di HP diperbarui.
 - **Pemecah Sepi (`menit_sepi`) belum menyapa saat dites malam hari?**
   Secara default fitur **Jam Tenang Malam (23:00 – 06:00)** aktif agar AI tidak membangunkan warga saat jam tidur. Jika Anda sedang mengetes di atas jam 23:00 malam, matikan sementara dengan `/agent persona jam_tenang_malam:False` atau gunakan `/agent sapa` untuk tes instan. Anda juga bisa mengecek sisa hitung mundur lewat `/agent status`.
 - **Bot online tapi tidak merespons pesan teks di ruang chat?**
   Pastikan **Message Content Intent** sudah dinyalakan di [Discord Developer Portal](https://discord.com/developers/applications) pada bagian *Bot → Privileged Gateway Intents*, lalu *restart* bot di Wispbyte.
+- **Apakah Anti-Phishing butuh API key atau layanan berbayar?**
+  **Tidak.** Pemeriksaan berjalan **lokal tanpa biaya**: pencocokan domain tiruan brand populer, punycode `xn--`, IP langsung, TLD berisiko, pemendek URL, trik `@`, dan daftar hitam domain phishing. Aktifkan dengan `/keamanan phising aktif:True` (butuh izin **Manage Messages** untuk menghapus pesan).
+- **Kenapa Voice Channel statistik tidak berubah setiap detik?**
+  Discord hanya mengizinkan **2 rename per 10 menit per channel**, jadi bot memperbarui tiap ±10 menit (bisa diubah lewat `SERVERSTATS_UPDATE_SEC`, minimum `600`). Ini sengaja agar akun bot tidak kena rate limit.
+- **Bagaimana cara membuat persona sambutan berbeda dari gaya obrolan AI?**
+  Persona sambutan punya pengaturan sendiri: `/agent welcome persona:lucu` atau `/agent goodbye persona:hangat`. Mengubah `/agent persona gaya_bahasa:gaul` (gaya obrolan harian) **tidak memengaruhi** gaya sambutan, dan sebaliknya.
 - **Gagal membuat ruang privat (`Missing Permissions`)?**
   Pastikan Role bot di channel tersebut memiliki izin `Create Private Threads`, `Send Messages in Threads`, dan `Read Message History`.

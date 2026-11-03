@@ -32,10 +32,14 @@ UI_MESSAGE_PREFIXES = (
     "👋 **Selamat Datang",
     "🎨 **Selamat Datang",
     "🔴 *Klik tombol",
+    "🔴 *Gunakan tombol",
     "🧹 **Menyiapkan rekap",
     "🎨 **Memproses gambar",
     "🔄 **Memori percakapan",
+    "🔄 **Pengaturan gambar",
     "✅ **Mode AI diubah",
+    "✅ **Mode AI berhasil diganti",
+    "⏳ Tunggu **",
 )
 
 
