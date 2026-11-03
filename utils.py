@@ -440,8 +440,9 @@ async def extract_social_media_and_stickers(
     *,
     include_video: bool = True,
     include_audio: bool = True,
+    include_text_files: bool = False,
 ) -> tuple[list[dict], list[str], list[str]]:
-    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), Stiker Discord, serta Custom Emoji
+    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), file kode/teks opsional, Stiker Discord, serta Custom Emoji
     agar AI Agent dapat mendengar pesan suara maupun melihat visual ekspresi stiker/emoji/foto/video!
 
     Returns:
@@ -511,6 +512,20 @@ async def extract_social_media_and_stickers(
                 descriptions.append(f"[Mengirim video: {att.filename}]")
             except Exception as exc:
                 warnings.append(f"Gagal membaca video `{att.filename}`: {sanitize_error_message(exc)}")
+            continue
+
+        if include_text_files and (ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/")):
+            if att.size <= MAX_TEXT_ATTACHMENT_BYTES:
+                try:
+                    raw_txt = await att.read()
+                    decoded = raw_txt.decode("utf-8", errors="replace").strip()
+                    if decoded:
+                        lang_hint = ext.lstrip(".")
+                        descriptions.append(
+                            f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
+                        )
+                except Exception:
+                    pass
 
     # 2. Stiker Discord (PNG / APNG / GIF dapat dilihat langsung visualnya oleh Gemini Vision!)
     for sticker in getattr(message, "stickers", []) or []:

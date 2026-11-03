@@ -87,6 +87,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent._recent_welcomed_members.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
+    community_agent._post_runtime_state.clear()
     community_agent.channel_histories.clear()
     games.guild_game_scores.clear()
     games.active_channel_games.clear()
@@ -1480,6 +1481,108 @@ async def test_slash_ringkas_link_and_cari_per_channel_gating(monkeypatch):
     await bot_main.slash_cari.callback(ix_ok_cari, pertanyaan="berita hari ini")
     assert ix_ok_cari.response.deferred is True
     assert "Berita hari ini" in ix_ok_cari.followup.sent[0]["embed"].description
+
+
+@pytest.mark.asyncio
+async def test_forum_channel_posts_support_chat_gallery_youtube_and_search(monkeypatch):
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    # 1. Pastikan parameter 'channel' di /agent chat, gallery, youtube, & cari mengizinkan ForumChannel (channel_type 15) & Media (16)
+    agent_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "agent")
+    sub_map = {sc.name: sc for sc in agent_cmd.commands}
+    for sub_name in ("chat", "gallery", "youtube", "cari"):
+        ch_param = next(p for p in sub_map[sub_name].parameters if p.name == "channel")
+        ch_types = set(ch_param.channel_types)
+        assert discord.ChannelType.forum in ch_types, f"/agent {sub_name} wajib mendukung ForumChannel"
+        assert discord.ChannelType.media in ch_types, f"/agent {sub_name} wajib mendukung MediaChannel"
+
+    bot_user = _FakeUser(100, "Whas")
+    andi = _FakeUser(301, "Andi")
+    community_agent.get_guild_settings(10)["nickname"] = "Whas"
+
+    # 2. Aktifkan /agent chat di Channel Forum #9500
+    community_agent.set_chat_channel_config(10, 9500, enabled=True, reply_mode="smart", idle_seconds=0)
+
+    class _FakeForumPostChannel:
+        def __init__(self, post_id: int, parent_forum_id: int, title: str, tag_names=()):
+            self.id = post_id
+            self.parent_id = parent_forum_id
+            self.name = title
+            self.is_forum_post = True
+            self.applied_tags = [type("Tag", (), {"name": t})() for t in tag_names]
+
+    class _FakeForumMsg:
+        def __init__(self, msg_id: int, post_channel: _FakeForumPostChannel, author, content: str, attachments=None):
+            self.id = msg_id
+            self.channel = post_channel
+            self.guild = type("G", (), {"id": 10, "me": bot_user})()
+            self.author = author
+            self.content = content
+            self.mentions = []
+            self.attachments = attachments or []
+            self.stickers = []
+            self.reference = None
+
+    # Postingan Forum baru #1 (message.id == post_channel.id) -> otomatis dibalas oleh AI dengan membaca Judul & Tag!
+    post_ch_1 = _FakeForumPostChannel(9501, 9500, "Rekomendasi laptop ngoding 7 jutaan", ("Hardware", "Tanya"))
+    starter_msg_1 = _FakeForumMsg(9501, post_ch_1, andi, "Mending Ryzen 5 atau i5 gen 12 ya buat kuliah?")
+    assert community_agent.should_agent_reply_in_chat(starter_msg_1, bot_user) == (True, True)
+
+    forum_ai_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Buat ngoding di budget 7 jutaan, Ryzen 5 seri 5500U/7530U adem dan kencang banget Andi!"}]}}]},
+    )
+    fake_http_forum = FakeHttpSession(post_responses=[forum_ai_resp])
+    forum_reply = await community_agent.generate_community_chat_reply(
+        starter_msg_1,
+        bot_user,
+        http_session=fake_http_forum,
+    )
+    assert "Ryzen 5" in forum_reply
+    sent_forum_prompt = fake_http_forum.post_calls[0]["json"]["contents"][-1]["parts"][-1]["text"]
+    assert "Rekomendasi laptop ngoding 7 jutaan" in sent_forum_prompt
+    assert "Hardware" in sent_forum_prompt
+
+    # Pastikan riwayat disimpan terpisah per Postingan Forum (9501), bukan tercampur di ID Forum induk (9500)
+    assert 9501 in community_agent.channel_histories
+    assert 9500 not in community_agent.channel_histories
+
+    # 3. Uji Channel Forum Galeri (#9600) saat member membuat Postingan Showcase bergambar
+    class _FakeImgAtt:
+        filename = "setup.png"
+        content_type = "image/png"
+        size = 24
+
+        async def read(self):
+            return b"\x89PNG\r\n\x1a\nfakeimg"
+
+    community_agent.set_gallery_channel_config(10, 9600, enabled=True, auto_reaction=True)
+    showcase_post = _FakeForumPostChannel(9601, 9600, "Setup Meja Belajar Minimalis 2026", ("Showcase",))
+    fake_img_att = _FakeImgAtt()
+    showcase_msg = _FakeForumMsg(9601, showcase_post, andi, "Baru selesai rakit lampu monitor bar!", attachments=[fake_img_att])
+    gal_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Rapi banget setup minimalisnya Andi, cahaya monitor bar-nya bikin mata nyaman!"}]}}]},
+    )
+    fake_http_gal = FakeHttpSession(post_responses=[gal_resp])
+    gal_comment, gal_emoji = await community_agent.generate_gallery_comment(
+        showcase_msg,
+        bot_user,
+        http_session=fake_http_gal,
+    )
+    assert "monitor bar" in gal_comment
+    assert gal_emoji in community_agent.GALLERY_REACTIONS
+    gal_prompt_sent = fake_http_gal.post_calls[0]["json"]["contents"][0]["parts"][-1]["text"]
+    assert "Setup Meja Belajar Minimalis 2026" in gal_prompt_sent
+
+    # 4. Uji Channel Forum Mandiri YouTube & Cari (#9700 tanpa /agent chat)
+    community_agent.set_youtube_channel_config(10, 9700, enabled=True, auto_in_chat=True)
+    community_agent.set_search_channel_config(10, 9700, enabled=True, auto_in_chat=True)
+    yt_forum_post = _FakeForumPostChannel(9701, 9700, "Podcast seru soal AI", ("Video",))
+    yt_forum_msg = _FakeForumMsg(9701, yt_forum_post, andi, "https://youtu.be/dQw4w9WgXcQ")
+    assert community_agent.should_standalone_feature_reply(yt_forum_msg, bot_user) is True
+
 
 
 
