@@ -973,3 +973,20 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
         return True
 
     return False
+
+
+def cancel_channel_game(channel_id: int) -> dict | None:
+    """Membatalkan & membersihkan ronde game aktif di suatu channel/thread dengan aman (anti-leak task)."""
+    state = active_channel_games.pop(channel_id, None)
+    if state is None:
+        return None
+    task = state.get("timeout_task")
+    if task and not task.done():
+        task.cancel()
+    view_obj: discord.ui.View | None = state.get("view")
+    if view_obj is not None:
+        if hasattr(view_obj, "finished"):
+            view_obj.finished = True
+        view_obj.stop()
+    return state
+

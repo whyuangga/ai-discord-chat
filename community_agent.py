@@ -64,11 +64,13 @@ gallery_agent_channels: dict[int, dict] = {}
 youtube_agent_channels: dict[int, dict] = {}
 search_agent_channels: dict[int, dict] = {}
 welcome_agent_guilds: dict[int, dict] = {}
+goodbye_agent_guilds: dict[int, dict] = {}
 digest_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
 
 MAX_SERVER_KNOWLEDGE_ENTRIES = 25
 _recent_welcomed_members: dict[tuple[int, int], float] = {}
+_recent_goodbye_members: dict[tuple[int, int], float] = {}
 _standalone_last_reply_at: dict[int, float] = {}
 _post_runtime_state: dict[int, dict] = {}
 
@@ -90,6 +92,123 @@ STYLE_DESCRIPTIONS: dict[str, str] = {
         "Gunakan bahasa Indonesia santai yang sopan, positif, hangat, dan ramah untuk semua kalangan."
     ),
 }
+
+# ==============================================================================
+# PERSONA KHUSUS SAMBUTAN & PERPISAHAN (TERPISAH TOTAL DARI PERSONA AUTO-CHAT!)
+# ==============================================================================
+GREETING_PERSONAS: dict[str, dict] = {
+    "hangat": {
+        "label": "Hangat & Tulus",
+        "emoji": "🤗",
+        "guide": (
+            "Sambutan hangat, tulus, dan menyenangkan seperti warga lama yang benar-benar senang "
+            "kedatangan teman baru. Nada ramah, sopan, dan membuat orang merasa diterima."
+        ),
+    },
+    "lucu": {
+        "label": "Lucu & Receh",
+        "emoji": "😂",
+        "guide": (
+            "Sambutan lucu, receh, dan menghibur ala tongkrongan Discord. Boleh ada lelucon ringan, "
+            "perumpamaan kocak, atau ekspresi seperti 'wkwk', 'waduh', tapi TETAP ramah dan tidak menyinggung."
+        ),
+    },
+    "santai": {
+        "label": "Santai & Akrab",
+        "emoji": "😎",
+        "guide": (
+            "Sambutan santai dan akrab seperti mengobrol dengan teman sendiri. Bahasa sehari-hari, "
+            "hangat, tidak kaku, dan mengundang orang baru ikut nimbrung."
+        ),
+    },
+    "normal": {
+        "label": "Normal & Sopan",
+        "emoji": "🙂",
+        "guide": (
+            "Sambutan normal yang sopan, jelas, dan rapi tanpa gaya berlebihan. Cocok untuk server "
+            "formal, komunitas profesional, atau server keluarga."
+        ),
+    },
+}
+
+# Kata sapaan "halo/hai" dari bahasa Asia Timur & Asia Tenggara.
+# HANYA kata sapaan pembuka ini yang memakai bahasa asing — sisa kalimat tetap Bahasa Indonesia.
+ASIAN_GREETINGS: tuple[dict, ...] = (
+    {"key": "jepang", "lang": "Jepang", "word": "こんにちは", "read": "Konnichiwa"},
+    {"key": "jepang", "lang": "Jepang", "word": "やあ", "read": "Yaa"},
+    {"key": "jepang", "lang": "Jepang", "word": "おっす", "read": "Ossu"},
+    {"key": "korea", "lang": "Korea", "word": "안녕하세요", "read": "Annyeonghaseyo"},
+    {"key": "korea", "lang": "Korea", "word": "안녕", "read": "Annyeong"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "你好", "read": "Nǐ hǎo"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "大家好", "read": "Dàjiā hǎo"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "嗨", "read": "Hāi"},
+    {"key": "kanton", "lang": "Kanton (Hong Kong)", "word": "你好", "read": "Néih hóu"},
+    {"key": "taiwan", "lang": "Hokkien Taiwan", "word": "逐家好", "read": "Ta̍k-ke hó"},
+    {"key": "mongolia", "lang": "Mongolia", "word": "Сайн уу", "read": "Sain uu"},
+    {"key": "tibet", "lang": "Tibet", "word": "བཀྲ་ཤིས་བདེ་ལེགས", "read": "Tashi delek"},
+    {"key": "thailand", "lang": "Thailand", "word": "สวัสดี", "read": "Sawasdee"},
+    {"key": "thailand", "lang": "Thailand", "word": "หวัดดี", "read": "Watdee"},
+    {"key": "vietnam", "lang": "Vietnam", "word": "Xin chào", "read": "Sin chao"},
+    {"key": "vietnam", "lang": "Vietnam", "word": "Chào bạn", "read": "Chao ban"},
+    {"key": "filipina", "lang": "Filipina", "word": "Kumusta", "read": "Kumusta"},
+    {"key": "filipina", "lang": "Filipina", "word": "Mabuhay", "read": "Mabuhay"},
+    {"key": "melayu", "lang": "Melayu", "word": "Apa khabar", "read": "Apa khabar"},
+    {"key": "melayu", "lang": "Melayu", "word": "Hai semua", "read": "Hai semua"},
+    {"key": "myanmar", "lang": "Myanmar", "word": "မင်္ဂလာပါ", "read": "Mingalaba"},
+    {"key": "kamboja", "lang": "Kamboja", "word": "សួស្តី", "read": "Suostei"},
+    {"key": "laos", "lang": "Laos", "word": "ສະບາຍດີ", "read": "Sabaidee"},
+    {"key": "timorleste", "lang": "Timor Leste", "word": "Ola", "read": "Ola"},
+    {"key": "indonesia", "lang": "Indonesia", "word": "Halo", "read": "Halo"},
+    {"key": "indonesia", "lang": "Indonesia", "word": "Hai", "read": "Hai"},
+)
+
+# Kata perpisahan versi Asia Timur & Asia Tenggara untuk fitur Goodbye.
+ASIAN_FAREWELLS: tuple[dict, ...] = (
+    {"key": "jepang", "lang": "Jepang", "word": "またね", "read": "Mata ne"},
+    {"key": "jepang", "lang": "Jepang", "word": "さようなら", "read": "Sayounara"},
+    {"key": "korea", "lang": "Korea", "word": "안녕히 가세요", "read": "Annyeonghi gaseyo"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "再见", "read": "Zàijiàn"},
+    {"key": "kanton", "lang": "Kanton (Hong Kong)", "word": "再見", "read": "Zoi gin"},
+    {"key": "thailand", "lang": "Thailand", "word": "ลาก่อน", "read": "Lakorn"},
+    {"key": "vietnam", "lang": "Vietnam", "word": "Tạm biệt", "read": "Tam biet"},
+    {"key": "filipina", "lang": "Filipina", "word": "Paalam", "read": "Paalam"},
+    {"key": "melayu", "lang": "Melayu", "word": "Selamat jalan", "read": "Selamat jalan"},
+    {"key": "myanmar", "lang": "Myanmar", "word": "နှုတ်ဆက်ပါတယ်", "read": "Hnuthsaetpatal"},
+    {"key": "kamboja", "lang": "Kamboja", "word": "លាហើយ", "read": "Lea haey"},
+    {"key": "laos", "lang": "Laos", "word": "ລາກ່ອນ", "read": "Laa kon"},
+    {"key": "timorleste", "lang": "Timor Leste", "word": "Adeus", "read": "Adeus"},
+    {"key": "indonesia", "lang": "Indonesia", "word": "Sampai jumpa", "read": "Sampai jumpa"},
+)
+
+
+def pick_greeting_word(
+    pool: tuple[dict, ...] = ASIAN_GREETINGS,
+    *,
+    language: str = "auto",
+    recent_words: list[str] | None = None,
+) -> dict:
+    """Memilih kata sapaan/perpisahan asing secara acak sambil menghindari pengulangan terakhir."""
+    lang_key = (language or "auto").strip().lower()
+    candidates = [
+        item
+        for item in pool
+        if lang_key in ("auto", "campur", "") or item.get("key") == lang_key
+    ]
+    if not candidates:
+        candidates = list(pool)
+
+    recent = {str(w).strip() for w in (recent_words or []) if str(w).strip()}
+    fresh = [item for item in candidates if item["word"] not in recent]
+    return random.choice(fresh or candidates)
+
+
+def format_greeting_word(item: dict) -> str:
+    """Format tampilan kata sapaan asing, misal: `こんにちは` (Konnichiwa — Jepang)."""
+    read = str(item.get("read") or "").strip()
+    lang = str(item.get("lang") or "").strip()
+    detail = " — ".join(part for part in (read, lang) if part)
+    return f"`{item['word']}`" + (f" ({detail})" if detail else "")
+
 
 GALLERY_REACTIONS = ("✨", "🔥", "😍", "👏", "🙌")
 
@@ -553,8 +672,14 @@ def set_welcome_config(
     *,
     enabled: bool,
     extra_note: str | None = None,
+    persona: str | None = None,
+    hello_language: str | None = None,
 ) -> dict | None:
-    """Mengatur atau menonaktifkan fitur AI Auto-Welcomer untuk member baru di suatu server."""
+    """Mengatur atau menonaktifkan fitur AI Auto-Welcomer untuk member baru di suatu server.
+
+    `persona` adalah persona KHUSUS SAMBUTAN (hangat / lucu / santai / normal) yang
+    sepenuhnya terpisah dari persona/Auto-Chat AI Agent (/agent persona).
+    """
     if not enabled:
         welcome_agent_guilds.pop(guild_id, None)
         return None
@@ -567,29 +692,122 @@ def set_welcome_config(
     else:
         note = extra_note.strip()[:250]
 
+    chosen_persona = (
+        persona if persona in GREETING_PERSONAS else existing.get("persona", "hangat")
+    )
+    if chosen_persona not in GREETING_PERSONAS:
+        chosen_persona = "hangat"
+
+    lang_keys = {"auto"} | {item["key"] for item in ASIAN_GREETINGS}
+    chosen_lang = hello_language if hello_language in lang_keys else existing.get("hello_language", "auto")
+    if chosen_lang not in lang_keys:
+        chosen_lang = "auto"
+
     welcome_agent_guilds[guild_id] = {
         "enabled": True,
         "channel_id": int(channel_id),
         "extra_note": note,
+        "persona": chosen_persona,
+        "hello_language": chosen_lang,
         "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
+        "recent_hellos": list(existing.get("recent_hellos") or [])[-8:],
     }
     return welcome_agent_guilds[guild_id]
 
 
+def set_goodbye_config(
+    guild_id: int,
+    channel_id: int,
+    *,
+    enabled: bool,
+    extra_note: str | None = None,
+    persona: str | None = None,
+    hello_language: str | None = None,
+) -> dict | None:
+    """Mengatur fitur AI Auto-Goodbye (pamitan member yang keluar) di suatu server."""
+    if not enabled:
+        goodbye_agent_guilds.pop(guild_id, None)
+        return None
+
+    existing = goodbye_agent_guilds.get(guild_id) or {}
+    if extra_note is None:
+        note = str(existing.get("extra_note") or "").strip()
+    elif extra_note.strip() == "-":
+        note = ""
+    else:
+        note = extra_note.strip()[:250]
+
+    chosen_persona = persona if persona in GREETING_PERSONAS else existing.get("persona", "hangat")
+    if chosen_persona not in GREETING_PERSONAS:
+        chosen_persona = "hangat"
+
+    lang_keys = {"auto"} | {item["key"] for item in ASIAN_FAREWELLS}
+    chosen_lang = hello_language if hello_language in lang_keys else existing.get("hello_language", "auto")
+    if chosen_lang not in lang_keys:
+        chosen_lang = "auto"
+
+    goodbye_agent_guilds[guild_id] = {
+        "enabled": True,
+        "channel_id": int(channel_id),
+        "extra_note": note,
+        "persona": chosen_persona,
+        "hello_language": chosen_lang,
+        "recent_goodbyes": list(existing.get("recent_goodbyes") or [])[-5:],
+        "recent_farewells": list(existing.get("recent_farewells") or [])[-8:],
+    }
+    return goodbye_agent_guilds[guild_id]
+
+
 def should_process_member_welcome(guild_id: int, user_id: int, *, force: bool = False) -> bool:
     """Mencegah sambutan ganda jika event on_member_join & System Join Message aktif bersamaan."""
+    return _should_process_once(_recent_welcomed_members, guild_id, user_id, force=force)
+
+
+def should_process_member_goodbye(guild_id: int, user_id: int, *, force: bool = False) -> bool:
+    """Mencegah pamitan ganda saat event leave terpicu berkali-kali dalam waktu singkat."""
+    return _should_process_once(_recent_goodbye_members, guild_id, user_id, force=force)
+
+
+def _should_process_once(
+    tracker: dict[tuple[int, int], float],
+    guild_id: int,
+    user_id: int,
+    *,
+    force: bool = False,
+) -> bool:
     now = time.time()
     # Bersihkan entri kadaluarsa (> 5 menit)
-    expired = [k for k, ts in _recent_welcomed_members.items() if now - ts > 300]
-    for k in expired:
-        _recent_welcomed_members.pop(k, None)
+    for key, ts in list(tracker.items()):
+        if now - ts > 300:
+            tracker.pop(key, None)
 
     key = (int(guild_id), int(user_id))
-    if not force and key in _recent_welcomed_members and (now - _recent_welcomed_members[key]) < 60:
+    if not force and key in tracker and (now - tracker[key]) < 60:
         return False
 
-    _recent_welcomed_members[key] = now
+    tracker[key] = now
     return True
+
+
+def _parse_greeting_guild_config(
+    raw: dict,
+    *,
+    recent_text_key: str,
+    recent_word_key: str,
+) -> dict:
+    """Normalisasi konfigurasi sambutan/perpemisahan dari disk (persona & bahasa sapaan)."""
+    persona = str(raw.get("persona") or "hangat").strip().lower()
+    if persona not in GREETING_PERSONAS:
+        persona = "hangat"
+    return {
+        "enabled": True,
+        "channel_id": int(raw["channel_id"]),
+        "extra_note": str(raw.get("extra_note") or "").strip()[:250],
+        "persona": persona,
+        "hello_language": str(raw.get("hello_language") or "auto").strip().lower() or "auto",
+        recent_text_key: [str(x) for x in (raw.get(recent_text_key) or [])[-5:]],
+        recent_word_key: [str(x) for x in (raw.get(recent_word_key) or [])[-8:]],
+    }
 
 
 def load_agent_config_from_disk() -> tuple[int, int]:
@@ -693,12 +911,20 @@ def load_agent_config_from_disk() -> tuple[int, int]:
             gid = int(gid_str)
             if not wdata.get("enabled", True):
                 continue
-            welcome_agent_guilds[gid] = {
-                "enabled": True,
-                "channel_id": int(wdata["channel_id"]),
-                "extra_note": str(wdata.get("extra_note") or "").strip()[:250],
-                "recent_welcomes": [str(x) for x in (wdata.get("recent_welcomes") or [])[-5:]],
-            }
+            welcome_agent_guilds[gid] = _parse_greeting_guild_config(
+                wdata, recent_text_key="recent_welcomes", recent_word_key="recent_hellos"
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    for gid_str, gdata in (raw.get("goodbye_guilds") or {}).items():
+        try:
+            gid = int(gid_str)
+            if not gdata.get("enabled", True):
+                continue
+            goodbye_agent_guilds[gid] = _parse_greeting_guild_config(
+                gdata, recent_text_key="recent_goodbyes", recent_word_key="recent_farewells"
+            )
         except (KeyError, ValueError, TypeError):
             continue
 
@@ -752,6 +978,7 @@ async def save_agent_config_to_disk() -> None:
                 "youtube_channels": {str(k): v for k, v in youtube_agent_channels.items()},
                 "search_channels": {str(k): v for k, v in search_agent_channels.items()},
                 "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
+                "goodbye_guilds": {str(k): v for k, v in goodbye_agent_guilds.items()},
                 "digest_guilds": {str(k): v for k, v in digest_agent_guilds.items()},
                 "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in recent_hist_items},
             }
@@ -1616,6 +1843,43 @@ _WELCOME_ANGLES: tuple[str, ...] = (
     "Sambut ramah seolah membukakan pintu tongkrongan sambil menyapa namanya dengan akrab.",
 )
 
+_GOODBYE_ANGLES: tuple[str, ...] = (
+    "Pamit dengan hangat sambil mendoakan hal baik untuk langkah berikutnya.",
+    "Ucapkan perpisahan singkat yang manis dan berkesan tanpa berlebihan.",
+    "Pamit santai seperti teman yang berpamitan pulang, tetap ramah dan menghargai.",
+    "Berikan perpisahan ringan yang hangat sekaligus lucu agar dia selalu ingat komunitas ini.",
+)
+
+
+def _build_greeting_system_prompt(
+    agent_name: str,
+    persona: dict,
+    *,
+    guild_name: str,
+    mode: str = "welcome",
+) -> str:
+    """Prompt sistem KHUSUS sambutan / perpisahan.
+
+    Sengaja tidak memakai `_build_community_system_prompt` agar gaya bahasa Auto-Chat
+    (`/agent persona`) tidak pernah bercampur dengan persona sambutan khusus.
+    """
+    server_label = f" di server '{guild_name}'" if guild_name else ""
+    duty = (
+        "mengucapkan salam perpisahan untuk member yang memutuskan keluar dari server"
+        if mode == "goodbye"
+        else "menyambut member baru yang baru saja bergabung ke server"
+    )
+    return (
+        f"Kamu adalah '{agent_name}', warga senior{server_label} yang bertugas {duty}.\n"
+        f"PERSONA SAMBUTAN WAJIB (khusus, terpisah dari gaya obrolan sehari-hari): {persona['guide']}\n"
+        "ATURAN BAHASA KETAT:\n"
+        "• Seluruh kalimat WAJIB Bahasa Indonesia yang natural, luwes, dan enak dibaca.\n"
+        "• HANYA kata sapaan pembuka yang memakai bahasa asing sesuai instruksi.\n"
+        "• Jangan menambah kata asing lain di tengah kalimat.\n"
+        "• Jangan menyebut dirimu AI atau bot, tanpa hashtag, dan tanpa markdown berlebihan.\n"
+        "• Maksimal 2 kalimat pendek (idealnya 120–220 karakter) dan terasa personal."
+    )
+
 
 async def generate_welcome_greeting(
     guild_id: int,
@@ -1625,16 +1889,31 @@ async def generate_welcome_greeting(
     *,
     guild_name: str = "",
     member_count: int | None = None,
+    persona_override: str | None = None,
     http_session: aiohttp.ClientSession | None = None,
 ) -> str | None:
-    """Membuat sambutan otomatis yang unik & natural ala manusia untuk member yang baru bergabung."""
+    """Membuat sambutan otomatis unik dengan persona sambutan khusus + sapaan bahasa asing."""
     w_cfg = welcome_agent_guilds.get(guild_id)
     if not w_cfg or not w_cfg.get("enabled"):
         return None
 
     guild_cfg = get_guild_settings(guild_id)
     time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
-    system_prompt = _build_community_system_prompt(guild_cfg, bot_display_name, time_ctx)
+    agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
+
+    persona_key = persona_override if persona_override in GREETING_PERSONAS else str(w_cfg.get("persona") or "hangat")
+    persona = GREETING_PERSONAS.get(persona_key, GREETING_PERSONAS["hangat"])
+
+    recent_hellos = list(w_cfg.get("recent_hellos") or [])[-8:]
+    hello = pick_greeting_word(
+        ASIAN_GREETINGS,
+        language=str(w_cfg.get("hello_language") or "auto"),
+        recent_words=recent_hellos,
+    )
+
+    system_prompt = _build_greeting_system_prompt(
+        agent_name, persona, guild_name=guild_name, mode="welcome"
+    )
 
     recent_welcomes = list(w_cfg.get("recent_welcomes") or [])[-5:]
     avoid_block = ""
@@ -1658,9 +1937,11 @@ async def generate_welcome_greeting(
     welcome_prompt = (
         f"(Instruksi situasi: Member baru bernama '{member_display_name}'{count_info} baru saja bergabung{server_label} "
         f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
+        f"Persona sambutan: {persona['label']}\n"
+        f"KATA SAPAAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan): {format_greeting_word(hello)}\n"
         f"Gaya sambutan kali ini: {angle}\n"
-        f"Gunakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention, "
-        "tulis 1–2 kalimat pendek saja yang hangat, gaul/akrab, dan mengundang dia ikut ngobrol!)"
+        f"Sertakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention. "
+        "Tulis 1–2 kalimat pendek yang ramah dan mengundang dia ikut ngobrol, sisanya tetap Bahasa Indonesia!)"
         f"{note_instruction}{avoid_block}"
     )
 
@@ -1675,14 +1956,116 @@ async def generate_welcome_greeting(
     )
 
     if reply:
-        reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip().strip('"')
-        if member_mention and member_mention not in reply:
-            reply = f"{member_mention} {reply}"
+        reply = _finalize_greeting_text(reply, hello, member_mention)
         recent_welcomes.append(reply)
         w_cfg["recent_welcomes"] = recent_welcomes[-5:]
+        w_cfg["recent_hellos"] = (recent_hellos + [hello["word"]])[-8:]
         channel_id = int(w_cfg["channel_id"])
         if channel_id in chat_agent_channels:
             _append_channel_history(channel_id, "model", reply)
+        await save_agent_config_to_disk()
+
+    return reply
+
+
+def _finalize_greeting_text(reply: str, word_item: dict, member_mention: str) -> str:
+    """Merapikan balasan AI: pastikan kata sapaan asing ada di awal & mention tetap muncul."""
+    text = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply or "").strip().strip('"').strip()
+    word = str(word_item.get("word") or "").strip()
+    if word and not text.startswith(word):
+        text = f"{word} {text}"
+    if member_mention and member_mention not in text:
+        if word and text.startswith(word):
+            rest = text[len(word):].lstrip(" ,.:;!-")
+            text = f"{word} {member_mention}, {rest}" if rest else f"{word} {member_mention}"
+        else:
+            text = f"{member_mention} {text}"
+    return text.strip()[:900]
+
+
+async def generate_goodbye_message(
+    guild_id: int,
+    member_display_name: str,
+    member_mention: str,
+    bot_display_name: str,
+    *,
+    guild_name: str = "",
+    days_in_server: int | None = None,
+    persona_override: str | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> str | None:
+    """Membuat pesan perpisahan hangat untuk member yang keluar dari server."""
+    g_cfg = goodbye_agent_guilds.get(guild_id)
+    if not g_cfg or not g_cfg.get("enabled"):
+        return None
+
+    guild_cfg = get_guild_settings(guild_id)
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+    agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
+
+    persona_key = persona_override if persona_override in GREETING_PERSONAS else str(g_cfg.get("persona") or "hangat")
+    persona = GREETING_PERSONAS.get(persona_key, GREETING_PERSONAS["hangat"])
+
+    recent_farewells = list(g_cfg.get("recent_farewells") or [])[-8:]
+    farewell = pick_greeting_word(
+        ASIAN_FAREWELLS,
+        language=str(g_cfg.get("hello_language") or "auto"),
+        recent_words=recent_farewells,
+    )
+
+    system_prompt = _build_greeting_system_prompt(
+        agent_name, persona, guild_name=guild_name, mode="goodbye"
+    )
+
+    recent_goodbyes = list(g_cfg.get("recent_goodbyes") or [])[-5:]
+    avoid_block = ""
+    if recent_goodbyes:
+        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_goodbyes)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Pesan perpisahan sebelumnya: [{joined_prev}]. "
+            "Buat variasi kalimat baru yang berbeda dari itu."
+        )
+
+    extra_note = str(g_cfg.get("extra_note") or "").strip()
+    note_instruction = (
+        f"\nSelipkan juga pesan ini secara natural: \"{extra_note}\""
+        if extra_note
+        else ""
+    )
+    duration_info = (
+        f" Dia sudah menjadi warga server selama sekitar {days_in_server} hari."
+        if days_in_server and days_in_server > 0
+        else ""
+    )
+    server_label = f" dari server '{guild_name}'" if guild_name else ""
+    angle = random.choice(_GOODBYE_ANGLES)
+
+    goodbye_prompt = (
+        f"(Instruksi situasi: Member bernama '{member_display_name}' baru saja keluar{server_label} "
+        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']}.{duration_info}\n"
+        f"Persona perpisahan: {persona['label']}\n"
+        f"KATA PERPISAHAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan): {format_greeting_word(farewell)}\n"
+        f"Gaya perpisahan kali ini: {angle}\n"
+        f"Sertakan tag persis {member_mention} satu kali. Tulis 1–2 kalimat pendek yang hangat, "
+        "tulus, dan tetap positif. Sisa kalimat WAJIB Bahasa Indonesia!)"
+        f"{note_instruction}{avoid_block}"
+    )
+
+    reply = await _call_gemini_agent(
+        system_prompt,
+        [{"role": "user", "parts": [{"text": goodbye_prompt}]}],
+        temperature=0.9,
+        max_tokens=1024,
+        thinking_level="minimal",
+        has_media=False,
+        http_session=http_session,
+    )
+
+    if reply:
+        reply = _finalize_greeting_text(reply, farewell, member_mention)
+        recent_goodbyes.append(reply)
+        g_cfg["recent_goodbyes"] = recent_goodbyes[-5:]
+        g_cfg["recent_farewells"] = (recent_farewells + [farewell["word"]])[-8:]
         await save_agent_config_to_disk()
 
     return reply
@@ -1819,5 +2202,76 @@ async def run_morning_digest_check(
             logger.warning("Gagal mengirim Morning Digest di channel %s: %s", channel_id, exc)
 
     return sent_count
+
+
+def remove_agent_thread_runtime(thread_id: int) -> bool:
+    """Membersihkan memori percakapan & cache runtime saat Thread / Postingan Forum dihapus."""
+    removed = False
+    if channel_histories.pop(thread_id, None) is not None:
+        removed = True
+    if _post_runtime_state.pop(thread_id, None) is not None:
+        removed = True
+    if _standalone_last_reply_at.pop(thread_id, None) is not None:
+        removed = True
+    if _recent_channel_speakers.pop(thread_id, None) is not None:
+        removed = True
+    lock = _agent_channel_locks.get(thread_id)
+    if lock is not None and not lock.locked():
+        _agent_channel_locks.pop(thread_id, None)
+    return removed
+
+
+def cleanup_stale_agent_runtime(max_idle_sec: float = 21600.0) -> int:
+    """Memangkas cache runtime tidak aktif (>6 jam default) agar pemakaian RAM tetap rata di Wispbyte."""
+    now = time.time()
+    cutoff = now - max(60.0, float(max_idle_sec))
+    cleaned = 0
+
+    for tracker in (_recent_welcomed_members, _recent_goodbye_members):
+        for key, ts in list(tracker.items()):
+            if now - ts > 600.0:
+                tracker.pop(key, None)
+                cleaned += 1
+
+    for cid, ts in list(_standalone_last_reply_at.items()):
+        if ts < cutoff:
+            _standalone_last_reply_at.pop(cid, None)
+            cleaned += 1
+
+    for cid, arr in list(_recent_channel_speakers.items()):
+        fresh = [(uid, ts) for uid, ts in arr if ts >= now - 120.0]
+        if fresh:
+            _recent_channel_speakers[cid] = fresh
+        else:
+            _recent_channel_speakers.pop(cid, None)
+            cleaned += 1
+
+    for pid, pstate in list(_post_runtime_state.items()):
+        last_act = float(pstate.get("last_activity_at") or pstate.get("last_bot_reply_at") or 0.0)
+        if last_act < cutoff:
+            _post_runtime_state.pop(pid, None)
+            channel_histories.pop(pid, None)
+            cleaned += 1
+
+    # Jaga jumlah riwayat channel/post di RAM agar tidak tumbuh tanpa batas
+    configured_ids = (
+        set(chat_agent_channels.keys())
+        | set(gallery_agent_channels.keys())
+        | set(youtube_agent_channels.keys())
+        | set(search_agent_channels.keys())
+        | set(_post_runtime_state.keys())
+    )
+    if len(channel_histories) > max(40, len(configured_ids) + 25):
+        for cid in list(channel_histories.keys()):
+            if cid not in configured_ids:
+                channel_histories.pop(cid, None)
+                cleaned += 1
+
+    for cid, lock in list(_agent_channel_locks.items()):
+        if not lock.locked() and cid not in configured_ids and cid not in channel_histories:
+            _agent_channel_locks.pop(cid, None)
+
+    return cleaned
+
 
 

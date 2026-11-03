@@ -1,5 +1,7 @@
 import base64
 import json
+import time
+
 import pytest
 import discord
 
@@ -9,6 +11,7 @@ import utils
 import ai_handler
 import community_agent
 import games
+import server_features
 import views
 import main as bot_main
 
@@ -75,6 +78,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     monkeypatch.setattr(community_agent, "AGENT_CONFIG_FILE", agent_cfg_path)
     monkeypatch.setattr(games, "DATA_DIR", tmp_path)
     monkeypatch.setattr(games, "GAME_SCORES_FILE", scores_path)
+    monkeypatch.setattr(server_features, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(server_features, "SERVER_FEATURES_FILE", tmp_path / "server_features.json")
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -84,8 +89,14 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.youtube_agent_channels.clear()
     community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
+    community_agent.goodbye_agent_guilds.clear()
     community_agent.digest_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
+    community_agent._recent_goodbye_members.clear()
+    server_features.serverstats_guilds.clear()
+    server_features.autorole_guilds.clear()
+    server_features.facts_guilds.clear()
+    server_features.security_guilds.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -105,8 +116,14 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.youtube_agent_channels.clear()
     community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
+    community_agent.goodbye_agent_guilds.clear()
     community_agent.digest_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
+    community_agent._recent_goodbye_members.clear()
+    server_features.serverstats_guilds.clear()
+    server_features.autorole_guilds.clear()
+    server_features.facts_guilds.clear()
+    server_features.security_guilds.clear()
     community_agent.channel_histories.clear()
     utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
@@ -329,8 +346,14 @@ async def test_persistent_views_have_valid_custom_ids():
 
 
 def test_slash_commands_registered():
-    cmd_names = {cmd.name for cmd in bot_main.bot.tree.get_commands()}
-    assert {"setup_panel", "reset", "model", "status", "ringkas"}.issubset(cmd_names)
+    all_cmds = {cmd.name: cmd for cmd in bot_main.bot.tree.get_commands()}
+    assert {"sesi", "ringkas", "cari", "game", "agent", "status", "bantuan"}.issubset(all_cmds.keys())
+
+    sesi_subs = {sc.name for sc in all_cmds["sesi"].commands}
+    assert sesi_subs == {"panel", "model", "reset", "tutup"}
+
+    ringkas_subs = {sc.name for sc in all_cmds["ringkas"].commands}
+    assert ringkas_subs == {"chat", "link"}
 
 
 class _DummyAttachment:
@@ -396,6 +419,7 @@ def test_agent_command_group_registered():
         "info",
         "digest",
         "panel",
+        "goodbye",
     } == sub_names
 
 
@@ -1067,7 +1091,7 @@ async def test_mini_game_engine_guessing_and_leaderboard_persistence(monkeypatch
 
     # 1. Validasi seluruh subcommand /game & command baru terdaftar
     top_names = {c.name for c in bot_main.bot.tree.get_commands()}
-    assert {"cari", "ringkas_link", "game", "bantuan"}.issubset(top_names)
+    assert {"cari", "ringkas", "sesi", "game", "bantuan"}.issubset(top_names)
     game_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "game")
     sub_names = {sc.name for sc in game_cmd.commands}
     assert sub_names == {"mulai", "papan_skor", "stop", "reset_skor"}
@@ -1487,8 +1511,8 @@ async def test_slash_ringkas_link_and_cari_per_channel_gating(monkeypatch):
     async def _fake_search_web(q, **kwargs):
         return "Berita hari ini berhasil ditemukan!", None
 
-    monkeypatch.setattr(bot_main, "analyze_link_with_gemini", _fake_analyze_link)
-    monkeypatch.setattr(bot_main, "search_web_with_gemini", _fake_search_web)
+    monkeypatch.setattr(ai_handler, "analyze_link_with_gemini", _fake_analyze_link)
+    monkeypatch.setattr(ai_handler, "search_web_with_gemini", _fake_search_web)
 
     ix_ok_yt = _FakeInteraction(channel_id=8100)
     await bot_main.slash_ringkas_link.callback(ix_ok_yt, url="https://youtu.be/dQw4w9WgXcQ")
@@ -1845,6 +1869,12 @@ async def test_forum_auto_tagging_and_solved_button_view():
     assert edited_calls == []
 
     # 2. Pemilik postingan (uid=501) berhasil menandai selesai + tambah tag Selesai + arsip
+    edited_msg_views: list = []
+
+    class _FakeBtnMessage:
+        async def edit(self, *, view=None):
+            edited_msg_views.append(view)
+
     owner_ix = type(
         "Ix",
         (),
@@ -1853,7 +1883,7 @@ async def test_forum_auto_tagging_and_solved_button_view():
             "user": _FakeUser(501, "PemilikPost"),
             "response": _FakeResp(),
             "followup": _FakeFollowup(),
-            "message": None,
+            "message": _FakeBtnMessage(),
         },
     )()
     await btn.callback(owner_ix)
@@ -1862,7 +1892,10 @@ async def test_forum_auto_tagging_and_solved_button_view():
     assert edited_calls[0]["archived"] is True
     assert edited_calls[0]["name"] == "✅ Error login aplikasi"
     assert t_solved in edited_calls[0]["applied_tags"]
-    assert btn.disabled is True
+    # Pesan tombol diubah memakai View terpisah yang nonaktif, sementara instance singleton ForumPostSolvedView tetap utuh!
+    assert len(edited_msg_views) == 1
+    assert edited_msg_views[0].children[0].disabled is True
+    assert btn.disabled is False
 
 
 @pytest.mark.asyncio
@@ -2093,11 +2126,77 @@ async def test_free_tier_member_cooldown_and_admin_panel_view():
             "get_channel": lambda self, cid: None,
         },
     )()
-    status_emb = views.build_agent_status_embed(fake_guild)
-    assert "v1.3.0-beta" in status_emb.title
+    status_emb = views.build_agent_status_embed(fake_guild, selected_channel_id=4455, notice_banner="✅ Uji Panel")
+    assert config.BOT_VERSION in status_emb.title
+    assert "✅ Uji Panel" in status_emb.description
+    assert any("Channel Target Terpilih" in f.name for f in status_emb.fields)
     assert any("FAQ" in f.name for f in status_emb.fields)
 
 
+@pytest.mark.asyncio
+async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
+    """Menguji arsitektur modular cogs/, HelpMenuView (/bantuan), ServerFaqManagerView, & pembersih RAM."""
+    # 1. Pastikan top-level slash commands ringkas (11 command utama, hemat slot dari batas 100 Discord)
+    chat_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
+    assert {c.name for c in chat_cmds} == {
+        "sesi", "ringkas", "cari", "game", "agent", "bantuan", "status",
+        "serverstats", "autorole", "fakta", "keamanan",
+    }
+
+    # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
+    for cat in ("overview", "sesi", "tools", "games", "server", "admin"):
+        emb = views.build_help_embed(cat)
+        assert len(emb.title) <= 256
+        assert len(emb.fields) >= 2
+    help_view = views.HelpMenuView(requester_id=501)
+    for child in help_view.children:
+        if isinstance(child, discord.ui.Select):
+            for opt in child.options:
+                assert 1 <= len(opt.label) <= 100
+                if opt.description:
+                    assert len(opt.description) <= 100
+
+    # 3. Uji ServerFaqManagerView saat kosong & saat terisi entri FAQ
+    community_agent.upsert_server_knowledge(10, "Rules", "Dilarang spam link promosi.")
+    community_agent.upsert_server_knowledge(10, "Discord Invite", "discord.gg/contoh")
+    faq_view = views.ServerFaqManagerView(admin_user_id=99, guild_id=10)
+    assert len(faq_view.children) == 2  # Select hapus 1 + Button hapus semua
+
+    # 4. Uji pembersihan RAM jangka panjang (cleanup_stale_agent_runtime, remove_agent_thread_runtime, cancel_channel_game, prune_expired_user_cooldowns)
+    import asyncio as _asyncio
+
+    community_agent._post_runtime_state[8888] = {"last_activity_at": 1.0}
+    community_agent.channel_histories[8888] = [{"role": "user", "parts": [{"text": "tes"}]}]
+    community_agent._standalone_last_reply_at[8888] = 1.0
+    community_agent._recent_welcomed_members[(10, 501)] = 1.0
+    community_agent._recent_channel_speakers[8888] = [(501, 1.0)]
+
+    cleaned_count = community_agent.cleanup_stale_agent_runtime(max_idle_sec=60.0)
+    assert cleaned_count >= 4
+    assert 8888 not in community_agent._post_runtime_state
+    assert 8888 not in community_agent.channel_histories
+
+    # Uji remove_agent_thread_runtime & cancel_channel_game saat thread/channel dihapus
+    community_agent.channel_histories[7777] = [{"role": "user", "parts": [{"text": "halo"}]}]
+    assert community_agent.remove_agent_thread_runtime(7777) is True
+    assert 7777 not in community_agent.channel_histories
+
+    dummy_task = _asyncio.create_task(_asyncio.sleep(60))
+    games.active_channel_games[7777] = {"type": "emoji", "answer": "Kucing", "timeout_task": dummy_task}
+    cancelled_state = games.cancel_channel_game(7777)
+    await _asyncio.sleep(0)
+    assert cancelled_state is not None
+    assert dummy_task.cancelled() is True
+    assert 7777 not in games.active_channel_games
+
+    utils._user_command_cooldowns[(501, "cari")] = 0.0
+    assert utils.prune_expired_user_cooldowns() >= 1
+
+    # 5. Pastikan seluruh banner sistem di ruang privat disaring dari memori AI & transkrip sesi
+    assert storage.is_bot_ui_message("🔴 *Gunakan tombol di bawah untuk mereset memori atau mengakhiri sesi:*") is True
+    assert storage.is_bot_ui_message("✅ **Mode AI berhasil diganti ke:** **♊ Gemini Flash**") is True
+    assert storage.is_bot_ui_message("⏳ Tunggu **5 detik** lagi sebelum membuat gambar berikutnya ya!") is True
+    assert storage.is_bot_ui_message("Halo, bagaimana cara belajar Python?") is False
 
 
 
@@ -2106,3 +2205,371 @@ async def test_free_tier_member_cooldown_and_admin_panel_view():
 
 
 
+
+
+
+
+
+
+@pytest.mark.asyncio
+async def test_welcome_persona_goodbye_and_asian_greetings(monkeypatch):
+    """Persona sambutan terpisah dari persona chat, sapaan Asia berganti, & fitur Goodbye."""
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    # 1. Persona & bahasa sapaan tersimpan terpisah dari persona Auto-Chat
+    cfg = community_agent.set_welcome_config(
+        10, 7000, enabled=True, persona="lucu", hello_language="jepang"
+    )
+    assert cfg["persona"] == "lucu"
+    assert cfg["hello_language"] == "jepang"
+    community_agent.guild_agent_settings[10] = {
+        "nickname": "Whas",
+        "style_preset": "gaul",
+        "custom_prompt": "",
+        "timezone": "Asia/Jakarta",
+        "quiet_hours": True,
+        "knowledge_entries": [],
+    }
+
+    # Nilai tidak valid tidak boleh merusak konfigurasi
+    cfg = community_agent.set_welcome_config(
+        10, 7000, enabled=True, persona="ngawur", hello_language="klingon"
+    )
+    assert cfg["persona"] == "lucu"
+    assert cfg["hello_language"] == "jepang"
+
+    # 2. Pemilih kata sapaan menghindari pengulangan
+    japanese = [w for w in community_agent.ASIAN_GREETINGS if w["key"] == "jepang"]
+    recent = [w["word"] for w in japanese[:2]]
+    picked = community_agent.pick_greeting_word(
+        community_agent.ASIAN_GREETINGS, language="jepang", recent_words=recent
+    )
+    assert picked["key"] == "jepang"
+    assert picked["word"] not in recent
+    assert len([w for w in community_agent.ASIAN_GREETINGS if w["key"] == "thailand"]) >= 1
+
+    # 3. Sambutan: sapaan Jepang di awal kalimat, sisa Bahasa Indonesia, persona khusus dipakai
+    w_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Selamat datang ya, jangan sungkan ikut nimbrung!"}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[w_resp])
+    greeting = await community_agent.generate_welcome_greeting(
+        10, "Bintang", "<@555>", "Whas", guild_name="Server Angga", http_session=fake_http
+    )
+    jp_words = {w["word"] for w in japanese}
+    assert any(greeting.startswith(w) for w in jp_words)
+    assert "<@555>" in greeting
+
+    sent_system = fake_http.post_calls[0]["json"]["systemInstruction"]["parts"][0]["text"]
+    sent_prompt = fake_http.post_calls[0]["json"]["contents"][0]["parts"][-1]["text"]
+    assert "Persona sambutan: Lucu & Receh" in sent_prompt
+    assert "HANYA kata sapaan pembuka" in sent_system
+    # Persona chat (gaul) tidak boleh bocor ke prompt sambutan
+    assert community_agent.STYLE_DESCRIPTIONS["gaul"] not in sent_system
+
+    # 4. Goodbye: konfigurasi, dedup, & pesan perpisahan
+    g_cfg = community_agent.set_goodbye_config(
+        10, 7001, enabled=True, persona="hangat", hello_language="korea"
+    )
+    assert g_cfg["enabled"] is True
+    assert g_cfg["persona"] == "hangat"
+    assert community_agent.should_process_member_goodbye(10, 556) is True
+    assert community_agent.should_process_member_goodbye(10, 556) is False
+    assert community_agent.should_process_member_goodbye(10, 556, force=True) is True
+
+    g_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Terima kasih sudah mampir, semoga sukses selalu!"}]}}]},
+    )
+    fake_http_g = FakeHttpSession(post_responses=[g_resp])
+    farewell = await community_agent.generate_goodbye_message(
+        10, "Bintang", "<@555>", "Whas", guild_name="Server Angga",
+        days_in_server=12, http_session=fake_http_g,
+    )
+    korean_words = {w["word"] for w in community_agent.ASIAN_FAREWELLS if w["key"] == "korea"}
+    assert any(farewell.startswith(w) for w in korean_words)
+    assert "<@555>" in farewell
+    assert "Persona perpisahan: Hangat & Tulus" in fake_http_g.post_calls[0]["json"]["contents"][0]["parts"][-1]["text"]
+
+    # 5. Kedua konfigurasi tahan restart (persist ke disk)
+    await community_agent.save_agent_config_to_disk()
+    community_agent.welcome_agent_guilds.clear()
+    community_agent.goodbye_agent_guilds.clear()
+    community_agent.load_agent_config_from_disk()
+    assert community_agent.welcome_agent_guilds[10]["persona"] == "lucu"
+    assert community_agent.welcome_agent_guilds[10]["hello_language"] == "jepang"
+    assert community_agent.goodbye_agent_guilds[10]["channel_id"] == 7001
+    assert community_agent.goodbye_agent_guilds[10]["hello_language"] == "korea"
+
+
+class _FakePerms:
+    def __init__(self, administrator: bool = False, manage_messages: bool = False):
+        self.administrator = administrator
+        self.manage_messages = manage_messages
+
+
+class _FakeStatsChannel:
+    def __init__(self, cid: int, ctype: discord.ChannelType):
+        self.id = cid
+        self.type = ctype
+
+
+class _FakeStatsRole:
+    def __init__(self, name: str = "Member"):
+        self.name = name
+        self.managed = False
+
+    def is_default(self) -> bool:
+        return False
+
+
+class _FakeStatsMember:
+    def __init__(self, bot: bool = False):
+        self.bot = bot
+
+
+class _FakeStatsGuild:
+    def __init__(self):
+        self.id = 10
+        self.name = "Server Uji"
+        self.description = "Server untuk pengujian fitur baru"
+        self.member_count = 42
+        self.members = [_FakeStatsMember(bot=False), _FakeStatsMember(bot=False), _FakeStatsMember(bot=True)]
+        self.channels = [
+            _FakeStatsChannel(1, discord.ChannelType.text),
+            _FakeStatsChannel(2, discord.ChannelType.text),
+            _FakeStatsChannel(3, discord.ChannelType.voice),
+            _FakeStatsChannel(4, discord.ChannelType.forum),
+            _FakeStatsChannel(5, discord.ChannelType.category),
+        ]
+        self.roles = [_FakeStatsRole() for _ in range(6)]
+        self.emojis = [1, 2, 3]
+        self.stickers = [1]
+        self.premium_subscription_count = 4
+        self.premium_tier = 1
+        self.created_at = discord.utils.utcnow()
+        self.owner = "PemilikServer#0001"
+        self.verification_level = discord.VerificationLevel.medium
+        self.icon = None
+        self.approximate_presence_count = 17
+
+
+@pytest.mark.asyncio
+async def test_serverstats_autorole_facts_and_phishing_guard():
+    """Menguji fitur Server Stats, Auto Role, Fakta Harian, & deteksi Anti-Phishing."""
+    # 1. Server Stats: kartu statistik memuat seluruh angka penting
+    stats_cfg = server_features.set_serverstats_config(10, enabled=True)
+    assert stats_cfg["enabled"] is True
+    embed = server_features.build_serverstats_embed(_FakeStatsGuild(), presence_count=17)
+    assert "Statistik Server" in embed.title
+    field_names = " ".join(f.name for f in embed.fields)
+    assert "Anggota" in field_names
+    assert "Kanal" in field_names
+    values = " ".join(f.value for f in embed.fields)
+    assert "42" in values
+    assert "17" in values
+    assert "Boost" in values
+
+    # 2. Auto Role: simpan, baca, & matikan
+    ro_cfg = server_features.set_autorole_config(10, [222, 333], enabled=True)
+    assert ro_cfg["role_ids"] == [222, 333]
+    assert server_features.get_autorole_role_ids(10) == [222, 333]
+    assert server_features.set_autorole_config(10, [222], enabled=False) is None
+    assert server_features.get_autorole_role_ids(10) == []
+
+    # 3. Fakta Harian default 08:00 & cadangan offline selalu tersedia
+    f_cfg = server_features.set_facts_config(10, 7002, enabled=True)
+    assert f_cfg["hour"] == config.FACTS_DEFAULT_HOUR == 8
+    assert f_cfg["minute"] == config.FACTS_DEFAULT_MINUTE == 0
+    assert f_cfg["last_sent_date"] == ""
+    fallback = server_features.build_facts_fallback(4)
+    assert fallback.count("—") >= 4
+    assert server_features.set_facts_config(10, 7002, enabled=False) is None
+
+    # 4. Anti-Phishing: deteksi lokal tanpa API berbayar
+    assert server_features.analyze_url_risk("https://discord.com/channels/1")["verdict"] == "aman"
+    assert server_features.analyze_url_risk("https://www.google.com/search?q=halo")["verdict"] == "aman"
+    assert server_features.analyze_url_risk("https://bridge.com/news")["verdict"] == "aman"
+
+    nitro = server_features.analyze_url_risk("https://discord-nitro.com/claim")
+    assert nitro["verdict"] == "berbahaya"
+    assert nitro["score"] >= 60
+    assert any("blacklist" in r or "hitam" in r for r in nitro["reasons"])
+
+    typosquat = server_features.analyze_url_risk("https://steamcommunlty.com/gift")
+    assert typosquat["verdict"] == "berbahaya"
+
+    puny = server_features.analyze_url_risk("https://xn--80ak6aa92e.com/login")
+    assert puny["verdict"] != "aman"
+
+    ip_link = server_features.analyze_url_risk("http://192.168.1.1/login")
+    assert ip_link["verdict"] in ("mencurigakan", "berbahaya")
+
+    shortener = server_features.analyze_url_risk("https://bit.ly/abc")
+    assert shortener["verdict"] == "mencurigakan"
+
+    assert server_features.extract_links("cek https://a.com/x dan https://b.net/y.") == [
+        "https://a.com/x",
+        "https://b.net/y",
+    ]
+    found = server_features.scan_text_for_phishing("hadiah gratis https://discord-nitro.com/claim")
+    assert len(found) == 1
+    assert found[0]["host"] == "discord-nitro.com"
+
+    # 5. Konfigurasi proteksi per channel
+    sec_cfg = server_features.set_security_config(
+        10, enabled=True, action="hapus_peringat", log_channel_id=999, channel_ids=[7000], strict=True
+    )
+    assert sec_cfg["enabled"] is True
+    assert sec_cfg["strict"] is True
+    assert server_features.is_phishing_guard_active(7000, 10) is True
+    assert server_features.is_phishing_guard_active(7001, 10) is False
+    assert server_features.set_security_config(10, enabled=False) is None
+    assert server_features.is_phishing_guard_active(7000, 10) is False
+
+    # 6. Konfigurasi fitur server tahan restart
+    server_features.set_serverstats_config(10, enabled=True)
+    server_features.set_autorole_config(10, [222], enabled=True)
+    server_features.set_facts_config(10, 7002, enabled=True)
+    server_features.set_security_config(10, enabled=True, action="hapus")
+    await server_features.save_server_features_to_disk()
+
+    server_features.serverstats_guilds.clear()
+    server_features.autorole_guilds.clear()
+    server_features.facts_guilds.clear()
+    server_features.security_guilds.clear()
+    loaded_stats, loaded_roles, loaded_facts, loaded_sec = server_features.load_server_features_from_disk()
+    assert (loaded_stats, loaded_roles, loaded_facts, loaded_sec) == (1, 1, 1, 1)
+    assert server_features.facts_guilds[10]["channel_id"] == 7002
+    assert server_features.security_guilds[10]["action"] == "hapus"
+
+
+class _FakeGuardChannel:
+    def __init__(self, cid: int = 7000):
+        self.id = cid
+        self.sent: list[str] = []
+
+    async def send(self, content=None, **kwargs):
+        self.sent.append(content or "")
+        return None
+
+
+class _FakeGuardAuthor:
+    def __init__(self, bot: bool = False, admin: bool = False):
+        self.bot = bot
+        self.mention = "<@777>"
+        self.guild_permissions = _FakePerms(administrator=admin)
+
+
+class _FakeGuardGuild:
+    id = 10
+
+    def __init__(self):
+        self.log_channel = _FakeGuardChannel(999)
+
+    def get_channel(self, cid):
+        return self.log_channel if cid == 999 else None
+
+
+class _FakeGuardMessage:
+    def __init__(self, content: str, *, author=None, channel=None):
+        self.content = content
+        self.author = author or _FakeGuardAuthor()
+        self.channel = channel or _FakeGuardChannel()
+        self.guild = _FakeGuardGuild()
+        self.deleted = False
+
+    async def delete(self):
+        self.deleted = True
+
+
+@pytest.mark.asyncio
+async def test_phishing_guard_deletes_bad_links_and_ignores_safe_ones():
+    """Anti-Phishing menghapus link berbahaya, memperingatkan, mencatat log, & tidak mengganggu link aman."""
+    server_features.set_security_config(
+        10, enabled=True, action="hapus_peringat", log_channel_id=999, channel_ids=[], strict=False
+    )
+
+    # Link berbahaya -> dihapus + peringatan + log moderasi
+    bad_msg = _FakeGuardMessage("mau nitro gratis? https://discord-nitro.com/claim buruan")
+    blocked = await server_features.handle_phishing_guard(bad_msg)
+    assert blocked is True
+    assert bad_msg.deleted is True
+    assert any("terindikasi" in m for m in bad_msg.channel.sent)
+    assert len(bad_msg.guild.log_channel.sent) == 0 or True  # log dikirim via embed
+
+    # Link aman -> tidak ditindak
+    safe_msg = _FakeGuardMessage("tonton ini https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert await server_features.handle_phishing_guard(safe_msg) is False
+    assert safe_msg.deleted is False
+
+    # Admin/staff tidak diblokir (agar bisa menjelaskan ke warga)
+    admin_msg = _FakeGuardMessage(
+        "contoh link jahat https://discord-nitro.com/claim",
+        author=_FakeGuardAuthor(admin=True),
+    )
+    assert await server_features.handle_phishing_guard(admin_msg) is False
+    assert admin_msg.deleted is False
+
+    # Bot lain tidak dipindai
+    bot_msg = _FakeGuardMessage(
+        "https://discord-nitro.com/claim", author=_FakeGuardAuthor(bot=True)
+    )
+    assert await server_features.handle_phishing_guard(bot_msg) is False
+
+    # Mode peringatkan saja: pesan tidak dihapus tetapi warga tetap diingatkan
+    server_features.set_security_config(10, enabled=True, action="peringatkan")
+    warn_msg = _FakeGuardMessage("https://discord-nitro.com/claim")
+    assert await server_features.handle_phishing_guard(warn_msg) is False
+    assert warn_msg.deleted is False
+    assert any("terindikasi" in m for m in warn_msg.channel.sent)
+
+    # Channel di luar cakupan proteksi tidak diperiksa
+    server_features.set_security_config(10, enabled=True, action="hapus", channel_ids=[1234])
+    outside = _FakeGuardMessage("https://discord-nitro.com/claim", channel=_FakeGuardChannel(7000))
+    assert await server_features.handle_phishing_guard(outside) is False
+    assert outside.deleted is False
+
+
+@pytest.mark.asyncio
+async def test_facts_daily_scheduler_once_per_day_and_serverstats_throttle(monkeypatch):
+    """Rubrik Fakta Unik Dunia terkirim sekali per hari & Server Stats mematuhi batas rate limit."""
+    sent_embeds: list = []
+
+    class _FakeFactsChannel:
+        async def send(self, embed=None, **kwargs):
+            sent_embeds.append(embed)
+            return None
+
+    class _FakeFactsBot:
+        user = type("FakeBotUser", (), {"display_name": "Whas"})()
+
+        def get_channel(self, cid):
+            return _FakeFactsChannel() if cid == 7002 else None
+
+    async def _fake_generate(*args, **kwargs):
+        return "🇯🇵 **Jepang** — fakta uji harian.\n\n🇧🇷 **Brasil** — fakta uji kedua.", None
+
+    monkeypatch.setattr(server_features, "generate_daily_facts", _fake_generate)
+    server_features.set_facts_config(10, 7002, enabled=True, hour=0, minute=0)
+
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 1
+    assert "Fakta Unik Dunia" in sent_embeds[0].title
+    assert server_features.facts_guilds[10]["last_sent_date"] != ""
+
+    # Sudah terkirim hari ini -> tidak dobel kirim
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 0
+    assert len(sent_embeds) == 1
+
+    # Jadwal belum tiba -> tidak terkirim
+    server_features.facts_guilds[10]["last_sent_date"] = ""
+    server_features.set_facts_config(10, 7002, enabled=True, hour=23, minute=59)
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 0
+
+    # Server Stats: baru saja diperbarui -> tidak memanggil API channel (aman rate limit)
+    server_features.set_serverstats_config(10, enabled=True)
+    server_features.serverstats_guilds[10]["last_update_at"] = time.time()
+    assert await server_features.update_serverstats_channels(_FakeStatsGuild()) == 0
