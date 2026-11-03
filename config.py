@@ -22,7 +22,7 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.2.1-beta"
+BOT_VERSION = "1.3.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -105,10 +105,14 @@ MAX_CONCURRENT_MEDIA_TASKS: int = _env_int("MAX_CONCURRENT_MEDIA_TASKS", 2, mini
 MAX_IMAGE_ATTACHMENT_BYTES: int = 8 * 1024 * 1024  # 8 MB per gambar
 MAX_AUDIO_ATTACHMENT_BYTES: int = 12 * 1024 * 1024  # 12 MB per Voice Note / file audio
 MAX_VIDEO_ATTACHMENT_BYTES: int = 15 * 1024 * 1024  # 15 MB per video klip pendek (Galeri)
+MAX_PDF_ATTACHMENT_BYTES: int = 10 * 1024 * 1024  # 10 MB per dokumen PDF
 MAX_STICKER_EMOJI_BYTES: int = 2 * 1024 * 1024  # 2 MB untuk stiker / custom emoji
 MAX_IMAGES_PER_MESSAGE: int = 4
 MAX_TEXT_ATTACHMENT_BYTES: int = 100 * 1024  # 100 KB per file teks/kode
 MAX_WEBPAGE_FETCH_BYTES: int = 256 * 1024  # 256 KB batas aman pembaca halaman web
+
+# Proteksi kuota Free Tier: jeda wajar per member pada command berat (Admin otomatis bebas jeda; 0 = nonaktif)
+USER_COMMAND_COOLDOWN_SEC: int = _env_int("USER_COMMAND_COOLDOWN_SEC", 10, minimum=0)
 
 # Pengaturan Default AI Community Agent (Auto-Chat, Pemecah Sepi, & Galeri)
 BOT_TIMEZONE: str = (os.getenv("BOT_TIMEZONE") or "Asia/Jakarta").strip()

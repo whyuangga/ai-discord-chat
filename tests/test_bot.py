@@ -81,13 +81,19 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.youtube_agent_channels.clear()
+    community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
+    community_agent.digest_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
     community_agent._recent_channel_speakers.clear()
+    community_agent._standalone_last_reply_at.clear()
+    community_agent._post_runtime_state.clear()
     community_agent.channel_histories.clear()
     games.guild_game_scores.clear()
     games.active_channel_games.clear()
     games._recent_game_answers.clear()
+    utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
     yield
     storage.thread_chats.clear()
@@ -96,9 +102,13 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_agent.guild_agent_settings.clear()
     community_agent.chat_agent_channels.clear()
     community_agent.gallery_agent_channels.clear()
+    community_agent.youtube_agent_channels.clear()
+    community_agent.search_agent_channels.clear()
     community_agent.welcome_agent_guilds.clear()
+    community_agent.digest_agent_guilds.clear()
     community_agent._recent_welcomed_members.clear()
     community_agent.channel_histories.clear()
+    utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
 
 
@@ -374,7 +384,19 @@ def test_agent_command_group_registered():
     assert "agent" in cmd_names
     agent_cmd = next(cmd for cmd in bot_main.bot.tree.get_commands() if cmd.name == "agent")
     sub_names = {sub.name for sub in agent_cmd.commands}
-    assert {"chat", "gallery", "persona", "sapa", "status", "welcome", "youtube", "cari"} == sub_names
+    assert {
+        "chat",
+        "gallery",
+        "persona",
+        "sapa",
+        "status",
+        "welcome",
+        "youtube",
+        "cari",
+        "info",
+        "digest",
+        "panel",
+    } == sub_names
 
 
 class _FakeSticker:
@@ -1147,14 +1169,25 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
     monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
 
-    # Pastikan subcommand baru /agent youtube & /agent cari terdaftar di CommandTree
+    # Pastikan subcommand /agent youtube & /agent cari terdaftar lengkap dengan parameter 'channel'
     agent_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "agent")
-    agent_sub_names = {sc.name for sc in agent_cmd.commands}
-    assert {"youtube", "cari"}.issubset(agent_sub_names)
+    agent_sub_map = {sc.name: sc for sc in agent_cmd.commands}
+    assert {"youtube", "cari"}.issubset(agent_sub_map.keys())
+    assert "channel" in {p.name for p in agent_sub_map["youtube"].parameters}
+    assert "channel" in {p.name for p in agent_sub_map["cari"].parameters}
 
     bot_user = _FakeUser(100, "Whas")
     member = _FakeUser(205, "Dika")
+    community_agent.get_guild_settings(10)["nickname"] = "Whas"
     community_agent.set_chat_channel_config(10, 6100, enabled=True, reply_mode="all", idle_minutes=30)
+
+    # Aktifkan fitur YouTube di DUA channel sekaligus (6100 & 6200), sedangkan 6300 dibiarkan OFF
+    community_agent.set_youtube_channel_config(10, 6100, enabled=True, auto_in_chat=False)
+    community_agent.set_youtube_channel_config(10, 6200, enabled=True, auto_in_chat=True)
+    assert {cid for cid, _ in community_agent.get_guild_youtube_channels(10)} == {6100, 6200}
+    assert community_agent.is_youtube_enabled_in_channel(6100) is True
+    assert community_agent.is_youtube_enabled_in_channel(6200, require_auto_in_chat=True) is True
+    assert community_agent.is_youtube_enabled_in_channel(6300) is False
 
     yt_msg = _FakeCommunityMessage(
         channel_id=6100,
@@ -1164,12 +1197,12 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
         content="Guys cobain tonton https://youtu.be/dQw4w9WgXcQ kocak banget",
     )
 
-    # 1. DEFAULT: youtube_auto_chat == False -> kirim link YouTube biasa tanpa panggil bot TIDAK memicu auto-chat!
+    # 1. DEFAULT di 6100 (auto_in_chat=False): kirim link YouTube biasa tanpa panggil bot TIDAK memicu auto-chat!
     should_reply_default, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
     assert should_reply_default is False
 
-    # 1B. TAPI jika member memanggil nama panggilan bot (misal 'Whas') + link YouTube, bot LANGSUNG menonton & merangkumnya!
-    community_agent.get_guild_settings(10)["nickname"] = "Whas"
+    # 1B. TAPI jika member memanggil nama panggilan bot ('Whas') + link YouTube di channel aktif 6100,
+    #     bot LANGSUNG menonton & merangkumnya!
     yt_called_msg = _FakeCommunityMessage(
         channel_id=6100,
         guild_id=10,
@@ -1193,8 +1226,31 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     called_parts = fake_http_called.post_calls[0]["json"]["contents"][-1]["parts"]
     assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in called_parts)
 
-    # 2. Saat Admin mengaktifkan /agent youtube aktif:True auto_di_channel:True, barulah bot ikut membaca YouTube di channel
-    community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)
+    # 1C. Sebaliknya di channel Auto-Chat lain (6300) yang BELUM diaktifkan /agent youtube,
+    #     bot hanya membalas teks tanpa memproses fileData YouTube!
+    community_agent.set_chat_channel_config(10, 6300, enabled=True, reply_mode="smart", idle_minutes=30)
+    yt_unactivated_ch_msg = _FakeCommunityMessage(
+        channel_id=6300,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas lihat https://youtu.be/dQw4w9WgXcQ",
+    )
+    plain_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Ada apa tuh Dika?"}]}}]},
+    )
+    fake_http_plain = FakeHttpSession(post_responses=[plain_resp])
+    await community_agent.generate_community_chat_reply(
+        yt_unactivated_ch_msg,
+        bot_user,
+        http_session=fake_http_plain,
+    )
+    unact_parts = fake_http_plain.post_calls[0]["json"]["contents"][-1]["parts"]
+    assert all("fileData" not in p for p in unact_parts)
+
+    # 2. Saat Admin mengaktifkan auto_di_channel:True pada 6100, kirim link YouTube biasa langsung dirangkum!
+    community_agent.set_youtube_channel_config(10, 6100, enabled=True, auto_in_chat=True)
     community_agent.chat_agent_channels[6100]["last_bot_reply_at"] = 0.0
     should_reply_on, _ = community_agent.should_agent_reply_in_chat(yt_msg, bot_user)
     assert should_reply_on is True
@@ -1209,27 +1265,59 @@ async def test_community_agent_reads_youtube_links_and_live_search(monkeypatch):
     sent_parts = fake_http.post_calls[0]["json"]["contents"][-1]["parts"]
     assert any(p.get("fileData", {}).get("fileUri") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" for p in sent_parts)
 
-    # 3. Uji saklar ON/OFF /agent youtube & /agent cari + penyimpanan ke agent_config.json
-    community_agent.set_youtube_feature_config(10, enabled=False)
-    community_agent.set_search_feature_config(10, enabled=False)
-    assert community_agent.is_youtube_enabled_for_guild(10) is False
-    assert community_agent.is_search_enabled_for_guild(10) is False
+    # 3. Uji multi-channel /agent cari & /agent youtube + penyimpanan atomik ke agent_config.json
+    community_agent.set_search_channel_config(10, 6100, enabled=True, auto_in_chat=True)
+    community_agent.set_search_channel_config(10, 6250, enabled=True, auto_in_chat=False)
+    assert {cid for cid, _ in community_agent.get_guild_search_channels(10)} == {6100, 6250}
+    assert community_agent.is_search_enabled_in_channel(6100, for_auto_chat=True) is True
+    assert community_agent.is_search_enabled_in_channel(6250, for_auto_chat=False) is True
+    assert community_agent.is_search_enabled_in_channel(6250, for_auto_chat=True) is False
+    assert community_agent.is_search_enabled_in_channel(6300, for_auto_chat=False) is False
+
+    # Matikan hanya di 6200 -> 6100 tetap aktif!
+    community_agent.set_youtube_channel_config(10, 6200, enabled=False)
+    assert {cid for cid, _ in community_agent.get_guild_youtube_channels(10)} == {6100}
 
     await community_agent.save_agent_config_to_disk()
-    community_agent.guild_agent_settings.clear()
+    community_agent.youtube_agent_channels.clear()
+    community_agent.search_agent_channels.clear()
     community_agent.load_agent_config_from_disk()
-    assert community_agent.is_youtube_enabled_for_guild(10) is False
-    assert community_agent.is_search_enabled_for_guild(10) is False
+    assert {cid for cid, _ in community_agent.get_guild_youtube_channels(10)} == {6100}
+    assert {cid for cid, _ in community_agent.get_guild_search_channels(10)} == {6100, 6250}
+    assert community_agent.is_search_enabled_in_channel(6250, for_auto_chat=True) is False
 
-    # Nyalakan kembali fitur cari hanya untuk command /cari (auto_in_chat=False)
-    community_agent.set_search_feature_config(10, enabled=True, auto_in_chat=False)
-    assert community_agent.is_search_enabled_for_guild(10, for_auto_chat=False) is True
-    assert community_agent.is_search_enabled_for_guild(10, for_auto_chat=True) is False
+    # 4. Uji channel khusus YouTube / Cari TANPA /agent chat (standalone feature channel)
+    community_agent.set_youtube_channel_config(10, 6400, enabled=True, auto_in_chat=False)
+    community_agent.set_search_channel_config(10, 6400, enabled=True, auto_in_chat=True)
+    # Chat biasa di channel standalone harus diabaikan (karena /agent chat tidak aktif di 6400)
+    msg_plain_6400 = _FakeCommunityMessage(
+        channel_id=6400, guild_id=10, author=member, bot_user=bot_user, content="Halo siang teman-teman"
+    )
+    assert community_agent.should_standalone_feature_reply(msg_plain_6400, bot_user) is False
+    # Link biasa tanpa panggil bot (auto_in_chat=False) diabaikan
+    msg_uncalled_yt_6400 = _FakeCommunityMessage(
+        channel_id=6400, guild_id=10, author=member, bot_user=bot_user, content="https://youtu.be/dQw4w9WgXcQ"
+    )
+    assert community_agent.should_standalone_feature_reply(msg_uncalled_yt_6400, bot_user) is False
+    # Panggil nama bot + link YouTube atau panggil nama bot + tanya berita -> AKTIF!
+    msg_called_yt_6400 = _FakeCommunityMessage(
+        channel_id=6400,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas rangkumin https://youtu.be/dQw4w9WgXcQ",
+    )
+    msg_called_news_6400 = _FakeCommunityMessage(
+        channel_id=6400,
+        guild_id=10,
+        author=member,
+        bot_user=bot_user,
+        content="Whas cari berita timnas hari ini",
+    )
+    assert community_agent.should_standalone_feature_reply(msg_called_yt_6400, bot_user) is True
+    assert community_agent.should_standalone_feature_reply(msg_called_news_6400, bot_user) is True
 
-    # Nyalakan penuh untuk menguji pencarian berita gratis di Auto-Chat
-    community_agent.set_search_feature_config(10, enabled=True, auto_in_chat=True)
-    community_agent.set_youtube_feature_config(10, enabled=True, auto_in_chat=True)
-
+    # 5. Uji pencarian berita gratis di channel 6100 yang aktif
     async def _fake_free_search(q, **kwargs):
         return "1. **Pecco Juara MotoGP** — Balapan tadi malam dimenangkan Pecco.", [
             {"title": "MotoGP News", "url": "https://motogp.example.com"}
@@ -1340,6 +1428,677 @@ def test_anti_disturbance_etiquette_in_public_chat():
         content="Whas menurutmu gimana?",
     )
     assert community_agent.should_agent_reply_in_chat(msg_call_bot, bot_user) == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_slash_ringkas_link_and_cari_per_channel_gating(monkeypatch):
+    # Aktifkan YouTube di #8100 & #8200, serta Cari di #8300
+    community_agent.set_youtube_channel_config(10, 8100, enabled=True, auto_in_chat=False)
+    community_agent.set_youtube_channel_config(10, 8200, enabled=True, auto_in_chat=True)
+    community_agent.set_search_channel_config(10, 8300, enabled=True, auto_in_chat=True)
+
+    class _FakeResp:
+        def __init__(self):
+            self.sent = []
+            self.deferred = False
+
+        async def send_message(self, content=None, *, embed=None, ephemeral=False):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+        async def defer(self, *, ephemeral=False):
+            self.deferred = True
+
+    class _FakeFollowup:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, *, embed=None, ephemeral=False):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+    class _FakeInteraction:
+        def __init__(self, channel_id: int, guild_id: int = 10):
+            self.channel = type("Ch", (), {"id": channel_id, "name": "general"})()
+            self.guild = type("G", (), {"id": guild_id})()
+            self.user = type("U", (), {"id": 501, "display_name": "Rina"})()
+            self.response = _FakeResp()
+            self.followup = _FakeFollowup()
+
+    # 1. Jalankan /ringkas_link di channel #9999 yang BELUM diaktifkan -> ditolak sopan via ephemeral + petunjuk <#8100>, <#8200>
+    ix_blocked_yt = _FakeInteraction(channel_id=9999)
+    await bot_main.slash_ringkas_link.callback(ix_blocked_yt, url="https://youtu.be/dQw4w9WgXcQ")
+    assert ix_blocked_yt.response.deferred is False
+    assert len(ix_blocked_yt.response.sent) == 1
+    assert ix_blocked_yt.response.sent[0]["ephemeral"] is True
+    assert "<#8100>" in ix_blocked_yt.response.sent[0]["content"]
+    assert "<#8200>" in ix_blocked_yt.response.sent[0]["content"]
+
+    # 2. Jalankan /cari di channel #9999 yang BELUM diaktifkan -> ditolak sopan via ephemeral + petunjuk <#8300>
+    ix_blocked_cari = _FakeInteraction(channel_id=9999)
+    await bot_main.slash_cari.callback(ix_blocked_cari, pertanyaan="berita hari ini")
+    assert ix_blocked_cari.response.deferred is False
+    assert len(ix_blocked_cari.response.sent) == 1
+    assert ix_blocked_cari.response.sent[0]["ephemeral"] is True
+    assert "<#8300>" in ix_blocked_cari.response.sent[0]["content"]
+
+    # 3. Jalankan /ringkas_link di #8100 & /cari di #8300 yang SUDAH diaktifkan -> sukses!
+    async def _fake_analyze_link(url, **kwargs):
+        return "Inti video berhasil dirangkum!", None
+
+    async def _fake_search_web(q, **kwargs):
+        return "Berita hari ini berhasil ditemukan!", None
+
+    monkeypatch.setattr(bot_main, "analyze_link_with_gemini", _fake_analyze_link)
+    monkeypatch.setattr(bot_main, "search_web_with_gemini", _fake_search_web)
+
+    ix_ok_yt = _FakeInteraction(channel_id=8100)
+    await bot_main.slash_ringkas_link.callback(ix_ok_yt, url="https://youtu.be/dQw4w9WgXcQ")
+    assert ix_ok_yt.response.deferred is True
+    assert "Inti video" in ix_ok_yt.followup.sent[0]["embed"].description
+
+    ix_ok_cari = _FakeInteraction(channel_id=8300)
+    await bot_main.slash_cari.callback(ix_ok_cari, pertanyaan="berita hari ini")
+    assert ix_ok_cari.response.deferred is True
+    assert "Berita hari ini" in ix_ok_cari.followup.sent[0]["embed"].description
+
+
+@pytest.mark.asyncio
+async def test_forum_channel_posts_support_chat_gallery_youtube_and_search(monkeypatch):
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    # 1. Pastikan parameter 'channel' di /agent chat, gallery, youtube, & cari mengizinkan ForumChannel (channel_type 15) & Media (16)
+    agent_cmd = next(c for c in bot_main.bot.tree.get_commands() if c.name == "agent")
+    sub_map = {sc.name: sc for sc in agent_cmd.commands}
+    for sub_name in ("chat", "gallery", "youtube", "cari"):
+        ch_param = next(p for p in sub_map[sub_name].parameters if p.name == "channel")
+        ch_types = set(ch_param.channel_types)
+        assert discord.ChannelType.forum in ch_types, f"/agent {sub_name} wajib mendukung ForumChannel"
+        assert discord.ChannelType.media in ch_types, f"/agent {sub_name} wajib mendukung MediaChannel"
+
+    bot_user = _FakeUser(100, "Whas")
+    andi = _FakeUser(301, "Andi")
+    community_agent.get_guild_settings(10)["nickname"] = "Whas"
+
+    # 2. Aktifkan /agent chat di Channel Forum #9500
+    community_agent.set_chat_channel_config(10, 9500, enabled=True, reply_mode="smart", idle_seconds=0)
+
+    class _FakeForumPostChannel:
+        def __init__(self, post_id: int, parent_forum_id: int, title: str, tag_names=()):
+            self.id = post_id
+            self.parent_id = parent_forum_id
+            self.name = title
+            self.is_forum_post = True
+            self.applied_tags = [type("Tag", (), {"name": t})() for t in tag_names]
+
+    class _FakeForumMsg:
+        def __init__(self, msg_id: int, post_channel: _FakeForumPostChannel, author, content: str, attachments=None):
+            self.id = msg_id
+            self.channel = post_channel
+            self.guild = type("G", (), {"id": 10, "me": bot_user})()
+            self.author = author
+            self.content = content
+            self.mentions = []
+            self.attachments = attachments or []
+            self.stickers = []
+            self.reference = None
+
+    # Postingan Forum baru #1 (message.id == post_channel.id) -> otomatis dibalas oleh AI dengan membaca Judul & Tag!
+    post_ch_1 = _FakeForumPostChannel(9501, 9500, "Rekomendasi laptop ngoding 7 jutaan", ("Hardware", "Tanya"))
+    starter_msg_1 = _FakeForumMsg(9501, post_ch_1, andi, "Mending Ryzen 5 atau i5 gen 12 ya buat kuliah?")
+    assert community_agent.should_agent_reply_in_chat(starter_msg_1, bot_user) == (True, True)
+
+    forum_ai_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Buat ngoding di budget 7 jutaan, Ryzen 5 seri 5500U/7530U adem dan kencang banget Andi!"}]}}]},
+    )
+    fake_http_forum = FakeHttpSession(post_responses=[forum_ai_resp])
+    forum_reply = await community_agent.generate_community_chat_reply(
+        starter_msg_1,
+        bot_user,
+        http_session=fake_http_forum,
+    )
+    assert "Ryzen 5" in forum_reply
+    sent_forum_prompt = fake_http_forum.post_calls[0]["json"]["contents"][-1]["parts"][-1]["text"]
+    assert "Rekomendasi laptop ngoding 7 jutaan" in sent_forum_prompt
+    assert "Hardware" in sent_forum_prompt
+
+    # Pastikan riwayat disimpan terpisah per Postingan Forum (9501), bukan tercampur di ID Forum induk (9500)
+    assert 9501 in community_agent.channel_histories
+    assert 9500 not in community_agent.channel_histories
+
+    # 3. Uji Channel Forum Galeri (#9600) saat member membuat Postingan Showcase bergambar
+    class _FakeImgAtt:
+        filename = "setup.png"
+        content_type = "image/png"
+        size = 24
+
+        async def read(self):
+            return b"\x89PNG\r\n\x1a\nfakeimg"
+
+    community_agent.set_gallery_channel_config(10, 9600, enabled=True, auto_reaction=True)
+    showcase_post = _FakeForumPostChannel(9601, 9600, "Setup Meja Belajar Minimalis 2026", ("Showcase",))
+    fake_img_att = _FakeImgAtt()
+    showcase_msg = _FakeForumMsg(9601, showcase_post, andi, "Baru selesai rakit lampu monitor bar!", attachments=[fake_img_att])
+    gal_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Rapi banget setup minimalisnya Andi, cahaya monitor bar-nya bikin mata nyaman!"}]}}]},
+    )
+    fake_http_gal = FakeHttpSession(post_responses=[gal_resp])
+    gal_comment, gal_emoji = await community_agent.generate_gallery_comment(
+        showcase_msg,
+        bot_user,
+        http_session=fake_http_gal,
+    )
+    assert "monitor bar" in gal_comment
+    assert gal_emoji in community_agent.GALLERY_REACTIONS
+    gal_prompt_sent = fake_http_gal.post_calls[0]["json"]["contents"][0]["parts"][-1]["text"]
+    assert "Setup Meja Belajar Minimalis 2026" in gal_prompt_sent
+
+    # 4. Uji Channel Forum Mandiri YouTube & Cari (#9700 tanpa /agent chat)
+    community_agent.set_youtube_channel_config(10, 9700, enabled=True, auto_in_chat=True)
+    community_agent.set_search_channel_config(10, 9700, enabled=True, auto_in_chat=True)
+    yt_forum_post = _FakeForumPostChannel(9701, 9700, "Podcast seru soal AI", ("Video",))
+    yt_forum_msg = _FakeForumMsg(9701, yt_forum_post, andi, "https://youtu.be/dQw4w9WgXcQ")
+    assert community_agent.should_standalone_feature_reply(yt_forum_msg, bot_user) is True
+
+
+@pytest.mark.asyncio
+async def test_discord_command_and_view_hard_limits():
+    """Memastikan seluruh Slash Command, Subcommand, Parameter, Pilihan, Context Menu, & View mematuhi batas keras Discord API."""
+    all_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
+    msg_ctx_menus = bot_main.bot.tree.get_commands(type=discord.AppCommandType.message)
+    assert len(msg_ctx_menus) <= 5
+    ctx_names = {c.name for c in msg_ctx_menus}
+    assert "🔍 Cek Fakta / Hoaks" in ctx_names
+    for ctx_cmd in msg_ctx_menus:
+        assert 1 <= len(ctx_cmd.name) <= 32
+
+    def _validate_slash_cmd(cmd_obj):
+        assert 1 <= len(cmd_obj.name) <= 32
+        assert cmd_obj.name == cmd_obj.name.lower()
+        assert 1 <= len(cmd_obj.description) <= 100, f"Deskripsi {cmd_obj.name} melebihi 100 karakter!"
+        if isinstance(cmd_obj, discord.app_commands.Group):
+            assert len(cmd_obj.commands) <= 25
+            for sub in cmd_obj.commands:
+                _validate_slash_cmd(sub)
+        else:
+            for param in cmd_obj.parameters:
+                assert 1 <= len(param.name) <= 32
+                assert 1 <= len(param.description) <= 100, (
+                    f"Deskripsi parameter {cmd_obj.name}.{param.name} melebihi 100 karakter!"
+                )
+                for choice in getattr(param, "choices", []) or []:
+                    assert 1 <= len(choice.name) <= 100
+
+    for top_cmd in all_cmds:
+        _validate_slash_cmd(top_cmd)
+
+    # Pastikan ForumPostSolvedView juga persisten (timeout=None) dengan custom_id unik
+    persistent_views = [
+        views.MainPanelControlView(),
+        views.EndSessionView(),
+        views.ChatPersonaSwitchView(),
+        views.ImageSettingsView(),
+        views.ForumPostSolvedView(),
+    ]
+    seen_ids: set[str] = set()
+    for v in persistent_views:
+        assert v.is_persistent()
+        for child in v.children:
+            assert child.custom_id and child.custom_id not in seen_ids
+            seen_ids.add(child.custom_id)
+
+    admin_view = views.AgentAdminPanelView(admin_user_id=999, default_channel_id=1234)
+    rows_used = {child.row for child in admin_view.children if child.row is not None}
+    assert len(rows_used) <= 5
+    for child in admin_view.children:
+        if isinstance(child, discord.ui.Select):
+            for opt in child.options:
+                assert 1 <= len(opt.label) <= 100
+                if opt.description:
+                    assert len(opt.description) <= 100
+
+
+@pytest.mark.asyncio
+async def test_server_knowledge_faq_crud_and_prompt_injection(monkeypatch):
+    """Menguji fitur /agent info (FAQ Server): tambah, perbarui, hapus, simpan disk, & injeksi ke System Prompt."""
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    item1, st1 = community_agent.upsert_server_knowledge(
+        10, "IP Minecraft", "play.nusantara.id versi 1.21.4 (Buka 24 Jam)"
+    )
+    assert st1 == "added" and item1["topic"] == "IP Minecraft"
+
+    item2, st2 = community_agent.upsert_server_knowledge(
+        10, "Rules Server", "Dilarang toxic, spam link promosi, atau SARA."
+    )
+    assert st2 == "added" and len(community_agent.get_server_knowledge_entries(10)) == 2
+
+    # Update topik yang sama (case-insensitive) tidak menduplikasi entri
+    updated, st_upd = community_agent.upsert_server_knowledge(
+        10, "ip minecraft", "play.nusantara.id versi 1.21.5 terbaru"
+    )
+    assert st_upd == "updated"
+    assert len(community_agent.get_server_knowledge_entries(10)) == 2
+    assert "1.21.5" in updated["content"]
+
+    # Pastikan disuntikkan ke prompt komunitas maupun prompt konsultasi privat ai-...
+    g_cfg = community_agent.get_guild_settings(10)
+    t_ctx = utils.get_realtime_time_context()
+    comm_sys = community_agent._build_community_system_prompt(g_cfg, "Whas", t_ctx)
+    assert "play.nusantara.id versi 1.21.5" in comm_sys
+    assert "Rules Server" in comm_sys
+
+    srv_block = community_agent.format_server_knowledge_for_prompt(10)
+    mock_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "IP servernya play.nusantara.id versi 1.21.5 ya!"}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[mock_resp])
+    storage.init_thread_session(8811, "gemini_flash", owner_id=42)
+    ans = await ai_handler.get_ai_response(
+        8811,
+        "Apa IP server Minecraft kita?",
+        http_session=fake_http,
+        server_knowledge=srv_block,
+    )
+    assert "play.nusantara.id" in ans
+    sent_sys = fake_http.post_calls[0]["json"]["systemInstruction"]["parts"][0]["text"]
+    assert "play.nusantara.id versi 1.21.5" in sent_sys
+
+    # Uji simpan & muat ulang dari disk
+    await community_agent.save_agent_config_to_disk()
+    community_agent.guild_agent_settings.clear()
+    community_agent.load_agent_config_from_disk()
+    loaded_entries = community_agent.get_server_knowledge_entries(10)
+    assert len(loaded_entries) == 2
+
+    # Hapus berdasarkan nomor urut & bersihkan sisa
+    removed = community_agent.delete_server_knowledge(10, "1")
+    assert removed is not None and "minecraft" in removed["topic"].lower()
+    assert community_agent.clear_server_knowledge(10) == 1
+    assert community_agent.get_server_knowledge_entries(10) == []
+
+
+@pytest.mark.asyncio
+async def test_pdf_attachment_extraction_and_gemini_history_tag(monkeypatch):
+    """Menguji pembacaan dokumen .pdf native (application/pdf) di ruang privat & komunitas, serta penolakan di ruang gambar."""
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    class _FakePdfAttachment:
+        filename = "panduan_kuliah.pdf"
+        content_type = "application/pdf"
+        size = 512
+
+        async def read(self):
+            return b"%PDF-1.7 fake pdf content"
+
+    class _FakePdfMsg:
+        attachments = [_FakePdfAttachment()]
+        stickers = []
+
+    parts, names, txt_blocks, warns = await utils.extract_message_attachments(_FakePdfMsg())
+    assert warns == []
+    assert txt_blocks == []
+    assert names == ["pdf:panduan_kuliah.pdf"]
+    assert parts[0]["inlineData"]["mimeType"] == "application/pdf"
+
+    # Di ruang gambar (include_pdf=False), PDF ditolak secara sopan
+    parts_img, _, _, warns_img = await utils.extract_message_attachments(_FakePdfMsg(), include_pdf=False)
+    assert parts_img == []
+    assert any("PDF" in w for w in warns_img)
+
+    # Uji di get_ai_response saat pengguna kirim PDF tanpa teks pengantar
+    storage.init_thread_session(8812, "gemini_flash", owner_id=42)
+    pdf_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Ringkasan PDF: jadwal kuliah dimulai Senin pukul 08:00."}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[pdf_resp])
+    reply = await ai_handler.get_ai_response(
+        8812,
+        "",
+        image_parts=parts,
+        image_filenames=names,
+        http_session=fake_http,
+    )
+    assert "Ringkasan PDF" in reply
+    hist = storage.thread_chats[8812]["history"]
+    assert "[Pengguna melampirkan dokumen PDF: pdf:panduan_kuliah.pdf]" in hist[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_forum_auto_tagging_and_solved_button_view():
+    """Menguji pemilihan Tag Forum otomatis (0 API Call) dan tombol persisten ✅ Tandai Selesai."""
+    class _FakeForumTag:
+        def __init__(self, name: str, moderated: bool = False):
+            self.name = name
+            self.moderated = moderated
+
+    t_py = _FakeForumTag("Python")
+    t_bug = _FakeForumTag("Bug / Error")
+    t_game = _FakeForumTag("Game")
+    t_solved = _FakeForumTag("Selesai")
+    t_mod = _FakeForumTag("Pengumuman Resmi", moderated=True)
+    avail = [t_py, t_bug, t_game, t_solved, t_mod]
+
+    picked = utils.select_best_forum_tags(
+        "Tolong muncul Traceback Exception pas jalankan discord.py",
+        "Kenapa pip asyncio saya gagal terus ya?",
+        avail,
+    )
+    assert t_py in picked and t_bug in picked
+    assert t_solved not in picked and t_mod not in picked
+    assert utils.find_solved_forum_tag(avail) is t_solved
+
+    # Uji ForumPostSolvedView: tolak klik orang asing, izinkan pemilik postingan
+    class _FakeResp:
+        def __init__(self):
+            self.messages = []
+            self.deferred = False
+
+        async def send_message(self, content, ephemeral=False):
+            self.messages.append((content, ephemeral))
+
+        async def defer(self):
+            self.deferred = True
+
+    class _FakeFollowup:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content):
+            self.sent.append(content)
+
+    fake_parent = type("ParentForum", (), {"available_tags": avail})()
+    edited_calls: list[dict] = []
+
+    class _FakeForumThreadObj:
+        owner_id = 501
+        parent_id = 9500
+        name = "Error login aplikasi"
+        applied_tags = [t_bug]
+        parent = fake_parent
+
+        async def edit(self, **kwargs):
+            edited_calls.append(kwargs)
+
+    fake_thread = _FakeForumThreadObj()
+
+    view = views.ForumPostSolvedView()
+    btn = view.children[0]
+
+    # 1. Orang lain (bukan pemilik & bukan moderator) ditolak
+    stranger_ix = type(
+        "Ix",
+        (),
+        {
+            "channel": fake_thread,
+            "user": _FakeUser(999, "OrangLain"),
+            "response": _FakeResp(),
+            "followup": _FakeFollowup(),
+            "message": None,
+        },
+    )()
+    await btn.callback(stranger_ix)
+    assert len(stranger_ix.response.messages) == 1
+    assert edited_calls == []
+
+    # 2. Pemilik postingan (uid=501) berhasil menandai selesai + tambah tag Selesai + arsip
+    owner_ix = type(
+        "Ix",
+        (),
+        {
+            "channel": fake_thread,
+            "user": _FakeUser(501, "PemilikPost"),
+            "response": _FakeResp(),
+            "followup": _FakeFollowup(),
+            "message": None,
+        },
+    )()
+    await btn.callback(owner_ix)
+    assert owner_ix.response.deferred is True
+    assert len(edited_calls) == 1
+    assert edited_calls[0]["archived"] is True
+    assert edited_calls[0]["name"] == "✅ Error login aplikasi"
+    assert t_solved in edited_calls[0]["applied_tags"]
+    assert btn.disabled is True
+
+
+@pytest.mark.asyncio
+async def test_fact_check_context_menu_and_gemini_analysis(monkeypatch):
+    """Menguji fitur Context Menu 🔍 Cek Fakta / Hoaks beserta pencantuman sumber referensi berita."""
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    async def _mock_free_search(query, http_session=None):
+        return (
+            "1. Kominfo Pastikan Kabar Internet Mati Total Besok Adalah Hoaks",
+            [("Kompas Tekno", "https://tekno.kompas.com/read/cek-fakta-1")],
+        )
+
+    monkeypatch.setattr(ai_handler, "free_live_web_search", _mock_free_search)
+    gemini_resp = FakeMockResponse(
+        200,
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "**🏷️ Status Klaim:** `❌ Indikasi Hoaks / Keliru`\n"
+                                "**📌 Klaim Utama:** Internet mati total besok.\n"
+                                "**🔎 Hasil Pemeriksaan Fakta:** Klaim tersebut telah dibantah resmi."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+    )
+    fake_http = FakeHttpSession(post_responses=[gemini_resp])
+    res_txt, err = await ai_handler.fact_check_message_with_gemini(
+        "Guys beneran besok seluruh internet dunia bakal dimatikan total selama seminggu?",
+        http_session=fake_http,
+    )
+    assert err is None
+    assert "Indikasi Hoaks" in res_txt
+    assert "https://tekno.kompas.com/read/cek-fakta-1" in res_txt
+
+
+@pytest.mark.asyncio
+async def test_new_game_modes_image_guess_and_word_chain(monkeypatch):
+    """Menguji mode baru 🖼️ Tebak Gambar AI dan ⛓️ Sambung Kata (0 API Call per giliran + MVP menang)."""
+    # 1. Uji generator gambar misteri Tebak Gambar AI
+    fake_png = b"\x89PNG\r\n\x1a\n" + (b"x" * 1500)
+    img_get_resp = FakeMockResponse(200, raw_bytes=fake_png, headers={"Content-Type": "image/png"})
+    fake_http = FakeHttpSession(get_responses=[img_get_resp])
+    raw_img = await ai_handler.generate_mystery_game_image_bytes(
+        "A cute astronaut cat in space", http_session=fake_http
+    )
+    assert raw_img == fake_png
+    assert "no text" in urllib_unquote(fake_http.get_calls[0]["url"]).lower()
+
+    monkeypatch.setattr(games, "is_gemini_key_configured", lambda: False)
+    q_img = await games.generate_ai_game_question("image_guess", 88)
+    assert games._validate_game_payload("image_guess", q_img) is True
+
+    # 2. Uji validator & gameplay penuh Sambung Kata (word_chain)
+    assert games.is_valid_indonesian_chain_word("apel", "a", {"ayam"}) == (True, "ok")
+    assert games.is_valid_indonesian_chain_word("buku", "a", set()) == (False, "wrong_prefix")
+    assert games.is_valid_indonesian_chain_word("apel", "a", {"apel"}) == (False, "already_used")
+    assert games.is_valid_indonesian_chain_word("aaabbb", "a", set()) == (False, "gibberish")
+
+    sent_channel_msgs: list = []
+
+    class _FakeGameChannel:
+        id = 7788
+
+        async def send(self, content=None, embed=None):
+            sent_channel_msgs.append((content, embed))
+
+    fake_ch = _FakeGameChannel()
+    games.active_channel_games[7788] = {
+        "type": "word_chain",
+        "guild_id": 88,
+        "starter_id": 301,
+        "current_word": "NUSANTARA",
+        "answer": "NUSANTARA",
+        "used_words": {"nusantara"},
+        "chain_words": ["NUSANTARA"],
+        "chain_count": 0,
+        "points": 5,
+        "round_scores": {},
+        "view": None,
+    }
+
+    class _FakeChainMsg:
+        def __init__(self, uid: int, name: str, text: str):
+            self.channel = fake_ch
+            self.guild = type("G", (), {"id": 88})()
+            self.author = _FakeUser(uid, name)
+            self.content = text
+            self.mentions = []
+            self.reactions = []
+
+        async def add_reaction(self, emoji: str):
+            self.reactions.append(emoji)
+
+    # Giliran 1 oleh Rina ('APEL') -> valid (+5 poin, huruf lanjut 'L')
+    m1 = _FakeChainMsg(301, "Rina", "apel")
+    assert await games.handle_active_game_guess(m1) is True
+    assert "✅" in m1.reactions
+    assert games.active_channel_games[7788]["current_word"] == "APEL"
+
+    # Rina mencoba langsung nyambung sendiri < 8 detik -> ditahan lembut dengan reaksi ⏳
+    m1_spam = _FakeChainMsg(301, "Rina", "laut")
+    assert await games.handle_active_game_guess(m1_spam) is True
+    assert "⏳" in m1_spam.reactions
+    assert games.active_channel_games[7788]["current_word"] == "APEL"
+
+    # Giliran 2 oleh Budi ('LAUT') -> valid (+5 poin, huruf lanjut 'T')
+    m2 = _FakeChainMsg(302, "Budi", "laut")
+    assert await games.handle_active_game_guess(m2) is True
+    assert "✅" in m2.reactions
+
+    # Giliran 3 kembali ke Rina ('TAMAN') -> valid (+5 poin, Rina unggul 10 poin vs Budi 5 poin)
+    m3 = _FakeChainMsg(301, "Rina", "taman")
+    assert await games.handle_active_game_guess(m3) is True
+    assert "✅" in m3.reactions
+
+    # Akhiri ronde & pastikan Rina (MVP ronde) mendapat +1 win di papan skor!
+    await games.finish_word_chain_round(fake_ch, 7788, reason_title="🏁 Selesai!")
+    assert 7788 not in games.active_channel_games
+    rank_rina, pts_rina, wins_rina = games.get_user_rank_info(88, 301)
+    rank_budi, pts_budi, wins_budi = games.get_user_rank_info(88, 302)
+    assert (rank_rina, pts_rina, wins_rina) == (1, 10, 1)
+    assert (rank_budi, pts_budi, wins_budi) == (2, 5, 0)
+
+
+def urllib_unquote(url: str) -> str:
+    import urllib.parse
+
+    return urllib.parse.unquote(url)
+
+
+@pytest.mark.asyncio
+async def test_morning_digest_schedule_and_once_per_day_dedup(monkeypatch):
+    """Menguji jadwal Morning Digest (/agent digest) & proteksi anti-dobel kirim di tanggal yang sama."""
+    monkeypatch.setattr(community_agent, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    assert community_agent.parse_digest_time("07:00") == (7, 0)
+    assert community_agent.parse_digest_time("6.30") == (6, 30)
+    assert community_agent.parse_digest_time("25:00") is None
+
+    community_agent.set_digest_config(10, 5500, enabled=True, hour=7, minute=0, topic="Teknologi & Game")
+    await community_agent.save_agent_config_to_disk()
+    community_agent.digest_agent_guilds.clear()
+    community_agent.load_agent_config_from_disk()
+    assert community_agent.digest_agent_guilds[10]["topic"] == "Teknologi & Game"
+
+    # Palsukan jam lokal server pukul 07:15 pada 2026-11-03
+    monkeypatch.setattr(
+        community_agent,
+        "get_realtime_time_context",
+        lambda tz=None: {
+            "iso_date": "2026-11-03",
+            "hour": 7,
+            "minute": 15,
+            "clock": "07:15 WIB",
+            "day_name": "Selasa",
+            "date_str": "3 November 2026",
+            "tz_label": "WIB",
+            "vibe": "Pagi hari",
+            "summary": "Selasa, 3 November 2026 | Pukul 07:15 WIB",
+        },
+    )
+
+    async def _mock_digest_search(q, http_session=None):
+        return ("1. Rilis Python terbaru makin kencang", [("DetikInet", "https://inet.detik.com/1")])
+
+    monkeypatch.setattr(community_agent, "free_live_web_search", _mock_digest_search)
+
+    sent_embeds: list = []
+
+    class _FakeDigestChannel:
+        id = 5500
+        guild = type("G", (), {"id": 10, "me": _FakeUser(100, "Whas")})()
+
+        async def send(self, embed=None):
+            sent_embeds.append(embed)
+
+    fake_bot = type(
+        "FakeBot",
+        (),
+        {"user": _FakeUser(100, "Whas"), "get_channel": lambda self, cid: _FakeDigestChannel() if cid == 5500 else None},
+    )()
+
+    digest_ai_resp = FakeMockResponse(
+        200,
+        {"candidates": [{"content": {"parts": [{"text": "Selamat pagi warga! Berikut sorotan berita hari ini."}]}}]},
+    )
+    fake_http = FakeHttpSession(post_responses=[digest_ai_resp])
+
+    sent_first = await community_agent.run_morning_digest_check(fake_bot, http_session=fake_http)
+    assert sent_first == 1
+    assert len(sent_embeds) == 1
+    assert community_agent.digest_agent_guilds[10]["last_sent_date"] == "2026-11-03"
+
+    # Panggilan kedua di tanggal yang sama TIDAK mengirim ulang (0 API call tambahan!)
+    sent_second = await community_agent.run_morning_digest_check(fake_bot, http_session=fake_http)
+    assert sent_second == 0
+    assert len(sent_embeds) == 1
+
+
+@pytest.mark.asyncio
+async def test_free_tier_member_cooldown_and_admin_panel_view():
+    """Menguji cooldown anti-spam per-member (Admin bebas jeda) serta fungsi toggle pada AgentAdminPanelView."""
+    # Member biasa terkena jeda saat memanggil beruntun
+    assert utils.check_user_cooldown(701, "cari", cooldown_sec=10, is_admin=False) == 0
+    rem = utils.check_user_cooldown(701, "cari", cooldown_sec=10, is_admin=False)
+    assert rem >= 1
+    # Bucket command berbeda tidak saling mengunci
+    assert utils.check_user_cooldown(701, "ringkas", cooldown_sec=10, is_admin=False) == 0
+    # Admin bebas jeda kapan saja
+    assert utils.check_user_cooldown(701, "cari", cooldown_sec=10, is_admin=True) == 0
+
+    # Uji build_agent_status_embed & AgentAdminPanelView
+    fake_guild = type(
+        "FakeGuild",
+        (),
+        {
+            "id": 10,
+            "name": "Server Komunitas Kita",
+            "me": _FakeUser(100, "Whas"),
+            "get_channel": lambda self, cid: None,
+        },
+    )()
+    status_emb = views.build_agent_status_embed(fake_guild)
+    assert "v1.3.0-beta" in status_emb.title
+    assert any("FAQ" in f.name for f in status_emb.fields)
+
+
+
 
 
 

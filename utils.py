@@ -5,6 +5,7 @@ import html
 import io
 import ipaddress
 import re
+import time
 from pathlib import Path
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -18,10 +19,12 @@ from config import (
     MAX_AUDIO_ATTACHMENT_BYTES,
     MAX_IMAGE_ATTACHMENT_BYTES,
     MAX_IMAGES_PER_MESSAGE,
+    MAX_PDF_ATTACHMENT_BYTES,
     MAX_STICKER_EMOJI_BYTES,
     MAX_TEXT_ATTACHMENT_BYTES,
     MAX_VIDEO_ATTACHMENT_BYTES,
     MAX_WEBPAGE_FETCH_BYTES,
+    USER_COMMAND_COOLDOWN_SEC,
     parse_gemini_keys,
 )
 from storage import is_bot_ui_message
@@ -170,6 +173,7 @@ def get_realtime_time_context(tz_name: str = BOT_TIMEZONE) -> dict:
 
     summary = f"{day_name}, {date_str} | Pukul {clock_str} {tz_label} — {vibe}"
     return {
+        "iso_date": now.strftime("%Y-%m-%d"),
         "hour": hour,
         "minute": now.minute,
         "clock": f"{clock_str} {tz_label}",
@@ -315,8 +319,9 @@ async def extract_message_attachments(
     http_session: aiohttp.ClientSession | None = None,
     *,
     include_audio: bool = True,
+    include_pdf: bool = True,
 ) -> tuple[list[dict], list[str], list[str], list[str]]:
-    """Mengekstrak lampiran gambar (Vision), Voice Note / Audio, Stiker Discord, dan file teks/kode.
+    """Mengekstrak lampiran gambar (Vision), Voice Note / Audio, dokumen PDF, Stiker Discord, dan file teks/kode.
 
     Returns:
         (media_parts, media_filenames, text_blocks, warnings)
@@ -372,6 +377,27 @@ async def extract_message_attachments(
                 warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
             continue
 
+        # 2B. Deteksi Dokumen PDF Native (.pdf / application/pdf)
+        if ext == ".pdf" or content_type == "application/pdf":
+            if not include_pdf:
+                warnings.append("Ruang gambar hanya menerima lampiran gambar referensi (bukan dokumen PDF).")
+                continue
+            if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
+                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
+                continue
+            if att.size > MAX_PDF_ATTACHMENT_BYTES:
+                max_mb = MAX_PDF_ATTACHMENT_BYTES // (1024 * 1024)
+                warnings.append(f"Ukuran dokumen PDF `{att.filename}` melebihi batas {max_mb} MB.")
+                continue
+            try:
+                raw_bytes = await att.read()
+                b64_data = base64.b64encode(raw_bytes).decode("ascii")
+                image_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_data}})
+                image_filenames.append(f"pdf:{att.filename}")
+            except Exception as exc:
+                warnings.append(f"Gagal membaca dokumen PDF `{att.filename}`: {sanitize_error_message(exc)}")
+            continue
+
         # 3. Deteksi Lampiran File Teks / Kode Sumber
         if ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/"):
             if att.size > MAX_TEXT_ATTACHMENT_BYTES:
@@ -389,7 +415,7 @@ async def extract_message_attachments(
             continue
 
         warnings.append(
-            f"Format lampiran `{att.filename}` belum didukung (gunakan gambar, Voice Note/audio, atau file teks/kode)."
+            f"Format lampiran `{att.filename}` belum didukung (gunakan gambar, Voice Note/audio, PDF, atau file teks/kode)."
         )
 
     # 3. Deteksi Stiker Discord di ruang chat privat
@@ -440,8 +466,9 @@ async def extract_social_media_and_stickers(
     *,
     include_video: bool = True,
     include_audio: bool = True,
+    include_text_files: bool = False,
 ) -> tuple[list[dict], list[str], list[str]]:
-    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), Stiker Discord, serta Custom Emoji
+    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), file kode/teks opsional, Stiker Discord, serta Custom Emoji
     agar AI Agent dapat mendengar pesan suara maupun melihat visual ekspresi stiker/emoji/foto/video!
 
     Returns:
@@ -511,6 +538,31 @@ async def extract_social_media_and_stickers(
                 descriptions.append(f"[Mengirim video: {att.filename}]")
             except Exception as exc:
                 warnings.append(f"Gagal membaca video `{att.filename}`: {sanitize_error_message(exc)}")
+            continue
+
+        if include_text_files and (ext == ".pdf" or content_type == "application/pdf"):
+            if len(media_parts) < MAX_IMAGES_PER_MESSAGE and att.size <= MAX_PDF_ATTACHMENT_BYTES:
+                try:
+                    raw_pdf = await att.read()
+                    b64_pdf = base64.b64encode(raw_pdf).decode("ascii")
+                    media_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}})
+                    descriptions.append(f"[Melampirkan dokumen PDF: {att.filename} — baca & pahami isi dokumennya!]")
+                except Exception as exc:
+                    warnings.append(f"Gagal membaca PDF `{att.filename}`: {sanitize_error_message(exc)}")
+            continue
+
+        if include_text_files and (ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/")):
+            if att.size <= MAX_TEXT_ATTACHMENT_BYTES:
+                try:
+                    raw_txt = await att.read()
+                    decoded = raw_txt.decode("utf-8", errors="replace").strip()
+                    if decoded:
+                        lang_hint = ext.lstrip(".")
+                        descriptions.append(
+                            f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
+                        )
+                except Exception:
+                    pass
 
     # 2. Stiker Discord (PNG / APNG / GIF dapat dilihat langsung visualnya oleh Gemini Vision!)
     for sticker in getattr(message, "stickers", []) or []:
@@ -1213,4 +1265,124 @@ def extract_message_text_for_context(message: discord.Message) -> str:
         if sname:
             parts.append(f"[Stiker: {sname}]")
     return "\n\n".join(parts).strip()
+
+
+# ==============================================================================
+# PROTEKSI KUOTA FREE TIER (COOLDOWN PER-MEMBER) & AUTO-TAG FORUM PINTAR
+# ==============================================================================
+_user_command_cooldowns: dict[tuple[int, str], float] = {}
+
+_SOLVED_TAG_KEYWORDS = frozenset(
+    {"selesai", "solved", "terjawab", "done", "closed", "resolved", "arsip", "clear"}
+)
+
+_FORUM_TAG_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "bug": ("error", "traceback", "exception", "crash", "gagal", "rusak", "fix", "debug"),
+    "error": ("bug", "traceback", "exception", "crash", "gagal"),
+    "python": ("py", "pip", "asyncio", "discord.py", "flask", "fastapi", "django", "pytest"),
+    "javascript": ("js", "node", "npm", "react", "nextjs", "typescript", "ts"),
+    "koding": ("kode", "coding", "program", "script", "dev", "html", "css", "python", "js", "api"),
+    "coding": ("kode", "koding", "program", "script", "dev", "python", "js", "api"),
+    "tanya": ("gimana", "bagaimana", "kenapa", "apa", "bantu", "help", "nanya", "ask", "?"),
+    "bantuan": ("tolong", "bantu", "help", "gimana", "solusi", "error", "masalah"),
+    "help": ("tolong", "bantu", "gimana", "solusi", "error", "masalah"),
+    "hardware": ("laptop", "pc", "ram", "gpu", "cpu", "vga", "ssd", "monitor", "rakit", "panas"),
+    "game": ("mabar", "valorant", "mlbb", "roblox", "minecraft", "genshin", "steam", "ps5", "fps"),
+    "saran": ("usul", "ide", "request", "fitur", "masukan", "feedback"),
+    "showcase": ("karya", "pamer", "setup", "desain", "fanart", "build", "hasil", "foto"),
+    "video": ("youtube", "youtu.be", "shorts", "klip", "podcast", "tonton"),
+    "berita": ("news", "info", "update", "terbaru", "hari ini", "rilis"),
+}
+
+
+def check_user_cooldown(
+    user_id: int,
+    bucket: str,
+    cooldown_sec: int | None = None,
+    *,
+    is_admin: bool = False,
+) -> int:
+    """Memeriksa jeda pemakaian fitur per-member untuk melindungi kuota API Free Tier.
+    Mengembalikan `0` jika diizinkan, atau sisa detik (`>= 1`) jika masih dalam masa jeda.
+    """
+    if is_admin:
+        return 0
+    limit_sec = USER_COMMAND_COOLDOWN_SEC if cooldown_sec is None else max(0, int(cooldown_sec))
+    if limit_sec <= 0:
+        return 0
+
+    now = time.monotonic()
+    # Bersihkan entri kadaluarsa bila dict mulai membesar agar RAM tetap 0-bloat
+    if len(_user_command_cooldowns) > 500:
+        expired_keys = [k for k, exp_at in _user_command_cooldowns.items() if exp_at <= now]
+        for k in expired_keys:
+            _user_command_cooldowns.pop(k, None)
+
+    key = (int(user_id), str(bucket))
+    expires_at = _user_command_cooldowns.get(key, 0.0)
+    if expires_at > now:
+        return max(1, int(round(expires_at - now)))
+
+    _user_command_cooldowns[key] = now + limit_sec
+    return 0
+
+
+def clear_user_cooldowns() -> None:
+    _user_command_cooldowns.clear()
+
+
+def find_solved_forum_tag(available_tags: list) -> object | None:
+    """Mencari objek ForumTag bertema 'Selesai / Solved / Terjawab' pada sebuah ForumChannel."""
+    for tag in available_tags or []:
+        if getattr(tag, "moderated", False):
+            continue
+        t_name = str(getattr(tag, "name", "") or "").strip().lower()
+        if any(kw in t_name for kw in _SOLVED_TAG_KEYWORDS):
+            return tag
+    return None
+
+
+def select_best_forum_tags(
+    post_title: str,
+    content: str,
+    available_tags: list,
+    *,
+    max_tags: int = 2,
+) -> list:
+    """Memilih otomatis 1–2 ForumTag yang paling relevan dengan topik postingan baru (0 kuota API!)."""
+    if not available_tags:
+        return []
+
+    haystack = f"{post_title} {content}".lower()
+    if not haystack.strip():
+        return []
+
+    scored: list[tuple[int, object]] = []
+    for tag in available_tags:
+        if getattr(tag, "moderated", False):
+            continue
+        raw_name = str(getattr(tag, "name", "") or "").strip().lower()
+        if not raw_name or any(kw in raw_name for kw in _SOLVED_TAG_KEYWORDS):
+            continue
+
+        score = 0
+        # 1. Kecocokan nama tag utuh atau kata kunci di dalam nama tag
+        tag_words = [w for w in re.split(r"[\s/_-]+", raw_name) if len(w) >= 2]
+        if re.search(rf"\b{re.escape(raw_name)}\b", haystack):
+            score += 6
+        for tw in tag_words:
+            if re.search(rf"\b{re.escape(tw)}\b", haystack):
+                score += 4
+            for syn in _FORUM_TAG_SYNONYMS.get(tw, ()):
+                if syn == "?" and "?" in haystack:
+                    score += 2
+                elif len(syn) >= 2 and re.search(rf"\b{re.escape(syn)}\b", haystack):
+                    score += 2
+
+        if score >= 2:
+            scored.append((score, tag))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [tag for _, tag in scored[: max(1, max_tags)]]
+
 

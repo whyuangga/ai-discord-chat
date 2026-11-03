@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import platform
 import random
@@ -11,7 +12,9 @@ from discord.ext import commands, tasks
 
 from ai_handler import (
     analyze_link_with_gemini,
+    fact_check_message_with_gemini,
     generate_image,
+    generate_mystery_game_image_bytes,
     get_ai_response,
     is_gemini_key_configured,
     search_web_with_gemini,
@@ -20,29 +23,45 @@ from ai_handler import (
 )
 from community_agent import (
     chat_agent_channels,
+    clear_server_knowledge,
+    delete_server_knowledge,
+    digest_agent_guilds,
     format_idle_duration,
+    format_server_knowledge_for_prompt,
     gallery_agent_channels,
     generate_community_chat_reply,
     generate_gallery_comment,
     generate_idle_icebreaker,
+    generate_morning_digest,
     generate_welcome_greeting,
     get_agent_channel_lock,
+    get_guild_search_channels,
     get_guild_settings,
-    is_search_enabled_for_guild,
-    is_youtube_enabled_for_guild,
+    get_guild_youtube_channels,
+    get_server_knowledge_entries,
+    is_search_enabled_in_channel,
+    is_youtube_enabled_in_channel,
     load_agent_config_from_disk,
+    parse_digest_time,
     parse_idle_duration,
     record_human_channel_activity,
+    resolve_agent_channel_id,
     run_idle_chat_check,
+    run_morning_digest_check,
     save_agent_config_to_disk,
+    search_agent_channels,
     set_chat_channel_config,
+    set_digest_config,
     set_gallery_channel_config,
-    set_search_feature_config,
+    set_search_channel_config,
     set_welcome_config,
-    set_youtube_feature_config,
+    set_youtube_channel_config,
     should_agent_reply_in_chat,
     should_process_member_welcome,
+    should_standalone_feature_reply,
+    upsert_server_knowledge,
     welcome_agent_guilds,
+    youtube_agent_channels,
 )
 from config import (
     AGENT_DEFAULT_IDLE_MINUTES,
@@ -52,6 +71,9 @@ from config import (
     BOT_VERSION,
     DISCORD_BOT_TOKEN,
     DISCORD_GUILD_ID,
+    ENABLE_GOOGLE_SEARCH,
+    ENABLE_IMAGE_FALLBACK,
+    ENABLE_URL_READER,
     GEMINI_DEFAULT_MODEL,
     GEMINI_FAST_MODEL,
     GEMINI_IMAGE_MODEL,
@@ -64,9 +86,13 @@ from config import (
 from games import (
     GAME_POINTS_BY_MODE,
     GAME_ROUND_TIMEOUT_SEC,
+    WORD_CHAIN_MAX_TURNS,
+    WORD_CHAIN_TURN_TIMEOUT_SEC,
     TextGuessControlView,
     TriviaButtonsView,
+    WordChainControlView,
     active_channel_games,
+    finish_word_chain_round,
     generate_ai_game_question,
     get_guild_leaderboard,
     get_user_rank_info,
@@ -74,6 +100,7 @@ from games import (
     load_game_scores_from_disk,
     reset_guild_scores,
     save_game_scores_to_disk,
+    schedule_word_chain_timeout,
     scramble_word,
 )
 from storage import (
@@ -90,19 +117,24 @@ from storage import (
     thread_chats,
 )
 from utils import (
+    check_user_cooldown,
     extract_message_attachments,
     extract_message_text_for_context,
     extract_social_media_and_stickers,
     get_realtime_time_context,
     has_voice_or_audio_attachment,
     sanitize_error_message,
+    select_best_forum_tags,
     split_discord_message,
 )
 from views import (
+    AgentAdminPanelView,
     ChatPersonaSwitchView,
     EndSessionView,
+    ForumPostSolvedView,
     ImageSettingsView,
     MainPanelControlView,
+    build_agent_status_embed,
     build_main_panel_embed,
     can_manage_session,
 )
@@ -174,11 +206,13 @@ class GeminiDiscordBot(commands.Bot):
         loaded_agent_chats, loaded_galleries = load_agent_config_from_disk()
         loaded_score_guilds = load_game_scores_from_disk()
         logger.info(
-            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d papan skor server.",
+            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
             loaded_imgs,
             loaded_agent_chats,
             loaded_galleries,
+            len(youtube_agent_channels),
+            len(search_agent_channels),
             loaded_score_guilds,
         )
 
@@ -187,6 +221,7 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(EndSessionView())
         self.add_view(ChatPersonaSwitchView())
         self.add_view(ImageSettingsView())
+        self.add_view(ForumPostSolvedView())
 
         # 4. Jalankan background watcher untuk fitur Pemecah Sepi Otomatis
         if not idle_chat_watcher.is_running():
@@ -228,9 +263,11 @@ bot = GeminiDiscordBot()
 
 @tasks.loop(seconds=15)
 async def idle_chat_watcher():
-    """Memantau channel Auto-Chat setiap 15 detik & membersihkan sesi kadaluarsa setiap 1 jam."""
+    """Memantau channel Auto-Chat setiap 15 detik, Morning Digest setiap 1 menit, & sesi kadaluarsa tiap 1 jam."""
     try:
         await run_idle_chat_check(bot, http_session=bot.http_session)
+        if idle_chat_watcher.current_loop % 4 == 0:
+            await run_morning_digest_check(bot, http_session=bot.http_session)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 240 == 0:
             if cleanup_expired_sessions() > 0:
                 await save_sessions_to_disk()
@@ -286,9 +323,19 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
     if channel.id in gallery_agent_channels:
         set_gallery_channel_config(channel.guild.id, channel.id, enabled=False)
         removed = True
+    if channel.id in youtube_agent_channels:
+        set_youtube_channel_config(channel.guild.id, channel.id, enabled=False)
+        removed = True
+    if channel.id in search_agent_channels:
+        set_search_channel_config(channel.guild.id, channel.id, enabled=False)
+        removed = True
     w_cfg = welcome_agent_guilds.get(channel.guild.id)
     if w_cfg and int(w_cfg.get("channel_id") or 0) == channel.id:
         set_welcome_config(channel.guild.id, channel.id, enabled=False)
+        removed = True
+    d_cfg = digest_agent_guilds.get(channel.guild.id)
+    if d_cfg and int(d_cfg.get("channel_id") or 0) == channel.id:
+        set_digest_config(channel.guild.id, channel.id, enabled=False)
         removed = True
     active_channel_games.pop(channel.id, None)
     if removed:
@@ -389,13 +436,13 @@ async def _menit_sepi_autocomplete(
 
 @agent_group.command(
     name="chat",
-    description="Aktifkan/atur AI Agent Auto-Chat & Pemecah Sepi otomatis di channel publik",
+    description="Aktifkan/atur AI Agent Auto-Chat di Text Channel maupun Channel Forum",
 )
 @app_commands.describe(
-    channel="Channel teks tempat AI Agent ikut ngobrol",
+    channel="Pilih Text Channel atau Channel Forum tempat AI Agent ikut berdiskusi",
     aktif="True untuk mengaktifkan, False untuk mematikan",
     mode_balas="Cerdas & Natural (rekomendasi) atau Balas Semua Pesan",
-    menit_sepi="Waktu sepi sebelum AI menyapa duluan (pilih dari daftar atau ketik misal: 1, 5, 30, 30 detik, 0)",
+    menit_sepi="Waktu sepi sebelum AI menyapa duluan di Text Channel (ketik misal: 1, 5, 30, 30 detik, 0)",
 )
 @app_commands.choices(
     mode_balas=[
@@ -406,7 +453,7 @@ async def _menit_sepi_autocomplete(
 @app_commands.autocomplete(menit_sepi=_menit_sepi_autocomplete)
 async def agent_chat_cmd(
     interaction: discord.Interaction,
-    channel: discord.TextChannel,
+    channel: discord.TextChannel | discord.ForumChannel,
     aktif: bool,
     mode_balas: app_commands.Choice[str] | None = None,
     menit_sepi: str | None = None,
@@ -414,7 +461,8 @@ async def agent_chat_cmd(
     if interaction.guild is None:
         return
 
-    parsed = parse_idle_duration(menit_sepi)
+    is_forum = isinstance(channel, discord.ForumChannel)
+    parsed = (0, "Nonaktif (Channel Forum)") if is_forum else parse_idle_duration(menit_sepi)
     if parsed is None:
         await interaction.response.send_message(
             "⚠️ Format `menit_sepi` tidak dikenali. Ketik angka menit seperti `1`, `5`, `30`, `30 detik`, atau `0` untuk mematikan.",
@@ -440,12 +488,22 @@ async def agent_chat_cmd(
         )
         return
 
+    mode_label = "Cerdas & Natural" if chosen_mode == "smart" else "Balas Semua Pesan"
+    if is_forum:
+        await interaction.response.send_message(
+            f"✅ **AI Agent Auto-Chat (Mode Forum) aktif di {channel.mention}!**\n"
+            f"• **Mode Balasan:** `{mode_label}`\n"
+            f"• **Cara Kerja di Forum:** Setiap ada **Postingan Forum baru** dibuat (atau saat nama bot dipanggil di komentar postingan), AI otomatis membaca **Judul Postingan, Tag Forum, isi teks, gambar, file kode, & Voice Note** lalu membalas langsung di dalam postingan tersebut!\n"
+            f"• **Memori Terpisah:** Ingatan obrolan dijaga per postingan agar topik antar-postingan tidak tercampur.",
+            ephemeral=True,
+        )
+        return
+
     idle_desc = (
         f"Aktif setiap **{idle_human_label}** sepi *(timer dimulai dari sekarang)*"
         if idle_secs > 0
         else "Nonaktif (`0`)"
     )
-    mode_label = "Cerdas & Natural" if chosen_mode == "smart" else "Balas Semua Pesan"
     await interaction.response.send_message(
         f"✅ **AI Agent Auto-Chat aktif di {channel.mention}!**\n"
         f"• **Mode Balasan:** `{mode_label}`\n"
@@ -458,16 +516,16 @@ async def agent_chat_cmd(
 
 @agent_group.command(
     name="gallery",
-    description="Aktifkan/nonaktifkan AI Auto-Komentar Gambar & Video di channel Galeri/Media",
+    description="Aktifkan/nonaktifkan AI Auto-Komentar Gambar & Video di channel/forum Galeri/Showcase",
 )
 @app_commands.describe(
-    channel="Channel galeri/media/showcase tempat member mengirim foto atau video",
+    channel="Pilih Text Channel atau Channel Forum/Media tempat member mengirim foto atau video",
     aktif="True untuk mengaktifkan, False untuk mematikan",
     auto_reaction="Otomatis memberi reaksi emoji (✨/🔥/😍) pada postingan media",
 )
 async def agent_gallery_cmd(
     interaction: discord.Interaction,
-    channel: discord.TextChannel,
+    channel: discord.TextChannel | discord.ForumChannel,
     aktif: bool,
     auto_reaction: bool = True,
 ):
@@ -563,7 +621,7 @@ async def agent_persona_cmd(
     name="sapa",
     description="Minta AI Agent langsung menyapa / memecah sepi sekarang juga di channel pilihan",
 )
-@app_commands.describe(channel="Channel target (kosongkan untuk menyapa di channel ini)")
+@app_commands.describe(channel="Channel target (kosongkan untuk menyapa di channel/postingan ini)")
 async def agent_sapa_cmd(
     interaction: discord.Interaction,
     channel: discord.TextChannel | None = None,
@@ -571,10 +629,14 @@ async def agent_sapa_cmd(
     if interaction.guild is None:
         return
 
-    target = channel or (interaction.channel if isinstance(interaction.channel, discord.TextChannel) else None)
+    target = channel or (
+        interaction.channel
+        if isinstance(interaction.channel, (discord.TextChannel, discord.Thread))
+        else None
+    )
     if target is None:
         await interaction.response.send_message(
-            "⚠️ Pilih Text Channel yang valid.",
+            "⚠️ Pilih Text Channel yang valid, atau jalankan langsung di dalam Postingan Forum / Thread.",
             ephemeral=True,
         )
         return
@@ -667,94 +729,107 @@ async def agent_welcome_cmd(
 
 @agent_group.command(
     name="youtube",
-    description="Aktifkan/matikan fitur perangkum link YouTube & kontrol auto-baca di Text Channel",
+    description="Aktifkan/nonaktifkan fitur perangkum link YouTube & Web di channel/forum pilihan",
 )
 @app_commands.describe(
-    aktif="True = aktifkan /ringkas_link & baca link di ruang ai-..., False = matikan semua",
-    auto_di_channel="False (Default) = jangan auto-chat saat member kirim link YouTube di channel publik, True = nyalakan",
+    channel="Pilih Text Channel atau Channel Forum tempat fitur rangkum YouTube & link web diaktifkan",
+    aktif="True untuk mengaktifkan di channel/forum ini, False untuk mematikan",
+    auto_di_channel="False (Default) = rangkum saat dipanggil / /ringkas_link, True = otomatis rangkum semua link",
 )
 async def agent_youtube_cmd(
     interaction: discord.Interaction,
+    channel: discord.TextChannel | discord.ForumChannel,
     aktif: bool,
-    auto_di_channel: bool | None = None,
+    auto_di_channel: bool = False,
 ):
     if interaction.guild is None:
         return
 
-    cfg = set_youtube_feature_config(
+    cfg = set_youtube_channel_config(
         interaction.guild.id,
+        channel.id,
         enabled=aktif,
         auto_in_chat=auto_di_channel,
     )
     await save_agent_config_to_disk()
 
-    if not cfg["youtube_enabled"]:
+    active_list = [f"<#{cid}>" for cid, _ in get_guild_youtube_channels(interaction.guild.id)]
+    active_summary = ", ".join(active_list) if active_list else "*Belum ada channel aktif*"
+
+    if not aktif or cfg is None:
         await interaction.response.send_message(
-            "🛑 **Fitur Perangkum YouTube & Link Web telah DINONAKTIFKAN** di server ini.\n"
-            "• Command `/ringkas_link`, pembacaan link di `ai-...`, serta auto-baca di channel publik dimatikan.",
+            f"🛑 **Fitur Perangkum YouTube & Link Web** telah **dinonaktifkan** di {channel.mention}.\n"
+            f"• **Channel YouTube yang masih aktif:** {active_summary}",
             ephemeral=True,
         )
         return
 
-    auto_status = (
-        "✅ **AKTIF** *(bot ikut membaca & mengomentari link YouTube di Text Channel Auto-Chat)*"
-        if cfg["youtube_auto_chat"]
-        else "🔕 **NONAKTIF (Rekomendasi)** *(bot TIDAK ikut nimbrung saat warga kirim link YouTube di Text Channel)*"
+    mode_info = (
+        "✅ **Otomatis Baca Semua Link** *(setiap link YouTube/Web yang dikirim di channel ini langsung dirangkum)*"
+        if cfg["auto_in_chat"]
+        else "🔕 **Hanya Saat Dipanggil & `/ringkas_link` (Rekomendasi)** *(diam saat warga sekadar share link biasa, namun langsung merangkum saat nama bot dipanggil / pakai `/ringkas_link`)*"
     )
     await interaction.response.send_message(
-        f"🎬 **Pengaturan Perangkum YouTube & Link Web Disimpan!**\n"
-        f"• **Command `/ringkas_link` & Ruang Privat `ai-...`:** ✅ **AKTIF**\n"
-        f"• **Auto-Chat saat kirim link YouTube di Channel Publik:** {auto_status}",
+        f"🎬 **Fitur Perangkum YouTube & Link Web aktif di {channel.mention}!**\n"
+        f"• **Mode di Channel Ini:** {mode_info}\n"
+        f"• **Daftar Channel YouTube Aktif di Server:** {active_summary}",
         ephemeral=True,
     )
 
 
 @agent_group.command(
     name="cari",
-    description="Aktifkan/matikan fitur pencarian berita & informasi terkini (/cari & auto-search)",
+    description="Aktifkan/nonaktifkan fitur pencarian berita & web (/cari & auto-search) di channel/forum pilihan",
 )
 @app_commands.describe(
-    aktif="True = aktifkan fitur pencarian berita/web (/cari), False = matikan total di server ini",
-    auto_di_chat="True = otomatis cari berita saat ditanya di chat, False = hanya aktif lewat command /cari",
+    channel="Pilih Text Channel atau Channel Forum tempat fitur pencarian berita/web diaktifkan",
+    aktif="True untuk mengaktifkan di channel/forum ini, False untuk mematikan",
+    auto_di_chat="True (Default) = bisa lewat /cari maupun panggil nama bot di chat/postingan, False = khusus /cari",
 )
 async def agent_cari_cmd(
     interaction: discord.Interaction,
+    channel: discord.TextChannel | discord.ForumChannel,
     aktif: bool,
-    auto_di_chat: bool | None = None,
+    auto_di_chat: bool = True,
 ):
     if interaction.guild is None:
         return
 
-    cfg = set_search_feature_config(
+    cfg = set_search_channel_config(
         interaction.guild.id,
+        channel.id,
         enabled=aktif,
         auto_in_chat=auto_di_chat,
     )
     await save_agent_config_to_disk()
 
-    if not cfg["search_enabled"]:
+    active_list = [f"<#{cid}>" for cid, _ in get_guild_search_channels(interaction.guild.id)]
+    active_summary = ", ".join(active_list) if active_list else "*Belum ada channel aktif*"
+
+    if not aktif or cfg is None:
         await interaction.response.send_message(
-            "🛑 **Fitur Pencarian Web (`/cari` & Auto-Search) telah DINONAKTIFKAN** di server ini.",
+            f"🛑 **Fitur Pencarian Berita & Web (`/cari`)** telah **dinonaktifkan** di {channel.mention}.\n"
+            f"• **Channel Pencarian yang masih aktif:** {active_summary}",
             ephemeral=True,
         )
         return
 
-    auto_info = (
-        "✅ **AKTIF** *(otomatis mencari info terbaru saat ditanya di ruang chat)*"
-        if cfg["search_auto_chat"]
-        else "🔕 **NONAKTIF** *(pencarian web hanya jalan saat member mengetik `/cari`)*"
+    mode_info = (
+        "✅ **`/cari` & Panggil Nama di Chat** *(member bisa ketik `/cari` maupun panggil nama bot langsung untuk tanya berita terbaru)*"
+        if cfg["auto_in_chat"]
+        else "🔎 **Khusus Command `/cari`** *(pencarian berita di channel ini hanya jalan saat mengetik `/cari`)*"
     )
     await interaction.response.send_message(
-        f"🔎 **Pengaturan Fitur Pencarian Web (`/cari`) Disimpan!**\n"
-        f"• **Command `/cari`:** ✅ **AKTIF**\n"
-        f"• **Auto-Search di Obrolan Chat:** {auto_info}",
+        f"🔎 **Fitur Pencarian Berita & Web aktif di {channel.mention}!**\n"
+        f"• **Mode di Channel Ini:** {mode_info}\n"
+        f"• **Daftar Channel Pencarian Aktif di Server:** {active_summary}",
         ephemeral=True,
     )
 
 
 @agent_group.command(
     name="status",
-    description="Lihat daftar channel Auto-Chat, Pemecah Sepi, Galeri, & status ON/OFF fitur server",
+    description="Lihat daftar channel Auto-Chat, Pemecah Sepi, Galeri, YouTube, & Pencarian di server",
 )
 async def agent_status_cmd(interaction: discord.Interaction):
     if interaction.guild is None:
@@ -775,16 +850,22 @@ async def agent_status_cmd(interaction: discord.Interaction):
         for cid, gdata in gallery_agent_channels.items()
         if gdata.get("guild_id") == gid and gdata.get("enabled")
     ]
+    active_youtubes = get_guild_youtube_channels(gid)
+    active_searches = get_guild_search_channels(gid)
 
     now_ts = time.time()
     chat_lines: list[str] = []
     for cid, d in active_chats:
+        ch_obj = interaction.guild.get_channel(cid)
+        is_forum_ch = isinstance(ch_obj, discord.ForumChannel)
         idle_secs = int(
             d.get("idle_seconds")
             if d.get("idle_seconds") is not None
             else int(d.get("idle_minutes") or 0) * 60
         )
-        if idle_secs <= 0:
+        if is_forum_ch:
+            idle_info = "`Mode Forum (Aktif di Postingan)`"
+        elif idle_secs <= 0:
             idle_info = "`Nonaktif`"
         elif int(d.get("consecutive_idle_pokes") or 0) >= AGENT_MAX_IDLE_POKES:
             idle_info = f"`{format_idle_duration(idle_secs)}` *(menunggu balasan warga)*"
@@ -792,7 +873,7 @@ async def agent_status_cmd(interaction: discord.Interaction):
             rem_sec = max(0, int(idle_secs - (now_ts - float(d.get("last_activity_at") or now_ts))))
             rem_label = f"{rem_sec} dtk" if rem_sec < 60 else f"{rem_sec // 60} mnt {rem_sec % 60} dtk"
             idle_info = f"`{format_idle_duration(idle_secs)}` *(sapa dlm ~{rem_label})*"
-        chat_lines.append(f"• <#{cid}> — Mode: `{d['reply_mode']}` | Pemecah sepi: {idle_info}")
+        chat_lines.append(f"• <#{cid}> — Mode: `{d['reply_mode']}` | {idle_info}")
     if not chat_lines:
         chat_lines = ["*Belum ada channel Auto-Chat aktif (gunakan `/agent chat`)*"]
 
@@ -800,6 +881,22 @@ async def agent_status_cmd(interaction: discord.Interaction):
         f"• <#{cid}> — Auto-Reaction: `{'Ya' if d.get('auto_reaction', True) else 'Tidak'}`"
         for cid, d in active_galleries
     ] or ["*Belum ada channel Galeri aktif (gunakan `/agent gallery`)*"]
+
+    youtube_lines = [
+        (
+            f"• <#{cid}> — Mode: "
+            f"`{'Otomatis Semua Link' if d.get('auto_in_chat', False) else 'Saat Dipanggil & /ringkas_link'}`"
+        )
+        for cid, d in active_youtubes
+    ] or ["*Belum ada channel YouTube aktif (gunakan `/agent youtube`)*"]
+
+    search_lines = [
+        (
+            f"• <#{cid}> — Mode: "
+            f"`{'/cari & Panggil di Chat' if d.get('auto_in_chat', True) else 'Khusus /cari'}`"
+        )
+        for cid, d in active_searches
+    ] or ["*Belum ada channel Pencarian aktif (gunakan `/agent cari`)*"]
 
     embed = discord.Embed(
         title="🤖 Status AI Agent & Otomasi Komunitas",
@@ -815,24 +912,6 @@ async def agent_status_cmd(interaction: discord.Interaction):
         ),
         inline=False,
     )
-    yt_status = (
-        f"✅ ON *(Auto di Text Channel: {'ON' if g_cfg.get('youtube_auto_chat', False) else 'OFF'})*"
-        if g_cfg.get("youtube_enabled", True)
-        else "🛑 OFF"
-    )
-    cari_status = (
-        f"✅ ON *(Auto di Chat: {'ON' if g_cfg.get('search_auto_chat', True) else 'OFF'})*"
-        if g_cfg.get("search_enabled", True)
-        else "🛑 OFF"
-    )
-    embed.add_field(
-        name="⚙️ Saklar Fitur Pintar (`/agent youtube` & `/agent cari`)",
-        value=(
-            f"🎬 **Rangkum YouTube & Link:** {yt_status}\n"
-            f"🔎 **Pencarian Web (`/cari`):** {cari_status}"
-        ),
-        inline=False,
-    )
     w_cfg = welcome_agent_guilds.get(gid)
     if w_cfg and w_cfg.get("enabled"):
         w_note = f" | Info: `{w_cfg['extra_note']}`" if w_cfg.get("extra_note") else ""
@@ -842,8 +921,232 @@ async def agent_status_cmd(interaction: discord.Interaction):
 
     embed.add_field(name="💬 Channel Auto-Chat & Pemecah Sepi", value="\n".join(chat_lines), inline=False)
     embed.add_field(name="👋 Auto-Welcomer Member Baru", value=welcome_line, inline=False)
+    d_cfg = digest_agent_guilds.get(gid)
+    if d_cfg and d_cfg.get("enabled"):
+        digest_line = (
+            f"• Aktif di <#{d_cfg['channel_id']}> pukul `{d_cfg['hour']:02d}:{d_cfg['minute']:02d}` | "
+            f"Topik: `{d_cfg.get('topic')}`"
+        )
+    else:
+        digest_line = "*Belum aktif (gunakan `/agent digest`)*"
+    faq_count = len(get_server_knowledge_entries(gid))
+    embed.add_field(name="☀️ Koran & Sapaan Pagi Otomatis", value=digest_line, inline=False)
+    embed.add_field(
+        name="📌 Memori Info & FAQ Server (`/agent info`)",
+        value=f"`{faq_count}` entri informasi resmi tersimpan",
+        inline=False,
+    )
     embed.add_field(name="📸 Channel Auto-Komentar Galeri (Foto & Video)", value="\n".join(gallery_lines), inline=False)
+    embed.add_field(name="🎬 Channel Rangkum YouTube & Link Web", value="\n".join(youtube_lines), inline=False)
+    embed.add_field(name="🔎 Channel Pencarian Berita & Web (`/cari`)", value="\n".join(search_lines), inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@agent_group.command(
+    name="info",
+    description="Kelola memori Info & FAQ resmi server agar AI hafal rules, IP, atau link server",
+)
+@app_commands.describe(
+    aksi="Pilih aksi pengelolaan memori Info/FAQ server",
+    topik="Judul/kata kunci info (atau nomor urut saat memilih Hapus 1 Info)",
+    isi="Isi jawaban/informasi resmi yang wajib diingat AI (maks 500 karakter)",
+)
+@app_commands.choices(
+    aksi=[
+        app_commands.Choice(name="➕ Tambah / Perbarui Info", value="tambah"),
+        app_commands.Choice(name="📋 Lihat Semua Info & FAQ", value="lihat"),
+        app_commands.Choice(name="🗑️ Hapus 1 Info (Nomor / Topik)", value="hapus"),
+        app_commands.Choice(name="🧹 Hapus Semua Info Server", value="reset"),
+    ]
+)
+async def agent_info_cmd(
+    interaction: discord.Interaction,
+    aksi: app_commands.Choice[str],
+    topik: str | None = None,
+    isi: str | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    gid = interaction.guild.id
+    act = aksi.value
+
+    if act == "lihat":
+        entries = get_server_knowledge_entries(gid)
+        if not entries:
+            await interaction.response.send_message(
+                "📌 **Memori Info / FAQ Server masih kosong.**\n"
+                "Tambahkan info seperti rules, IP server game, link sosial media, atau jadwal mabar dengan "
+                "`/agent info aksi:Tambah topik:... isi:...`!",
+                ephemeral=True,
+            )
+            return
+        lines = [
+            f"**{idx}. `{item['topic']}`**\n> {item['content']}"
+            for idx, item in enumerate(entries, start=1)
+        ]
+        embed = discord.Embed(
+            title=f"📌 Memori Info & FAQ Resmi — {interaction.guild.name}",
+            description="\n\n".join(lines)[:4000],
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text=f"Total {len(entries)}/25 entri • Otomatis dipahami AI di semua channel & ruang privat")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    if act == "tambah":
+        if not (topik and topik.strip()) or not (isi and isi.strip()):
+            await interaction.response.send_message(
+                "⚠️ Untuk menambah/memperbarui info, mohon isi kolom **`topik`** sekaligus **`isi`**.",
+                ephemeral=True,
+            )
+            return
+        item, status = upsert_server_knowledge(gid, topik, isi)
+        if status == "full" or item is None:
+            await interaction.response.send_message(
+                "⚠️ Kapasitas memori FAQ Server sudah mencapai batas maksimal (**25 entri**). Hapus entri lama terlebih dahulu.",
+                ephemeral=True,
+            )
+            return
+        await save_agent_config_to_disk()
+        verb = "diperbarui" if status == "updated" else "ditambahkan"
+        await interaction.response.send_message(
+            f"✅ Info server **`{item['topic']}`** berhasil **{verb}**!\n"
+            f"> {item['content']}\n"
+            "*(AI kini otomatis mengingat informasi ini saat menjawab pertanyaan warga)*",
+            ephemeral=True,
+        )
+        return
+
+    if act == "hapus":
+        if not (topik and topik.strip()):
+            await interaction.response.send_message(
+                "⚠️ Ketik **nomor urut** (misal `1`) atau **nama topik** pada kolom `topik` untuk menghapus.",
+                ephemeral=True,
+            )
+            return
+        removed = delete_server_knowledge(gid, topik)
+        if removed is None:
+            await interaction.response.send_message(
+                f"⚠️ Entri dengan nomor/topik **`{topik}`** tidak ditemukan. Cek daftar lewat `/agent info aksi:Lihat`.",
+                ephemeral=True,
+            )
+            return
+        await save_agent_config_to_disk()
+        await interaction.response.send_message(
+            f"🗑️ Entri **`{removed['topic']}`** berhasil dihapus dari memori server.",
+            ephemeral=True,
+        )
+        return
+
+    count = clear_server_knowledge(gid)
+    await save_agent_config_to_disk()
+    await interaction.response.send_message(
+        f"🧹 Seluruh memori Info/FAQ server (**{count} entri**) telah dibersihkan.",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="digest",
+    description="Atur pengiriman Koran & Sapaan Pagi otomatis setiap hari di channel pilihan",
+)
+@app_commands.describe(
+    channel="Pilih Text Channel tempat AI mengirim sapaan & berita pagi harian",
+    aktif="True untuk mengaktifkan jadwal harian, False untuk mematikan",
+    jam="Jam kirim harian format HH:MM (contoh: 07:00 atau 06:30, default 07:00)",
+    topik="Fokus topik berita pagi (kosongkan = berita Indonesia, tekno, & game)",
+    tes_sekarang="True untuk langsung mencoba kirim contoh Koran Pagi sekarang juga",
+)
+async def agent_digest_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    aktif: bool,
+    jam: str | None = None,
+    topik: str | None = None,
+    tes_sekarang: bool = False,
+):
+    if interaction.guild is None:
+        return
+
+    parsed_hm = parse_digest_time(jam)
+    if parsed_hm is None:
+        await interaction.response.send_message(
+            "⚠️ Format `jam` tidak valid. Gunakan format 24-jam seperti `07:00`, `06:30`, atau `8`.",
+            ephemeral=True,
+        )
+        return
+
+    hour, minute = parsed_hm
+    cfg = set_digest_config(
+        interaction.guild.id,
+        channel.id,
+        enabled=aktif,
+        hour=hour,
+        minute=minute,
+        topic=topik,
+    )
+    await save_agent_config_to_disk()
+
+    if not aktif or cfg is None:
+        await interaction.response.send_message(
+            "🛑 **Koran & Sapaan Pagi Otomatis (Morning Digest)** telah **dinonaktifkan** di server ini.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    g_cfg = get_guild_settings(interaction.guild.id)
+    t_ctx = get_realtime_time_context(g_cfg.get("timezone", BOT_TIMEZONE))
+
+    test_note = ""
+    if tes_sekarang:
+        bot_name = interaction.guild.me.display_name if interaction.guild.me else "Teman"
+        digest_text, err = await generate_morning_digest(
+            interaction.guild.id,
+            bot_name,
+            http_session=bot.http_session,
+        )
+        if digest_text and not err:
+            d_embed = discord.Embed(
+                title=f"☀️ Koran & Sapaan Pagi — {t_ctx['day_name']}, {t_ctx['date_str']}",
+                description=digest_text[:4090],
+                color=discord.Color.gold(),
+            )
+            d_embed.set_footer(text=f"Tes Kirim Langsung • Jadwal Harian {hour:02d}:{minute:02d} {t_ctx['tz_label']}")
+            await channel.send(embed=d_embed)
+            test_note = f"\n🎉 **Contoh Koran Pagi berhasil dikirim ke {channel.mention}!**"
+        else:
+            test_note = f"\n⚠️ *Gagal mengirim tes Koran Pagi: {err or 'Cek koneksi API'}*"
+
+    await interaction.followup.send(
+        f"☀️ **Morning Digest aktif di {channel.mention}!**\n"
+        f"• **Jadwal Kirim Harian:** Setiap pukul **`{hour:02d}:{minute:02d} {t_ctx['tz_label']}`**\n"
+        f"• **Topik Berita:** `{cfg['topic']}`"
+        f"{test_note}",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="panel",
+    description="Buka Panel Kontrol Interaktif untuk atur semua fitur AI dengan klik tombol",
+)
+async def agent_panel_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    default_cid: int | None = None
+    if isinstance(interaction.channel, (discord.TextChannel, discord.ForumChannel)):
+        default_cid = interaction.channel.id
+    elif isinstance(interaction.channel, discord.Thread) and interaction.channel.parent_id:
+        default_cid = interaction.channel.parent_id
+
+    view = AgentAdminPanelView(interaction.user.id, default_channel_id=default_cid)
+    await interaction.response.send_message(
+        embed=build_agent_status_embed(interaction.guild),
+        view=view,
+        ephemeral=True,
+    )
 
 
 bot.tree.add_command(agent_group)
@@ -969,6 +1272,33 @@ async def slash_model(interaction: discord.Interaction, mode: app_commands.Choic
     )
 
 
+def _is_interaction_admin(interaction: discord.Interaction) -> bool:
+    return isinstance(interaction.user, discord.Member) and bool(
+        interaction.user.guild_permissions.administrator
+    )
+
+
+async def _enforce_member_cooldown(
+    interaction: discord.Interaction,
+    bucket: str,
+    cooldown_sec: int | None = None,
+) -> bool:
+    """Memastikan member mematuhi jeda wajar antar pemakaian fitur berat (Admin bebas jeda)."""
+    rem = check_user_cooldown(
+        interaction.user.id,
+        bucket,
+        cooldown_sec,
+        is_admin=_is_interaction_admin(interaction),
+    )
+    if rem > 0:
+        await interaction.response.send_message(
+            f"⏳ Mohon tunggu **{rem} detik** lagi sebelum memakai fitur ini kembali *(proteksi kuota Free Tier)*.",
+            ephemeral=True,
+        )
+        return False
+    return True
+
+
 @bot.tree.command(
     name="ringkas",
     description="Rangkum inti obrolan terakhir di channel ini agar tidak ketinggalan topik (TL;DR)",
@@ -1018,6 +1348,9 @@ async def slash_ringkas(
                 ephemeral=True,
             )
             return
+
+    if not await _enforce_member_cooldown(interaction, "ringkas"):
+        return
 
     limit_count = int(jumlah.value) if jumlah else 50
     await interaction.response.defer(ephemeral=not publik)
@@ -1097,6 +1430,8 @@ async def _run_message_context_action(
     embed_title: str,
     embed_color: discord.Color,
 ) -> None:
+    if not await _enforce_member_cooldown(interaction, "context_menu", cooldown_sec=6):
+        return
     await interaction.response.defer(ephemeral=True)
 
     msg_text = extract_message_text_for_context(message)
@@ -1115,18 +1450,30 @@ async def _run_message_context_action(
 
     if not msg_text and not media_parts and not text_blocks:
         await interaction.followup.send(
-            "ℹ️ Pesan tersebut tidak memiliki teks, lampiran gambar/kode, maupun Voice Note yang bisa diproses.",
+            "ℹ️ Pesan tersebut tidak memiliki teks, lampiran gambar/PDF/kode, maupun Voice Note yang bisa diproses.",
             ephemeral=True,
         )
         return
 
-    result_text, err_msg = await transform_message_with_gemini(
-        action,
-        msg_text,
-        media_parts=media_parts or None,
-        text_blocks=text_blocks or None,
-        http_session=bot.http_session,
-    )
+    if action == "fact_check":
+        tz_name = BOT_TIMEZONE
+        if interaction.guild is not None:
+            tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
+        result_text, err_msg = await fact_check_message_with_gemini(
+            msg_text,
+            media_parts=media_parts or None,
+            text_blocks=text_blocks or None,
+            timezone_name=tz_name,
+            http_session=bot.http_session,
+        )
+    else:
+        result_text, err_msg = await transform_message_with_gemini(
+            action,
+            msg_text,
+            media_parts=media_parts or None,
+            text_blocks=text_blocks or None,
+            http_session=bot.http_session,
+        )
     if err_msg or not result_text:
         await interaction.followup.send(err_msg or "⚠️ Gagal memproses pesan ini.", ephemeral=True)
         return
@@ -1177,9 +1524,36 @@ async def context_explain_message(interaction: discord.Interaction, message: dis
     )
 
 
+@bot.tree.context_menu(name="🔍 Cek Fakta / Hoaks")
+async def context_fact_check_message(interaction: discord.Interaction, message: discord.Message):
+    await _run_message_context_action(
+        interaction,
+        message,
+        action="fact_check",
+        embed_title="🔍 Pemeriksaan Fakta & Klaim",
+        embed_color=discord.Color.orange(),
+    )
+
+
 # ==============================================================================
 # FITUR 2 & 3: PERANGKUM YOUTUBE/WEB (/ringkas_link) & GOOGLE SEARCH (/cari)
 # ==============================================================================
+def _resolve_public_feature_channel_id(
+    channel: discord.abc.Messageable | None,
+) -> tuple[int | None, bool]:
+    """Mengembalikan `(effective_channel_id, is_private_session_or_dm)`.
+    Jika berada di dalam ruang privat `ai-...`/`draw-...` atau DM, kembalikan `(None, True)`.
+    Jika berada di dalam Thread publik, gunakan `parent_id` TextChannel induknya.
+    """
+    if channel is None or isinstance(channel, discord.DMChannel):
+        return None, True
+    if isinstance(channel, discord.Thread):
+        if (channel.name or "").startswith(("ai-", "draw-")):
+            return None, True
+        return getattr(channel, "parent_id", None) or channel.id, False
+    return getattr(channel, "id", None), False
+
+
 @bot.tree.command(
     name="ringkas_link",
     description="Rangkum isi video YouTube atau artikel website secara instan tanpa perlu menonton/baca penuh",
@@ -1195,13 +1569,32 @@ async def slash_ringkas_link(
     pertanyaan: str | None = None,
     publik: bool = False,
 ):
-    guild_id = interaction.guild.id if interaction.guild is not None else None
-    if not is_youtube_enabled_for_guild(guild_id):
+    eff_cid, is_priv = _resolve_public_feature_channel_id(interaction.channel)
+    if is_priv:
+        if not ENABLE_URL_READER:
+            await interaction.response.send_message(
+                "🛑 Fitur pembaca link sedang dinonaktifkan pada konfigurasi bot.",
+                ephemeral=True,
+            )
+            return
+    elif not is_youtube_enabled_in_channel(eff_cid):
+        active_yt = (
+            [f"<#{cid}>" for cid, _ in get_guild_youtube_channels(interaction.guild.id)]
+            if interaction.guild is not None
+            else []
+        )
+        where_hint = (
+            f"\n👉 Silakan gunakan di {', '.join(active_yt)} *(atau buka ruang privat AI)*."
+            if active_yt
+            else "\n👉 Admin dapat mengaktifkannya lewat `/agent youtube channel:#nama-channel aktif:True` *(atau gunakan ruang privat AI)*."
+        )
         await interaction.response.send_message(
-            "🛑 Fitur perangkum YouTube & link web sedang **dinonaktifkan** di server ini oleh Admin "
-            "*(Admin dapat mengaktifkannya kembali lewat `/agent youtube aktif:True`)*.",
+            f"🛑 Fitur perangkum YouTube & link web **belum diaktifkan di channel ini**.{where_hint}",
             ephemeral=True,
         )
+        return
+
+    if not await _enforce_member_cooldown(interaction, "ringkas_link"):
         return
 
     await interaction.response.defer(ephemeral=not publik)
@@ -1246,13 +1639,32 @@ async def slash_cari(
     pertanyaan: str,
     publik: bool = False,
 ):
-    guild_id = interaction.guild.id if interaction.guild is not None else None
-    if not is_search_enabled_for_guild(guild_id, for_auto_chat=False):
+    eff_cid, is_priv = _resolve_public_feature_channel_id(interaction.channel)
+    if is_priv:
+        if not ENABLE_GOOGLE_SEARCH:
+            await interaction.response.send_message(
+                "🛑 Fitur pencarian web sedang dinonaktifkan pada konfigurasi bot.",
+                ephemeral=True,
+            )
+            return
+    elif not is_search_enabled_in_channel(eff_cid, for_auto_chat=False):
+        active_srch = (
+            [f"<#{cid}>" for cid, _ in get_guild_search_channels(interaction.guild.id)]
+            if interaction.guild is not None
+            else []
+        )
+        where_hint = (
+            f"\n👉 Silakan gunakan di {', '.join(active_srch)} *(atau buka ruang privat AI)*."
+            if active_srch
+            else "\n👉 Admin dapat mengaktifkannya lewat `/agent cari channel:#nama-channel aktif:True` *(atau gunakan ruang privat AI)*."
+        )
         await interaction.response.send_message(
-            "🛑 Fitur pencarian web (`/cari`) sedang **dinonaktifkan** di server ini oleh Admin "
-            "*(Admin dapat mengaktifkannya kembali lewat `/agent cari aktif:True`)*.",
+            f"🛑 Fitur pencarian berita & web (`/cari`) **belum diaktifkan di channel ini**.{where_hint}",
             ephemeral=True,
         )
+        return
+
+    if not await _enforce_member_cooldown(interaction, "cari"):
         return
 
     await interaction.response.defer(ephemeral=not publik)
@@ -1330,6 +1742,8 @@ async def _text_game_timeout_watcher(channel: discord.abc.Messageable, channel_i
 @app_commands.choices(
     jenis=[
         app_commands.Choice(name="🎭 Tebak dari Emoji - +20 Poin", value="emoji"),
+        app_commands.Choice(name="🖼️ Tebak Gambar AI - +25 Poin", value="image_guess"),
+        app_commands.Choice(name="⛓️ Sambung Kata Indonesia - +5 Poin/Kata", value="word_chain"),
         app_commands.Choice(name="🧠 Kuis Trivia Cepat A/B/C/D - +15 Poin", value="trivia"),
         app_commands.Choice(name="🕵️ Tebak Kata Misteri - +20 Poin", value="riddle"),
         app_commands.Choice(name="🔀 Susun Huruf Acak - +15 Poin", value="scramble"),
@@ -1358,7 +1772,13 @@ async def slash_game_mulai(
         )
         return
 
-    chosen_mode = jenis.value if jenis else random.choice(["emoji", "trivia", "riddle", "scramble"])
+    if not await _enforce_member_cooldown(interaction, "game_mulai", cooldown_sec=5):
+        return
+
+    random_pool = ["emoji", "trivia", "riddle", "scramble", "word_chain"]
+    if ENABLE_IMAGE_FALLBACK:
+        random_pool.append("image_guess")
+    chosen_mode = jenis.value if jenis else random.choice(random_pool)
     points = GAME_POINTS_BY_MODE.get(chosen_mode, 15)
     await interaction.response.defer()
 
@@ -1375,6 +1795,41 @@ async def slash_game_mulai(
         interaction.guild.id,
         http_session=bot.http_session,
     )
+
+    if chosen_mode == "word_chain":
+        start_word = str(q_data.get("start_word") or "NUSANTARA").strip().upper()
+        next_letter = start_word[-1]
+        embed = discord.Embed(
+            title=f"⛓️ SAMBUNG KATA INDONESIA — +{points} Poin / Kata!",
+            description=(
+                f"🏁 **Kata Pembuka:** ## `{start_word}`\n"
+                f"👉 Ketik **1 kata Bahasa Indonesia** yang berawalan huruf **`{next_letter}`** langsung di chat!\n\n"
+                f"📜 **Aturan Main:**\n"
+                f"• Setiap kata valid berhadiah **+{points} Poin** (maksimal `{WORD_CHAIN_MAX_TURNS}` rantai kata).\n"
+                f"• Tidak boleh mengulang kata yang sudah dipakai & batas waktu **`{WORD_CHAIN_TURN_TIMEOUT_SEC}` detik** per giliran!"
+            ),
+            color=discord.Color.teal(),
+        )
+        embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name}")
+        wc_view = WordChainControlView(channel.id, interaction.user.id)
+        wc_state: dict = {
+            "type": "word_chain",
+            "guild_id": interaction.guild.id,
+            "starter_id": interaction.user.id,
+            "current_word": start_word,
+            "answer": start_word,
+            "used_words": {start_word.lower()},
+            "chain_words": [start_word],
+            "chain_count": 0,
+            "points": points,
+            "round_scores": {},
+            "view": wc_view,
+        }
+        active_channel_games[channel.id] = wc_state
+        sent_msg = await interaction.followup.send(embed=embed, view=wc_view, wait=True)
+        wc_state["message"] = sent_msg
+        schedule_word_chain_timeout(channel, channel.id)
+        return
 
     if chosen_mode == "trivia":
         letters = ("A", "B", "C", "D")
@@ -1402,7 +1857,29 @@ async def slash_game_mulai(
         active_channel_games[channel.id]["message"] = sent_msg
         return
 
-    if chosen_mode == "emoji":
+    mystery_file: discord.File | None = None
+    if chosen_mode == "image_guess":
+        img_bytes = await generate_mystery_game_image_bytes(
+            str(q_data.get("visual_prompt") or ""),
+            http_session=bot.http_session,
+        )
+        title = f"🖼️ TEBAK GAMBAR AI — Berhadiah +{points} Poin!"
+        if img_bytes:
+            mystery_file = discord.File(io.BytesIO(img_bytes), filename="misteri.png")
+            desc = (
+                f"🏷️ **Kategori:** `{q_data.get('category', 'Misteri Visual')}`\n\n"
+                "👀 **Perhatikan gambar buatan AI di bawah ini baik-baik!**\n"
+                f"💬 *Ketik tebakanmu langsung di chat sekarang! ({GAME_ROUND_TIMEOUT_SEC} detik)*"
+            )
+        else:
+            desc = (
+                f"🏷️ **Kategori:** `{q_data.get('category', 'Misteri Visual')}`\n\n"
+                f"🎨 **Petunjuk Adegan:** _{q_data.get('extra_hint') or 'Tebak objek populer sesuai kategori di atas!'}_\n\n"
+                f"💬 *Ketik tebakanmu langsung di chat sekarang! ({GAME_ROUND_TIMEOUT_SEC} detik)*"
+            )
+        color = discord.Color.magenta()
+        aliases = q_data.get("aliases") or []
+    elif chosen_mode == "emoji":
         title = f"🎭 TEBAK DARI EMOJI — Berhadiah +{points} Poin!"
         desc = (
             f"🏷️ **Kategori:** `{q_data.get('category', 'Populer')}`\n\n"
@@ -1434,6 +1911,8 @@ async def slash_game_mulai(
         aliases = []
 
     embed = discord.Embed(title=title, description=desc, color=color)
+    if mystery_file is not None:
+        embed.set_image(url="attachment://misteri.png")
     embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name} • Klik tombol di bawah jika butuh bantuan")
     ctrl_view = TextGuessControlView(channel.id, interaction.user.id)
     state_obj: dict = {
@@ -1446,7 +1925,10 @@ async def slash_game_mulai(
         "view": ctrl_view,
     }
     active_channel_games[channel.id] = state_obj
-    sent_msg = await interaction.followup.send(embed=embed, view=ctrl_view, wait=True)
+    send_kwargs: dict = {"embed": embed, "view": ctrl_view, "wait": True}
+    if mystery_file is not None:
+        send_kwargs["file"] = mystery_file
+    sent_msg = await interaction.followup.send(**send_kwargs)
     state_obj["message"] = sent_msg
     state_obj["timeout_task"] = asyncio.create_task(
         _text_game_timeout_watcher(channel, channel.id, state_obj)
@@ -1517,6 +1999,17 @@ async def slash_game_stop(interaction: discord.Interaction):
         )
         return
 
+    if state.get("type") == "word_chain":
+        await interaction.response.send_message(
+            f"🛑 Ronde Sambung Kata dihentikan oleh {interaction.user.mention}. Berikut rekap skornya:"
+        )
+        await finish_word_chain_round(
+            channel,
+            channel.id,
+            reason_title=f"🏁 Sambung Kata Dihentikan oleh {interaction.user.display_name}",
+        )
+        return
+
     active_channel_games.pop(channel.id, None)
     task = state.get("timeout_task")
     if task and not task.done():
@@ -1580,10 +2073,10 @@ async def slash_bantuan(interaction: discord.Interaction):
         color=discord.Color.blurple(),
     )
     embed.add_field(
-        name="1️⃣ Ruang Chat Privat, Vision, Voice Note & Gambar",
+        name="1️⃣ Ruang Chat Privat, Vision, Voice Note, PDF & Gambar",
         value=(
             "• Klik tombol di panel `/setup_panel` untuk membuka ruang `ai-...` atau `draw-...`.\n"
-            "• Kirim teks, **Voice Note (🎤)**, foto/screenshot error, file kode, atau link YouTube/Web!\n"
+            "• Kirim teks, **Voice Note (🎤)**, dokumen **`.pdf`**, foto/screenshot error, file kode, atau link YouTube/Web!\n"
             "• Gunakan `/model` untuk ganti kepribadian & `/reset` untuk bersihkan memori."
         ),
         inline=False,
@@ -1593,25 +2086,26 @@ async def slash_bantuan(interaction: discord.Interaction):
         value=(
             "• **Di HP:** Tekan & tahan pesan siapa saja ➔ pilih **Apps**.\n"
             "• **Di PC:** Klik kanan pesan ➔ pilih **Apps**.\n"
-            "• Pilih **`🌐 Terjemahkan ke Indonesia`** atau **`💡 Jelaskan Pesan Ini`**!"
+            "• Pilih **`🌐 Terjemahkan ke Indonesia`**, **`💡 Jelaskan Pesan Ini`**, atau **`🔍 Cek Fakta / Hoaks`**!"
         ),
         inline=False,
     )
     embed.add_field(
-        name="3️⃣ Ringkas Chat, YouTube, Web & Info Terbaru Hari Ini",
+        name="3️⃣ Ringkas Chat, YouTube, Web, Forum & Info Hari Ini",
         value=(
-            "• `/cari` — Cek berita, skor, cuaca, harga, atau info terbaru hari ini (Google Search).\n"
-            "• `/ringkas_link` — Rangkum isi video YouTube atau artikel web dalam hitungan detik.\n"
-            "• `/ringkas` — Rangkum 25–150 chat terakhir di channel agar tidak ketinggalan obrolan."
+            "• `/cari` — Cek berita, skor, cuaca, harga, atau info terbaru hari ini.\n"
+            "• `/ringkas_link` — Rangkum isi video YouTube atau artikel web secara instan.\n"
+            "• `/ringkas` — Rangkum 25–150 chat terakhir di channel/postingan agar tidak ketinggalan obrolan.\n"
+            "• **Forum Pintar:** Postingan baru di Forum otomatis dijawab, diberi Tag relevan, & punya tombol `✅ Tandai Selesai`!"
         ),
         inline=False,
     )
     embed.add_field(
-        name="4️⃣ Mini-Game Tongkrongan & Pengaturan Admin",
+        name="4️⃣ 6 Mode Mini-Game & Panel Kontrol Admin",
         value=(
-            "• `/game mulai` — Main Tebak Emoji, Kuis Trivia, Kata Misteri, & Acak Kata!\n"
+            "• `/game mulai` — Tebak Emoji, **Tebak Gambar AI**, **Sambung Kata**, Kuis Trivia, Kata Misteri, & Acak Kata!\n"
             "• `/game papan_skor` — Cek Top 10 klasemen juara server (`/game stop` untuk akhiri ronde).\n"
-            "• *Khusus Admin:* `/setup_panel` & `/agent` (`chat`, `gallery`, `welcome`, `youtube`, `cari`, `persona`, `sapa`, `status`)."
+            "• *Khusus Admin:* `/agent panel` (kontrol klik tombol!), `/agent info` (memori FAQ server), `/agent digest` (koran pagi), `chat`, `gallery`, `welcome`, `youtube`, `cari`."
         ),
         inline=False,
     )
@@ -1649,6 +2143,7 @@ async def slash_status(interaction: discord.Interaction):
         name="🌐 Agent & Game",
         value=(
             f"`{len(chat_agent_channels)}` chat | `{len(gallery_agent_channels)}` galeri | "
+            f"`{len(youtube_agent_channels)}` yt | `{len(search_agent_channels)}` cari | "
             f"`{len(active_channel_games)}` game"
         ),
         inline=True,
@@ -1718,22 +2213,25 @@ async def on_message(message: discord.Message):
                     await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
                 return
 
-            gid = message.guild.id if message.guild is not None else None
             lock = get_thread_lock(message.channel.id)
             async with lock:
                 async with message.channel.typing():
                     try:
+                        srv_knowledge = format_server_knowledge_for_prompt(
+                            message.guild.id if message.guild else None
+                        )
                         reply_text = await get_ai_response(
                             message.channel.id,
                             prompt,
                             image_parts=image_parts,
                             image_filenames=image_filenames,
                             text_blocks=text_blocks,
-                            allow_url_reader=is_youtube_enabled_for_guild(gid),
-                            allow_web_search=is_search_enabled_for_guild(gid, for_auto_chat=True),
+                            allow_url_reader=ENABLE_URL_READER,
+                            allow_web_search=ENABLE_GOOGLE_SEARCH,
                             http_session=bot.http_session,
                             thread=message.channel,
                             bot_user_id=bot.user.id if bot.user else None,
+                            server_knowledge=srv_knowledge,
                         )
 
                         if warnings:
@@ -1756,11 +2254,22 @@ async def on_message(message: discord.Message):
                 message,
                 http_session=bot.http_session,
                 include_audio=False,
+                include_pdf=False,
             )
 
             if not prompt and not image_parts:
                 if warnings:
                     await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
+                return
+
+            is_adm = isinstance(message.author, discord.Member) and bool(
+                message.author.guild_permissions.administrator
+            )
+            rem_cd = check_user_cooldown(message.author.id, "draw_image", 8, is_admin=is_adm)
+            if rem_cd > 0:
+                await message.channel.send(
+                    f"⏳ Tunggu **{rem_cd} detik** lagi sebelum membuat gambar berikutnya ya!"
+                )
                 return
 
             display_prompt = prompt or "Edit gambar lampiran"
@@ -1806,69 +2315,136 @@ async def on_message(message: discord.Message):
                         )
             return
 
-        # 1C. Thread biasa (bukan ai-/draw-) yang sedang menjalankan Mini-Game
-        if message.channel.id in active_channel_games:
-            if await handle_active_game_guess(message):
-                return
-
     # ==========================================================================
-    # BAGIAN 2: AI AGENT KOMUNITAS DI CHANNEL PUBLIK (GALERI & AUTO-CHAT)
+    # BAGIAN 2: AI AGENT KOMUNITAS DI TEXT CHANNEL, CHANNEL FORUM, & THREAD PUBLIK
     # ==========================================================================
-    if isinstance(message.channel, discord.TextChannel) and bot.user is not None:
-        channel_id = message.channel.id
+    if isinstance(message.channel, (discord.TextChannel, discord.Thread)) and bot.user is not None:
+        cfg_cid, _, is_forum_post = resolve_agent_channel_id(message.channel)
+        conv_id = message.channel.id
+        is_starter_forum_post = bool(is_forum_post and message.id == conv_id)
 
-        # Catat aktivitas manusia lebih awal agar sapaan sepi tidak salah hitung jika channel juga dipakai Galeri
-        if channel_id in chat_agent_channels and channel_id not in gallery_agent_channels:
-            pass
-        elif channel_id in chat_agent_channels and channel_id in gallery_agent_channels and message.attachments:
-            record_human_channel_activity(channel_id)
+        async def _safe_reply_or_send(
+            content_chunk: str,
+            prefer_reply: bool,
+            *,
+            view: discord.ui.View | None = None,
+        ) -> None:
+            send_kw: dict = {}
+            if view is not None:
+                send_kw["view"] = view
+            if prefer_reply:
+                try:
+                    await message.reply(content_chunk, mention_author=False, **send_kw)
+                    return
+                except discord.HTTPException:
+                    pass
+            await message.channel.send(content_chunk, **send_kw)
 
-        # 2A. GALLERY AUTO-COMMENT (Scan Foto, Gambar, & Video Klip Pendek)
-        if channel_id in gallery_agent_channels and message.attachments:
-            lock = get_agent_channel_lock(channel_id)
-            async with lock:
-                async with message.channel.typing():
-                    comment_text, reaction_emoji = await generate_gallery_comment(
-                        message,
-                        bot.user,
-                        http_session=bot.http_session,
-                    )
-                    if comment_text:
-                        if reaction_emoji:
-                            try:
-                                await message.add_reaction(reaction_emoji)
-                            except (discord.Forbidden, discord.HTTPException):
-                                pass
-                        await message.reply(comment_text[:1900], mention_author=False)
-                        return
-
-        # 2B. MINI-GAME TONGKRONGAN AKTIF (Tebak Emoji / Kata Misteri / Susun Huruf)
-        if channel_id in active_channel_games:
-            if channel_id in chat_agent_channels:
-                record_human_channel_activity(channel_id)
-            if await handle_active_game_guess(message):
+        async def _maybe_auto_tag_forum_starter() -> None:
+            if not is_starter_forum_post or not isinstance(message.channel, discord.Thread):
                 return
+            if getattr(message.channel, "applied_tags", None):
+                return
+            parent = getattr(message.channel, "parent", None)
+            avail_tags = getattr(parent, "available_tags", None) or []
+            if not avail_tags:
+                return
+            picked = select_best_forum_tags(message.channel.name, message.content or "", avail_tags)
+            if picked:
+                try:
+                    await message.channel.edit(applied_tags=picked)
+                except discord.HTTPException:
+                    pass
 
-        # 2C. AUTO-CHAT KOMUNITAS NATURAL (Teks, Stiker, Emoji, Link, & Sapaan)
-        if channel_id in chat_agent_channels:
-            should_reply, use_reply_ref = should_agent_reply_in_chat(message, bot.user)
-            if should_reply:
-                lock = get_agent_channel_lock(channel_id)
+        if cfg_cid is not None:
+            # Catat aktivitas manusia lebih awal agar sapaan sepi tidak salah hitung jika channel juga dipakai Galeri
+            if cfg_cid in chat_agent_channels and cfg_cid in gallery_agent_channels and message.attachments:
+                record_human_channel_activity(cfg_cid)
+
+            # 2A. GALLERY AUTO-COMMENT (Scan Foto, Gambar, & Video di Text Channel maupun Forum/Media Showcase)
+            if cfg_cid in gallery_agent_channels and message.attachments:
+                lock = get_agent_channel_lock(conv_id)
                 async with lock:
                     async with message.channel.typing():
-                        reply_text = await generate_community_chat_reply(
+                        await _maybe_auto_tag_forum_starter()
+                        comment_text, reaction_emoji = await generate_gallery_comment(
                             message,
                             bot.user,
                             http_session=bot.http_session,
                         )
-                        if reply_text:
-                            chunks = split_discord_message(reply_text)
-                            for idx, chunk in enumerate(chunks):
-                                if idx == 0 and use_reply_ref:
-                                    await message.reply(chunk, mention_author=False)
-                                else:
-                                    await message.channel.send(chunk)
+                        if comment_text:
+                            if reaction_emoji:
+                                try:
+                                    await message.add_reaction(reaction_emoji)
+                                except (discord.Forbidden, discord.HTTPException):
+                                    pass
+                            await _safe_reply_or_send(comment_text[:1900], True)
+                            return
+
+        # 2B. MINI-GAME TONGKRONGAN AKTIF (Tebak Emoji / Gambar AI / Sambung Kata / Kata Misteri / Susun Huruf)
+        if conv_id in active_channel_games:
+            if cfg_cid is not None and cfg_cid in chat_agent_channels:
+                record_human_channel_activity(cfg_cid)
+            if await handle_active_game_guess(message):
                 return
+
+        if cfg_cid is not None:
+            # 2C. AUTO-CHAT KOMUNITAS & POSTINGAN FORUM NATURAL (Teks, Stiker, Emoji, PDF, Kode, & Voice Note)
+            if cfg_cid in chat_agent_channels:
+                should_reply, use_reply_ref = should_agent_reply_in_chat(message, bot.user)
+                if should_reply:
+                    lock = get_agent_channel_lock(conv_id)
+                    async with lock:
+                        async with message.channel.typing():
+                            await _maybe_auto_tag_forum_starter()
+                            reply_text = await generate_community_chat_reply(
+                                message,
+                                bot.user,
+                                http_session=bot.http_session,
+                            )
+                            if reply_text:
+                                chunks = split_discord_message(reply_text)
+                                last_idx = len(chunks) - 1
+                                for idx, chunk in enumerate(chunks):
+                                    solved_view = (
+                                        ForumPostSolvedView()
+                                        if (is_starter_forum_post and idx == last_idx)
+                                        else None
+                                    )
+                                    await _safe_reply_or_send(
+                                        chunk,
+                                        idx == 0 and use_reply_ref,
+                                        view=solved_view,
+                                    )
+                    return
+
+            # 2D. CHANNEL / FORUM KHUSUS YOUTUBE ATAU PENCARIAN BERITA (Aktif walau tanpa /agent chat!)
+            elif cfg_cid in youtube_agent_channels or cfg_cid in search_agent_channels:
+                if should_standalone_feature_reply(message, bot.user):
+                    lock = get_agent_channel_lock(conv_id)
+                    async with lock:
+                        async with message.channel.typing():
+                            await _maybe_auto_tag_forum_starter()
+                            reply_text = await generate_community_chat_reply(
+                                message,
+                                bot.user,
+                                http_session=bot.http_session,
+                            )
+                            if reply_text:
+                                chunks = split_discord_message(reply_text)
+                                last_idx = len(chunks) - 1
+                                for idx, chunk in enumerate(chunks):
+                                    solved_view = (
+                                        ForumPostSolvedView()
+                                        if (is_starter_forum_post and idx == last_idx)
+                                        else None
+                                    )
+                                    await _safe_reply_or_send(
+                                        chunk,
+                                        idx == 0,
+                                        view=solved_view,
+                                    )
+                    return
 
     await bot.process_commands(message)
 

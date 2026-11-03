@@ -34,6 +34,7 @@ from ai_handler import (
     _borrow_session,
     _build_model_chain,
     _extract_text_from_gemini_response,
+    _format_grounding_footer,
     build_thinking_config,
     get_gemini_keys_rotated,
     is_gemini_key_configured,
@@ -60,9 +61,16 @@ logger = logging.getLogger("gemini_bot.agent")
 guild_agent_settings: dict[int, dict] = {}
 chat_agent_channels: dict[int, dict] = {}
 gallery_agent_channels: dict[int, dict] = {}
+youtube_agent_channels: dict[int, dict] = {}
+search_agent_channels: dict[int, dict] = {}
 welcome_agent_guilds: dict[int, dict] = {}
+digest_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
+
+MAX_SERVER_KNOWLEDGE_ENTRIES = 25
 _recent_welcomed_members: dict[tuple[int, int], float] = {}
+_standalone_last_reply_at: dict[int, float] = {}
+_post_runtime_state: dict[int, dict] = {}
 
 _agent_disk_lock = asyncio.Lock()
 _agent_channel_locks: dict[int, asyncio.Lock] = {}
@@ -126,74 +134,290 @@ def get_guild_settings(guild_id: int) -> dict:
             "custom_prompt": "",
             "timezone": BOT_TIMEZONE,
             "quiet_hours": True,
-            "youtube_enabled": bool(ENABLE_URL_READER),
-            "youtube_auto_chat": False,
-            "search_enabled": bool(ENABLE_GOOGLE_SEARCH),
-            "search_auto_chat": True,
+            "knowledge_entries": [],
         }
         guild_agent_settings[guild_id] = settings
-    else:
-        settings.setdefault("youtube_enabled", bool(ENABLE_URL_READER))
-        settings.setdefault("youtube_auto_chat", False)
-        settings.setdefault("search_enabled", bool(ENABLE_GOOGLE_SEARCH))
-        settings.setdefault("search_auto_chat", True)
+    elif "knowledge_entries" not in settings or not isinstance(settings["knowledge_entries"], list):
+        settings["knowledge_entries"] = []
     return settings
 
 
-def set_youtube_feature_config(
+def get_server_knowledge_entries(guild_id: int) -> list[dict]:
+    """Mengambil daftar catatan FAQ / Info Penting Server."""
+    settings = get_guild_settings(guild_id)
+    return list(settings.get("knowledge_entries") or [])
+
+
+def upsert_server_knowledge(guild_id: int, topic: str, content: str) -> tuple[dict | None, str]:
+    """Menambah atau memperbarui entri Info/FAQ Server.
+    Mengembalikan `(entry_dict, status)` dengan `status` berupa `'updated'`, `'added'`, atau `'full'`.
+    """
+    clean_topic = re.sub(r"\s+", " ", (topic or "").strip())[:80]
+    clean_content = (content or "").strip()[:500]
+    if not clean_topic or not clean_content:
+        return None, "empty"
+
+    settings = get_guild_settings(guild_id)
+    entries: list[dict] = settings.setdefault("knowledge_entries", [])
+
+    for item in entries:
+        if str(item.get("topic", "")).strip().lower() == clean_topic.lower():
+            item["topic"] = clean_topic
+            item["content"] = clean_content
+            return item, "updated"
+
+    if len(entries) >= MAX_SERVER_KNOWLEDGE_ENTRIES:
+        return None, "full"
+
+    new_item = {"topic": clean_topic, "content": clean_content}
+    entries.append(new_item)
+    return new_item, "added"
+
+
+def delete_server_knowledge(guild_id: int, target: str) -> dict | None:
+    """Menghapus 1 entri Info/FAQ Server berdasarkan nomor urut (1..N) atau kecocokan nama topik."""
+    settings = get_guild_settings(guild_id)
+    entries: list[dict] = settings.setdefault("knowledge_entries", [])
+    if not entries:
+        return None
+
+    cleaned = (target or "").strip().lstrip("#")
+    if cleaned.isdigit():
+        idx = int(cleaned) - 1
+        if 0 <= idx < len(entries):
+            return entries.pop(idx)
+
+    lowered = cleaned.lower()
+    for i, item in enumerate(entries):
+        if str(item.get("topic", "")).strip().lower() == lowered:
+            return entries.pop(i)
+    for i, item in enumerate(entries):
+        if lowered and lowered in str(item.get("topic", "")).strip().lower():
+            return entries.pop(i)
+    return None
+
+
+def clear_server_knowledge(guild_id: int) -> int:
+    """Menghapus seluruh entri Info/FAQ Server dan mengembalikan jumlah yang dihapus."""
+    settings = get_guild_settings(guild_id)
+    entries: list[dict] = settings.get("knowledge_entries") or []
+    count = len(entries)
+    settings["knowledge_entries"] = []
+    return count
+
+
+def format_server_knowledge_for_prompt(guild_id: int | None) -> str:
+    """Memformat basis pengetahuan/FAQ server menjadi teks konteks untuk System Prompt AI."""
+    if not guild_id:
+        return ""
+    settings = guild_agent_settings.get(int(guild_id))
+    if not settings:
+        return ""
+    entries = settings.get("knowledge_entries") or []
+    if not entries:
+        return ""
+
+    lines = [
+        "INFORMASI PENTING & FAQ RESMI SERVER DISCORD INI "
+        "(Gunakan fakta resmi ini dengan akurat saat member bertanya seputar rules, link, IP, jadwal, atau info server):"
+    ]
+    for item in entries[:MAX_SERVER_KNOWLEDGE_ENTRIES]:
+        t = str(item.get("topic") or "").strip()
+        c = str(item.get("content") or "").strip()
+        if t and c:
+            lines.append(f"- [{t}]: {c}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def parse_digest_time(raw_time: str | None) -> tuple[int, int] | None:
+    """Mengubah string jam seperti '07:00', '7', '08.30' menjadi `(jam, menit)` 24-jam."""
+    if raw_time is None or not str(raw_time).strip():
+        return 7, 0
+    cleaned = str(raw_time).strip().replace(".", ":")
+    m = re.match(r"^(\d{1,2})(?::(\d{1,2}))?$", cleaned)
+    if not m:
+        return None
+    hour = int(m.group(1))
+    minute = int(m.group(2) or 0)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour, minute
+
+
+def set_digest_config(
     guild_id: int,
+    channel_id: int,
     *,
     enabled: bool,
-    auto_in_chat: bool | None = None,
-) -> dict:
-    """Mengatur ON/OFF fitur perangkum YouTube/Web serta izin auto-baca di Text Channel publik."""
-    cfg = get_guild_settings(guild_id)
-    cfg["youtube_enabled"] = bool(enabled)
+    hour: int = 7,
+    minute: int = 0,
+    topic: str | None = None,
+) -> dict | None:
+    """Mengatur atau menonaktifkan fitur Sapaan & Koran Pagi Otomatis (Morning Digest) per server."""
     if not enabled:
-        cfg["youtube_auto_chat"] = False
-    elif auto_in_chat is not None:
-        cfg["youtube_auto_chat"] = bool(auto_in_chat)
-    return cfg
+        digest_agent_guilds.pop(int(guild_id), None)
+        return None
+
+    existing = digest_agent_guilds.get(int(guild_id)) or {}
+    if topic is None:
+        clean_topic = str(
+            existing.get("topic") or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+        ).strip()
+    elif topic.strip() == "-":
+        clean_topic = "berita populer Indonesia, teknologi, & game terbaru hari ini"
+    else:
+        clean_topic = topic.strip()[:180]
+
+    digest_agent_guilds[int(guild_id)] = {
+        "enabled": True,
+        "channel_id": int(channel_id),
+        "hour": max(0, min(23, int(hour))),
+        "minute": max(0, min(59, int(minute))),
+        "topic": clean_topic,
+        "last_sent_date": str(existing.get("last_sent_date") or ""),
+    }
+    return digest_agent_guilds[int(guild_id)]
 
 
-def set_search_feature_config(
+def set_youtube_channel_config(
     guild_id: int,
+    channel_id: int,
     *,
     enabled: bool,
-    auto_in_chat: bool | None = None,
-) -> dict:
-    """Mengatur ON/OFF fitur pencarian web (/cari & auto-search di obrolan)."""
-    cfg = get_guild_settings(guild_id)
-    cfg["search_enabled"] = bool(enabled)
+    auto_in_chat: bool = False,
+) -> dict | None:
+    """Mengatur atau menonaktifkan fitur perangkum YouTube & link web per channel."""
     if not enabled:
-        cfg["search_auto_chat"] = False
-    elif auto_in_chat is not None:
-        cfg["search_auto_chat"] = bool(auto_in_chat)
-    elif not cfg.get("search_auto_chat", True):
-        # Saat dinyalakan ulang tanpa parameter tambahan, aktifkan kembali auto_in_chat
-        cfg["search_auto_chat"] = True
-    return cfg
+        youtube_agent_channels.pop(channel_id, None)
+        _standalone_last_reply_at.pop(channel_id, None)
+        if channel_id not in chat_agent_channels and channel_id not in search_agent_channels:
+            channel_histories.pop(channel_id, None)
+        return None
+
+    youtube_agent_channels[channel_id] = {
+        "guild_id": int(guild_id),
+        "enabled": True,
+        "auto_in_chat": bool(auto_in_chat),
+    }
+    return youtube_agent_channels[channel_id]
 
 
-def is_youtube_enabled_for_guild(guild_id: int | None) -> bool:
-    if not ENABLE_URL_READER:
+def set_search_channel_config(
+    guild_id: int,
+    channel_id: int,
+    *,
+    enabled: bool,
+    auto_in_chat: bool = True,
+) -> dict | None:
+    """Mengatur atau menonaktifkan fitur pencarian berita & web (/cari & auto-search) per channel."""
+    if not enabled:
+        search_agent_channels.pop(channel_id, None)
+        _standalone_last_reply_at.pop(channel_id, None)
+        if channel_id not in chat_agent_channels and channel_id not in youtube_agent_channels:
+            channel_histories.pop(channel_id, None)
+        return None
+
+    search_agent_channels[channel_id] = {
+        "guild_id": int(guild_id),
+        "enabled": True,
+        "auto_in_chat": bool(auto_in_chat),
+    }
+    return search_agent_channels[channel_id]
+
+
+def is_youtube_enabled_in_channel(
+    channel_id: int | None,
+    *,
+    require_auto_in_chat: bool = False,
+) -> bool:
+    """Mengecek apakah fitur rangkum YouTube & link web aktif pada channel tertentu."""
+    if not ENABLE_URL_READER or channel_id is None:
         return False
-    if guild_id is None:
-        return True
-    return bool(get_guild_settings(guild_id).get("youtube_enabled", True))
-
-
-def is_search_enabled_for_guild(guild_id: int | None, *, for_auto_chat: bool = False) -> bool:
-    if not ENABLE_GOOGLE_SEARCH:
+    cfg = youtube_agent_channels.get(int(channel_id))
+    if not cfg or not cfg.get("enabled"):
         return False
-    if guild_id is None:
-        return True
-    cfg = get_guild_settings(guild_id)
-    if not cfg.get("search_enabled", True):
-        return False
-    if for_auto_chat and not cfg.get("search_auto_chat", True):
+    if require_auto_in_chat and not cfg.get("auto_in_chat", False):
         return False
     return True
+
+
+def is_search_enabled_in_channel(
+    channel_id: int | None,
+    *,
+    for_auto_chat: bool = False,
+) -> bool:
+    """Mengecek apakah fitur pencarian web (/cari & auto-search) aktif pada channel tertentu."""
+    if not ENABLE_GOOGLE_SEARCH or channel_id is None:
+        return False
+    cfg = search_agent_channels.get(int(channel_id))
+    if not cfg or not cfg.get("enabled"):
+        return False
+    if for_auto_chat and not cfg.get("auto_in_chat", True):
+        return False
+    return True
+
+
+def get_guild_youtube_channels(guild_id: int) -> list[tuple[int, dict]]:
+    return [
+        (cid, cdata)
+        for cid, cdata in youtube_agent_channels.items()
+        if cdata.get("guild_id") == guild_id and cdata.get("enabled")
+    ]
+
+
+def get_guild_search_channels(guild_id: int) -> list[tuple[int, dict]]:
+    return [
+        (cid, cdata)
+        for cid, cdata in search_agent_channels.items()
+        if cdata.get("guild_id") == guild_id and cdata.get("enabled")
+    ]
+
+
+def resolve_agent_channel_id(channel: object) -> tuple[int | None, bool, bool]:
+    """Mengembalikan `(config_channel_id, is_thread_or_post, is_forum_post)`.
+    - Untuk TextChannel biasa: `(channel.id, False, False)`.
+    - Untuk ruang privat `ai-...` / `draw-...`: `(None, True, False)`.
+    - Untuk Postingan Forum / Media atau Thread publik: gunakan `parent_id` sebagai `config_channel_id`
+      agar seluruh fitur `/agent` yang diaktifkan di Channel Forum/TextChannel otomatis berlaku di setiap postingan!
+    """
+    if channel is None:
+        return None, False, False
+
+    parent_id = getattr(channel, "parent_id", None)
+    is_thread_like = isinstance(channel, discord.Thread) or parent_id is not None
+    if is_thread_like:
+        ch_name = str(getattr(channel, "name", "") or "")
+        if ch_name.startswith(("ai-", "draw-")):
+            return None, True, False
+        if parent_id is not None:
+            parent_obj = getattr(channel, "parent", None)
+            is_forum = isinstance(parent_obj, discord.ForumChannel) or bool(
+                getattr(channel, "is_forum_post", False)
+            )
+            return int(parent_id), True, is_forum
+
+    cid = getattr(channel, "id", None)
+    return (int(cid) if cid is not None else None), False, False
+
+
+def _extract_forum_post_context(message: discord.Message) -> tuple[str, list[str], bool]:
+    """Mengambil `(judul_postingan, daftar_tag, is_starter_post)` jika pesan berada di dalam Thread/Postingan Forum."""
+    channel = getattr(message, "channel", None)
+    _, is_thread_like, _ = resolve_agent_channel_id(channel)
+    if not is_thread_like or channel is None:
+        return "", [], False
+
+    post_title = str(getattr(channel, "name", "") or "").strip()
+    raw_tags = getattr(channel, "applied_tags", None) or []
+    tag_names = [
+        str(getattr(t, "name", "")).strip()
+        for t in raw_tags
+        if str(getattr(t, "name", "")).strip()
+    ]
+    msg_id = getattr(message, "id", None)
+    ch_id = getattr(channel, "id", None)
+    is_starter_post = bool(msg_id is not None and ch_id is not None and msg_id == ch_id)
+    return post_title, tag_names, is_starter_post
 
 
 def format_idle_duration(idle_seconds: int) -> str:
@@ -383,16 +607,22 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         try:
             gid = int(gid_str)
             style = gdata.get("style_preset", "akrab")
+            raw_entries = gdata.get("knowledge_entries") or []
+            cleaned_entries: list[dict] = []
+            if isinstance(raw_entries, list):
+                for item in raw_entries[:MAX_SERVER_KNOWLEDGE_ENTRIES]:
+                    if isinstance(item, dict):
+                        t = str(item.get("topic") or "").strip()[:80]
+                        c = str(item.get("content") or "").strip()[:500]
+                        if t and c:
+                            cleaned_entries.append({"topic": t, "content": c})
             guild_agent_settings[gid] = {
                 "nickname": str(gdata.get("nickname") or "").strip(),
                 "style_preset": style if style in STYLE_DESCRIPTIONS else "akrab",
                 "custom_prompt": str(gdata.get("custom_prompt") or "").strip(),
                 "timezone": str(gdata.get("timezone") or BOT_TIMEZONE).strip(),
                 "quiet_hours": bool(gdata.get("quiet_hours", True)),
-                "youtube_enabled": bool(gdata.get("youtube_enabled", ENABLE_URL_READER)),
-                "youtube_auto_chat": bool(gdata.get("youtube_auto_chat", False)),
-                "search_enabled": bool(gdata.get("search_enabled", ENABLE_GOOGLE_SEARCH)),
-                "search_auto_chat": bool(gdata.get("search_auto_chat", True)),
+                "knowledge_entries": cleaned_entries,
             }
         except (ValueError, TypeError):
             continue
@@ -432,6 +662,32 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+    for cid_str, ydata in (raw.get("youtube_channels") or {}).items():
+        try:
+            cid = int(cid_str)
+            if not ydata.get("enabled", True):
+                continue
+            youtube_agent_channels[cid] = {
+                "guild_id": int(ydata["guild_id"]),
+                "enabled": True,
+                "auto_in_chat": bool(ydata.get("auto_in_chat", False)),
+            }
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    for cid_str, sdata in (raw.get("search_channels") or {}).items():
+        try:
+            cid = int(cid_str)
+            if not sdata.get("enabled", True):
+                continue
+            search_agent_channels[cid] = {
+                "guild_id": int(sdata["guild_id"]),
+                "enabled": True,
+                "auto_in_chat": bool(sdata.get("auto_in_chat", True)),
+            }
+        except (KeyError, ValueError, TypeError):
+            continue
+
     for gid_str, wdata in (raw.get("welcome_guilds") or {}).items():
         try:
             gid = int(gid_str)
@@ -446,15 +702,37 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
-    for cid_str, hist in (raw.get("channel_histories") or {}).items():
+    for gid_str, ddata in (raw.get("digest_guilds") or {}).items():
+        try:
+            gid = int(gid_str)
+            if not ddata.get("enabled", True):
+                continue
+            digest_agent_guilds[gid] = {
+                "enabled": True,
+                "channel_id": int(ddata["channel_id"]),
+                "hour": max(0, min(23, int(ddata.get("hour", 7)))),
+                "minute": max(0, min(59, int(ddata.get("minute", 0)))),
+                "topic": str(
+                    ddata.get("topic") or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+                ).strip()[:180],
+                "last_sent_date": str(ddata.get("last_sent_date") or "").strip(),
+            }
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    raw_histories = list((raw.get("channel_histories") or {}).items())[-60:]
+    has_any_active_feature = bool(chat_agent_channels or youtube_agent_channels or search_agent_channels)
+    for cid_str, hist in raw_histories:
         try:
             cid = int(cid_str)
-            if cid in chat_agent_channels and isinstance(hist, list):
-                channel_histories[cid] = [
+            if has_any_active_feature and isinstance(hist, list):
+                cleaned_hist = [
                     {"role": h["role"], "content": str(h["content"])}
                     for h in hist[-AGENT_HISTORY_MESSAGES:]
                     if h.get("role") in ("user", "model") and str(h.get("content", "")).strip()
                 ]
+                if cleaned_hist:
+                    channel_histories[cid] = cleaned_hist
         except (ValueError, TypeError, KeyError):
             continue
 
@@ -466,12 +744,16 @@ async def save_agent_config_to_disk() -> None:
     async with _agent_disk_lock:
         try:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
+            recent_hist_items = list(channel_histories.items())[-60:]
             payload = {
                 "guild_settings": {str(k): v for k, v in guild_agent_settings.items()},
                 "chat_channels": {str(k): v for k, v in chat_agent_channels.items()},
                 "gallery_channels": {str(k): v for k, v in gallery_agent_channels.items()},
+                "youtube_channels": {str(k): v for k, v in youtube_agent_channels.items()},
+                "search_channels": {str(k): v for k, v in search_agent_channels.items()},
                 "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
-                "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in channel_histories.items()},
+                "digest_guilds": {str(k): v for k, v in digest_agent_guilds.items()},
+                "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in recent_hist_items},
             }
             tmp_file = AGENT_CONFIG_FILE.with_suffix(".json.tmp")
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -503,12 +785,14 @@ def _is_direct_bot_call(
 ) -> tuple[bool, bool, bool]:
     """Mengembalikan (is_direct_mention_or_nick, replied_to_bot, directed_at_other_human)."""
     content = (message.content or "").strip()
+    post_title, _, is_starter_post = _extract_forum_post_context(message)
+    searchable_text = f"{post_title}\n{content}".strip() if (is_starter_post and post_title) else content
     agent_nick = (guild_cfg.get("nickname") or bot_user.display_name or "").strip().lower()
 
     mentions_list = getattr(message, "mentions", None) or []
     is_direct_mention = bot_user in mentions_list
     if not is_direct_mention and agent_nick and len(agent_nick) >= 2:
-        if re.search(rf"\b{re.escape(agent_nick)}\b", content.lower()):
+        if re.search(rf"\b{re.escape(agent_nick)}\b", searchable_text.lower()):
             is_direct_mention = True
 
     mentioned_other_human = any(
@@ -559,31 +843,40 @@ def should_agent_reply_in_chat(
     message: discord.Message,
     bot_user: discord.ClientUser | discord.User,
 ) -> tuple[bool, bool]:
-    """Menentukan secara cerdas & sopan apakah AI Agent perlu membalas pesan di channel publik.
+    """Menentukan secara cerdas & sopan apakah AI Agent perlu membalas pesan di channel publik / Forum Post.
 
     Returns:
         (should_reply, use_reply_reference)
     """
-    ch_cfg = chat_agent_channels.get(message.channel.id)
+    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
+    if cfg_cid is None:
+        return False, False
+
+    ch_cfg = chat_agent_channels.get(cfg_cid)
     if not ch_cfg or not ch_cfg.get("enabled"):
         return False, False
 
+    conv_id = message.channel.id
+    state_bag = _post_runtime_state.setdefault(conv_id, {}) if is_post_thread else ch_cfg
+
     now = time.time()
-    prev_activity = float(ch_cfg.get("last_activity_at") or 0.0)
-    last_bot_at = float(ch_cfg.get("last_bot_reply_at") or 0.0)
+    prev_activity = float(state_bag.get("last_activity_at") or 0.0)
+    last_bot_at = float(state_bag.get("last_bot_reply_at") or 0.0)
 
     # Catat aktivitas manusia & reset counter pemecah sepi
+    state_bag["last_activity_at"] = now
     ch_cfg["last_activity_at"] = now
     ch_cfg["last_human_at"] = now
     ch_cfg["consecutive_idle_pokes"] = 0
 
     content = (message.content or "").strip()
+    post_title, _, is_starter_post = _extract_forum_post_context(message)
     guild_cfg = get_guild_settings(ch_cfg["guild_id"])
     is_direct_mention, replied_to_bot, directed_at_other_human = _is_direct_bot_call(
         message, bot_user, guild_cfg
     )
     humans_chatting_together = _record_and_check_crowd_chat(
-        message.channel.id, message.author.id, now
+        conv_id, message.author.id, now
     )
 
     # 1. Abaikan perintah untuk bot lain (contoh: m!play, $wa, owo, .help) kecuali memanggil bot ini langsung
@@ -593,92 +886,193 @@ def should_agent_reply_in_chat(
     # 2. Jangan pernah memotong ketika member me-reply atau me-@mention member manusia lain!
     if directed_at_other_human:
         if content:
-            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+            _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
     # 3. Jika member memanggil nama bot, @mention bot, atau me-reply pesan bot -> PASTI dibalas!
     if is_direct_mention or replied_to_bot:
-        ch_cfg["last_bot_target_user_id"] = message.author.id
-        ch_cfg["warm_followups"] = 0
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
         return True, True
 
-    # 4. Jika member hanya membagikan link (YouTube, Spotify, TikTok, IG, Web) tanpa memanggil bot
-    #    dan mode auto_di_channel sedang OFF -> jangan ikut nimbrung agar tidak mengganggu!
-    auto_link_on = guild_cfg.get("youtube_enabled", True) and guild_cfg.get("youtube_auto_chat", False)
-    if (has_youtube_url(content) or has_any_url(content)) and not auto_link_on:
-        if content:
-            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
-        return False, False
+    # 4. Jika member hanya membagikan link (YouTube, Spotify, TikTok, IG, Web) tanpa memanggil bot:
+    #    - Bila auto_di_channel OFF pada channel/forum ini -> diam sopan (kecuali postingan diskusi Forum baru yg bukan murni link).
+    #    - Bila auto_di_channel ON pada channel/forum ini & linknya YouTube/Web -> rangkum/komentari otomatis!
+    auto_link_on = is_youtube_enabled_in_channel(cfg_cid, require_auto_in_chat=True)
+    if has_youtube_url(content) or has_any_url(content):
+        if auto_link_on:
+            if now - last_bot_at >= AGENT_CHANNEL_COOLDOWN_SEC:
+                yt_u, web_u = extract_urls_from_text(content)
+                if yt_u or web_u:
+                    state_bag["last_bot_target_user_id"] = message.author.id
+                    state_bag["warm_followups"] = 0
+                    return True, True
+            return False, False
+        if not is_starter_post:
+            if content:
+                _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
+            return False, False
+        # Untuk Postingan Forum baru yang HANYA berisi link mentah tanpa pertanyaan teks, tetap hormati auto_di_channel=False
+        stripped_no_url = re.sub(r"https?://\S+", "", content).strip()
+        if not stripped_no_url and not post_title:
+            return False, False
 
     # 5. Jika member mengunggah file lagu/audio biasa (.mp3/.wav, bukan rekaman mikrofon Voice Note 🎤)
     #    tanpa memanggil nama bot -> jangan menyela kiriman musik member!
     if has_voice_or_audio_attachment(message) and not has_discord_voice_note(message):
         return False, False
 
+    # 5B. POSTINGAN BARU DI CHANNEL FORUM (is_starter_post) -> Sambut / bantu jawab postingan pertamanya secara otomatis!
+    if is_starter_post:
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
+        return True, True
+
     # Cooldown singkat agar tidak membanjiri API saat chat sangat ramai
     if now - last_bot_at < AGENT_CHANNEL_COOLDOWN_SEC:
         if content:
-            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+            _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
     # 6. Rekaman mikrofon Voice Note (🎤) asli Discord -> balas jika bukan di tengah keramaian obrolan sesama warga
     if has_discord_voice_note(message) and not humans_chatting_together:
-        ch_cfg["last_bot_target_user_id"] = message.author.id
-        ch_cfg["warm_followups"] = 0
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
         return True, True
 
     if ch_cfg.get("reply_mode") == "all":
         return True, False
 
     # Mode 'smart' (Natural, tahu diri, & tidak mengganggu obrolan sesama member):
-    # A. Channel tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
+    # A. Channel/postingan tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
     if prev_activity == 0 or (now - prev_activity) >= 180:
-        ch_cfg["last_bot_target_user_id"] = message.author.id
-        ch_cfg["warm_followups"] = 0
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
         return True, True
 
     # Jika 2+ manusia sedang aktif saling mengobrol dalam 60 detik terakhir, tahan diri (mundur sopan)
     # sampai ada yang memanggil nama bot!
     if humans_chatting_together:
         if content:
-            _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+            _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
     # B. Kelanjutan obrolan 1-lawan-1 yang masih hangat (maks. 90 detik & maks. 2 sahutan ke orang yang sama)
-    last_target_uid = ch_cfg.get("last_bot_target_user_id")
-    warm_count = int(ch_cfg.get("warm_followups") or 0)
+    last_target_uid = state_bag.get("last_bot_target_user_id")
+    warm_count = int(state_bag.get("warm_followups") or 0)
     if (
         last_bot_at > 0
         and (now - last_bot_at) <= 90
         and last_target_uid == message.author.id
         and warm_count < 2
     ):
-        ch_cfg["warm_followups"] = warm_count + 1
+        state_bag["warm_followups"] = warm_count + 1
         return True, False
 
     # C. Member mengirim murni Stiker atau ekspresi Emoji saja (bukan kalimat teks ke orang lain)
     if _is_pure_emoji_or_sticker(message, content):
-        ch_cfg["last_bot_target_user_id"] = message.author.id
-        ch_cfg["warm_followups"] = 0
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
         return True, True
 
     # D. Sapaan pembuka obrolan umum / nanya jam saat channel sedang santai
     if _GREETING_KEYWORDS.search(content):
-        ch_cfg["last_bot_target_user_id"] = message.author.id
-        ch_cfg["warm_followups"] = 0
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
         return True, True
 
     # Simpan sebagai konteks pasif grup jika tidak dibalas langsung
     if content:
-        _append_channel_history(message.channel.id, "user", f"[{message.author.display_name}]: {content}")
+        _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
     return False, False
 
 
-def _build_community_system_prompt(guild_cfg: dict, bot_display_name: str, time_ctx: dict) -> str:
+def should_standalone_feature_reply(
+    message: discord.Message,
+    bot_user: discord.ClientUser | discord.User,
+) -> bool:
+    """Menentukan apakah bot perlu merespons pada channel/forum khusus `/agent youtube` atau `/agent cari`
+    (meskipun channel/forum tersebut tidak mengaktifkan `/agent chat`).
+    """
+    cfg_cid, _, _ = resolve_agent_channel_id(message.channel)
+    if cfg_cid is None:
+        return False
+
+    yt_on = is_youtube_enabled_in_channel(cfg_cid)
+    search_on = is_search_enabled_in_channel(cfg_cid, for_auto_chat=True)
+    if not yt_on and not search_on:
+        return False
+
+    content = (message.content or "").strip()
+    post_title, _, is_starter_post = _extract_forum_post_context(message)
+    guild_id = message.guild.id if message.guild else 0
+    guild_cfg = get_guild_settings(guild_id)
+    is_direct_mention, replied_to_bot, directed_at_other_human = _is_direct_bot_call(
+        message, bot_user, guild_cfg
+    )
+    is_direct_call = is_direct_mention or replied_to_bot
+
+    # 1. Abaikan command bot lain & jangan pernah memotong obrolan antar-member
+    if content and _OTHER_BOT_COMMAND_RE.match(content) and not is_direct_call:
+        return False
+    if directed_at_other_human:
+        return False
+
+    now = time.time()
+    conv_id = message.channel.id
+    last_standalone = float(_standalone_last_reply_at.get(conv_id) or 0.0)
+
+    # 2. Cek pemicu YouTube / Link Web pada channel atau Forum Post ini
+    if yt_on:
+        auto_yt_channel = is_youtube_enabled_in_channel(cfg_cid, require_auto_in_chat=True)
+        if is_direct_call or auto_yt_channel:
+            text_for_links = f"{post_title}\n{content}".strip() if (is_starter_post and post_title) else content
+            ref = getattr(message, "reference", None)
+            resolved = getattr(ref, "resolved", None) if ref else None
+            if is_direct_call and resolved is not None and getattr(resolved, "content", None):
+                text_for_links = f"{text_for_links}\n{resolved.content}"
+            if text_for_links.strip():
+                yt_urls, web_urls = extract_urls_from_text(text_for_links)
+                if yt_urls or web_urls:
+                    if is_direct_call or (now - last_standalone >= AGENT_CHANNEL_COOLDOWN_SEC):
+                        return True
+
+    # 3. Cek pemicu Pencarian Berita/Web di obrolan saat nama bot dipanggil (atau Postingan Forum baru bertema berita jika auto_di_chat ON)
+    if search_on and (is_direct_call or is_starter_post):
+        raw_q = f"{post_title} {content}".strip() if (is_starter_post and post_title) else content
+        if bot_user.mention in raw_q:
+            raw_q = raw_q.replace(bot_user.mention, guild_cfg.get("nickname") or bot_user.display_name)
+        raw_q = re.sub(r"<@!?\d+>", "", raw_q).strip()
+        if needs_live_web_search(raw_q):
+            return True
+
+    return False
+
+
+def _build_community_system_prompt(
+    guild_cfg: dict,
+    bot_display_name: str,
+    time_ctx: dict,
+    *,
+    is_forum_post: bool = False,
+) -> str:
     agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
     style_key = guild_cfg.get("style_preset", "akrab")
     style_guide = STYLE_DESCRIPTIONS.get(style_key, STYLE_DESCRIPTIONS["akrab"])
     extra = guild_cfg.get("custom_prompt", "").strip()
+
+    length_rule = (
+        "3. Karena ini berada di dalam **Postingan Diskusi Forum**, jawablah dengan ramah, santai, jelas, dan "
+        "benar-benar membantu sesuai judul & isi topik postingannya (boleh 2–5 kalimat atau poin ringkas bila "
+        "member bertanya solusi/koding/rangkuman, namun tetap dengan bahasa manusia akrab, jangan kaku seperti robot).\n"
+        if is_forum_post
+        else (
+            "3. Ketik singkat, kasual, dan mengalir seperti chat Discord beneran: cukup 1–2 kalimat pendek "
+            "(jangan pakai bullet points kaku dan jangan ceramah panjang — kecuali jika member secara khusus "
+            "meminta rangkuman isi video/artikel atau info berita terbaru, jelaskan intinya secara padat, santai, "
+            "dan mudah dipahami).\n"
+        )
+    )
 
     prompt = (
         f"Nama panggilanmu di server Discord ini adalah '{agent_name}'. "
@@ -688,8 +1082,7 @@ def _build_community_system_prompt(guild_cfg: dict, bot_display_name: str, time_
         f"1. {style_guide}\n"
         "2. JANGAN PERNAH menyebut dirimu AI, bot, robot, asisten virtual, atau buatan Google. Ngobrollah "
         "selayaknya teman manusia biasa.\n"
-        "3. Ketik singkat, kasual, dan mengalir seperti chat Discord beneran: cukup 1–2 kalimat pendek "
-        "(jangan pakai bullet points, jangan pakai penomoran kaku, dan jangan ceramah panjang).\n"
+        f"{length_rule}"
         "4. Sesekali sapa lawan bicara dengan nama panggilan/display name mereka biar akrab, dan sering "
         "pancing balik dengan pertanyaan ringan supaya obrolan terus nyambung dan hidup.\n"
         "5. Jika member mengirim STIKER atau EMOJI, perhatikan ekspresi visual pada gambar stiker/emoji "
@@ -702,6 +1095,20 @@ def _build_community_system_prompt(guild_cfg: dict, bot_display_name: str, time_
     )
     if extra:
         prompt += f"\n\nKonteks Tambahan Komunitas: {extra}"
+
+    entries = guild_cfg.get("knowledge_entries") or []
+    if entries:
+        faq_lines = [
+            f"- [{str(it.get('topic') or '').strip()}]: {str(it.get('content') or '').strip()}"
+            for it in entries[:MAX_SERVER_KNOWLEDGE_ENTRIES]
+            if str(it.get("topic") or "").strip() and str(it.get("content") or "").strip()
+        ]
+        if faq_lines:
+            prompt += (
+                "\n\nINFORMASI PENTING & FAQ RESMI SERVER INI "
+                "(Jawab akurat sesuai data ini bila warga bertanya rules, link, IP, atau info komunitas):\n"
+                + "\n".join(faq_lines)
+            )
     return prompt
 
 
@@ -838,27 +1245,36 @@ async def generate_community_chat_reply(
         http_session,
         include_video=False,
         include_audio=True,
+        include_text_files=True,
     )
 
     is_direct_mention, replied_to_bot, _ = _is_direct_bot_call(message, bot_user, guild_cfg)
     is_direct_call = is_direct_mention or replied_to_bot
 
+    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
+    effective_cfg_cid = cfg_cid if cfg_cid is not None else message.channel.id
+    post_title, post_tags, is_starter_post = _extract_forum_post_context(message)
+
+    forum_ctx_note = ""
+    if is_post_thread and post_title:
+        tag_str = f" | Tag: {', '.join(post_tags)}" if post_tags else ""
+        starter_label = "Postingan Forum Baru" if is_starter_post else "Diskusi di Postingan Forum"
+        forum_ctx_note = f'[{starter_label} — Judul: "{post_title}"{tag_str}]'
+
     yt_urls: list[str] = []
     web_snippets: list[str] = []
-    # Baca link YouTube/Web jika:
-    # - Fitur YouTube aktif DAN (member memanggil nama/mention bot secara langsung ATAU mode auto_di_channel dinyalakan Admin)
-    allow_public_link_reader = (
-        ENABLE_URL_READER
-        and guild_cfg.get("youtube_enabled", True)
-        and (is_direct_call or guild_cfg.get("youtube_auto_chat", False))
+    # Baca link YouTube/Web hanya jika fitur YouTube AKTIF pada channel/forum ini DAN
+    # (member memanggil nama/mention/reply bot secara langsung ATAU mode auto_di_channel dinyalakan di channel/forum ini)
+    allow_public_link_reader = is_youtube_enabled_in_channel(effective_cfg_cid) and (
+        is_direct_call or is_youtube_enabled_in_channel(effective_cfg_cid, require_auto_in_chat=True)
     )
     if allow_public_link_reader:
-        text_for_links = clean_text
+        text_for_links = f"{post_title}\n{clean_text}".strip() if (is_starter_post and post_title) else clean_text
         # Dukung juga bila member me-reply pesan orang lain yang berisi link YouTube sambil memanggil nama bot!
         ref = getattr(message, "reference", None)
         resolved = getattr(ref, "resolved", None) if ref else None
         if is_direct_call and resolved is not None and getattr(resolved, "content", None):
-            text_for_links = f"{clean_text}\n{resolved.content}"
+            text_for_links = f"{text_for_links}\n{resolved.content}"
 
         if text_for_links.strip():
             yt_urls, web_urls = extract_urls_from_text(text_for_links)
@@ -873,21 +1289,23 @@ async def generate_community_chat_reply(
                     label = f"{w_title} ({web_u})" if w_title else web_u
                     web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
 
+    search_text_candidate = f"{post_title} {clean_text}".strip() if (is_starter_post and post_title) else clean_text
     use_search = (
-        is_search_enabled_for_guild(guild_id, for_auto_chat=True)
+        is_search_enabled_in_channel(effective_cfg_cid, for_auto_chat=True)
         and not media_parts
         and not web_snippets
-        and needs_live_web_search(clean_text)
+        and needs_live_web_search(search_text_candidate)
     )
     if use_search and not GEMINI_PAID_SEARCH_ENABLED:
         nick_for_clean = guild_cfg.get("nickname") or bot_user.display_name
-        search_q = build_clean_search_query(clean_text, nick_for_clean)
+        search_q = build_clean_search_query(search_text_candidate, nick_for_clean)
         free_ctx, _ = await free_live_web_search(search_q, max_results=4, http_session=http_session)
         if free_ctx:
             web_snippets.append(f"[Info Berita/Web Terkini Hari Ini:\n{free_ctx[:2200]}]")
 
     author_name = message.author.display_name
-    desc_prefix = " ".join([*media_descs, *web_snippets])
+    desc_items = [x for x in (forum_ctx_note, *media_descs, *web_snippets) if x]
+    desc_prefix = " ".join(desc_items)
     if clean_text and desc_prefix:
         user_turn_text = f"[{author_name}]: {clean_text}\n{desc_prefix}"
     elif clean_text:
@@ -897,9 +1315,10 @@ async def generate_community_chat_reply(
     else:
         return None
 
-    # Bangun contents dari riwayat singkat channel publik
+    # Bangun contents dari riwayat singkat channel publik / per-Postingan Forum
+    conv_id = message.channel.id
     contents: list[dict] = []
-    for item in channel_histories.get(message.channel.id, []):
+    for item in channel_histories.get(conv_id, []):
         role = "user" if item["role"] == "user" else "model"
         if contents and contents[-1]["role"] == role:
             contents[-1]["parts"].append({"text": item["content"]})
@@ -917,14 +1336,19 @@ async def generate_community_chat_reply(
         if (message.guild and message.guild.me)
         else bot_user.display_name
     )
-    system_prompt = _build_community_system_prompt(guild_cfg, bot_display, time_ctx)
+    system_prompt = _build_community_system_prompt(
+        guild_cfg,
+        bot_display,
+        time_ctx,
+        is_forum_post=is_post_thread,
+    )
 
     reply = await _call_gemini_agent(
         system_prompt,
         contents,
         temperature=0.88,
         max_tokens=2048,
-        thinking_level="low" if (media_parts or use_search) else "minimal",
+        thinking_level="low" if (media_parts or use_search or is_post_thread) else "minimal",
         has_media=bool(media_parts),
         has_youtube=bool(yt_urls),
         use_google_search=(use_search and GEMINI_PAID_SEARCH_ENABLED),
@@ -934,12 +1358,18 @@ async def generate_community_chat_reply(
     if reply:
         # Bersihkan awalan seperti "[NamaBot]:" jika model tidak sengaja menuliskannya
         reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip()
-        _append_channel_history(message.channel.id, "user", user_turn_text)
-        _append_channel_history(message.channel.id, "model", reply)
-        ch_cfg = chat_agent_channels.get(message.channel.id)
+        _append_channel_history(conv_id, "user", user_turn_text)
+        _append_channel_history(conv_id, "model", reply)
+        now = time.time()
+        _standalone_last_reply_at[conv_id] = now
+        if is_post_thread:
+            p_state = _post_runtime_state.setdefault(conv_id, {})
+            p_state["last_bot_reply_at"] = now
+            p_state["last_activity_at"] = now
+        ch_cfg = chat_agent_channels.get(effective_cfg_cid)
         if ch_cfg:
-            now = time.time()
-            ch_cfg["last_bot_reply_at"] = now
+            if not is_post_thread:
+                ch_cfg["last_bot_reply_at"] = now
             ch_cfg["last_activity_at"] = now
         await save_agent_config_to_disk()
 
@@ -1029,12 +1459,16 @@ async def generate_gallery_comment(
     *,
     http_session: aiohttp.ClientSession | None = None,
 ) -> tuple[str | None, str | None]:
-    """Men-scan gambar atau video di channel Galeri dan memberikan komentar otomatis yang relevan.
+    """Men-scan gambar atau video di channel/forum Galeri dan memberikan komentar otomatis yang relevan.
 
     Returns:
         (comment_text, reaction_emoji)
     """
-    gal_cfg = gallery_agent_channels.get(message.channel.id)
+    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
+    if cfg_cid is None:
+        return None, None
+
+    gal_cfg = gallery_agent_channels.get(cfg_cid)
     if not gal_cfg or not gal_cfg.get("enabled"):
         return None, None
 
@@ -1061,6 +1495,7 @@ async def generate_gallery_comment(
 
     author_name = message.author.display_name
     caption = (message.content or "").strip()
+    post_title, post_tags, _ = _extract_forum_post_context(message)
 
     gallery_system_prompt = (
         "Kamu adalah teman komunitas Discord yang seru, jeli, dan apresiatif di channel Galeri/Showcase.\n"
@@ -1073,6 +1508,9 @@ async def generate_gallery_comment(
     )
 
     user_prompt = f"Member '{author_name}' baru saja membagikan media di galeri ({' '.join(media_descs)})."
+    if is_post_thread and post_title:
+        tag_info = f" (Tag: {', '.join(post_tags)})" if post_tags else ""
+        user_prompt += f"\nJudul Postingan Forum: \"{post_title}\"{tag_info}"
     if caption:
         user_prompt += f"\nCaption dari {author_name}: \"{caption}\""
     user_prompt += f"\n(Waktu saat ini: {time_ctx['clock']}). Berikan komentarmu!"
@@ -1248,4 +1686,138 @@ async def generate_welcome_greeting(
         await save_agent_config_to_disk()
 
     return reply
+
+
+async def generate_morning_digest(
+    guild_id: int,
+    bot_display_name: str,
+    *,
+    topic_override: str | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Menyusun Sapaan & Rangkuman Berita Pagi (Morning Digest) menggunakan live web search gratis + Gemini."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    guild_cfg = get_guild_settings(guild_id)
+    d_cfg = digest_agent_guilds.get(int(guild_id)) or {}
+    topic = (
+        topic_override
+        or str(d_cfg.get("topic") or "").strip()
+        or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+    )
+
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+    agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
+    style_key = guild_cfg.get("style_preset", "akrab")
+    style_guide = STYLE_DESCRIPTIONS.get(style_key, STYLE_DESCRIPTIONS["akrab"])
+
+    async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
+        live_ctx, live_sources = await free_live_web_search(topic, http_session=session)
+        system_prompt = (
+            f"Kamu adalah '{agent_name}', teman komunitas Discord yang asik dan pembawa rubrik Koran Pagi harian.\n"
+            f"Waktu sekarang: {time_ctx['summary']}.\n"
+            f"Gaya bicara: {style_guide}\n"
+            "JANGAN menyebut dirimu AI atau bot."
+        )
+        if live_ctx:
+            user_prompt = (
+                f"Topik Digest Pagi: {topic}\n\n"
+                f"{live_ctx}\n\n"
+                "Susun rubrik **☀️ Sapaan & Koran Pagi** yang hangat, ringkas, dan enak dibaca warga Discord:\n"
+                "1. Sapaan semangat pagi singkat (1–2 kalimat akrab sesuai hari ini).\n"
+                "2. **📰 Sorotan Hari Ini:** 3–4 poin berita/update terpenting dari referensi di atas.\n"
+                "3. **💡 Fakta / Pertanyaan Pagi:** 1 kalimat fakta unik atau pertanyaan santai pemantik obrolan warga."
+            )
+        else:
+            user_prompt = (
+                f"Buat sapaan semangat pagi yang hangat untuk komunitas Discord pada hari {time_ctx['day_name']} "
+                f"beserta 2 fakta menarik seputar ({topic}) dan 1 pertanyaan pemantik obrolan santai!"
+            )
+
+        reply = await _call_gemini_agent(
+            system_prompt,
+            [{"role": "user", "parts": [{"text": user_prompt}]}],
+            temperature=0.65,
+            max_tokens=2500,
+            thinking_level="low",
+            has_media=False,
+            http_session=session,
+        )
+        if not reply:
+            return None, "⚠️ Gagal menyusun Morning Digest saat ini, silakan coba sesaat lagi."
+
+        if live_sources:
+            footer = _format_grounding_footer(live_sources)
+            max_body = max(500, 3850 - len(footer))
+            clipped = reply[:max_body] + ("…" if len(reply_text := reply) > max_body else "")
+            reply = f"{clipped}{footer}"
+
+        return reply, None
+
+
+async def run_morning_digest_check(
+    bot: discord.Client,
+    http_session: aiohttp.ClientSession | None = None,
+) -> int:
+    """Memeriksa jadwal Morning Digest harian di seluruh server aktif (maksimal 1x kirim per tanggal lokal)."""
+    if not is_gemini_key_configured() or not bot.user:
+        return 0
+
+    sent_count = 0
+    for guild_id, d_cfg in list(digest_agent_guilds.items()):
+        if not d_cfg.get("enabled"):
+            continue
+
+        guild_cfg = get_guild_settings(guild_id)
+        t_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+        today_str = t_ctx["iso_date"]
+        if d_cfg.get("last_sent_date") == today_str:
+            continue
+
+        now_mins = int(t_ctx["hour"]) * 60 + int(t_ctx["minute"])
+        target_mins = int(d_cfg.get("hour", 7)) * 60 + int(d_cfg.get("minute", 0))
+        # Jendela aman 60 menit sejak jam terjadwal agar tetap terkirim walau bot baru restart tipis
+        if not (target_mins <= now_mins < target_mins + 60):
+            continue
+
+        channel_id = int(d_cfg["channel_id"])
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(channel_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+
+        if not hasattr(channel, "send"):
+            continue
+
+        guild = getattr(channel, "guild", None)
+        bot_name = guild.me.display_name if (guild and guild.me) else bot.user.display_name
+        digest_text, err = await generate_morning_digest(
+            guild_id,
+            bot_name,
+            http_session=http_session,
+        )
+        if err or not digest_text:
+            continue
+
+        embed = discord.Embed(
+            title=f"☀️ Koran & Sapaan Pagi — {t_ctx['day_name']}, {t_ctx['date_str']}",
+            description=digest_text[:4090],
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Jadwal Digest Harian • Pukul {d_cfg['hour']:02d}:{d_cfg['minute']:02d} {t_ctx['tz_label']}")
+        try:
+            await channel.send(embed=embed)
+            d_cfg["last_sent_date"] = today_str
+            if channel_id in chat_agent_channels:
+                _append_channel_history(channel_id, "model", digest_text[:1200])
+            await save_agent_config_to_disk()
+            sent_count += 1
+        except discord.HTTPException as exc:
+            logger.warning("Gagal mengirim Morning Digest di channel %s: %s", channel_id, exc)
+
+    return sent_count
+
 
