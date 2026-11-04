@@ -61,6 +61,7 @@ from music import (
     WAVELINK_AVAILABLE,
     cleanup_music_runtime,
     connect_nodes,
+    ensure_nodes_alive,
     load_music_settings_from_disk,
     music_status,
     run_music_panel_check,
@@ -326,6 +327,9 @@ async def idle_chat_watcher():
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_morning_digest_check(bot, http_session=bot.http_session)
             await run_facts_check(bot, http_session=bot.http_session)
+        if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 4 == 0:
+            # Node Lavalink publik sering restart: pulihkan otomatis tanpa restart bot.
+            await ensure_nodes_alive(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 20 == 0:
             await run_serverstats_check(bot)
             await run_backup_check(bot)

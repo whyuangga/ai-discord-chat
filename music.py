@@ -209,13 +209,126 @@ def normalize_lavalink_uri(raw_uri: str | None, *, secure: bool = False) -> str 
     return f"{'wss' if secure_flag else 'ws'}://{text}"
 
 
+# node_diagnosis() dipakai di beberapa tempat; import Enum dilakukan lazy agar aman
+# ketika wavelink belum terpasang.
+def _status_name(status: object) -> str:
+    """Label status node (`CONNECTED`/`CONNECTING`/`DISCONNECTED`) tanpa bergantung pada Enum."""
+    if status is None:
+        return "UNKNOWN"
+    return str(getattr(status, "name", status)).upper()
+
+
+def node_snapshot() -> dict:
+    """Kondisi node Lavalink **saat ini** (tanpa memanggil API apa pun).
+
+    Mengembalikan dict: `library`, `configured`, `uri`, `nodes[]`, `connected`,
+    `connecting`, `disconnected`, `ready`.
+    """
+    snapshot: dict = {
+        "library": bool(WAVELINK_AVAILABLE),
+        "configured": bool(MUSIC_ENABLED),
+        "uri": normalize_lavalink_uri(LAVALINK_URI),
+        "nodes": [],
+        "connected": 0,
+        "connecting": 0,
+        "disconnected": 0,
+        "ready": False,
+    }
+    if not WAVELINK_AVAILABLE:
+        return snapshot
+
+    try:
+        pool_nodes = list(wavelink.Pool.nodes.values())
+    except Exception:  # pragma: no cover - pool belum siap
+        pool_nodes = []
+
+    for node in pool_nodes:
+        name = _status_name(getattr(node, "status", None))
+        try:
+            players = len(getattr(node, "players", {}) or {})
+        except Exception:  # pragma: no cover - atribut internal berbeda antar versi
+            players = 0
+        snapshot["nodes"].append(
+            {
+                "identifier": str(getattr(node, "identifier", "?")),
+                "uri": str(getattr(node, "uri", "?")),
+                "status": name,
+                "players": players,
+            }
+        )
+        if name == "CONNECTED":
+            snapshot["connected"] += 1
+        elif name == "CONNECTING":
+            snapshot["connecting"] += 1
+        else:
+            snapshot["disconnected"] += 1
+
+    snapshot["ready"] = snapshot["connected"] > 0
+    return snapshot
+
+
+def node_diagnosis() -> str:
+    """Penjelasan singkat kenapa node belum siap + langkah perbaikannya (Bahasa Indonesia)."""
+    snap = node_snapshot()
+    if not snap["library"]:
+        return "Library `wavelink` belum terpasang — jalankan `pip install -r requirements.txt`."
+    if not snap["configured"]:
+        return "`LAVALINK_URI` & `LAVALINK_PASSWORD` belum diisi di Variables Wispbyte."
+    if snap["ready"]:
+        node = next((n for n in snap["nodes"] if n["status"] == "CONNECTED"), snap["nodes"][0])
+        return (
+            f"✅ Node `{node['identifier']}` tersambung ({node['uri']}, "
+            f"{node['players']} player aktif)."
+        )
+
+    uri = snap["uri"] or "?"
+    hints: list[str] = []
+    if snap["connecting"]:
+        hints.append(
+            "node sudah menerima koneksi tetapi belum mengirim sinyal `ready` "
+            "(biasanya node publik sedang kelebihan beban / baru restart)"
+        )
+    if uri.startswith("ws://") and uri.endswith(":443"):
+        hints.append("port **443** tanpa awalan `wss://` sering gagal — tulis `wss://host:443`")
+    if uri.startswith("wss://") and not uri.endswith(":443"):
+        hints.append("`wss://` biasanya hanya untuk port **443**; untuk port lain pakai `host:port` tanpa awalan")
+    if not snap["nodes"]:
+        hints.append(
+            "tidak ada node yang terdaftar di Pool → password salah, host/port keliru, "
+            "atau koneksi keluar diblokir hosting"
+        )
+    if not hints:
+        hints.append("node terdaftar tetapi berstatus DISCONNECTED → coba `/musik node sambung:True`")
+
+    return (
+        f"⚠️ **Lavalink belum tersambung** (`{uri}`).\n"
+        "• Periksa: " + "; ".join(hints) + ".\n"
+        "• Tes cepat di Console Wispbyte: "
+        f"`curl -s -m 15 -H \"Authorization: password-node\" "
+        f"{uri.replace('wss://', 'https://').replace('ws://', 'http://')}/v4/info`\n"
+        "• Setelah `.env` diperbaiki → **Restart** bot, lalu cek `/musik status`."
+    )
+
+
 def music_status() -> str:
-    """Ringkasan status musik untuk `/status` & `/musik status`."""
+    """Ringkasan status musik untuk `/status` & `/musik status` (berbasis kondisi node nyata)."""
     if not WAVELINK_AVAILABLE:
         return "❗ Library `wavelink` belum terpasang"
     if not MUSIC_ENABLED:
         return "⛔ Belum dikonfigurasi (isi LAVALINK_URI & LAVALINK_PASSWORD)"
-    return "✅ Siap memutar musik"
+
+    snap = node_snapshot()
+    if snap["ready"]:
+        node = next((n for n in snap["nodes"] if n["status"] == "CONNECTED"), None) or {}
+        return (
+            f"✅ Tersambung — node `{node.get('identifier', '?')}` "
+            f"({node.get('players', 0)} player)"
+        )
+    if snap["connecting"]:
+        return "⏳ Node sedang menyambung (menunggu sinyal `ready` dari Lavalink)"
+    if snap["nodes"]:
+        return "⚠️ Node terdaftar tapi TIDAK tersambung (cek password, port, atau TLS)"
+    return "⚠️ Belum tersambung — tidak ada node Lavalink aktif"
 
 
 def build_nodes() -> list:
@@ -237,18 +350,103 @@ def build_nodes() -> list:
 
 
 async def connect_nodes(client: discord.Client) -> bool:
-    """Menghubungkan bot ke seluruh node Lavalink. `False` bila gagal/tak dikonfigurasi."""
+    """Menghubungkan bot ke seluruh node Lavalink. `False` bila gagal/tak dikonfigurasi.
+
+    Catatan penting: `wavelink.Pool.connect` **tidak** melempar error saat password/port
+    salah — kegagalan hanya muncul di log library. Karena itu setelah connect kita periksa
+    sendiri status node lalu cetak diagnosa yang bisa ditindaklanjuti.
+    """
     nodes = build_nodes()
     if not nodes:
         logger.info("Musik dilewati: LAVALINK_URI/LAVALINK_PASSWORD belum diisi.")
         return False
+
+    target = getattr(nodes[0], "uri", LAVALINK_URI)
+    logger.info("Menghubungkan ke Lavalink: %s", target)
+    last_error = ""
     try:
         await wavelink.Pool.connect(nodes=nodes, client=client, cache_capacity=100)
-        logger.info("Menghubungkan ke Lavalink: %s", nodes[0].uri)
-        return True
     except Exception as exc:  # pragma: no cover - node mati
-        logger.warning("Gagal terhubung ke Lavalink: %s", sanitize_error_message(exc))
+        last_error = sanitize_error_message(exc)
+        logger.warning("Gagal terhubung ke Lavalink: %s", last_error)
+
+    snap = node_snapshot()
+    if snap["ready"]:
+        node = next((n for n in snap["nodes"] if n["status"] == "CONNECTED"), None) or {}
+        logger.info(
+            "✅ Node Lavalink siap: %s (%s) | %s player",
+            node.get("identifier", LAVALINK_NODE_NAME),
+            target,
+            node.get("players", 0),
+        )
+        return True
+
+    if snap["nodes"]:
+        logger.warning(
+            "Node Lavalink %s terdaftar tetapi belum CONNECTED (status: %s). "
+            "Menunggu sinyal 'ready'; bila berlanjut, periksa password/port/TLS.",
+            target,
+            ", ".join(f"{n['identifier']}={n['status']}" for n in snap["nodes"]),
+        )
+        return True
+
+    logger.warning(
+        "❌ Node Lavalink tidak terdaftar di Pool (%s). %s",
+        target,
+        last_error or "Periksa LAVALINK_PASSWORD, host/port, dan awalan wss:// untuk port 443.",
+    )
+    return False
+
+
+_last_reconnect_at: float = 0.0
+RECONNECT_COOLDOWN_SEC = 60
+
+
+async def ensure_nodes_alive(client: discord.Client | None = None, *, force: bool = False) -> bool:
+    """Memastikan minimal satu node CONNECTED; mencoba menyambung ulang bila perlu.
+
+    Dipakai oleh watcher latar (tanpa loop baru) agar node publik yang restart
+    otomatis pulih tanpa harus me-restart bot. Dibatasi `RECONNECT_COOLDOWN_SEC`
+    supaya tidak membanjiri node dengan percobaan koneksi.
+    """
+    global _last_reconnect_at
+
+    if not (WAVELINK_AVAILABLE and MUSIC_ENABLED):
         return False
+
+    if node_snapshot()["ready"]:
+        return True
+
+    now = time.monotonic()
+    if not force and (now - _last_reconnect_at) < RECONNECT_COOLDOWN_SEC:
+        return False
+    _last_reconnect_at = now
+
+    try:
+        pool_nodes = list(wavelink.Pool.nodes.values()) if WAVELINK_AVAILABLE else []
+    except Exception:  # pragma: no cover - pool belum siap
+        pool_nodes = []
+
+    if not pool_nodes:
+        if client is None:
+            return False
+        logger.info("Mencoba menyambung ulang node Lavalink (Pool kosong)…")
+        return await connect_nodes(client)
+
+    logger.info("Node Lavalink belum siap — mencoba menyambung ulang…")
+    for node in pool_nodes:
+        if _status_name(getattr(node, "status", None)) == "CONNECTED":
+            continue
+        try:
+            await node.close()
+        except Exception:  # pragma: no cover - sudah tertutup
+            pass
+    try:
+        await wavelink.Pool.reconnect()
+    except Exception as exc:  # pragma: no cover - node mati
+        logger.warning("Gagal menyambung ulang Lavalink: %s", sanitize_error_message(exc))
+        return False
+    return node_snapshot()["ready"]
 
 
 def get_player(guild: discord.Guild | None):
@@ -435,11 +633,26 @@ async def search_tracks(query: str) -> tuple[list, str | None]:
     if not clean:
         return [], None
 
+    # Pra-cek: tanpa node CONNECTED, wavelink hanya melempar pesan teknis
+    # "No nodes are currently assigned to the wavelink.Pool in a CONNECTED state".
+    if not node_snapshot()["ready"]:
+        await ensure_nodes_alive()
+        if not node_snapshot()["ready"]:
+            raise MusicUnavailable(
+                "🎵 **Musik belum bisa diputar** — node Lavalink belum tersambung.\n"
+                + node_diagnosis()
+            )
+
     try:
         result = await wavelink.Playable.search(clean)
     except Exception as exc:
+        detail = sanitize_error_message(exc)
+        if "CONNECTED state" in detail or "Node" in detail:
+            raise MusicUnavailable(
+                "🎵 **Node musik terputus saat mencari lagu.**\n" + node_diagnosis()
+            ) from exc
         raise MusicUnavailable(
-            f"⚠️ Node musik tidak merespons: `{sanitize_error_message(exc)[:120]}`"
+            f"⚠️ Node musik tidak merespons: `{detail[:120]}`"
         ) from exc
 
     if not result:

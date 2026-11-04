@@ -3546,6 +3546,8 @@ async def test_music_command_structure_and_setup_guard(monkeypatch):
         "hentikan", "volume", "ulang", "acak", "pengaturan", "status",
         # v1.7.0-beta+ (Rythm Mode): seek, lagu sebelumnya, filter, autoplay, panel
         "seek", "sebelumnya", "filter", "autoplay", "panel",
+        # v1.11.1-beta: diagnosa & sambung ulang node Lavalink
+        "node",
     }
     for sub in musik.commands:
         assert 1 <= len(sub.description) <= 100
@@ -4757,3 +4759,144 @@ async def test_insights_commands_and_daily_cap_guard(monkeypatch):
     assert await enforce_member_cooldown(_Interaction(), "uji_kapasitas_tier3_c") is True
     assert sent == []
     insights.ai_usage.clear()
+
+
+@pytest.mark.asyncio
+async def test_music_node_diagnostics_and_reconnect(monkeypatch):
+    """v1.11.1-beta: status node Lavalink nyata, diagnosa, & penyambungan ulang otomatis."""
+    import music
+    import cogs.music_cog as music_cog
+
+    class _Status:
+        def __init__(self, name):
+            self.name = name
+
+    class _Node:
+        def __init__(self, identifier, uri, status, players=0):
+            self.identifier = identifier
+            self.uri = uri
+            self.status = _Status(status)
+            self.players = {i: object() for i in range(players)}
+            self.closed = False
+
+        async def close(self):
+            self.closed = True
+            self.status = _Status("DISCONNECTED")
+
+    class _Pool:
+        nodes: dict = {}
+
+    class _FakeWavelink:
+        Pool = _Pool
+
+    class _FakeSession:
+        def __init__(self):
+            class _Resp:
+                status = 200
+
+                async def json(self, content_type=None):
+                    return {"version": {"semver": "4.0.8"}}
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *exc):
+                    return False
+
+            self._resp = _Resp()
+
+        def post(self, *a, **kw):
+            return self._resp
+
+    monkeypatch.setattr(music, "wavelink", _FakeWavelink)
+    monkeypatch.setattr(music, "WAVELINK_AVAILABLE", True)
+    monkeypatch.setattr(music, "MUSIC_ENABLED", True)
+    monkeypatch.setattr(music, "LAVALINK_URI", "wss://lavalink.contoh.net:443")
+
+    # 1. Pool kosong → tidak siap, pesan jujur, diagnosa menyebut node tidak terdaftar
+    _Pool.nodes = {}
+    snap = music.node_snapshot()
+    assert snap["ready"] is False and snap["nodes"] == []
+    assert "Belum tersambung" in music.music_status()
+    diagnosis = music.node_diagnosis()
+    assert "tidak ada node yang terdaftar" in diagnosis
+    assert "/v4/info" in diagnosis
+
+    # 2. Node CONNECTING (kasus nyata: handshake sukses tapi 'ready' tak pernah datang)
+    _Pool.nodes = {"utama": _Node("utama", "wss://lavalink.contoh.net:443", "CONNECTING")}
+    snap = music.node_snapshot()
+    assert snap["connecting"] == 1 and snap["ready"] is False
+    assert "⏳" in music.music_status()
+    assert "belum mengirim sinyal `ready`" in music.node_diagnosis()
+
+    # 3. Node CONNECTED → status jelas + jumlah player
+    _Pool.nodes = {"utama": _Node("utama", "wss://lavalink.contoh.net:443", "CONNECTED", players=3)}
+    snap = music.node_snapshot()
+    assert snap["ready"] is True and snap["connected"] == 1
+    status = music.music_status()
+    assert "Tersambung" in status and "3 player" in status
+    assert "tersambung" in music.node_diagnosis()
+
+    # 4. Hint TLS: ws:// + port 443 & wss:// + port non-443
+    monkeypatch.setattr(music, "LAVALINK_URI", "lavalink.contoh.net:443")
+    _Pool.nodes = {}
+    assert "tanpa awalan `wss://`" in music.node_diagnosis()
+    monkeypatch.setattr(music, "LAVALINK_URI", "wss://lavalink.contoh.net:13592")
+    assert "hanya untuk port **443**" in music.node_diagnosis()
+
+    # 5. search_tracks tanpa node → pesan ramah (bukan error mentah wavelink)
+    monkeypatch.setattr(music, "LAVALINK_URI", "wss://lavalink.contoh.net:443")
+    _Pool.nodes = {}
+    with pytest.raises(music.MusicUnavailable) as err:
+        await music.search_tracks("lagu uji")
+    assert "belum tersambung" in str(err.value)
+    assert "Pool in a CONNECTED state" not in str(err.value).split("Detail")[0]
+
+    # 6. ensure_nodes_alive: menyambung ulang node yang tertutup/stuck
+    node = _Node("utama", "wss://lavalink.contoh.net:443", "CONNECTING")
+    _Pool.nodes = {"utama": node}
+
+    async def _fake_reconnect():
+        node.status = _Status("CONNECTED")
+        return _Pool.nodes
+
+    monkeypatch.setattr(_FakeWavelink.Pool, "reconnect", staticmethod(_fake_reconnect), raising=False)
+    assert await music.ensure_nodes_alive(force=True) is True
+    assert node.closed is True  # node yang belum CONNECTED ditutup dulu
+
+    # 7. /musik status tetap informatif & tidak error meski node mati
+    _Pool.nodes = {}
+    sent = []
+
+    class _Resp:
+        def async_send(self):
+            class _R:
+                async def send_message(self, content=None, embed=None, ephemeral=False, **kw):
+                    sent.append(content)
+            return _R()
+
+        def __init__(self):
+            self._inner = self.async_send()
+
+        async def send_message(self, content=None, **kw):
+            sent.append(content)
+
+        def is_done(self):
+            return True
+
+    class _Follow:
+        async def send(self, content=None, **kw):
+            sent.append(content)
+
+    class _Ix:
+        guild = type("G", (), {"id": 10, "voice_client": None, "me": None})()
+        response = _Resp()
+        followup = _Follow()
+        user = type("U", (), {"id": 501, "display_name": "Warga", "voice": None,
+                              "guild_permissions": type("P", (), {"administrator": False,
+                                                                  "manage_guild": False})()})()
+
+    await music_cog.musik_status_cmd.callback(_Ix())
+    assert sent and "Status Musik" in sent[0]
+    assert "Role DJ" in sent[0] and "tidak wajib" in sent[0]
+    assert "Lavalink belum tersambung" in sent[0]

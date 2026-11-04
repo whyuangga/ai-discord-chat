@@ -2308,11 +2308,15 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
-            name="⚙️ Admin & Status",
+            name="⚙️ Admin, Status & Diagnosa Node",
             value=(
+                "• `/musik status` — kondisi **nyata** node Lavalink (✅ Tersambung / ⏳ Menyambung / "
+                "⚠️ Belum tersambung), antrean, volume, & role DJ.\n"
+                "• `/musik node sambung:True` *(Admin)* — diagnosa per node + **sambung ulang tanpa restart**.\n"
                 "• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n"
-                "• `/musik status` — cek node Lavalink, antrean, & pengaturan server.\n"
-                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Panduan lengkap ada di README bagian F."
+                "• **Role DJ bukan syarat memutar lagu** — cukup masuk voice channel. DJ hanya mengunci "
+                "tombol kontrol untuk member di luar VC.\n"
+                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di README bagian F."
             ),
             inline=False,
         )
