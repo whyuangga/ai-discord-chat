@@ -3444,9 +3444,11 @@ async def test_music_rythm_panel_progress_seek_filters_and_pagination():
         "music:panel:vol_up",
     ]
     queue_view = views.QueuePaginationView(tracks, requester_id=501, page=1)
-    assert len(queue_view.children) == 3
-    assert "Halaman 2/3" in queue_view.children[1].label
-    assert queue_view.children[0].disabled is False
+    queue_items = list(queue_view.walk_children())
+    queue_buttons = [i for i in queue_items if isinstance(i, discord.ui.Button)]
+    assert len(queue_buttons) == 4
+    assert "Halaman 2/3" in queue_buttons[1].label
+    assert queue_buttons[0].disabled is False
 
     # 8. Lagu sebelumnya dari riwayat antrean
     player2 = _FakePlayer(volume=50)
@@ -4461,7 +4463,11 @@ async def test_growth_commands_views_and_help():
 
     panel = views.TicketPanelView()
     assert panel.is_persistent() is True
-    assert [c.custom_id for c in panel.children] == ["ticket:panel:open"]
+    # Panel tiket kini berupa kartu Components V2 → tombol berada di dalam Container
+    assert panel.to_components()[0]["type"] == 17
+    assert [
+        item.custom_id for item in panel.walk_children() if isinstance(item, discord.ui.Button)
+    ] == ["ticket:panel:open"]
     actions = views.TicketActionsView()
     assert actions.is_persistent() is True
     assert [c.custom_id for c in actions.children] == ["ticket:panel:claim", "ticket:panel:close"]
@@ -4602,8 +4608,7 @@ async def test_growth_message_xp_hook_and_ticket_panel_smoke(monkeypatch):
         },
     )()
 
-    view = views.TicketPanelView()
-    await view.open_btn.callback(ix)
+    await views.handle_ticket_open(ix)
     assert ix.response.deferred is True
     assert thread.added_users == [501]
     assert tickets.tickets, "tiket harus tercatat"
@@ -4628,7 +4633,7 @@ async def test_growth_message_xp_hook_and_ticket_panel_smoke(monkeypatch):
         },
     )()
     tickets.register_ticket(720, 10, 501)
-    await view.open_btn.callback(ix2)
+    await views.handle_ticket_open(ix2)
     assert "2 tiket aktif" in ix2.response.sent[0]["content"]
 
 
@@ -5003,3 +5008,63 @@ async def test_panel_dashboard_and_theme_editor_render():
     # command terdaftar pada tree
     names = {c.name for c in bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)}
     assert {"panel", "tampilan"} <= names
+
+
+@pytest.mark.asyncio
+async def test_components_v2_panels_agent_ticket_queue_and_confirm():
+    """Panel V2: AI Agent (toggle berwarna), tiket, antrean musik, & dialog konfirmasi tema."""
+    import ui_kit
+    import ui_theme
+
+    class _FakeGuild:
+        id = 9191
+        name = "Server V2"
+        member_count = 5
+
+        def get_channel(self, cid):
+            return None
+
+    guild = _FakeGuild()
+    ui_theme.reset_theme(guild.id)
+
+    # 1. Panel AI Agent: 2 kartu, 8 tombol toggle + 5 tombol aksi + 1 dropdown channel
+    panel = views.AgentPanelView(guild, 123, default_channel_id=555)
+    assert [c["type"] for c in panel.to_components()] == [17, 17]
+    btns = [i for i in panel.walk_children() if isinstance(i, discord.ui.Button)]
+    toggle_ids = {"agent:v2:" + a for a, _, _ in views.AGENT_FEATURES}
+    toggles = [b for b in btns if b.custom_id in toggle_ids]
+    assert len(toggles) == 8
+    assert all(b.style is discord.ButtonStyle.danger for b in toggles)  # semua OFF → merah
+    assert len(btns) == 13
+    from discord.ui.select import BaseSelect
+
+    selects = [i for i in panel.walk_children() if isinstance(i, BaseSelect)]
+    assert len(selects) == 1 and selects[0].custom_id == "agent:v2:channel"
+
+    # 2. Panel tiket V2 memakai warna aksen tema server
+    ticket_panel = views.TicketPanelView(guild.id)
+    comp = ticket_panel.to_components()[0]
+    assert comp["type"] == 17
+    assert comp.get("accent_color") == ui_theme.accent_int(guild.id)
+
+    # 3. Antrean musik V2: tombol navigasi + tombol tutup
+    class _T:
+        def __init__(self, title):
+            self.title = title
+            self.length = 60_000
+            self.author = "Artis"
+            self.uri = ""
+
+    import music
+    tracks = [_T(f"Lagu {i}") for i in range(25)]
+    queue_view = views.QueuePaginationView(tracks, requester_id=9, page=0, guild_id=guild.id)
+    q_buttons = [i for i in queue_view.walk_children() if isinstance(i, discord.ui.Button)]
+    assert len(q_buttons) == 4
+    assert q_buttons[3].style is discord.ButtonStyle.danger  # tombol Tutup
+
+    # 4. Dialog konfirmasi mengikuti setelan tema server
+    ui_theme.set_theme(guild.id, confirm=False)
+    assert ui_theme.confirm_enabled(guild.id) is False
+    confirm_view = ui_kit.ConfirmView(guild.id, title="Uji?", detail="Detail uji")
+    assert confirm_view.to_components()[0]["type"] == 17
+    ui_theme.reset_theme(guild.id)

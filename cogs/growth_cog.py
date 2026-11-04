@@ -19,7 +19,7 @@ from config import (
     LEVELS_MAX_MEMBERS,
     TICKET_MAX_OPEN_PER_USER,
 )
-from views import TicketPanelView
+from views import send_ticket_panel
 
 logger = logging.getLogger("gemini_bot.growth_cog")
 
@@ -339,9 +339,10 @@ async def tiket_panel_cmd(
     await interaction.response.defer(ephemeral=True)
 
     try:
-        message = await target.send(
-            embed=tickets.build_panel_embed(interaction.guild.name, staff_role_id=cfg.get("staff_role_id")),
-            view=TicketPanelView(),
+        message = await send_ticket_panel(
+            target,
+            interaction.guild.id,
+            tickets.build_panel_embed(interaction.guild.name, staff_role_id=cfg.get("staff_role_id")),
         )
     except (discord.Forbidden, discord.HTTPException):
         await interaction.followup.send(

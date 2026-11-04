@@ -408,6 +408,8 @@ async def ask_confirm(
     title: str,
     detail: str,
     confirm_label: str = "Ya, lanjutkan",
+    on_confirm=None,
+    on_cancel=None,
 ) -> ConfirmView | None:
     """Mengirim dialog konfirmasi. `None` bila tema server mematikan konfirmasi."""
     if not ui_theme.confirm_enabled(guild_id):
@@ -417,6 +419,8 @@ async def ask_confirm(
         title=title,
         detail=detail,
         confirm_label=confirm_label,
+        on_confirm=on_confirm,
+        on_cancel=on_cancel,
         author_id=getattr(interaction.user, "id", None),
     )
     embed = fallback_embed(guild_id, f"⚠️ {title}", detail)

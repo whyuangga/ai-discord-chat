@@ -307,17 +307,47 @@ async def pemakaian_reset_cmd(interaction: discord.Interaction, cache_rekap: boo
         await _reject_non_admin(interaction)
         return
 
-    removed_days = insights.reset_all_usage()
-    removed_cache = insights.reset_rekap_cache() if cache_rekap else 0
-    await insights.save_ai_usage_to_disk()
+    gid = interaction.guild.id if interaction.guild else None
 
-    await interaction.response.send_message(
-        f"🧹 **Catatan pemakaian AI dibersihkan.**\n"
-        f"• Hari terhapus: `{removed_days}`\n"
-        f"• Cache rekap dikosongkan: `{removed_cache}` entri\n"
-        f"> Statistik mulai dihitung ulang dari nol. Data tingkat server (FAQ, level, tiket) **tidak** tersentuh.",
-        ephemeral=True,
+    async def _do_reset(ix: discord.Interaction) -> None:
+        removed_days = insights.reset_all_usage()
+        removed_cache = insights.reset_rekap_cache() if cache_rekap else 0
+        await insights.save_ai_usage_to_disk()
+        result_view = ui_kit.build_view(
+            gid,
+            ui_kit.card(
+                gid,
+                ui_kit.text(
+                    f"### {ui_theme.emoji(gid, 'ok', '✅')} Catatan pemakaian dibersihkan\n"
+                    f"• Hari terhapus: `{removed_days}`\n"
+                    f"• Cache rekap dikosongkan: `{removed_cache}` entri\n"
+                    "-# Statistik mulai dihitung ulang dari nol. FAQ, level, & tiket **tidak** tersentuh."
+                ),
+            ),
+            timeout=None,
+        )
+        if ix.response.is_done():
+            await ix.response.edit_message(view=result_view)
+        else:
+            await ix.response.send_message(view=result_view, ephemeral=True)
+
+    # Dialog konfirmasi bergaya kartu (bisa dimatikan Admin lewat `/tampilan atur`)
+    confirmed_view = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Bersihkan catatan pemakaian AI?",
+        detail=(
+            "Statistik operasi AI hari ini akan dihapus"
+            + (" beserta cache rekap channel." if cache_rekap else ".")
+            + "\nData FAQ, level, & tiket tidak terpengaruh."
+        ),
+        confirm_label="Ya, bersihkan",
+        on_confirm=_do_reset,
     )
+    if confirmed_view is not None:
+        return
+
+    await _do_reset(interaction)
 
 
 def register_insights_cog(bot: commands.Bot) -> None:

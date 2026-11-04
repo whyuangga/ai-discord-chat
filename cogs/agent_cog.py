@@ -38,6 +38,7 @@ from utils import get_realtime_time_context
 from cogs.helpers import get_interaction_http_session
 from views import (
     AgentAdminPanelView,
+    AgentPanelView,
     ServerFaqManagerView,
     build_agent_status_embed,
     build_faq_list_embed,
@@ -224,12 +225,21 @@ async def agent_panel_cmd(interaction: discord.Interaction):
     elif isinstance(interaction.channel, discord.Thread) and interaction.channel.parent_id:
         default_cid = interaction.channel.parent_id
 
-    view = AgentAdminPanelView(interaction.user.id, default_channel_id=default_cid)
-    await interaction.response.send_message(
-        embed=build_agent_status_embed(interaction.guild, selected_channel_id=default_cid),
-        view=view,
-        ephemeral=True,
-    )
+    import ui_kit
+
+    # Panel V2 (kartu + tombol toggle berwarna); otomatis mundur ke panel klasik bila ditolak
+    try:
+        await interaction.response.send_message(
+            view=AgentPanelView(interaction.guild, interaction.user.id, default_channel_id=default_cid),
+            ephemeral=True,
+        )
+    except (discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Panel agent V2 ditolak (%s) — memakai panel klasik.", exc)
+        await interaction.response.send_message(
+            embed=build_agent_status_embed(interaction.guild, selected_channel_id=default_cid),
+            view=AgentAdminPanelView(interaction.user.id, default_channel_id=default_cid),
+            ephemeral=True,
+        )
 
 
 @agent_group.command(

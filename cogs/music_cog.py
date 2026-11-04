@@ -289,8 +289,11 @@ async def musik_antrean_cmd(interaction: discord.Interaction, halaman: int = 1):
         requester_id=interaction.user.id,
         page=max(0, int(halaman) - 1),
         now_playing=getattr(player, "current", None),
+        guild_id=interaction.guild.id,
     )
-    await interaction.response.send_message(embed=view._embed(), view=view, ephemeral=True)
+    import ui_kit
+
+    await ui_kit.send_panel(interaction, view, embed=view._embed(), ephemeral=True)
 
 
 @musik_group.command(name="sekarang", description="Lihat lagu yang sedang diputar beserta progresnya")
@@ -498,19 +501,54 @@ async def musik_hentikan_cmd(interaction: discord.Interaction):
     if player is None:
         return
 
-    try:
-        player.queue.clear()
-        await player.stop()
-        await player.disconnect()
-    except Exception as exc:  # pragma: no cover - node mati
-        logger.info("Gagal menghentikan musik: %s", exc)
+    import ui_kit
+    import ui_theme
 
-    music.forget_announce_channel(interaction.guild.id)
-    await close_panel(interaction.client, interaction.guild.id)
-    await interaction.response.send_message(
-        "⏹️ Musik dihentikan, antrean dikosongkan, & bot keluar dari voice channel.",
-        ephemeral=True,
+    gid = interaction.guild.id
+
+    async def _do_stop(ix: discord.Interaction) -> None:
+        try:
+            player.queue.clear()
+            await player.stop()
+            await player.disconnect()
+        except Exception as exc:  # pragma: no cover - node mati
+            logger.info("Gagal menghentikan musik: %s", exc)
+
+        music.forget_announce_channel(gid)
+        await close_panel(ix.client, gid)
+        result_view = ui_kit.build_view(
+            gid,
+            ui_kit.card(
+                gid,
+                ui_kit.text(
+                    f"### {ui_theme.emoji(gid, 'stop', '⏹️')} Musik dihentikan\n"
+                    "Antrean dikosongkan & bot keluar dari voice channel.\n"
+                    "-# Mulai lagi dengan `/musik putar`."
+                ),
+            ),
+            timeout=None,
+        )
+        if ix.response.is_done():
+            await ix.response.edit_message(view=result_view)
+        else:
+            await ix.response.send_message(view=result_view, ephemeral=True)
+
+    confirmed = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Hentikan musik & kosongkan antrean?",
+        detail=(
+            f"Ada `{len(player.queue)}` lagu di antrean yang akan hilang dan bot keluar dari voice channel."
+            if len(player.queue)
+            else "Bot akan keluar dari voice channel."
+        ),
+        confirm_label="Ya, hentikan",
+        on_confirm=_do_stop,
     )
+    if confirmed is not None:
+        return
+
+    await _do_stop(interaction)
 
 
 @musik_group.command(name="volume", description="Atur volume pemutaran (1-150)")

@@ -22,6 +22,9 @@ from config import (
 import engagement
 import music
 import tickets
+import ui_kit
+import ui_theme
+from discord import ui
 from community_tools import grant_verification_role
 from community_agent import (
     GREETING_PERSONAS,
@@ -656,103 +659,159 @@ class VerificationGateView(discord.ui.View):
             logger.info("Member %s lolos verifikasi di guild %s", interaction.user.id, interaction.guild.id)
 
 
-class TicketPanelView(discord.ui.View):
-    """Tombol persisten "Buat Tiket" pada panel bantuan (tahan restart bot)."""
+async def handle_ticket_open(interaction: discord.Interaction) -> None:
+    """Logika bersama tombol "Buat Tiket" (dipakai panel V2 maupun versi embed)."""
+    if interaction.guild is None:
+        await interaction.response.send_message("⚠️ Tiket hanya bisa dibuat di dalam server.", ephemeral=True)
+        return
+
+    allowed, reason = tickets.can_open_ticket(interaction.guild.id, interaction.user.id)
+    if not allowed:
+        await interaction.response.send_message(reason, ephemeral=True)
+        return
+
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    channel = interaction.channel
+    if channel is None or not hasattr(channel, "create_thread"):
+        await interaction.response.send_message(
+            "⚠️ Panel tiket harus dipasang di **text channel** agar bisa membuat thread.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    topic = f"Bantuan dari {interaction.user.display_name}"[:100]
+    thread = None
+    try:
+        thread = await channel.create_thread(
+            name=f"tiket-{interaction.user.name}"[:90],
+            type=discord.ChannelType.private_thread,
+            invitable=False,
+            auto_archive_duration=1440,
+            reason=f"Tiket dukungan dibuka oleh {interaction.user}",
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning("Gagal membuat private thread tiket: %s", sanitize_error_message(exc))
+        try:  # Fallback: thread publik bila private thread tidak diizinkan
+            thread = await channel.create_thread(
+                name=f"tiket-{interaction.user.name}"[:90],
+                type=discord.ChannelType.public_thread,
+                auto_archive_duration=1440,
+                reason="Tiket dukungan (fallback thread publik)",
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc2:
+            logger.warning("Gagal membuat thread tiket: %s", sanitize_error_message(exc2))
+            thread = None
+
+    if thread is None:
+        await interaction.followup.send(
+            "⚠️ Bot tidak bisa membuat thread di channel ini. "
+            "Pastikan izin **Create Private Threads** & **Send Messages in Threads** aktif.",
+            ephemeral=True,
+        )
+        return
+
+    # Tambahkan pembuat tiket (+ staf) ke private thread
+    try:
+        await thread.add_user(interaction.user)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    staff_role_id = cfg.get("staff_role_id")
+    if staff_role_id:
+        role = interaction.guild.get_role(int(staff_role_id))
+        for member in list(getattr(role, "members", []) or [])[:15]:
+            if getattr(member, "bot", False):
+                continue
+            try:
+                await thread.add_user(member)
+            except (discord.Forbidden, discord.HTTPException):
+                continue
+
+    data = tickets.register_ticket(
+        thread.id,
+        interaction.guild.id,
+        interaction.user.id,
+        topic=topic,
+    )
+    await tickets.save_tickets_to_disk()
+
+    mention = f"<@&{staff_role_id}> " if staff_role_id and cfg.get("ping_staff", True) else ""
+    try:
+        await thread.send(
+            content=f"{mention}<@{interaction.user.id}> tiketmu sudah dibuat.",
+            embed=tickets.build_ticket_embed(data, staff_role_id=staff_role_id),
+            view=TicketActionsView(),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=True),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+    await interaction.followup.send(
+        f"✅ Tiket dibuat: {thread.mention}\nStaf akan segera merespons di sana.",
+        ephemeral=True,
+    )
+
+
+class TicketPanelView(ui_kit.ui.LayoutView):
+    """Panel tiket persisten bergaya kartu (Components V2, tahan restart bot)."""
+
+    def __init__(self, guild_id: int | None = None):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.add_item(
+            ui_kit.card(
+                guild_id,
+                ui_kit.text(
+                    ui_kit.title_line(
+                        guild_id,
+                        "ticket",
+                        "Pusat Bantuan Server",
+                        "Butuh bantuan staf? Tekan tombol di bawah — tiket dibuat sebagai **private thread**.",
+                    )
+                ),
+                ui_kit.sep(),
+                ui_kit.text(
+                    "**Cara kerja**\n"
+                    "• Klik **🎟️ Buat Tiket** → thread privat otomatis dibuat.\n"
+                    "• Tulis pertanyaanmu di thread; staf terkait akan diberi tahu.\n"
+                    "• Setelah selesai, staf menutup tiket dan transkrip bisa disimpan."
+                ),
+                ui_kit.action_row(
+                    ui_kit.button(
+                        "Buat Tiket",
+                        emoji="🎟️",
+                        style=discord.ButtonStyle.primary,
+                        custom_id="ticket:panel:open",
+                        callback=handle_ticket_open,
+                    )
+                ),
+            )
+        )
+
+
+class TicketPanelFallbackView(discord.ui.View):
+    """Versi klasik tombol tiket (dipakai bila klien menolak Components V2)."""
 
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Buat Tiket", emoji="🎟️", style=discord.ButtonStyle.primary, custom_id="ticket:panel:open")
+    @discord.ui.button(
+        label="Buat Tiket",
+        emoji="🎟️",
+        style=discord.ButtonStyle.primary,
+        custom_id="ticket:panel:open",
+    )
     async def open_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.guild is None:
-            await interaction.response.send_message("⚠️ Tiket hanya bisa dibuat di dalam server.", ephemeral=True)
-            return
+        await handle_ticket_open(interaction)
 
-        allowed, reason = tickets.can_open_ticket(interaction.guild.id, interaction.user.id)
-        if not allowed:
-            await interaction.response.send_message(reason, ephemeral=True)
-            return
 
-        cfg = tickets.get_ticket_config(interaction.guild.id)
-        channel = interaction.channel
-        if channel is None or not hasattr(channel, "create_thread"):
-            await interaction.response.send_message(
-                "⚠️ Panel tiket harus dipasang di **text channel** agar bisa membuat thread.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        topic = f"Bantuan dari {interaction.user.display_name}"[:100]
-        thread = None
-        try:
-            thread = await channel.create_thread(
-                name=f"tiket-{interaction.user.name}"[:90],
-                type=discord.ChannelType.private_thread,
-                invitable=False,
-                auto_archive_duration=1440,
-                reason=f"Tiket dukungan dibuka oleh {interaction.user}",
-            )
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            logger.warning("Gagal membuat private thread tiket: %s", sanitize_error_message(exc))
-            try:  # Fallback: thread publik bila private thread tidak diizinkan
-                thread = await channel.create_thread(
-                    name=f"tiket-{interaction.user.name}"[:90],
-                    type=discord.ChannelType.public_thread,
-                    auto_archive_duration=1440,
-                    reason="Tiket dukungan (fallback thread publik)",
-                )
-            except (discord.Forbidden, discord.HTTPException) as exc2:
-                logger.warning("Gagal membuat thread tiket: %s", sanitize_error_message(exc2))
-                thread = None
-
-        if thread is None:
-            await interaction.followup.send(
-                "⚠️ Bot tidak bisa membuat thread di channel ini. "
-                "Pastikan izin **Create Private Threads** & **Send Messages in Threads** aktif.",
-                ephemeral=True,
-            )
-            return
-
-        # Tambahkan pembuat tiket (+ staf) ke private thread
-        try:
-            await thread.add_user(interaction.user)
-        except (discord.Forbidden, discord.HTTPException):
-            pass
-        staff_role_id = cfg.get("staff_role_id")
-        if staff_role_id:
-            role = interaction.guild.get_role(int(staff_role_id))
-            for member in list(getattr(role, "members", []) or [])[:15]:
-                if getattr(member, "bot", False):
-                    continue
-                try:
-                    await thread.add_user(member)
-                except (discord.Forbidden, discord.HTTPException):
-                    continue
-
-        data = tickets.register_ticket(
-            thread.id,
-            interaction.guild.id,
-            interaction.user.id,
-            topic=topic,
-        )
-        await tickets.save_tickets_to_disk()
-
-        mention = f"<@&{staff_role_id}> " if staff_role_id and cfg.get("ping_staff", True) else ""
-        try:
-            await thread.send(
-                content=f"{mention}<@{interaction.user.id}> tiketmu sudah dibuat.",
-                embed=tickets.build_ticket_embed(data, staff_role_id=staff_role_id),
-                view=TicketActionsView(),
-                allowed_mentions=discord.AllowedMentions(users=True, roles=True),
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            pass
-
-        await interaction.followup.send(
-            f"✅ Tiket dibuat: {thread.mention}\nStaf akan segera merespons di sana.",
-            ephemeral=True,
-        )
+async def send_ticket_panel(channel, guild_id: int | None, embed: discord.Embed):
+    """Kirim panel tiket V2 ke channel; bila ditolak, pakai embed klasik."""
+    try:
+        return await channel.send(view=TicketPanelView(guild_id))
+    except (discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Panel tiket V2 ditolak (%s) — memakai embed klasik.", exc)
+    return await channel.send(embed=embed, view=TicketPanelFallbackView())
 
 
 class TicketActionsView(discord.ui.View):
@@ -956,40 +1015,88 @@ class GiveawayJoinView(discord.ui.View):
         )
 
 
-class QueuePaginationView(discord.ui.View):
-    """Tombol ◀ ▶ untuk berpindah halaman antrean musik (berlaku 120 detik)."""
+class QueuePaginationView(ui_kit.ui.LayoutView):
+    """Antrean musik berhalaman bergaya kartu (Components V2, berlaku 120 detik)."""
 
-    def __init__(self, tracks: list, *, requester_id: int, page: int = 0, now_playing=None):
+    def __init__(
+        self,
+        tracks: list,
+        *,
+        requester_id: int,
+        page: int = 0,
+        now_playing=None,
+        guild_id: int | None = None,
+    ):
         super().__init__(timeout=120)
         self.tracks = tracks
         self.requester_id = requester_id
         self.page = page
         self.now_playing = now_playing
+        self.guild_id = guild_id
         self.total_length = sum(int(getattr(t, "length", 0) or 0) for t in tracks)
-        self._sync_buttons()
+        self._build()
 
-    def _sync_buttons(self) -> None:
-        _, page, total_pages = music.build_queue_page_embed(
+    # ------------------------------------------------------------------ data
+    def _page(self) -> tuple[discord.Embed, int, int]:
+        embed, page, total_pages = music.build_queue_page_embed(
             self.tracks,
             page=self.page,
             total_length=self.total_length,
             now_playing=self.now_playing,
         )
         self.page = page
-        self.prev_btn.disabled = page <= 0
-        self.next_btn.disabled = page >= total_pages - 1
-        self.page_label.label = f"Halaman {page + 1}/{total_pages}"
+        return embed, page, total_pages
 
     def _embed(self) -> discord.Embed:
-        embed, page, _ = music.build_queue_page_embed(
-            self.tracks,
-            page=self.page,
-            total_length=self.total_length,
-            now_playing=self.now_playing,
-        )
-        self.page = page
+        """Embed klasik (dipakai sebagai jalur cadangan & pengujian)."""
+        embed, _, _ = self._page()
         return embed
 
+    # ----------------------------------------------------------------- render
+    def _build(self) -> None:
+        self.clear_items()
+        embed, page, total_pages = self._page()
+        gid = self.guild_id
+        header = ui_kit.text(
+            ui_kit.title_line(
+                gid,
+                "music",
+                "Antrean Musik",
+                f"`{len(self.tracks)}` lagu • total `{music.format_duration(self.total_length)}` • "
+                f"halaman `{page + 1}/{total_pages}`",
+            )
+        )
+        body = ui_kit.text(f"{embed.description or '_Antrean kosong._'}"[:3900])
+        buttons = ui_kit.action_row(
+            ui_kit.button(
+                "◀ Sebelumnya",
+                custom_id="music:queue:prev",
+                disabled=page <= 0,
+                callback=self.on_prev,
+            ),
+            ui_kit.button(
+                f"Halaman {page + 1}/{total_pages}",
+                custom_id="music:queue:page",
+                disabled=True,
+                callback=self.on_page_label,
+            ),
+            ui_kit.button(
+                "Berikutnya ▶",
+                custom_id="music:queue:next",
+                disabled=page >= total_pages - 1,
+                callback=self.on_next,
+            ),
+            ui_kit.button(
+                "Tutup",
+                emoji="🚪",
+                style=discord.ButtonStyle.danger,
+                custom_id="music:queue:close",
+                callback=self.on_close,
+            ),
+        )
+        self.add_item(ui_kit.card(gid, header, ui_kit.sep(), body, buttons))
+
+    # -------------------------------------------------------------- callbacks
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.requester_id:
             await interaction.response.send_message(
@@ -998,21 +1105,34 @@ class QueuePaginationView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, custom_id="music:queue:prev")
-    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = max(0, self.page - 1)
-        self._sync_buttons()
-        await interaction.response.edit_message(embed=self._embed(), view=self)
+    async def _edit(self, interaction: discord.Interaction) -> None:
+        embed = self._embed()
+        self._build()
+        await ui_kit.edit_panel(interaction, self, embed=embed)
 
-    @discord.ui.button(label="Halaman 1/1", style=discord.ButtonStyle.secondary, disabled=True, custom_id="music:queue:page")
-    async def page_label(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def on_prev(self, interaction: discord.Interaction) -> None:
+        self.page = max(0, self.page - 1)
+        await self._edit(interaction)
+
+    async def on_next(self, interaction: discord.Interaction) -> None:
+        self.page += 1
+        await self._edit(interaction)
+
+    async def on_page_label(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, custom_id="music:queue:next")
-    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page += 1
-        self._sync_buttons()
-        await interaction.response.edit_message(embed=self._embed(), view=self)
+    async def on_close(self, interaction: discord.Interaction) -> None:
+        self.stop()
+        await interaction.response.edit_message(
+            view=ui_kit.build_view(
+                self.guild_id,
+                ui_kit.card(
+                    self.guild_id,
+                    ui_kit.text("### 🚪 Antrean ditutup\nBuka lagi dengan `/musik antrean`."),
+                ),
+                timeout=None,
+            )
+        )
 
 
 class MusicPlayerView(discord.ui.View):
@@ -1677,6 +1797,94 @@ class ServerFaqManagerView(discord.ui.View):
         )
 
 
+async def apply_agent_toggle(interaction: discord.Interaction, cid: int, action: str) -> str | None:
+    """Menyalakan/mematikan satu fitur AI Agent pada channel tertentu (0 kuota AI).
+
+    Mengembalikan teks banner perubahan, atau `None` bila aksi ditolak
+    (pesan peringatan sudah dikirim ke pengguna).
+    """
+    if interaction.guild is None:
+        return None
+    target_ch = interaction.guild.get_channel(cid)
+    is_forum_like = isinstance(target_ch, discord.ForumChannel)
+    banner = ""
+    guild_id = interaction.guild.id
+
+    if action == "toggle_chat":
+        new_state = not bool(chat_agent_channels.get(cid, {}).get("enabled"))
+        set_chat_channel_config(
+            guild_id,
+            cid,
+            enabled=new_state,
+            reply_mode="smart",
+            idle_minutes=0 if is_forum_like else AGENT_DEFAULT_IDLE_MINUTES,
+        )
+        banner = f"💬 **Auto-Chat** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+    elif action == "toggle_gallery":
+        new_state = not bool(gallery_agent_channels.get(cid, {}).get("enabled"))
+        set_gallery_channel_config(guild_id, cid, enabled=new_state, auto_reaction=True)
+        banner = f"🎨 **Komentator Galeri** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+    elif action == "toggle_youtube":
+        new_state = not bool(youtube_agent_channels.get(cid, {}).get("enabled"))
+        set_youtube_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=False)
+        banner = f"▶️ **Rangkum YouTube & Link** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+    elif action == "toggle_search":
+        new_state = not bool(search_agent_channels.get(cid, {}).get("enabled"))
+        set_search_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=True)
+        banner = f"🌐 **Pencarian Berita (`/cari`)** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+    elif action == "toggle_welcome":
+        if is_forum_like:
+            await interaction.response.send_message(
+                "⚠️ Sambutan Member Baru hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
+                ephemeral=True,
+            )
+            return
+        w_cur = welcome_agent_guilds.get(guild_id)
+        turn_on = not (w_cur and w_cur.get("enabled") and w_cur.get("channel_id") == cid)
+        set_welcome_config(guild_id, cid, enabled=turn_on)
+        banner = f"👋 **Auto-Welcomer** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+    elif action == "toggle_digest":
+        if is_forum_like:
+            await interaction.response.send_message(
+                "⚠️ Koran Pagi (Morning Digest) hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
+                ephemeral=True,
+            )
+            return
+        d_cur = digest_agent_guilds.get(guild_id)
+        turn_on = not (d_cur and d_cur.get("enabled") and d_cur.get("channel_id") == cid)
+        set_digest_config(guild_id, cid, enabled=turn_on, hour=7, minute=0)
+        banner = f"☀️ **Koran Pagi 07:00** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+    elif action == "toggle_goodbye":
+        if is_forum_like:
+            await interaction.response.send_message(
+                "⚠️ Pesan Perpisahan (Goodbye) hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
+                ephemeral=True,
+            )
+            return
+        gb_cur = goodbye_agent_guilds.get(guild_id)
+        turn_on = not (gb_cur and gb_cur.get("enabled") and gb_cur.get("channel_id") == cid)
+        set_goodbye_config(guild_id, cid, enabled=turn_on)
+        banner = f"👣 **Pesan Perpisahan (Goodbye)** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+    elif action == "toggle_facts":
+        if is_forum_like:
+            await interaction.response.send_message(
+                "⚠️ Fakta Unik Dunia hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
+                ephemeral=True,
+            )
+            return
+        f_cur = facts_guilds.get(guild_id)
+        turn_on = not (f_cur and f_cur.get("enabled") and f_cur.get("channel_id") == cid)
+        f_cfg_new = set_facts_config(guild_id, cid, enabled=turn_on)
+        f_slots = format_facts_schedule((f_cfg_new or {}).get("times"))
+        banner = (
+            f"🌍 **Fakta Unik Dunia** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+            + (f"\n⏰ Jadwal aktif: {f_slots} *(ubah lewat `/fakta atur`)*" if turn_on else "")
+        )
+
+
+    return banner
+
+
 class AgentAdminPanelView(discord.ui.View):
     """Panel Kontrol Admin Interaktif (/agent panel) dengan Spotlight Channel, Toggle Mulus, & Pengelola FAQ."""
 
@@ -1786,86 +1994,12 @@ class AgentAdminPanelView(discord.ui.View):
             )
             return
 
-        guild_id = interaction.guild.id
-        target_ch = interaction.guild.get_channel(cid)
-        is_forum_like = isinstance(target_ch, discord.ForumChannel)
-        action = select.values[0]
-        banner = ""
-
-        if action == "toggle_chat":
-            new_state = not bool(chat_agent_channels.get(cid, {}).get("enabled"))
-            set_chat_channel_config(
-                guild_id,
-                cid,
-                enabled=new_state,
-                reply_mode="smart",
-                idle_minutes=0 if is_forum_like else AGENT_DEFAULT_IDLE_MINUTES,
-            )
-            banner = f"💬 **Auto-Chat** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-        elif action == "toggle_gallery":
-            new_state = not bool(gallery_agent_channels.get(cid, {}).get("enabled"))
-            set_gallery_channel_config(guild_id, cid, enabled=new_state, auto_reaction=True)
-            banner = f"🎨 **Komentator Galeri** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-        elif action == "toggle_youtube":
-            new_state = not bool(youtube_agent_channels.get(cid, {}).get("enabled"))
-            set_youtube_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=False)
-            banner = f"▶️ **Rangkum YouTube & Link** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-        elif action == "toggle_search":
-            new_state = not bool(search_agent_channels.get(cid, {}).get("enabled"))
-            set_search_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=True)
-            banner = f"🌐 **Pencarian Berita (`/cari`)** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-        elif action == "toggle_welcome":
-            if is_forum_like:
-                await interaction.response.send_message(
-                    "⚠️ Sambutan Member Baru hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
-                    ephemeral=True,
-                )
-                return
-            w_cur = welcome_agent_guilds.get(guild_id)
-            turn_on = not (w_cur and w_cur.get("enabled") and w_cur.get("channel_id") == cid)
-            set_welcome_config(guild_id, cid, enabled=turn_on)
-            banner = f"👋 **Auto-Welcomer** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-        elif action == "toggle_digest":
-            if is_forum_like:
-                await interaction.response.send_message(
-                    "⚠️ Koran Pagi (Morning Digest) hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
-                    ephemeral=True,
-                )
-                return
-            d_cur = digest_agent_guilds.get(guild_id)
-            turn_on = not (d_cur and d_cur.get("enabled") and d_cur.get("channel_id") == cid)
-            set_digest_config(guild_id, cid, enabled=turn_on, hour=7, minute=0)
-            banner = f"☀️ **Koran Pagi 07:00** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-        elif action == "toggle_goodbye":
-            if is_forum_like:
-                await interaction.response.send_message(
-                    "⚠️ Pesan Perpisahan (Goodbye) hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
-                    ephemeral=True,
-                )
-                return
-            gb_cur = goodbye_agent_guilds.get(guild_id)
-            turn_on = not (gb_cur and gb_cur.get("enabled") and gb_cur.get("channel_id") == cid)
-            set_goodbye_config(guild_id, cid, enabled=turn_on)
-            banner = f"👣 **Pesan Perpisahan (Goodbye)** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-        elif action == "toggle_facts":
-            if is_forum_like:
-                await interaction.response.send_message(
-                    "⚠️ Fakta Unik Dunia hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
-                    ephemeral=True,
-                )
-                return
-            f_cur = facts_guilds.get(guild_id)
-            turn_on = not (f_cur and f_cur.get("enabled") and f_cur.get("channel_id") == cid)
-            f_cfg_new = set_facts_config(guild_id, cid, enabled=turn_on)
-            f_slots = format_facts_schedule((f_cfg_new or {}).get("times"))
-            banner = (
-                f"🌍 **Fakta Unik Dunia** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-                + (f"\n⏰ Jadwal aktif: {f_slots} *(ubah lewat `/fakta atur`)*" if turn_on else "")
-            )
-
+        banner = await apply_agent_toggle(interaction, cid, select.values[0])
+        if banner is None:
+            return
         await save_agent_config_to_disk()
         await save_server_features_to_disk()
-        # Buat instance View segar dengan selected_channel_id yang sama agar dropdown reset & bisa diklik ulang langsung
+        # Buat instance View segar agar dropdown reset & bisa diklik ulang langsung
         fresh_view = AgentAdminPanelView(self.admin_user_id, default_channel_id=cid)
         await interaction.response.edit_message(
             embed=build_agent_status_embed(
@@ -1916,6 +2050,261 @@ class AgentAdminPanelView(discord.ui.View):
 # ==============================================================================
 # PUSAT PANDUAN INTERAKTIF BERKATEGORI (/bantuan)
 # ==============================================================================
+# ==============================================================================
+# PANEL KONTROL AI AGENT v2 (Components V2, kartu toggle hijau/merah)
+# ==============================================================================
+AGENT_FEATURES: list[tuple[str, str, str]] = [
+    ("toggle_chat", "Auto-Chat", "💬"),
+    ("toggle_gallery", "Galeri", "🎨"),
+    ("toggle_youtube", "YouTube", "▶️"),
+    ("toggle_search", "Cari", "🌐"),
+    ("toggle_welcome", "Welcome", "👋"),
+    ("toggle_digest", "Digest", "☀️"),
+    ("toggle_goodbye", "Goodbye", "👣"),
+    ("toggle_facts", "Fakta", "🌍"),
+]
+
+
+def agent_feature_states(guild_id: int, cid: int | None) -> dict[str, bool]:
+    """Status ON/OFF 8 fitur AI Agent pada satu channel (0 kuota AI)."""
+    if not cid:
+        return {action: False for action, _, _ in AGENT_FEATURES}
+    w_cfg = welcome_agent_guilds.get(guild_id) or {}
+    d_cfg = digest_agent_guilds.get(guild_id) or {}
+    gb_cfg = goodbye_agent_guilds.get(guild_id) or {}
+    f_cfg = facts_guilds.get(guild_id) or {}
+
+    def _at(cfg: dict) -> bool:
+        return bool(cfg.get("enabled") and int(cfg.get("channel_id") or 0) == int(cid))
+
+    return {
+        "toggle_chat": bool(chat_agent_channels.get(cid, {}).get("enabled")),
+        "toggle_gallery": bool(gallery_agent_channels.get(cid, {}).get("enabled")),
+        "toggle_youtube": bool(youtube_agent_channels.get(cid, {}).get("enabled")),
+        "toggle_search": bool(search_agent_channels.get(cid, {}).get("enabled")),
+        "toggle_welcome": _at(w_cfg),
+        "toggle_digest": _at(d_cfg),
+        "toggle_goodbye": _at(gb_cfg),
+        "toggle_facts": _at(f_cfg),
+    }
+
+
+class AgentPanelView(ui_kit.ui.LayoutView):
+    """Panel Kontrol AI Agent bergaya dashboard: kartu status + tombol toggle berwarna."""
+
+    def __init__(self, guild: discord.Guild, admin_user_id: int, default_channel_id: int | None = None):
+        super().__init__(timeout=600)
+        self.guild_id = guild.id
+        self.admin_user_id = admin_user_id
+        self.selected_channel_id = default_channel_id
+        self.notice = ""
+        self._build()
+
+    # ---------------------------------------------------------------- helpers
+    def _status_text(self) -> str:
+        cid = self.selected_channel_id
+        if cid is None:
+            return "_Belum ada channel dipilih — pilih lewat dropdown di bawah._"
+        states = agent_feature_states(self.guild_id, cid)
+        lines = [
+            ui_kit.status_line(
+                f"{emoji} {label}",
+                "AKTIF" if states[action] else "nonaktif",
+                state="on" if states[action] else "off",
+            )
+            for action, label, emoji in AGENT_FEATURES
+        ]
+        return f"**Channel target:** <#{cid}>\n" + "\n".join(lines)
+
+    def _build(self) -> None:
+        self.clear_items()
+        gid = self.guild_id
+        cid = self.selected_channel_id
+
+        header = ui_kit.card(
+            gid,
+            ui_kit.text(
+                ui_kit.title_line(
+                    gid,
+                    "agent",
+                    "Panel Kontrol AI Agent",
+                    "Pilih channel target, lalu tekan tombol fitur untuk **ON / OFF** (hijau = aktif, merah = mati).",
+                )
+            ),
+            *( [ui_kit.text(f"> {self.notice}")] if self.notice else [] ),
+            ui_kit.sep(),
+            ui_kit.text(self._status_text()),
+        )
+
+        channel_select = ui.ChannelSelect(
+            channel_types=[
+                discord.ChannelType.text,
+                discord.ChannelType.news,
+                discord.ChannelType.forum,
+                discord.ChannelType.media,
+            ],
+            placeholder="1️⃣ Pilih channel / forum target…",
+            min_values=1,
+            max_values=1,
+            custom_id="agent:v2:channel",
+        )
+        if cid:
+            channel_select.placeholder = "1️⃣ Ganti channel target…"[:150]
+        channel_select.callback = self.on_pick_channel
+
+        states = agent_feature_states(gid, cid)
+        toggle_buttons = [
+            ui_kit.toggle_button(
+                gid,
+                label,
+                states[action],
+                custom_id=f"agent:v2:{action}",
+                callback=(lambda ix, a=action: self.on_toggle(ix, a)),
+            )
+            for action, label, emoji in AGENT_FEATURES
+        ]
+        for btn, (_, label, emoji) in zip(toggle_buttons, AGENT_FEATURES):
+            btn.emoji = emoji
+            btn.label = label[:80]
+
+        controls = ui_kit.card(
+            gid,
+            ui_kit.text("**⚙️ Pengaturan Cepat**"),
+            ui_kit.action_row(channel_select),
+            ui_kit.action_row(*toggle_buttons[:4]),
+            ui_kit.action_row(*toggle_buttons[4:]),
+            ui_kit.action_row(
+                ui_kit.button(
+                    "Persona",
+                    emoji="🎭",
+                    style=discord.ButtonStyle.primary,
+                    custom_id="agent:v2:persona",
+                    callback=self.on_persona,
+                ),
+                ui_kit.button(
+                    "Tambah FAQ",
+                    emoji="➕",
+                    style=discord.ButtonStyle.success,
+                    custom_id="agent:v2:addfaq",
+                    callback=self.on_add_faq,
+                ),
+                ui_kit.button(
+                    "Kelola FAQ",
+                    emoji="📋",
+                    custom_id="agent:v2:faq",
+                    callback=self.on_manage_faq,
+                ),
+                ui_kit.button(
+                    "Segarkan",
+                    emoji="🔄",
+                    custom_id="agent:v2:refresh",
+                    callback=self.on_refresh,
+                ),
+                ui_kit.button(
+                    "Tutup",
+                    emoji="🚪",
+                    style=discord.ButtonStyle.danger,
+                    custom_id="agent:v2:close",
+                    callback=self.on_close,
+                ),
+            ),
+        )
+        self.add_item(header)
+        self.add_item(controls)
+
+    async def _refresh(self, interaction: discord.Interaction) -> None:
+        self._build()
+        await ui_kit.edit_panel(
+            interaction,
+            self,
+            embed=build_agent_status_embed(
+                interaction.guild,
+                selected_channel_id=self.selected_channel_id,
+                notice_banner=self.notice or None,
+            )
+            if interaction.guild
+            else None,
+        )
+
+    # -------------------------------------------------------------- callbacks
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.admin_user_id:
+            await interaction.response.send_message(
+                "⚠️ Panel kontrol ini hanya dapat dioperasikan oleh Admin yang membukanya.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def on_pick_channel(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            return
+        picked = interaction.data.get("values", [None])[0] if interaction.data else None
+        if not picked:
+            return
+        self.selected_channel_id = int(picked)
+        self.notice = f"📍 Channel target diubah ke <#{picked}>. Tekan tombol fitur untuk ON/OFF."
+        await self._refresh(interaction)
+
+    async def on_toggle(self, interaction: discord.Interaction, action: str) -> None:
+        if interaction.guild is None:
+            return
+        cid = self.selected_channel_id
+        if cid is None:
+            await interaction.response.send_message(
+                "⚠️ Pilih channel terlebih dahulu lewat dropdown **1️⃣**.", ephemeral=True
+            )
+            return
+        banner = await apply_agent_toggle(interaction, cid, action)
+        if banner is None:
+            return
+        await save_agent_config_to_disk()
+        await save_server_features_to_disk()
+        self.notice = banner
+        await self._refresh(interaction)
+
+    async def on_persona(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            return
+        await interaction.response.send_modal(
+            EditPersonaModal(interaction.guild.id, selected_channel_id=self.selected_channel_id)
+        )
+
+    async def on_add_faq(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(
+            AddServerInfoModal(selected_channel_id=self.selected_channel_id)
+        )
+
+    async def on_manage_faq(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            return
+        await interaction.response.send_message(
+            embed=build_faq_list_embed(interaction.guild),
+            view=ServerFaqManagerView(interaction.user.id, interaction.guild.id),
+            ephemeral=True,
+        )
+
+    async def on_refresh(self, interaction: discord.Interaction) -> None:
+        self.notice = ""
+        await self._refresh(interaction)
+
+    async def on_close(self, interaction: discord.Interaction) -> None:
+        self.stop()
+        await interaction.response.edit_message(
+            view=ui_kit.build_view(
+                self.guild_id,
+                ui_kit.card(
+                    self.guild_id,
+                    ui_kit.text(
+                        f"### {ui_theme.emoji(self.guild_id, 'close', '🚪')} Panel ditutup\n"
+                        "Buka lagi dengan `/agent panel`."
+                    ),
+                ),
+                timeout=None,
+            )
+        )
+
+
 def build_help_embed(category: str = "overview") -> discord.Embed:
     """Menyusun Embed panduan `/bantuan` yang rapi & terstruktur sesuai kategori pilihan."""
     if category == "sesi":
