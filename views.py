@@ -2203,7 +2203,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "1️⃣ `/faq tanya` (0 kuota) → 2️⃣ `/ringkas channel` berulang (cache, 0 kuota) → "
                 "3️⃣ `/cari` & `/ringkas link` (1 panggilan) → 4️⃣ obrolan AI di ruang `/sesi` bila perlu.\n"
                 "Admin bisa membatasi operasi AI per member per hari lewat variabel `.env` "
-                "`AI_DAILY_CAP_PER_USER` (0 = tanpa batas)."
+                "`AI_DAILY_CAP_PER_USER` (0 = tanpa batas; Admin server selalu dikecualikan)."
             ),
             inline=False,
         )
@@ -2353,31 +2353,38 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ Daftar Slash Command Utama (26 Menu Ringkas)",
+            name="⚡ AI, Server & Hiburan (31 Menu Utama)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
-                "• **`/ringkas`** — Rangkum obrolan channel (`chat`) atau link YouTube/Web (`link`).\n"
+                "• **`/ringkas`** — Rangkum obrolan (`chat`), per periode (`channel`), atau link/YouTube (`link`).\n"
                 "• **`/cari`** — Cari berita, skor, cuaca, atau info terbaru hari ini.\n"
                 "• **`/game`** — 6 mode Mini-Game Tongkrongan & Papan Skor.\n"
+                "• **`/musik`** — streaming YouTube/Spotify via Lavalink (putar, antrean, volume, DJ).\n"
                 "**🛠️ Pengelolaan Server**\n"
                 "• **`/agent`** *(Admin)* — Panel kontrol AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
                 "• **`/serverstats`** — Statistik server + channel penghitung otomatis.\n"
-                "• **`/autorole`**, **`/verifikasi`** *(Admin)* — Role otomatis & gerbang verifikasi member.\n"
-                "• **`/fakta`** — Rubrik Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
-                "• **`/keamanan`** — Anti-phishing otomatis & cek keamanan link.\n"
-                "**🧩 Komunitas Ringan (Gratis)**\n"
-                "• **`/panel-role`** — Reaction role, **`/poll`** — polling, **`/ingatkan`** — pengingat.\n"
-                "• **`/starboard`** — sorotan pesan populer, **`/sticky`** — pesan petunjuk menempel.\n"
-                "• **`/info`** — profil member & server, **`/perawatan`** — backup & log error.\n"
-                "**📈 Retensi & Pelayanan (Gratis, Tanpa AI)**\n"
-                "• **`/level`** — kartu level & papan peringkat, **`/tiket`** — tiket bantuan thread privat.\n"
-                "**🎉 Keramaian Server (Gratis, Tanpa AI)**\n"
-                "• **`/giveaway`** — undian berhadiah bertombol, **`/ultah`** — ucapan ulang tahun otomatis.\n"
+                "• **`/autorole`**, **`/verifikasi`** *(Admin)* — Role otomatis & gerbang verifikasi.\n"
+                "• **`/fakta`** — Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
+                "• **`/keamanan`** — Anti-phishing, anti-spam, & cek keamanan link."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
+            value=(
+                "**📈 Retensi & Pelayanan**\n"
+                "• **`/level`** — kartu level, papan peringkat, & role hadiah.\n"
+                "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
+                "**🎉 Keramaian Server**\n"
+                "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"
                 "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
-                "**🎵 Hiburan Audio**\n"
-                "• **`/musik`** — streaming YouTube/Spotify/SoundCloud via Lavalink (putar, antrean, volume, DJ).\n"
-                "• **`/status`** & **`/bantuan`** — Cek kesehatan bot & buka panduan ini."
+                "**📊 Hemat Kuota AI**\n"
+                "• **`/pemakaian`** — statistik operasi AI, tren, & penghematan cache.\n"
+                "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
+                "**🧩 Komunitas & Lain-lain**\n"
+                "• **`/panel-role`**, **`/poll`**, **`/ingatkan`**, **`/starboard`**, **`/sticky`**.\n"
+                "• **`/info`**, **`/perawatan`**, **`/status`**, **`/bantuan`**."
             ),
             inline=False,
         )

@@ -166,13 +166,13 @@ async def level_atur_cmd(
 
     announce_channel = cfg.get("announce_channel_id")
     await interaction.response.send_message(
-        f"✅ **Sistem level aktif!**\\n"
-        f"• **XP per pesan:** `{cfg['xp_min']}–{cfg['xp_max']}`\\n"
-        f"• **Jeda per member:** `{cfg['cooldown']}` detik\\n"
-        f"• **Pengumuman naik level:** {'✅ aktif' if cfg.get('announce') else '⛔ nonaktif'}\\n"
-        f"• **Channel pengumuman:** {f'<#{announce_channel}>' if announce_channel else '_di channel asal_'}\\n"
+        f"✅ **Sistem level aktif!**\n"
+        f"• **XP per pesan:** `{cfg['xp_min']}–{cfg['xp_max']}`\n"
+        f"• **Jeda per member:** `{cfg['cooldown']}` detik\n"
+        f"• **Pengumuman naik level:** {'✅ aktif' if cfg.get('announce') else '⛔ nonaktif'}\n"
+        f"• **Channel pengumuman:** {f'<#{announce_channel}>' if announce_channel else '_di channel asal_'}\n"
         f"• **Channel diabaikan:** `{len(cfg.get('ignore_channels') or [])}` • "
-        f"**Role diabaikan:** `{len(cfg.get('ignore_roles') or [])}`\\n"
+        f"**Role diabaikan:** `{len(cfg.get('ignore_roles') or [])}`\n"
         f"> Beri hadiah role dengan `/level role level:5 role:@Aktif`.",
         ephemeral=True,
     )
@@ -206,7 +206,7 @@ async def level_role_cmd(
             if role
             else f"🗑️ Hadiah role untuk level **{int(level)}** dihapus."
         )
-        + (f"\\n**Peta hadiah saat ini:** {preview}" if preview else "\\n_Belum ada hadiah role._"),
+        + (f"\n**Peta hadiah saat ini:** {preview}" if preview else "\n_Belum ada hadiah role._"),
         ephemeral=True,
     )
 
@@ -231,13 +231,13 @@ async def level_status_cmd(interaction: discord.Interaction):
     mapping = cfg.get("level_roles") or {}
     roles_preview = ", ".join(f"L{v}" for v in sorted(mapping, key=lambda v: int(v))[:10]) or "_belum ada_"
     await interaction.response.send_message(
-        f"📈 **Sistem Level Aktif**\\n"
-        f"• **XP per pesan:** `{cfg['xp_min']}–{cfg['xp_max']}` (jeda `{cfg['cooldown']}` dtk)\\n"
-        f"• **Member terdata:** `{len(members)}` (maks `{LEVELS_MAX_MEMBERS}` per server)\\n"
-        f"• **XP tertinggi:** `{top_xp}`\\n"
-        f"• **Naik level total:** `{cfg.get('leveled_up', 0)}` kali\\n"
-        f"• **Pengumuman:** {'✅ aktif' if cfg.get('announce') else '⛔ nonaktif'}\\n"
-        f"• **Hadiah role:** {roles_preview}\\n"
+        f"📈 **Sistem Level Aktif**\n"
+        f"• **XP per pesan:** `{cfg['xp_min']}–{cfg['xp_max']}` (jeda `{cfg['cooldown']}` dtk)\n"
+        f"• **Member terdata:** `{len(members)}` (maks `{LEVELS_MAX_MEMBERS}` per server)\n"
+        f"• **XP tertinggi:** `{top_xp}`\n"
+        f"• **Naik level total:** `{cfg.get('leveled_up', 0)}` kali\n"
+        f"• **Pengumuman:** {'✅ aktif' if cfg.get('announce') else '⛔ nonaktif'}\n"
+        f"• **Hadiah role:** {roles_preview}\n"
         f"• **Batas level:** `{LEVELS_MAX_LEVEL}` • **Jeda default:** `{LEVELS_COOLDOWN_SEC}` dtk",
         ephemeral=True,
     )
@@ -283,7 +283,7 @@ async def handle_message_xp(bot: commands.Bot, message) -> None:
         if callable(get_channel):
             target_channel = get_channel(int(announce_id)) or channel
 
-    reward = f"\\n🎁 Role baru: <@&{result['role_id']}>" if result.get("role_id") else ""
+    reward = f"\n🎁 Role baru: <@&{result['role_id']}>" if result.get("role_id") else ""
     try:
         await target_channel.send(
             f"🎉 <@{author.id}> naik ke **level {result['level']}**!{reward}",
@@ -358,10 +358,10 @@ async def tiket_panel_cmd(
     staff_info = f"<@&{cfg['staff_role_id']}>" if cfg.get("staff_role_id") else "_belum diatur_"
     log_info = f"<#{cfg['log_channel_id']}>" if cfg.get("log_channel_id") else "_belum diatur_"
     await interaction.followup.send(
-        f"🎟️ **Panel tiket aktif di {target.mention}!**\\n"
-        f"• **Role staf:** {staff_info}\\n"
-        f"• **Log transkrip:** {log_info}\\n"
-        f"• **Batas tiket per member:** `{cfg.get('max_open', TICKET_MAX_OPEN_PER_USER)}`\\n"
+        f"🎟️ **Panel tiket aktif di {target.mention}!**\n"
+        f"• **Role staf:** {staff_info}\n"
+        f"• **Log transkrip:** {log_info}\n"
+        f"• **Batas tiket per member:** `{cfg.get('max_open', TICKET_MAX_OPEN_PER_USER)}`\n"
         f"> Member klik **🎟️ Buat Tiket** → bot membuat **private thread** (tidak memakai slot channel).",
         ephemeral=True,
     )

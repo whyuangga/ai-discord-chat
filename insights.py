@@ -43,7 +43,8 @@ _lock = asyncio.Lock()
 # ==============================================================================
 ai_usage: dict[str, dict] = {}   # "YYYY-MM-DD" -> {total, cache_hits, kinds{}, users{}, channels{}}
 rekap_cache: dict[tuple[int, int], dict] = {}   # (channel_id, hours) -> {text, created_at, count, requester}
-_last_miss: dict[int, float] = {}
+# Batas entri member/channel yang dilacak per hari agar data/ai_usage.json tidak membengkak
+MAX_TRACKED_PER_DAY = 300
 
 AI_KIND_LABELS: dict[str, str] = {
     "chat": "💬 Chat (& vision/dokumen)",
@@ -167,10 +168,21 @@ def record_ai_usage(
     if user_id:
         users = bucket.setdefault("users", {})
         users[str(int(user_id))] = int(users.get(str(int(user_id))) or 0) + 1
+        _trim_counter(users)
     if channel_id:
         channels = bucket.setdefault("channels", {})
         channels[str(int(channel_id))] = int(channels.get(str(int(channel_id))) or 0) + 1
+        _trim_counter(channels)
     return bucket
+
+
+def _trim_counter(counter: dict, limit: int = MAX_TRACKED_PER_DAY) -> None:
+    """Menyisakan `limit` entri dengan hitungan tertinggi (server besar tetap hemat RAM)."""
+    extra = len(counter) - int(limit)
+    if extra <= 0:
+        return
+    for key, _ in sorted(counter.items(), key=lambda item: int(item[1]))[:extra]:
+        counter.pop(key, None)
 
 
 def usage_for_user(user_id: int, *, day: str | None = None) -> int:
@@ -245,9 +257,6 @@ def cleanup_insights_runtime(*, max_age: int = REKAP_CACHE_TTL_SEC * 2) -> int:
         if max_age > 0 and current - float(entry.get("created_at") or 0) > max_age:
             rekap_cache.pop(key, None)
             removed += 1
-    for key, stamp in list(_last_miss.items()):
-        if current - stamp > 3600:
-            _last_miss.pop(key, None)
     return removed
 
 

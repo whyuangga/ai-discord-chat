@@ -556,7 +556,8 @@ saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info s
   (`/cari`, `/ringkas link`, `/ringkas chat`, `/ringkas channel`, cek fakta, terjemah, dll.); setelah itu bot
   menyarankan `/faq tanya` & cache rekap. Obrolan AI di ruang privat `/sesi` & Auto-Chat tetap berjalan
   (tetap tercatat di `/pemakaian`).
-- Admin/staff **tetap** terkena jeda antar-perintah (anti-spam), tetapi pengecualian admin pada cooldown tetap berlaku.
+- **Admin server bebas** dari jeda antar-perintah **dan** batas harian ini (agar tetap bisa mengurus server);
+  member & staf biasa tetap dibatasi.
 - Data disimpan di `data/ai_usage.json` dan otomatis **dipangkas** menyisakan `AI_USAGE_KEEP_DAYS` (default **7 hari**).
 
 #### 5. Urutan Paling Hemat Kuota

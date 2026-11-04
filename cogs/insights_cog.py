@@ -88,6 +88,7 @@ async def faq_daftar_cmd(interaction: discord.Interaction):
 
 
 @faq_group.command(name="tambah", description="Tambah/perbarui entri FAQ server (ikut dipakai AI sebagai konteks)")
+@app_commands.default_permissions(manage_guild=True)
 @app_commands.describe(
     topik="Judul singkat, misal: Cara verifikasi",
     isi="Isi jawaban resmi (maks 500 karakter)",
@@ -129,6 +130,7 @@ async def faq_tambah_cmd(interaction: discord.Interaction, topik: str, isi: str)
 
 
 @faq_group.command(name="hapus", description="Hapus entri FAQ berdasarkan nomor urut atau nama topik")
+@app_commands.default_permissions(manage_guild=True)
 @app_commands.describe(target="Nomor urut (lihat /faq daftar) atau nama topik")
 async def faq_hapus_cmd(interaction: discord.Interaction, target: str):
     if interaction.guild is None:
@@ -200,6 +202,7 @@ async def pemakaian_status_cmd(interaction: discord.Interaction):
 
 
 @pemakaian_group.command(name="reset", description="Bersihkan catatan pemakaian AI hari ini & cache rekap (Admin)")
+@app_commands.default_permissions(manage_guild=True)
 @app_commands.describe(cache_rekap="True = sekalian kosongkan cache rekap channel")
 async def pemakaian_reset_cmd(interaction: discord.Interaction, cache_rekap: bool = True):
     if not _ensure_admin(interaction):

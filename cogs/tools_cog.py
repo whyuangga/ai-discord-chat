@@ -293,7 +293,7 @@ async def ringkas_channel_cmd(
     limit_count = insights.rekap_message_limit()
     collected_lines: list[str] = []
     try:
-        async for msg in target.history(limit=limit_count * 6):
+        async for msg in target.history(limit=limit_count * 3):
             if msg.created_at.timestamp() < cutoff:
                 break
             if msg.type not in (discord.MessageType.default, discord.MessageType.reply):

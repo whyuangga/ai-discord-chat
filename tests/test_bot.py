@@ -2213,6 +2213,14 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
+        # Batas keras Discord: nama field ≤256, nilai field ≤1024, total embed ≤6000
+        assert len(emb.fields) <= 25, f"{cat}: terlalu banyak field"
+        for fld in emb.fields:
+            assert len(fld.name) <= 256, f"{cat}: nama field kepanjangan"
+            assert len(fld.value) <= 1024, f"{cat}: nilai field '{fld.name}' = {len(fld.value)} char (>1024)"
+        assert len(emb) <= 6000, f"{cat}: total embed {len(emb)} char"
+        if emb.description:
+            assert len(emb.description) <= 4096, f"{cat}: deskripsi terlalu panjang"
     help_view = views.HelpMenuView(requester_id=501)
     for child in help_view.children:
         if isinstance(child, discord.ui.Select):
@@ -4684,6 +4692,19 @@ async def test_insights_usage_tracking_rekap_cache_and_faq_local():
     assert day in payload["days"]
     loaded = insights.load_ai_usage_from_disk()
     assert loaded >= 1
+
+    # 6b. Pemangkasan otomatis: counter member/channel dibatasi & hari lama dibuang saat restart
+    insights.ai_usage.clear()
+    for i in range(insights.MAX_TRACKED_PER_DAY + 40):
+        insights.record_ai_usage("chat", user_id=90_000 + i, channel_id=80_000 + i)
+    bucket = insights.ai_usage[insights.today_key()]
+    assert len(bucket["users"]) <= insights.MAX_TRACKED_PER_DAY
+    assert len(bucket["channels"]) <= insights.MAX_TRACKED_PER_DAY
+    for d in range(1, 11):
+        insights.ai_usage[f"2026-03-{d:02d}"] = dict(bucket)
+    await insights.save_ai_usage_to_disk()
+    assert insights.load_ai_usage_from_disk() == config.AI_USAGE_KEEP_DAYS
+
     insights.cleanup_insights_runtime()
     AI_USAGE_FILE.unlink(missing_ok=True)
 
@@ -4726,4 +4747,13 @@ async def test_insights_commands_and_daily_cap_guard(monkeypatch):
     # Tanpa cap → diizinkan
     monkeypatch.setattr(insights, "AI_DAILY_CAP_PER_USER", 0)
     assert await enforce_member_cooldown(_Interaction(), "uji_kapasitas_tier3_b") is True
+
+    # Admin server selalu bebas batas harian
+    import cogs.helpers as helpers_mod
+
+    sent.clear()
+    monkeypatch.setattr(insights, "AI_DAILY_CAP_PER_USER", 1)
+    monkeypatch.setattr(helpers_mod, "is_interaction_admin", lambda _ix: True)
+    assert await enforce_member_cooldown(_Interaction(), "uji_kapasitas_tier3_c") is True
+    assert sent == []
     insights.ai_usage.clear()
