@@ -1,6 +1,8 @@
 import sys
+
 import discord
 
+import insights
 from utils import check_user_cooldown
 
 
@@ -53,6 +55,18 @@ async def enforce_member_cooldown(
     if rem > 0:
         await interaction.response.send_message(
             f"⏳ Mohon tunggu **{rem} detik** lagi sebelum memakai fitur ini kembali *(proteksi kuota Free Tier)*.",
+            ephemeral=True,
+        )
+        return False
+
+    allowed, used, cap = insights.check_daily_cap(interaction.user.id)
+    if not allowed:
+        await interaction.response.send_message(
+            f"🛑 Batas harian fitur AI tercapai: **{used}/{cap}** operasi per member per hari "
+            f"*(menjaga kuota Free Tier tetap aman)*.\n"
+            f"• Pakai **`/faq tanya`** untuk info server — **0 kuota**\n"
+            f"• Pakai **`/rekap channel`** berulang — hasil dalam cache **0 kuota**\n"
+            f"• Coba lagi besok, atau minta Admin memperbesar `AI_DAILY_CAP_PER_USER`.",
             ephemeral=True,
         )
         return False

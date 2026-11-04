@@ -8,6 +8,17 @@ import time
 import aiohttp
 import discord
 
+import insights
+
+
+def _record_ai_usage_safe(kind: str, *, user_id: int = 0, channel_id: int = 0) -> None:
+    """Mencatat pemakaian AI tanpa pernah menggagalkan alur utama."""
+    try:
+        insights.record_ai_usage(kind, user_id=user_id, channel_id=channel_id)
+    except Exception:
+        pass
+
+
 from config import (
     AGENT_CHANNEL_COOLDOWN_SEC,
     AGENT_CONFIG_FILE,
@@ -1350,6 +1361,9 @@ async def _call_gemini_agent(
     has_youtube: bool = False,
     use_google_search: bool = False,
     http_session: aiohttp.ClientSession | None = None,
+    usage_kind: str | None = None,
+    usage_user_id: int = 0,
+    usage_channel_id: int = 0,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
     if not active_keys:
@@ -1387,6 +1401,12 @@ async def _call_gemini_agent(
                         if resp.status == 200 and isinstance(data, dict):
                             reply_text, _, _ = _extract_text_from_gemini_response(data)
                             if reply_text:
+                                if usage_kind:
+                                    _record_ai_usage_safe(
+                                        usage_kind,
+                                        user_id=usage_user_id,
+                                        channel_id=usage_channel_id,
+                                    )
                                 return reply_text.strip()
                 except Exception:
                     continue
@@ -1580,6 +1600,9 @@ async def generate_community_chat_reply(
         has_youtube=bool(yt_urls),
         use_google_search=(use_search and GEMINI_PAID_SEARCH_ENABLED),
         http_session=http_session,
+        usage_kind="auto_chat",
+        usage_user_id=getattr(message.author, "id", 0) or 0,
+        usage_channel_id=getattr(message.channel, "id", 0) or 0,
     )
 
     if reply:
@@ -1659,6 +1682,8 @@ async def generate_idle_icebreaker(
         thinking_level="minimal",
         has_media=False,
         http_session=http_session,
+        usage_kind="auto_chat",
+        usage_channel_id=int(channel_id or 0),
     )
 
     if reply:
@@ -1751,6 +1776,9 @@ async def generate_gallery_comment(
         thinking_level="low",
         has_media=True,
         http_session=http_session,
+        usage_kind="galeri",
+        usage_user_id=getattr(message.author, "id", 0) or 0,
+        usage_channel_id=getattr(message.channel, "id", 0) or 0,
     )
 
     reaction = random.choice(GALLERY_REACTIONS) if gal_cfg.get("auto_reaction", True) else None
@@ -1953,6 +1981,7 @@ async def generate_welcome_greeting(
         thinking_level="minimal",
         has_media=False,
         http_session=http_session,
+        usage_kind="sesi",
     )
 
     if reply:
@@ -2059,6 +2088,7 @@ async def generate_goodbye_message(
         thinking_level="minimal",
         has_media=False,
         http_session=http_session,
+        usage_kind="sesi",
     )
 
     if reply:
@@ -2126,6 +2156,7 @@ async def generate_morning_digest(
             thinking_level="low",
             has_media=False,
             http_session=session,
+            usage_kind="fakta",
         )
         if not reply:
             return None, "⚠️ Gagal menyusun Morning Digest saat ini, silakan coba sesaat lagi."

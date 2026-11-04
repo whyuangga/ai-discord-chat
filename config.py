@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.10.0-beta"
+BOT_VERSION = "1.11.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -154,6 +154,7 @@ MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
 ANTISPAM_FILE = DATA_DIR / "antispam.json"
 LEVELS_FILE = DATA_DIR / "levels.json"
+AI_USAGE_FILE = DATA_DIR / "ai_usage.json"
 TICKETS_FILE = DATA_DIR / "tickets.json"
 
 # ==============================================================================
@@ -184,6 +185,19 @@ STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, mi
 REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
 # Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
 STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# ==============================================================================
+# HEMAT KUOTA AI (Tier 3) — rekap ber-cache, pemakaian, & FAQ lokal
+# ==============================================================================
+# Batas operasi AI per member per hari (0 = tanpa batas). Hanya menghitung
+# operasi yang benar-benar memanggil Gemini; cache hit & FAQ lokal tidak dihitung.
+AI_DAILY_CAP_PER_USER: int = _env_int("AI_DAILY_CAP_PER_USER", 0, minimum=0)
+# Berapa hari catatan pemakaian disimpan (agar file JSON tetap kecil)
+AI_USAGE_KEEP_DAYS: int = _env_int("AI_USAGE_KEEP_DAYS", 7, minimum=1)
+# Cache hasil `/ringkas channel` (detik). 0 = cache dimatikan.
+REKAP_CACHE_TTL_SEC: int = _env_int("REKAP_CACHE_TTL_SEC", 1800, minimum=0)
+# Batas jumlah pesan yang dianalisis saat membuat rekap berperiode
+REKAP_MAX_MESSAGES: int = _env_int("REKAP_MAX_MESSAGES", 400, minimum=20)
+
 # ==============================================================================
 # LEVELING & XP (Tier 2C) — default NONAKTIF
 # ==============================================================================

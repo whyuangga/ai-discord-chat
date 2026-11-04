@@ -2156,6 +2156,58 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.set_footer(text="Data: data/levels.json & data/tickets.json • tanpa database eksternal")
+    elif category == "insights":
+        embed = discord.Embed(
+            title="📊 Hemat Kuota AI: Pemakaian, Rekap & FAQ",
+            description=(
+                "Tiga fitur yang membuat bot tetap pintar **tanpa menghabiskan kuota Gemini** "
+                "gratisan. Semua perintah di bawah **tidak memanggil AI** (0 kuota)."
+            ),
+            color=discord.Color.dark_teal(),
+        )
+        embed.add_field(
+            name="📊 Pemakaian AI (`/pemakaian`)",
+            value=(
+                "• `/pemakaian lihat` — operasi AI hari ini: jenis, member teraktif, channel tersibuk.\n"
+                "• `/pemakaian tren hari:7` — grafik tren harian (total vs cache hit).\n"
+                "• `/pemakaian status` — ringkasan penghematan: cache rekap, FAQ lokal, & batas harian.\n"
+                "• Contoh isi: `Chat 34`, `Cari 5`, `Rekap 2`, `Cache hit 12`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="♻️ Rekap Channel Ber-cache (`/ringkas channel`)",
+            value=(
+                "• `/ringkas channel periode:6 jam terakhir` — rekap obrolan per rentang waktu.\n"
+                "• Hasil disimpan **30 menit**; meminta ulang periode yang sama = **0 kuota** (dari cache).\n"
+                "• Butuh rekap baru? Tambahkan `paksa:True` (baru memakai AI).\n"
+                "• Periode: 1j, 3j, 6j, 12j, 24j, 7h • maksimal 400 pesan dianalisis "
+                "(atur lewat `REKAP_MAX_MESSAGES`)."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📚 FAQ Server (`/faq`)",
+            value=(
+                "• `/faq tanya pertanyaan:...` — jawaban dicari **lokal** (tanpa AI) dari basis FAQ server.\n"
+                "• `/faq daftar` — semua entri FAQ/Info server.\n"
+                "• `/faq tambah topik:... isi:...` *(Admin)* — entri baru; ikut jadi konteks resmi AI.\n"
+                "• `/faq hapus target:2` *(Admin)* — hapus berdasarkan nomor urut atau nama topik.\n"
+                "• Jalur termurah: arahkan member bertanya info server lewat `/faq tanya` dulu."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="💡 Urutan Hemat Kuota",
+            value=(
+                "1️⃣ `/faq tanya` (0 kuota) → 2️⃣ `/ringkas channel` berulang (cache, 0 kuota) → "
+                "3️⃣ `/cari` & `/ringkas link` (1 panggilan) → 4️⃣ obrolan AI di ruang `/sesi` bila perlu.\n"
+                "Admin bisa membatasi operasi AI per member per hari lewat variabel `.env` "
+                "`AI_DAILY_CAP_PER_USER` (0 = tanpa batas)."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Data: data/ai_usage.json (dipangkas otomatis) • tanpa database eksternal")
     elif category == "engagement":
         embed = discord.Embed(
             title="🎉 Giveaway, Ulang Tahun, Auto-Responder & Pengumuman",
@@ -2396,6 +2448,12 @@ class HelpMenuView(discord.ui.View):
                 value="growth",
                 emoji="📈",
                 description="Kartu level, papan peringkat, hadiah role, & tiket thread",
+            ),
+            discord.SelectOption(
+                label="Hemat Kuota AI: Pemakaian, Rekap & FAQ (/pemakaian)",
+                value="insights",
+                emoji="📊",
+                description="Statistik pemakaian, rekap channel ber-cache, & FAQ lokal 0 kuota",
             ),
             discord.SelectOption(
                 label="Giveaway, Ulang Tahun, Auto-Responder & Pengumuman",

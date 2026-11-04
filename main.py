@@ -47,6 +47,11 @@ from engagement import (
     save_engagement_to_disk,
 )
 from games import load_game_scores_from_disk, save_game_scores_to_disk
+from insights import (
+    cleanup_insights_runtime,
+    load_ai_usage_from_disk,
+    save_ai_usage_to_disk,
+)
 from levels import (
     cleanup_levels_runtime,
     load_levels_from_disk,
@@ -191,6 +196,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_antispam = load_antispam_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
+        loaded_usage_days = load_ai_usage_from_disk()
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -226,6 +232,7 @@ class GeminiDiscordBot(commands.Bot):
             loaded_levels,
             loaded_tickets,
         )
+        logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
         logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
@@ -294,6 +301,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_antispam_to_disk()
         await save_levels_to_disk()
         await save_tickets_to_disk()
+        await save_ai_usage_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -330,6 +338,8 @@ async def idle_chat_watcher():
             cleanup_antispam_runtime()
             cleanup_levels_runtime()
             cleanup_tickets_runtime()
+            cleanup_insights_runtime()
+            await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:
         logger.warning("Error pada idle_chat_watcher: %s", sanitize_error_message(exc))

@@ -408,7 +408,7 @@ def test_slash_commands_registered():
     assert sesi_subs == {"panel", "model", "reset", "tutup"}
 
     ringkas_subs = {sc.name for sc in all_cmds["ringkas"].commands}
-    assert ringkas_subs == {"chat", "link"}
+    assert ringkas_subs == {"chat", "channel", "link"}
 
 
 class _DummyAttachment:
@@ -2203,11 +2203,13 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "giveaway", "ultah", "jawab-otomatis", "pengumuman",
         # v1.10.0-beta (Tier 2C): leveling & tiket dukungan
         "level", "tiket",
+        # v1.11.0-beta (Tier 3): hemat kuota AI
+        "faq", "pemakaian",
     }
     assert len(chat_cmds) <= 100
 
     # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
-    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin", "engagement", "growth"):
+    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin", "engagement", "growth", "insights"):
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
@@ -4616,3 +4618,112 @@ async def test_growth_message_xp_hook_and_ticket_panel_smoke(monkeypatch):
     tickets.register_ticket(720, 10, 501)
     await view.open_btn.callback(ix2)
     assert "2 tiket aktif" in ix2.response.sent[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_insights_usage_tracking_rekap_cache_and_faq_local():
+    """Tier 3: pencatatan pemakaian AI, cache rekap (0 kuota), batas harian, & FAQ lokal."""
+    import insights
+    from config import AI_USAGE_FILE, REKAP_CACHE_TTL_SEC
+
+    # 1. Pencatatan pemakaian per jenis & per member
+    insights.ai_usage.clear()
+    insights.rekap_cache.clear()
+    insights.record_ai_usage("chat", user_id=501, channel_id=900, now=time.time())
+    insights.record_ai_usage("chat", user_id=501, channel_id=900, now=time.time())
+    insights.record_ai_usage("cari", user_id=502, channel_id=901, now=time.time())
+    insights.record_ai_usage("rekap", user_id=501, channel_id=900, cache_hit=True, now=time.time())
+
+    day = insights.today_key()
+    bucket = insights.ai_usage[day]
+    assert bucket["total"] == 3 and bucket["cache_hits"] == 1
+    assert bucket["kinds"]["chat"] == 2 and bucket["kinds"]["cache"] == 1
+    assert insights.usage_for_user(501) == 2
+    assert insights.total_usage() == 3
+
+    # 2. Batas harian per member (0 = tanpa batas)
+    assert insights.check_daily_cap(999, cap=0) == (True, 0, 0)
+    allowed, used, cap = insights.check_daily_cap(501, cap=2)
+    assert allowed is False and used == 2 and cap == 2
+    assert insights.check_daily_cap(502, cap=2)[0] is True
+
+    # 3. Cache rekap: hit menghemat kuota, kedaluwarsa membuat entri hilang
+    now = time.time()
+    insights.store_rekap(900, 6, "Ringkasan obrolan.", message_count=12, now=now)
+    cached = insights.get_cached_rekap(900, 6)
+    assert cached and cached["text"] == "Ringkasan obrolan." and cached["count"] == 12
+    assert insights.get_cached_rekap(900, 6, max_age=0) is not None
+    insights.rekap_cache[insights.cache_key(901, 6)] = {"text": "basi", "created_at": now - REKAP_CACHE_TTL_SEC - 5}
+    assert insights.get_cached_rekap(901, 6) is None
+    assert insights.get_cached_rekap(900, 3) is None
+    assert insights.rekap_message_limit() == config.REKAP_MAX_MESSAGES
+
+    # 4. Embed pemakaian & rekap bisa dirender tanpa error
+    usage_embed = insights.build_usage_embed()
+    assert "Pemakaian" in usage_embed.title
+    assert any("Chat" in f.name or "chat" in f.value.lower() for f in usage_embed.fields)
+    rekap_embed = insights.build_rekap_embed("umum", "Isi rekap", hours=6, message_count=12)
+    assert "6 jam terakhir" in rekap_embed.title
+
+    # 5. FAQ lokal: pencarian kata kunci tanpa AI + embed jawaban/daftar
+    community_agent.upsert_server_knowledge(10, "Cara Verifikasi", "Klik tombol verifikasi di channel verifikasi.")
+    community_agent.upsert_server_knowledge(10, "Jam Event", "Event mingguan setiap Sabtu pukul 20.00 WIB.")
+    entries = community_agent.get_server_knowledge_entries(10)
+    matches = insights.search_faq(entries, "bagaimana cara verifikasi akun?")
+    assert matches and matches[0]["topic"] == "Cara Verifikasi"
+    assert insights.search_faq(entries, "zzz qqq") == []
+    answer_embed = insights.build_faq_answer_embed("cara verifikasi", matches)
+    assert answer_embed.fields
+    list_embed = insights.build_faq_list_embed(entries, guild_name="Server Uji")
+    assert list_embed.title
+
+    # 6. Simpan ke disk bersifat atomik & file JSON valid
+    await insights.save_ai_usage_to_disk()
+    assert AI_USAGE_FILE.exists()
+    payload = json.loads(AI_USAGE_FILE.read_text(encoding="utf-8"))
+    assert day in payload["days"]
+    loaded = insights.load_ai_usage_from_disk()
+    assert loaded >= 1
+    insights.cleanup_insights_runtime()
+    AI_USAGE_FILE.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_insights_commands_and_daily_cap_guard(monkeypatch):
+    """Tier 3: command /pemakaian, /faq, /ringkas channel terdaftar & guard batas harian bekerja."""
+    import insights
+    from cogs.insights_cog import faq_group, pemakaian_group
+    from cogs.helpers import enforce_member_cooldown
+    from cogs.tools_cog import ringkas_group
+
+    assert {c.name for c in faq_group.commands} == {"tanya", "daftar", "tambah", "hapus"}
+    assert {c.name for c in pemakaian_group.commands} == {"lihat", "tren", "status", "reset"}
+    assert {c.name for c in ringkas_group.commands} == {"chat", "channel", "link"}
+    ringkas_channel = [c for c in ringkas_group.commands if c.name == "channel"][0]
+    assert [p.name for p in ringkas_channel.parameters] == ["periode", "paksa", "publik"]
+
+    # Guard: batas harian tercapai → pesan penolakan, cooldown tetap diizinkan
+    insights.ai_usage.clear()
+    insights.record_ai_usage("chat", user_id=777, now=time.time())
+    monkeypatch.setattr(insights, "AI_DAILY_CAP_PER_USER", 1)
+    sent = []
+
+    class _Resp:
+        async def send_message(self, content=None, **kwargs):
+            sent.append(content)
+
+    class _User:
+        id = 777
+
+    class _Interaction:
+        user = _User()
+        response = _Resp()
+
+    allowed = await enforce_member_cooldown(_Interaction(), "uji_kapasitas_tier3")
+    assert allowed is False
+    assert sent and "Batas harian" in sent[0]
+
+    # Tanpa cap → diizinkan
+    monkeypatch.setattr(insights, "AI_DAILY_CAP_PER_USER", 0)
+    assert await enforce_member_cooldown(_Interaction(), "uji_kapasitas_tier3_b") is True
+    insights.ai_usage.clear()
