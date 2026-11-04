@@ -1,3 +1,4 @@
+import logging
 import time
 import discord
 from discord import app_commands
@@ -45,6 +46,8 @@ import ui_kit
 import ui_theme
 from games import active_channel_games
 from music import get_player, music_status
+
+logger = logging.getLogger("gemini_bot.tools_cog")
 from storage import image_thread_settings, thread_chats
 from utils import (
     extract_message_attachments,
@@ -525,11 +528,22 @@ async def slash_cari(
     description="Buka pusat panduan interaktif cara memakai seluruh fitur Gemini AI di server ini",
 )
 async def slash_bantuan(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        embed=build_help_embed("overview"),
-        view=HelpMenuView(interaction.user.id),
-        ephemeral=True,
-    )
+    import ui_kit
+    from views import HelpPanelView
+
+    gid = interaction.guild.id if interaction.guild else None
+    try:
+        await interaction.response.send_message(
+            view=HelpPanelView(interaction.user.id, "overview", guild_id=gid),
+            ephemeral=True,
+        )
+    except (discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Panduan V2 ditolak (%s) — memakai menu embed klasik.", exc)
+        await interaction.response.send_message(
+            embed=build_help_embed("overview"),
+            view=HelpMenuView(interaction.user.id),
+            ephemeral=True,
+        )
 
 
 @app_commands.command(

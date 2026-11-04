@@ -249,8 +249,14 @@ async def agent_panel_cmd(interaction: discord.Interaction):
 async def agent_status_cmd(interaction: discord.Interaction):
     if interaction.guild is None:
         return
-    await interaction.response.send_message(
-        embed=build_agent_status_embed(interaction.guild),
+    import ui_kit
+
+    gid = interaction.guild.id
+    embed = build_agent_status_embed(interaction.guild)
+    await ui_kit.send_panel(
+        interaction,
+        ui_kit.build_view(gid, ui_kit.embed_to_container(gid, embed)),
+        embed=embed,
         ephemeral=True,
     )
 

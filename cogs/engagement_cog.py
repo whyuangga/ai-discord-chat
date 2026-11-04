@@ -285,7 +285,16 @@ async def giveaway_daftar_cmd(interaction: discord.Interaction):
             lines.append(f"• **{g['prize']}** — {who}")
         embed.add_field(name="✅ Selesai", value="\n".join(lines)[:1024], inline=False)
     embed.set_footer(text="Tip: /giveaway mulai hadiah:... durasi:2jam pemenang:3")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    import ui_kit
+
+    await ui_kit.send_panel(
+        interaction,
+        ui_kit.build_view(
+            interaction.guild.id, ui_kit.embed_to_container(interaction.guild.id, embed)
+        ),
+        embed=embed,
+        ephemeral=True,
+    )
 
 
 def _extract_message_id(raw: str | None) -> int | None:

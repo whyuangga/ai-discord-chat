@@ -316,7 +316,15 @@ async def musik_sekarang_cmd(interaction: discord.Interaction):
         autoplay=bool(settings.get("autoplay", False)),
         hint="Detail lagu aktif • pakai tombol pada panel untuk kontrol cepat",
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    import ui_kit
+
+    gid = interaction.guild.id
+    await ui_kit.send_panel(
+        interaction,
+        ui_kit.build_view(gid, ui_kit.embed_to_container(gid, embed)),
+        embed=embed,
+        ephemeral=True,
+    )
 
 
 @musik_group.command(name="lewati", description="Lewati lagu saat ini dan putar lagu berikutnya")

@@ -932,6 +932,21 @@ def _panel_view():
         return None
 
 
+def _v2_panel(player, guild_id: int, *, filter_name: str | None = "off", autoplay: bool | None = False):
+    """Panel pemutar versi kartu (Components V2); `None` bila tidak tersedia."""
+    try:
+        from views import build_music_panel_view
+
+        return build_music_panel_view(
+            player,
+            guild_id=guild_id,
+            filter_name=filter_name,
+            autoplay=autoplay,
+        )
+    except Exception:  # pragma: no cover - views belum siap
+        return None
+
+
 async def send_or_update_panel(
     bot: discord.Client,
     guild_id: int,
@@ -949,13 +964,23 @@ async def send_or_update_panel(
         return None
 
     settings = get_music_settings(guild_id)
-    embed = build_player_embed(
-        player,
-        filter_name=settings.get("filter", "off"),
-        autoplay=bool(settings.get("autoplay", False)),
-    )
+    filter_name = settings.get("filter", "off")
+    autoplay = bool(settings.get("autoplay", False))
+    embed = build_player_embed(player, filter_name=filter_name, autoplay=autoplay)
+
     panel_view = view if view is not None else _panel_view()
+    use_v2 = False
+    if panel_view is None or type(panel_view).__name__ == "MusicPlayerView":
+        v2_view = _v2_panel(player, guild_id, filter_name=filter_name, autoplay=autoplay)
+        if v2_view is not None:
+            panel_view = v2_view
+            use_v2 = True
     panel = music_panels.get(guild_id)
+
+    # Mode tampilan berubah (mis. setelah pembaruan versi) → panel lama diganti baru
+    if panel and bool(panel.get("v2")) != use_v2:
+        await close_panel(bot, guild_id)
+        panel = None
 
     if panel and not force_new:
         get_channel = getattr(bot, "get_channel", None)
@@ -963,7 +988,10 @@ async def send_or_update_panel(
         if target is not None:
             try:
                 message = target.get_partial_message(int(panel["message_id"]))
-                await message.edit(embed=embed, view=panel_view)
+                if use_v2:
+                    await message.edit(view=panel_view)
+                else:
+                    await message.edit(embed=embed, view=panel_view)
                 panel["updated_at"] = time.time()
                 return message
             except discord.NotFound:
@@ -982,16 +1010,29 @@ async def send_or_update_panel(
     if target is None:
         return None
 
-    try:
-        message = await target.send(embed=embed, view=panel_view)
-    except (discord.Forbidden, discord.HTTPException) as exc:
-        logger.info("Gagal mengirim panel musik: %s", sanitize_error_message(exc))
-        return None
+    message = None
+    if use_v2:
+        try:
+            message = await target.send(view=panel_view)
+        except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as exc:
+            logger.info(
+                "Panel musik V2 ditolak (%s) — memakai embed klasik.",
+                sanitize_error_message(exc),
+            )
+            use_v2 = False
+            panel_view = _panel_view()
+    if message is None:
+        try:
+            message = await target.send(embed=embed, view=panel_view)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.info("Gagal mengirim panel musik: %s", sanitize_error_message(exc))
+            return None
 
     music_panels[guild_id] = {
         "channel_id": int(getattr(target, "id", 0)),
         "message_id": int(message.id),
         "updated_at": time.time(),
+        "v2": use_v2,
     }
     remember_announce_channel(guild_id, getattr(target, "id", 0))
     return message

@@ -628,6 +628,11 @@ aksen, baris status, badge ON/OFF, dan navigasi tab — **tanpa kuota AI sama se
 | `/agent panel` | Dua kartu: ringkasan channel target + **8 tombol toggle berwarna** (🟢 hijau = aktif, 🔴 merah = mati), dropdown channel, serta tombol Persona / Tambah FAQ / Kelola FAQ / Segarkan / Tutup. |
 | `/tiket panel` | Panel "Pusat Bantuan" bergaya kartu dengan tombol **🎟️ Buat Tiket** (tetap menempel setelah bot restart). |
 | `/musik antrean` | Antrean berhalaman sebagai kartu: judul, total durasi, tombol **◀ Sebelumnya / Berikutnya ▶ / Tutup**. |
+| `/musik panel` & panel pemutar otomatis | Panel Rythm versi kartu: progress bar, volume, filter, autoplay, plus **9 tombol kontrol** dalam 2 baris (⏮ ⏯ ⏭ ⏹ 🔁 / 🔀 🔉 🔊 📜). |
+| `/musik sekarang` | Kartu Now Playing bertema (progres, sumber, antrean, diminta oleh). |
+| `/bantuan` | Pusat panduan sebagai kartu + **dropdown 11 kategori** yang langsung berganti halaman. |
+| `/agent status` | Ringkasan seluruh channel AI Agent sebagai kartu bertema. |
+| `/giveaway daftar` | Daftar giveaway aktif & riwayat sebagai kartu. |
 | `/pemakaian reset`, `/musik hentikan`, `/tampilan reset` | Dialog **konfirmasi bergaya kartu** sebelum aksi merusak (bisa dimatikan Admin lewat `/tampilan atur`). |
 
 #### Batas Keras Discord yang Tidak Bisa Dilanggar

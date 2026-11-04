@@ -213,6 +213,51 @@ def option(label: str, value: str, *, emoji: str | None = None, description: str
     )
 
 
+def embed_to_container(
+    guild_id: int | None,
+    embed: discord.Embed,
+    *,
+    extra_children: list | None = None,
+) -> ui.Container:
+    """Mengubah embed klasik menjadi kartu Components V2 (judul, isi, field, footer).
+
+    Dipakai untuk memigrasi panel lama tanpa menulis ulang isinya: embed tetap
+    menjadi jalur cadangan, sedangkan tampilan utamanya kartu V2 bertema.
+    """
+    children: list = []
+    title = str(embed.title or "")
+    body = str(embed.description or "")
+    head = f"### {title}" if title else ""
+    if head and body:
+        head += "\n" + body
+    elif body:
+        head = body
+    if head:
+        children.append(text(head[:MAX_TEXT]))
+
+    for field in embed.fields:
+        value = str(field.value or "")
+        if not value:
+            continue
+        chunk = f"**{field.name}**\n{value}"
+        children.append(sep())
+        # pecah bila melebihi batas satu blok teks Discord
+        while chunk:
+            children.append(text(chunk[:MAX_TEXT]))
+            chunk = chunk[MAX_TEXT:]
+
+    if extra_children:
+        children.append(sep())
+        children.extend([c for c in extra_children if c is not None])
+
+    footer = str(getattr(embed.footer, "text", "") or "")
+    themed = ui_theme.footer_text(guild_id, footer) or footer
+    if themed:
+        children.append(text(f"-# {themed[:MAX_TEXT - 4]}"))
+
+    return card(guild_id, *children)
+
+
 # ==============================================================================
 # KIRIM / EDIT DENGAN JALUR CADANGAN
 # ==============================================================================

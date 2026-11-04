@@ -5068,3 +5068,64 @@ async def test_components_v2_panels_agent_ticket_queue_and_confirm():
     confirm_view = ui_kit.ConfirmView(guild.id, title="Uji?", detail="Detail uji")
     assert confirm_view.to_components()[0]["type"] == 17
     ui_theme.reset_theme(guild.id)
+
+
+@pytest.mark.asyncio
+async def test_embed_to_container_help_panel_and_music_panel_v2():
+    """Konversi embed → kartu V2, panel /bantuan V2, & panel pemutar musik V2."""
+    import ui_kit
+    import ui_theme
+
+    gid = 3131
+    ui_theme.reset_theme(gid)
+
+    # 1. embed_to_container: judul, field panjang dipecah, footer tema dipakai
+    embed = discord.Embed(title="Judul Uji", description="Deskripsi", color=discord.Color.purple())
+    embed.add_field(name="Panjang", value="x" * 4500, inline=False)
+    embed.set_footer(text="Kaki asli")
+    container = ui_kit.embed_to_container(gid, embed)
+    blocks = [c for c in container.children if isinstance(c, discord.ui.TextDisplay)]
+    assert blocks, "harus ada blok teks"
+    assert all(len(b.content) <= ui_kit.MAX_TEXT for b in blocks)
+    joined = "".join(b.content for b in blocks)
+    assert "Judul Uji" in joined and "x" * 100 in joined
+
+    # 2. Panel /bantuan V2: kartu + dropdown 11 kategori, bisa ganti halaman
+    help_panel = views.HelpPanelView(requester_id=77, category="overview", guild_id=gid)
+    assert help_panel.to_components()[0]["type"] == 17
+    from discord.ui.select import BaseSelect
+
+    hp_select = [i for i in help_panel.walk_children() if isinstance(i, BaseSelect)][0]
+    assert len(hp_select.options) == len(views.HELP_CATEGORIES)
+    assert {"overview", "musik", "admin"} <= {o.value for o in hp_select.options}
+    help_panel.category = "musik"
+    help_panel._build()
+    text_all = "".join(
+        str(c.get("content") or "") for c in help_panel.to_components()[0]["components"] if c["type"] == 10
+    )
+    assert "Streaming Musik" in text_all
+
+    # 3. Panel pemutar musik V2: 9 tombol asli tersusun 2 baris di dalam kartu
+    class _Track:
+        title = "Lagu Uji"
+        author = "Artis"
+        length = 215_000
+        uri = "https://youtu.be/uji"
+        is_stream = False
+        artwork = None
+        requester = None
+
+    class _Player:
+        current = _Track()
+        queue = [_Track(), _Track()]
+        paused = False
+        volume = 60
+        position = 60_000
+        channel = None
+
+    panel = views.build_music_panel_view(_Player(), guild_id=gid, filter_name="off", autoplay=False)
+    assert panel is not None and panel.to_components()[0]["type"] == 17
+    m_buttons = [i for i in panel.walk_children() if isinstance(i, discord.ui.Button)]
+    assert [b.custom_id for b in m_buttons] == views.MUSIC_PANEL_ORDER
+    m_rows = [i for i in panel.walk_children() if isinstance(i, discord.ui.ActionRow)]
+    assert len(m_rows) == 2 and len(m_rows[0].children) == 5

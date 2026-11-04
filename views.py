@@ -1285,6 +1285,52 @@ class MusicPlayerView(discord.ui.View):
         await interaction.response.send_message(f"🔊 Volume: **{new_volume}%**", ephemeral=True)
 
 
+MUSIC_PANEL_ORDER: list[str] = [
+    "music:panel:previous",
+    "music:panel:pause",
+    "music:panel:skip",
+    "music:panel:stop",
+    "music:panel:loop",
+    "music:panel:shuffle",
+    "music:panel:vol_down",
+    "music:panel:vol_up",
+    "music:panel:queue",
+]
+
+
+def build_music_panel_view(
+    player,
+    *,
+    guild_id: int | None = None,
+    filter_name: str | None = "off",
+    autoplay: bool | None = None,
+    hint: str | None = None,
+):
+    """Panel pemutar Rythm versi kartu (Components V2).
+
+    Tombol diambil langsung dari `MusicPlayerView` (callback asli) lalu disusun
+    ulang di dalam kartu, sehingga tidak ada logika tombol yang diduplikasi.
+    """
+    embed = music.build_player_embed(
+        player, filter_name=filter_name, autoplay=autoplay, hint=hint
+    )
+    classic = MusicPlayerView()
+    by_id = {item.custom_id: item for item in list(classic.children)}
+    for item in list(classic.children):
+        classic.remove_item(item)
+    buttons = [by_id[cid] for cid in MUSIC_PANEL_ORDER if cid in by_id]
+    if not buttons:  # pragma: no cover - jaga-jaga bila custom_id berubah
+        return None
+    rows = [ui_kit.action_row(*buttons[:5])]
+    if buttons[5:]:
+        rows.append(ui_kit.action_row(*buttons[5:10]))
+    return ui_kit.build_view(
+        guild_id,
+        ui_kit.embed_to_container(guild_id, embed, extra_children=rows),
+        timeout=None,
+    )
+
+
 class ForumPostSolvedView(discord.ui.View):
     """Tombol persisten pada Postingan Forum agar penanya/Moderator bisa menandai diskusi selesai."""
 
@@ -2799,6 +2845,134 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
     return embed
 
 
+HELP_CATEGORIES: list[dict] = [
+    {
+        "value": "overview",
+        "label": "Ringkasan & Daftar Command Utama",
+        "emoji": "🏠",
+        "description": "Gambaran cepat seluruh fitur & pintasan tanpa ketik",
+    },
+    {
+        "value": "sesi",
+        "label": "Ruang AI Privat, PDF, Voice Note & Gambar (/sesi)",
+        "emoji": "🔒",
+        "description": "Cara pakai ruang chat pribadi, multimodal, & studio gambar",
+    },
+    {
+        "value": "tools",
+        "label": "Ringkas Chat/Link, Cari Berita & Klik-Kanan Pesan",
+        "emoji": "🔎",
+        "description": "Panduan /ringkas chat, /ringkas link, /cari, & Cek Fakta",
+    },
+    {
+        "value": "games",
+        "label": "6 Mode Mini-Game Tongkrongan & Papan Skor (/game)",
+        "emoji": "🎮",
+        "description": "Tebak Gambar AI, Sambung Kata, Emoji, Trivia, & Klasemen",
+    },
+    {
+        "value": "server",
+        "label": "Fitur Server: Stats, Auto Role, Fakta & Anti-Phishing",
+        "emoji": "🛠️",
+        "description": "Panduan /serverstats, /autorole, /fakta, & /keamanan",
+    },
+    {
+        "value": "growth",
+        "label": "Level & XP serta Tiket Dukungan (/level, /tiket)",
+        "emoji": "📈",
+        "description": "Kartu level, papan peringkat, hadiah role, & tiket thread",
+    },
+    {
+        "value": "insights",
+        "label": "Hemat Kuota AI: Pemakaian, Rekap & FAQ (/pemakaian)",
+        "emoji": "📊",
+        "description": "Statistik pemakaian, rekap channel ber-cache, & FAQ lokal 0 kuota",
+    },
+    {
+        "value": "engagement",
+        "label": "Giveaway, Ulang Tahun, Auto-Responder & Pengumuman",
+        "emoji": "🎉",
+        "description": "Undian berhadiah, ucapan ultah otomatis, & pengumuman terjadwal",
+    },
+    {
+        "value": "musik",
+        "label": "Streaming Musik 24/7 (/musik & Lavalink)",
+        "emoji": "🎵",
+        "description": "Putar lagu YouTube/Spotify, antrean, volume, & role DJ",
+    },
+    {
+        "value": "komunitas",
+        "label": "Fitur Komunitas Ringan (Role, Poll, Starboard, Sticky)",
+        "emoji": "🧩",
+        "description": "Reaction role, poll, pengingat, starboard, verifikasi, & sticky",
+    },
+    {
+        "value": "admin",
+        "label": "Panel Admin, Forum Pintar & Komunitas (/agent)",
+        "emoji": "⚙️",
+        "description": "Pengaturan /agent panel, Auto-Chat, Galeri, Welcome, & FAQ",
+    },
+]
+
+
+def help_select_options() -> list[discord.SelectOption]:
+    """Opsi dropdown kategori panduan (dipakai panel V2 & menu klasik)."""
+    return [
+        discord.SelectOption(
+            label=c["label"][:100],
+            value=c["value"],
+            emoji=c["emoji"],
+            description=c["description"][:100],
+        )
+        for c in HELP_CATEGORIES
+    ]
+
+
+class HelpPanelView(ui_kit.ui.LayoutView):
+    """Pusat panduan `/bantuan` bergaya kartu dengan dropdown kategori (Components V2)."""
+
+    def __init__(self, requester_id: int, category: str = "overview", guild_id: int | None = None):
+        super().__init__(timeout=300)
+        self.requester_id = requester_id
+        self.guild_id = guild_id
+        self.category = category if category in {c["value"] for c in HELP_CATEGORIES} else "overview"
+        self._build()
+
+    def _build(self) -> None:
+        self.clear_items()
+        embed = build_help_embed(self.category)
+        selector = ui_kit.select_menu(
+            "help:category",
+            "📂 Pilih kategori panduan yang ingin dilihat…",
+            help_select_options(),
+            callback=self.on_select,
+        )
+        self.add_item(
+            ui_kit.embed_to_container(
+                self.guild_id,
+                embed,
+                extra_children=[ui_kit.action_row(selector)],
+            )
+        )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "💡 Ketik `/bantuan` untuk membuka menu panduan milik Anda sendiri.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def on_select(self, interaction: discord.Interaction) -> None:
+        values = (interaction.data or {}).get("values") or ["overview"]
+        self.category = str(values[0])
+        self._build()
+        await ui_kit.edit_panel(
+            interaction, self, embed=build_help_embed(self.category)
+        )
+
+
 class HelpMenuView(discord.ui.View):
     """Dropdown navigasi interaktif untuk berpindah halaman panduan `/bantuan`."""
 
@@ -2817,74 +2991,7 @@ class HelpMenuView(discord.ui.View):
 
     @discord.ui.select(
         placeholder="📂 Pilih kategori panduan yang ingin dilihat...",
-        options=[
-            discord.SelectOption(
-                label="Ringkasan & Daftar Command Utama",
-                value="overview",
-                emoji="🏠",
-                description="Gambaran cepat seluruh fitur & pintasan tanpa ketik",
-            ),
-            discord.SelectOption(
-                label="Ruang AI Privat, PDF, Voice Note & Gambar (/sesi)",
-                value="sesi",
-                emoji="🔒",
-                description="Cara pakai ruang chat pribadi, multimodal, & studio gambar",
-            ),
-            discord.SelectOption(
-                label="Ringkas Chat/Link, Cari Berita & Klik-Kanan Pesan",
-                value="tools",
-                emoji="🔎",
-                description="Panduan /ringkas chat, /ringkas link, /cari, & Cek Fakta",
-            ),
-            discord.SelectOption(
-                label="6 Mode Mini-Game Tongkrongan & Papan Skor (/game)",
-                value="games",
-                emoji="🎮",
-                description="Tebak Gambar AI, Sambung Kata, Emoji, Trivia, & Klasemen",
-            ),
-            discord.SelectOption(
-                label="Fitur Server: Stats, Auto Role, Fakta & Anti-Phishing",
-                value="server",
-                emoji="🛠️",
-                description="Panduan /serverstats, /autorole, /fakta, & /keamanan",
-            ),
-            discord.SelectOption(
-                label="Level & XP serta Tiket Dukungan (/level, /tiket)",
-                value="growth",
-                emoji="📈",
-                description="Kartu level, papan peringkat, hadiah role, & tiket thread",
-            ),
-            discord.SelectOption(
-                label="Hemat Kuota AI: Pemakaian, Rekap & FAQ (/pemakaian)",
-                value="insights",
-                emoji="📊",
-                description="Statistik pemakaian, rekap channel ber-cache, & FAQ lokal 0 kuota",
-            ),
-            discord.SelectOption(
-                label="Giveaway, Ulang Tahun, Auto-Responder & Pengumuman",
-                value="engagement",
-                emoji="🎉",
-                description="Undian berhadiah, ucapan ultah otomatis, & pengumuman terjadwal",
-            ),
-            discord.SelectOption(
-                label="Streaming Musik 24/7 (/musik & Lavalink)",
-                value="musik",
-                emoji="🎵",
-                description="Putar lagu YouTube/Spotify, antrean, volume, & role DJ",
-            ),
-            discord.SelectOption(
-                label="Fitur Komunitas Ringan (Role, Poll, Starboard, Sticky)",
-                value="komunitas",
-                emoji="🧩",
-                description="Reaction role, poll, pengingat, starboard, verifikasi, & sticky",
-            ),
-            discord.SelectOption(
-                label="Panel Admin, Forum Pintar & Komunitas (/agent)",
-                value="admin",
-                emoji="⚙️",
-                description="Pengaturan /agent panel, Auto-Chat, Galeri, Welcome, & FAQ",
-            ),
-        ],
+        options=help_select_options(),
     )
     async def select_category(self, interaction: discord.Interaction, select: discord.ui.Select):
         chosen = select.values[0]
