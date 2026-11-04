@@ -528,7 +528,6 @@ async def slash_cari(
     description="Buka pusat panduan interaktif cara memakai seluruh fitur Gemini AI di server ini",
 )
 async def slash_bantuan(interaction: discord.Interaction):
-    import ui_kit
     from views import HelpPanelView
 
     gid = interaction.guild.id if interaction.guild else None

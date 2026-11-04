@@ -16,8 +16,6 @@ from music import (
     apply_filter,
     build_now_playing_embed,
     build_player_embed,
-    build_queue_embed,
-    build_queue_page_embed,
     build_search_embed,
     can_control,
     close_panel,

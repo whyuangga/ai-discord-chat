@@ -932,6 +932,16 @@ def _panel_view():
         return None
 
 
+def _refresh_interval(guild_id: int) -> int:
+    """Interval refresh panel musik milik server (fallback 10 detik bila tema gagal dibaca)."""
+    try:
+        from ui_theme import refresh_interval
+
+        return max(5, int(refresh_interval(guild_id)))
+    except Exception:  # pragma: no cover - tema belum siap
+        return 10
+
+
 def _v2_panel(player, guild_id: int, *, filter_name: str | None = "off", autoplay: bool | None = False):
     """Panel pemutar versi kartu (Components V2); `None` bila tidak tersedia."""
     try:
@@ -1067,6 +1077,11 @@ async def run_music_panel_check(bot: discord.Client) -> int:
             await close_panel(bot, guild_id)
             continue
         if not get_music_settings(guild_id).get("announce", True):
+            continue
+        # Interval refresh diatur Admin lewat `/tampilan atur` (default 10 detik)
+        panel_meta = music_panels.get(guild_id) or {}
+        interval = _refresh_interval(guild_id)
+        if time.time() - float(panel_meta.get("updated_at") or 0) < interval:
             continue
         if await send_or_update_panel(bot, guild_id):
             updated += 1

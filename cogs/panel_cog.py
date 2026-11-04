@@ -91,6 +91,18 @@ def _music_state(snap: dict) -> tuple[str, str]:
     return "belum tersambung", "warn"
 
 
+def _gather_themed(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
+    """Ambil isi tab lalu terapkan setelan kepadatan server (`/tampilan atur`).
+
+    Mode **ringkas** menyembunyikan baris penjelas (awalan `>`), mode **nyaman**
+    menampilkan semuanya — jadi tombol kepadatan benar-benar mengubah tampilan.
+    """
+    title, lines = _gather(guild, tab)
+    if ui_theme.is_compact(guild.id):
+        lines = [ln for ln in lines if not ln.startswith("> ")]
+    return title, lines
+
+
 def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
     """Mengembalikan `(judul_kartu, daftar_baris)` untuk sebuah tab."""
     gid = guild.id
@@ -262,13 +274,16 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
 # ==============================================================================
 def dashboard_embed(guild: discord.Guild, tab: str) -> discord.Embed:
     """Embed cadangan (dipakai bila Components V2 ditolak)."""
-    title, lines = _gather(guild, tab)
+    title, lines = _gather_themed(guild, tab)
     body = "\n".join(ln for ln in lines if ln is not None)[:3800]
-    return ui_kit.fallback_embed(
+    embed = ui_kit.fallback_embed(
         guild.id,
         f"{ui_theme.emoji(guild.id, 'panel', '🛰️')} Control Center — {TABS.get(tab, TABS['overview'])['label']}",
         body,
         footer="Klik tab di bawah untuk berpindah halaman • /tampilan untuk ubah tema",
+    )
+    return ui_theme.apply_embed_theme(
+        embed, guild.id, footer=f"tema: {ui_theme.theme_summary(guild.id)}"
     )
 
 
@@ -276,7 +291,7 @@ def make_dashboard(guild: discord.Guild, tab: str, requester_id: int) -> ui.Layo
     """Membangun dashboard V2 untuk satu tab (dibuat ulang setiap pindah tab)."""
     gid = guild.id
     tab = tab if tab in TABS else "overview"
-    title, lines = _gather(guild, tab)
+    title, lines = _gather_themed(guild, tab)
     view = ui_kit.build_view(gid, timeout=900)
 
     async def go(interaction: discord.Interaction, target: str) -> None:
@@ -317,13 +332,13 @@ def make_dashboard(guild: discord.Guild, tab: str, requester_id: int) -> ui.Layo
             )
         )
 
-    header = ui_kit.text(
-        ui_kit.title_line(
-            gid,
-            "panel",
-            f"Control Center — {guild.name}",
-            f"`v{BOT_VERSION}` • tab **{TABS[tab]['label']}** • {TABS[tab]['desc']}",
-        )
+    icon = getattr(guild, "icon", None)
+    header = ui_kit.header(
+        gid,
+        "panel",
+        f"Control Center — {guild.name}",
+        f"`v{BOT_VERSION}` • tab **{TABS[tab]['label']}** • {TABS[tab]['desc']}",
+        thumbnail_url=getattr(icon, "url", None) if icon else None,
     )
     body = ui_kit.text("\n".join(ln for ln in lines if ln is not None))
 

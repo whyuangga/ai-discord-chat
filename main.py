@@ -6,16 +6,10 @@ import discord
 from discord.ext import commands, tasks
 
 from cogs import (
-    agent_group,
-    game_group,
     register_all_cogs,
     ringkas_chat_cmd,
-    ringkas_group,
     ringkas_link_cmd,
-    sesi_group,
-    slash_bantuan,
     slash_cari,
-    slash_status,
 )
 from community_agent import (
     cleanup_stale_agent_runtime,
@@ -35,7 +29,7 @@ from community_tools import (
     save_community_tools_to_disk,
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
-from ui_theme import load_ui_themes_from_disk, save_ui_themes_to_disk
+from ui_theme import cleanup_ui_runtime, load_ui_themes_from_disk, save_ui_themes_to_disk
 from antispam import (
     cleanup_antispam_runtime,
     load_antispam_from_disk,
@@ -347,6 +341,7 @@ async def idle_chat_watcher():
             cleanup_levels_runtime()
             cleanup_tickets_runtime()
             cleanup_insights_runtime()
+            cleanup_ui_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:

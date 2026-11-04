@@ -21,6 +21,7 @@ def _record_ai_usage_safe(kind: str, *, user_id: int = 0, channel_id: int = 0) -
 
 from config import (
     AGENT_CHANNEL_COOLDOWN_SEC,
+    GEMINI_API_KEY,
     AGENT_CONFIG_FILE,
     AGENT_DEFAULT_IDLE_MINUTES,
     AGENT_HISTORY_MESSAGES,
@@ -30,7 +31,6 @@ from config import (
     ENABLE_GOOGLE_SEARCH,
     ENABLE_URL_READER,
     GEMINI_API_BASE,
-    GEMINI_API_KEY,
     GEMINI_DEFAULT_MODEL,
     GEMINI_PAID_SEARCH_ENABLED,
     GEMINI_SEARCH_FALLBACK_CHAIN,
@@ -357,6 +357,11 @@ def format_server_knowledge_for_prompt(guild_id: int | None) -> str:
         if t and c:
             lines.append(f"- [{t}]: {c}")
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def has_api_key() -> bool:
+    """True bila API key Gemini tersedia (env saat impor maupun konfigurasi runtime)."""
+    return bool(GEMINI_API_KEY) or is_gemini_key_configured()
 
 
 def parse_digest_time(raw_time: str | None) -> tuple[int, int] | None:
@@ -2109,7 +2114,7 @@ async def generate_morning_digest(
     http_session: aiohttp.ClientSession | None = None,
 ) -> tuple[str | None, str | None]:
     """Menyusun Sapaan & Rangkuman Berita Pagi (Morning Digest) menggunakan live web search gratis + Gemini."""
-    if not is_gemini_key_configured():
+    if not has_api_key():
         return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
 
     guild_cfg = get_guild_settings(guild_id)
@@ -2164,7 +2169,7 @@ async def generate_morning_digest(
         if live_sources:
             footer = _format_grounding_footer(live_sources)
             max_body = max(500, 3850 - len(footer))
-            clipped = reply[:max_body] + ("…" if len(reply_text := reply) > max_body else "")
+            clipped = reply[:max_body] + ("…" if len(reply) > max_body else "")
             reply = f"{clipped}{footer}"
 
         return reply, None

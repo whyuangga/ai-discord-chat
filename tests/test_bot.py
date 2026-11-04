@@ -5129,3 +5129,85 @@ async def test_embed_to_container_help_panel_and_music_panel_v2():
     assert [b.custom_id for b in m_buttons] == views.MUSIC_PANEL_ORDER
     m_rows = [i for i in panel.walk_children() if isinstance(i, discord.ui.ActionRow)]
     assert len(m_rows) == 2 and len(m_rows[0].children) == 5
+
+
+@pytest.mark.asyncio
+async def test_theme_settings_actually_apply(monkeypatch):
+    """Setelan /tampilan benar-benar berefek: kepadatan, thumbnail, interval refresh, emoji aksen."""
+    import types
+
+    import music as music_mod
+    import ui_kit
+    import ui_theme
+    from cogs import panel_cog
+
+    gid = 6262
+    ui_theme.reset_theme(gid)
+
+    class _FakeGuild:
+        id = gid
+        name = "Server Tema"
+        member_count = 7
+        icon = types.SimpleNamespace(url="https://cdn.discordapp.com/icons/1/abc.png")
+
+        def get_channel(self, cid):
+            return None
+
+    guild = _FakeGuild()
+
+    def collect_text(view) -> str:
+        parts = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get("type") == 10:
+                    parts.append(str(node.get("content") or ""))
+                for child in node.get("components") or []:
+                    walk(child)
+
+        for comp in view.to_components():
+            walk(comp)
+        return "\n".join(parts)
+
+    # 1. Kepadatan: mode ringkas menyembunyikan baris penjelas, nyaman menampilkannya
+    ui_theme.set_theme(gid, density="ringkas")
+    assert ui_theme.is_compact(gid) is True
+    ringkas_text = collect_text(panel_cog.make_dashboard(guild, "music", 1))
+    ui_theme.set_theme(gid, density="nyaman")
+    assert ui_theme.is_compact(gid) is False
+    nyaman_text = collect_text(panel_cog.make_dashboard(guild, "music", 1))
+    assert "tidak wajib" not in ringkas_text
+    assert "tidak wajib" in nyaman_text
+
+    # 2. Thumbnail: ikon server muncul sebagai Section+Thumbnail saat mode "ikon"
+    ui_theme.set_theme(gid, thumbnail="ikon")
+    types_in_view = [c["type"] for c in panel_cog.make_dashboard(guild, "overview", 1).to_components()[0]["components"]]
+    assert 9 in types_in_view  # Section
+    ui_theme.set_theme(gid, thumbnail="tanpa")
+    types_no_thumb = [
+        c["type"] for c in panel_cog.make_dashboard(guild, "overview", 1).to_components()[0]["components"]
+    ]
+    assert 9 not in types_no_thumb
+
+    # 3. Interval refresh dipakai panel musik
+    ui_theme.set_theme(gid, refresh=60)
+    assert ui_theme.refresh_interval(gid) == 60
+    assert music_mod._refresh_interval(gid) == 60
+    ui_theme.set_theme(gid, refresh=10)
+    assert music_mod._refresh_interval(gid) == 10
+
+    # 4. Emoji aksen ikut di footer & embed cadangan
+    ui_theme.set_theme(gid, accent="teal")
+    footer = ui_theme.footer_text(gid, "uji")
+    assert ui_theme.ACCENTS["teal"]["emoji"] in footer and "uji" in footer
+    embed = ui_theme.apply_embed_theme(ui_kit.fallback_embed(gid, "Judul", "Isi"), gid, footer="x")
+    assert embed.color.value == ui_theme.ACCENTS["teal"]["color"]
+    assert ui_theme.ACCENTS["teal"]["emoji"] in (embed.footer.text or "")
+    dashboard_embed = panel_cog.dashboard_embed(guild, "overview")
+    assert ui_theme.ACCENTS["teal"]["emoji"] in (dashboard_embed.footer.text or "")
+
+    # 5. Hanya opsi refresh yang sah yang disimpan
+    ui_theme.set_theme(gid, refresh=7)
+    assert ui_theme.refresh_interval(gid) == 10  # jatuh kembali ke default
+
+    ui_theme.reset_theme(gid)

@@ -137,10 +137,6 @@ def field_block(label: str, lines: list[str]) -> str:
     return "**" + label + "**\n" + "\n".join(clean)
 
 
-def empty_hint(icon: str, message: str) -> str:
-    return f"{icon} _{message}_"
-
-
 # ==============================================================================
 # TOMBOL & DROPDOWN
 # ==============================================================================
@@ -332,26 +328,6 @@ async def edit_panel(
     if embed is None:
         embed = fallback_embed(None, "Panel tidak dapat ditampilkan")
     await interaction.response.edit_message(embed=embed, view=None)
-    return False
-
-
-async def follow_panel(
-    interaction: discord.Interaction,
-    view: ui.LayoutView,
-    *,
-    embed: discord.Embed | None = None,
-    ephemeral: bool = True,
-) -> bool:
-    """Seperti `send_panel` tetapi lewat `followup` (setelah `defer`)."""
-    try:
-        await interaction.followup.send(view=view, ephemeral=ephemeral)
-        return True
-    except (discord.HTTPException, TypeError, ValueError) as exc:
-        logger.warning("Followup panel V2 ditolak (%s) — memakai embed klasik.", exc)
-
-    if embed is None:
-        embed = fallback_embed(None, "Panel tidak dapat ditampilkan")
-    await interaction.followup.send(embed=embed, ephemeral=ephemeral)
     return False
 
 

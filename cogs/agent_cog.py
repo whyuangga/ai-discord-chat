@@ -225,8 +225,6 @@ async def agent_panel_cmd(interaction: discord.Interaction):
     elif isinstance(interaction.channel, discord.Thread) and interaction.channel.parent_id:
         default_cid = interaction.channel.parent_id
 
-    import ui_kit
-
     # Panel V2 (kartu + tombol toggle berwarna); otomatis mundur ke panel klasik bila ditolak
     try:
         await interaction.response.send_message(

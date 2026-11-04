@@ -264,11 +264,6 @@ def rekap_message_limit() -> int:
     return max(20, int(REKAP_MAX_MESSAGES))
 
 
-def reset_usage(*, day: str | None = None) -> dict:
-    """Menghapus catatan pemakaian satu hari (default hari ini)."""
-    return ai_usage.pop(day or today_key(), None) or _empty_bucket()
-
-
 def reset_all_usage() -> int:
     """Menghapus seluruh catatan pemakaian. Mengembalikan jumlah hari yang dihapus."""
     count = len(ai_usage)
@@ -516,16 +511,3 @@ def build_faq_list_embed(
     return embed
 
 
-async def send_usage_to_log(bot, embed: discord.Embed, channel_id: int) -> bool:
-    """(Opsional) mengirim laporan pemakaian ke channel tertentu."""
-    channel = None
-    get_channel = getattr(bot, "get_channel", None)
-    if callable(get_channel) and channel_id:
-        channel = get_channel(int(channel_id))
-    if channel is None:
-        return False
-    try:
-        await channel.send(embed=embed)
-        return True
-    except (discord.Forbidden, discord.HTTPException):  # pragma: no cover
-        return False

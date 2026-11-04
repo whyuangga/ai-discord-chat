@@ -612,13 +612,21 @@ aksen, baris status, badge ON/OFF, dan navigasi tab — **tanpa kuota AI sama se
 - **`/panel buka`** — **Control Center**. Satu pesan berisi kartu status + dropdown untuk berpindah tab:
   `🏠 Ringkasan`, `🤖 AI Agent`, `🛠️ Server`, `🧩 Komunitas`, `🎵 Musik`, `📊 Kuota & Level`.
   Tombol **🔄 Segarkan**, **🎨 Tampilan**, dan **🚪 Tutup** selalu tersedia.
-- **`/tampilan atur`** *(Admin)* — editor branding server: **warna aksen** (8 pilihan: ungu, biru, teal,
-  hijau, oranye, merah, pink, abu-abu), **gaya emoji** (standar/minimalis), **kepadatan** informasi,
-  **thumbnail**, **gaya navigasi** (dropdown atau baris tombol), **interval refresh** panel musik,
-  serta toggle **footer** dan **dialog konfirmasi**.
+- **`/tampilan atur`** *(Admin)* — editor branding server. Semua pilihan **langsung berefek**:
+  - **warna aksen** (8 pilihan: ungu, biru, teal, hijau, oranye, merah, pink, abu-abu) → warna kartu V2,
+    warna embed cadangan, dan emoji aksen di footer;
+  - **gaya emoji** (standar/minimalis) → seluruh ikon panel;
+  - **kepadatan** → *ringkas* menyembunyikan baris penjelas (`>`), *nyaman* menampilkan semuanya;
+  - **thumbnail** → ikon server tampil sebagai `Section` + `Thumbnail` di kepala dashboard;
+  - **gaya navigasi** → dropdown atau baris tombol tab;
+  - **interval refresh panel musik** → 10 / 20 / 30 / 60 detik (watcher berdetak tiap 10 detik, jadi
+    10 detik adalah resolusi paling segar dan menghemat rate limit Discord);
+  - toggle **footer** dan **dialog konfirmasi** untuk aksi merusak.
 - **`/tampilan pratinjau`** — lihat dashboard dengan tema yang sedang aktif sebelum disimpan rapi.
 - **`/tampilan reset`** — kembalikan semua tampilan ke bawaan bot (memakai dialog konfirmasi).
 - **`/pemakaian lihat`** — kini tampil sebagai kartu V2 dengan **progress bar** efisiensi cache.
+- Tema disimpan **per server**; bila sebuah pilihan tidak diubah, bot memakai default
+  (ungu • emoji standar • ringkas • thumbnail ikon • footer aktif • konfirmasi aktif • refresh 10 detik).
 
 #### Panel lain yang sudah memakai Components V2
 
@@ -1016,6 +1024,9 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `ENABLE_IMAGE_FALLBACK` | Opsional | `true` | Mengaktifkan generator gambar gratis Flux. |
 | `MAX_HISTORY_MESSAGES` | Opsional | `30` | Jumlah riwayat pesan terakhir yang diingat per ruang chat privat. |
 | `MAX_THREADS_PER_USER` | Opsional | `3` | Maksimal ruang privat aktif yang boleh dibuka bersamaan oleh 1 member. |
+| `MAX_CONCURRENT_MEDIA_TASKS` | Opsional | `2` | Batas tugas media (unduh/unggah gambar, video, Voice Note) yang berjalan bersamaan — kecilkan bila RAM host terbatas. |
+| `AGENT_HISTORY_MESSAGES` | Opsional | `20` | Jumlah pesan terakhir yang dibaca AI Agent sebagai konteks percakapan. |
+| `AGENT_MAX_IDLE_POKES` | Opsional | `1` | Batas berapa kali AI Agent boleh memecah kesunyian sebelum menunggu balasan warga. |
 | `BOT_TIMEZONE` | Opsional | `Asia/Jakarta` | Zona waktu default (`Asia/Jakarta`, `Asia/Makassar`, atau `Asia/Jayapura`). |
 | `AGENT_DEFAULT_IDLE_MINUTES` | Opsional | `30` | Durasi hening default (menit) sebelum AI Agent memecah kesunyian. |
 | `SESSION_EXPIRE_DAYS` | Opsional | `7` | Otomatis membersihkan data sesi privat yang sudah menganggur lebih dari N hari (`0` = nonaktif). |

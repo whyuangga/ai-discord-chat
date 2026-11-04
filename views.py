@@ -2794,7 +2794,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ AI, Server & Hiburan (33 Menu Utama)",
+            name="⚡ AI, Server & Hiburan (30 Menu Utama)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"

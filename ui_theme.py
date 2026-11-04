@@ -60,9 +60,10 @@ NAV_STYLES: dict[str, dict] = {
     "tombol": {"label": "Tombol baris", "emoji": "🔘"},
 }
 
+# Watcher panel musik berdetak tiap 10 detik → 10 detik adalah resolusi paling segar.
 REFRESH_CHOICES: dict[int, str] = {
-    5: "5 detik (paling segar)",
-    10: "10 detik (seimbang)",
+    10: "10 detik (paling segar)",
+    20: "20 detik (seimbang)",
     30: "30 detik (hemat)",
     60: "60 detik (paling hemat)",
 }
@@ -281,7 +282,8 @@ def footer_text(guild_id: int | None, extra: str = "") -> str | None:
     theme = get_theme(guild_id)
     if not theme["footer"]:
         return extra or None
-    base = f"Gemini AI v{BOT_VERSION} • {ACCENTS[theme['accent']]['label']}"
+    acc = ACCENTS[theme["accent"]]
+    base = f"{acc['emoji']} Gemini AI v{BOT_VERSION} • {acc['label']}"
     return f"{base} • {extra}" if extra else base
 
 
