@@ -1,6 +1,8 @@
 import sys
+
 import discord
 
+import insights
 from utils import check_user_cooldown
 
 
@@ -43,16 +45,35 @@ async def enforce_member_cooldown(
     bucket: str,
     cooldown_sec: int | None = None,
 ) -> bool:
-    """Memastikan member mematuhi jeda wajar antar pemakaian fitur berat (Admin bebas jeda)."""
+    """Memastikan member mematuhi jeda wajar antar pemakaian fitur berat.
+
+    Admin server **bebas** dari jeda maupun batas harian AI agar tetap bisa mengurus server.
+    """
+    is_admin = is_interaction_admin(interaction)
     rem = check_user_cooldown(
         interaction.user.id,
         bucket,
         cooldown_sec,
-        is_admin=is_interaction_admin(interaction),
+        is_admin=is_admin,
     )
     if rem > 0:
         await interaction.response.send_message(
             f"⏳ Mohon tunggu **{rem} detik** lagi sebelum memakai fitur ini kembali *(proteksi kuota Free Tier)*.",
+            ephemeral=True,
+        )
+        return False
+
+    if is_admin:
+        return True
+
+    allowed, used, cap = insights.check_daily_cap(interaction.user.id)
+    if not allowed:
+        await interaction.response.send_message(
+            f"🛑 Batas harian fitur AI tercapai: **{used}/{cap}** operasi per member per hari "
+            f"*(menjaga kuota Free Tier tetap aman)*.\n"
+            f"• Pakai **`/faq tanya`** untuk info server — **0 kuota**\n"
+            f"• Pakai **`/ringkas channel`** berulang — hasil dalam cache **0 kuota**\n"
+            f"• Coba lagi besok, atau minta Admin memperbesar `AI_DAILY_CAP_PER_USER`.",
             ephemeral=True,
         )
         return False

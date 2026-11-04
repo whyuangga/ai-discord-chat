@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.7.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.11.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -7,6 +7,10 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
+7. **🎉 Fitur Keramaian Server Tanpa Kuota AI (Tier 2A)** — **`/giveaway`** undian berhadiah bertombol yang tahan restart, **`/ultah`** daftar & ucapan ulang tahun otomatis tiap hari, **`/jawab-otomatis`** balasan kata kunci per channel dengan jeda aman, dan **`/pengumuman`** pengumuman terjadwal (harian / mingguan / sekali). Semua **0 request Gemini**, data lokal di `data/engagement.json`, dan **default NONAKTIF** sampai Admin menyalakannya.
+8. **🚨 Anti-Spam & Anti-Raid Ringan (Tier 2B)** — `/keamanan spam` mendeteksi **banjir pesan**, **pesan berulang**, **mention massal**, **link beruntun**, dan **HURUF KAPITAL** (opsional). Mode bawaan **`lapor`** (hanya mencatat ke channel log, **tidak menghapus apa pun**), bisa dinaikkan ke `hapus` atau `timeout`. **Admin, pengurus, bot, & role pengecualian tidak pernah diperiksa**, dan lonjakan member join (raid) hanya **diperingatkan** — bot tidak pernah menendang/ban otomatis. 0 kuota Gemini, data di `data/antispam.json`.
+9. **📈 Level & 🎟️ Tiket Dukungan (Tier 2C)** — **`/level`** memberi XP tiap pesan dengan **jeda anti-farming** (default 60 dtk), **kartu level + progress bar**, **papan peringkat**, dan **role hadiah otomatis** per level. **`/tiket`** membuat **private thread** bantuan (tidak memakai slot channel) lengkap dengan tombol **🙋 Klaim** & **🔒 Tutup**, batas tiket per member, dan **transkrip `.txt` otomatis** ke channel log. Keduanya **0 kuota Gemini**, default NONAKTIF, data di `data/levels.json` & `data/tickets.json`.
+10. **📊 Hemat Kuota AI (Tier 3)** — **`/pemakaian`** melaporkan berapa operasi AI hari ini (per jenis, member teraktif, channel tersibuk) berikut trennya; **`/ringkas channel`** membuat rekap obrolan per periode yang **disimpan 30 menit** sehingga permintaan berulang **0 kuota**; dan **`/faq`** menjawab pertanyaan info server secara **lokal tanpa memanggil Gemini sama sekali**. Ada juga batas harian opsional **`AI_DAILY_CAP_PER_USER`**. Data di `data/ai_usage.json` (auto-dipangkas 7 hari).
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -20,6 +24,10 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
    - [E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI](#e-fitur-komunitas-ringan--gratis-tanpa-kuota-ai)
    - [F. Streaming Musik 24/7 (`/musik` + Lavalink)](#f-streaming-musik-247-musik--lavalink)
+   - [G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman](#g-fitur-keramaian-server--giveaway-ultah-auto-responder--pengumuman)
+   - [H. Anti-Spam & Anti-Raid Ringan (`/keamanan spam`)](#h-anti-spam--anti-raid-ringan-keamanan-spam)
+   - [I. Level & XP serta Tiket Dukungan (`/level`, `/tiket`)](#i-level--xp-serta-tiket-dukungan-level-tiket)
+   - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
@@ -351,6 +359,216 @@ Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan pand
 
 ---
 
+### G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman
+
+> 💡 **Empat fitur ini benar-benar 0 kuota Gemini.** Tidak ada satu pun permintaan AI, semuanya
+> berjalan lokal memakai `data/engagement.json`. Cocok untuk server yang kuota AI-nya ingin
+> dihemat untuk obrolan & ringkasan saja.
+
+#### 1. Giveaway (`/giveaway`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/giveaway mulai hadiah:<teks> durasi:2jam pemenang:3`** | Pasang giveaway + tombol **🎉 Ikuti Giveaway** (peserta otomatis dicatat). |
+| **`/giveaway mulai ... syarat_role:@Booster`** | Batasi peserta hanya pemilik role tertentu. |
+| **`/giveaway akhiri id_pesan:<ID>`** | Tutup lebih awal & umumkan pemenang. ID pesan dikirim saat giveaway dibuat. |
+| **`/giveaway reroll id_pesan:<ID>`** | Undi ulang dari peserta yang belum pernah menang. |
+| **`/giveaway daftar`** | Giveaway yang masih berjalan + riwayat pemenang terakhir. |
+
+- **Format durasi fleksibel:** `30m`, `2 jam`, `1j30m`, `2 hari`, `45` (menit). Minimal 1 menit.
+- **Tahan restart:** tombol memakai `custom_id` persisten, jadi peserta tetap bisa klik setelah bot restart.
+- Satu akun = satu peluang (klik berulang tidak menambah peluang); peserta bisa membatalkan sendiri.
+- Giveaway yang waktunya habis ditutup otomatis oleh loop latar belakang (maksimal ±15 detik setelah waktunya).
+
+#### 2. Ulang Tahun (`/ultah`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/ultah set tanggal:12-08`** | Daftarkan/perbarui tanggal lahir. Menerima `12-08`, `12/8/2000`, `12 Agustus 1999`, `1 Januari`. |
+| **`/ultah daftar bulan:8`** | Lihat daftar ulang tahun member (opsional filter satu bulan). |
+| **`/ultah hapus`** | Hapus data sendiri kapan saja. |
+| **`/ultah atur channel:#umum jam:08:00`** *(Admin)* | Channel & jam ucapan otomatis. Kosongkan `channel` untuk mematikan. |
+
+- Yang disimpan hanya **tanggal & bulan** (tahun opsional untuk menghitung umur). Tidak ada data lain.
+- Ucapan dikirim **sekali per hari** pada jam yang diatur, mengikuti zona waktu server (`/agent` persona/timezone).
+
+#### 3. Balasan Otomatis (`/jawab-otomatis`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/jawab-otomatis tambah pemicu:cara daftar balasan:Ketik /verifikasi`** | Bot menjawab saat kata kunci muncul. |
+| **`/jawab-otomatis tambah pemicu:ping balasan:pong persis:True`** | Hanya menanggapi bila pesannya **sama persis**. |
+| **`/jawab-otomatis daftar`** / **`hapus pemicu:...`** | Lihat & hapus aturan di channel tersebut. |
+| **`/jawab-otomatis atur aktif:False jeda:30`** | Jeda/matikan tanpa menghapus aturan. |
+
+- **Aman untuk obrolan:** hanya aktif di channel yang dipilih Admin, minimal pemicu 3 karakter,
+  dan ada **jeda aman** (default 20 detik) agar bot tidak pernah membanjiri channel.
+- Maksimal `AUTO_REPLY_MAX_RULES` (default 25) aturan per channel.
+
+#### 4. Pengumuman Terjadwal (`/pengumuman`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/pengumuman tambah isi:... jadwal:08:00`** | Setiap hari pukul 08:00 (waktu server). |
+| **`/pengumuman tambah isi:... jadwal:senin 19:00`** | Setiap minggu (nama hari Indonesia). |
+| **`/pengumuman tambah isi:... jadwal:sekali 31-12-2026 23:59`** | Satu kali saja, lalu otomatis nonaktif. |
+| **`/pengumuman daftar`** / **`hapus id:3`** / **`atur id:3 aktif:False`** | Kelola jadwal tanpa menghapus isi. |
+
+- Format jadwal ringkas: `08:00`, `harian 20:30`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.
+- Batas `ANNOUNCEMENT_MAX_PER_GUILD` (default 15) pengumuman per server.
+
+---
+
+### H. Anti-Spam & Anti-Raid Ringan (`/keamanan spam`)
+
+> 🕊️ **Filosofi fitur ini: "lapor dulu, tindak belakangan".** Banyak bot moderasi merusak obrolan
+> karena terlalu cepat menghapus atau menendang. Di sini **mode bawaan hanya melapor** ke channel log,
+> dan seluruh staf selalu dikecualikan.
+
+#### 1. Command
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/keamanan spam aktif:True`** | Nyalakan penjaga dalam **mode lapor** (aman, tanpa tindakan). |
+| **`/keamanan spam mode:hapus log_channel:#mod-log`** | Hapus pesan spam + catat ke channel log. |
+| **`/keamanan spam mode:timeout timeout_detik:600`** | Hapus + time-out member sementara (maks 1 hari). |
+| **`/keamanan spam ambang_banjir:8 jendela:15`** | Sesuaikan sensitivitas flood. |
+| **`/keamanan spam mention_maks:10 link_maks:5`** | Sesuaikan batas mention & link. |
+| **`/keamanan spam kapital:True`** | Ikut menindak HURUF KAPITAL berlebihan (default nonaktif). |
+| **`/keamanan spam kecualikan_channel:#ngobrol kecualikan_role:@Staf`** | Pengecualian permanen. |
+| **`/keamanan spam-status`** | Lihat ambang, pengecualian, mode, & jumlah tindakan. |
+| **`/keamanan spam aktif:False`** | Matikan total kapan saja. |
+
+#### 2. Yang dideteksi
+
+| Pemicu | Ambang bawaan | Catatan |
+| :--- | :--- | :--- |
+| 🌊 **Banjir pesan** | 6 pesan / 10 detik | Per member per channel; tidak pernah lintas channel. |
+| 🔁 **Pesan berulang** | isi sama 3x / 30 detik | Link dinormalisasi agar tidak lolos dengan variasi URL. |
+| 📣 **Mention massal** | 6 mention dalam 1 pesan | Deteksi paling cepat & paling aman. |
+| 🔗 **Link beruntun** | 4 link dalam 1 pesan, atau link sama 3x / 60 detik | Berguna untuk spam iklan. |
+| 🔠 **Huruf kapital** | ≥70% kapital & ≥20 karakter | **Default NONAKTIF** (sering salah tuduh). |
+| 🚨 **Raid (join)** | 8 join / 60 detik | **Hanya peringatan** ke channel log + saran tindakan. |
+
+#### 3. Pengamanan bawaan
+
+- **Staf aman:** pemilik `Administrator`, `Manage Messages`, atau `Manage Guild` **tidak pernah** diperiksa.
+- **Bot aman:** seluruh pesan bot lain diabaikan.
+- **Satu laporan / 2 menit per member** agar channel log tidak dibanjiri (raid: 1 laporan / 4 menit).
+- **Tidak ada ban otomatis.** Time-out hanya bila Admin memilih `mode:timeout`, maksimal 1 hari.
+- **Tanpa AI & tanpa API eksternal** → 0 kuota Gemini, tetap ringan (state runtime dibersihkan tiap jam).
+
+---
+
+### I. Level & XP serta Tiket Dukungan (`/level`, `/tiket`)
+
+> 🧩 Kedua fitur ini **retensi + pelayanan**: membuat warga betah (level & papan peringkat) dan
+> membuat staf rapi menangani bantuan (tiket thread). **Tanpa AI, tanpa database eksternal.**
+
+#### 1. Leveling & XP (`/level`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/level lihat [member]`** | Kartu level + progress bar `▰▰▰▱▱`, total XP, & jumlah pesan. |
+| **`/level papan halaman:1`** | Papan peringkat 10 besar (🥇🥈🥉) + total member terdata. |
+| **`/level atur aktif:True jeda:60 xp_minimal:15 xp_maksimal:25`** *(Admin)* | Nyalakan & atur XP. |
+| **`/level atur pengumuman:False channel_pengumuman:#level`** | Atur pengumuman naik level. |
+| **`/level atur abaikan_channel:#spam abaikan_role:@Bot`** | Kecualikan channel/role dari XP. |
+| **`/level role level:5 role:@Aktif`** *(Admin)* | Hadiah role otomatis saat mencapai level 5. |
+| **`/level role level:5`** *(tanpa role)* | Hapus hadiah level tersebut. |
+| **`/level status`** | Statistik: member terdata, XP tertinggi, total level-up, peta hadiah. |
+| **`/level atur aktif:False`** | Matikan (data XP tetap tersimpan). |
+
+**Rumus & batas:**
+- XP per pesan acak `LEVELS_XP_MIN`–`LEVELS_XP_MAX` (default **15–25**), dengan **jeda `LEVELS_COOLDOWN_SEC`** (default **60 detik**) per member → tidak bisa di-*farming*.
+- Kebutuhan XP level: `5·L² + 50·L + 100` (level 0→1 = 100 XP, 1→2 = 155 XP, 5→6 = 475 XP).
+- Data per member hanya `xp`, `level`, `messages`, & waktu terakhir; disimpan **maksimal 500 member teratas per server** (`LEVELS_MAX_MEMBERS`) agar JSON tetap kecil.
+
+#### 2. Tiket Dukungan (`/tiket`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/tiket panel channel:#bantuan staff_role:@Staf log_channel:#log-tiket max_open:2`** *(Admin)* | Pasang panel **🎟️ Buat Tiket**. |
+| **`/tiket status`** | Konfigurasi, statistik, & daftar tiket aktif. |
+| **`/tiket daftar [hanya_milikku:True]`** | Tiket yang masih terbuka/ditangani. |
+| **`/tiket tambah member:@X`** | *(Staf)* Tambahkan pihak lain ke thread tiket. |
+| **`/tiket tutup`** | Tutup tiket (pembuat atau staf) + kirim transkrip. |
+| **`/tiket matikan`** *(Admin)* | Matikan sistem tiket (thread lama tetap bisa dibaca). |
+
+**Cara kerja:**
+1. Member klik **🎟️ Buat Tiket** → bot membuat **private thread** `tiket-<nama>` (bukan channel baru → tidak memakan slot 500 channel/server).
+2. Pembuat tiket otomatis ditambahkan, lalu **maksimal 15 staf** dari role petugas ikut ditambahkan; sisanya bisa lewat `/tiket tambah`.
+3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
+4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
+5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
+
+---
+
+### J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal
+
+> 💡 Free Tier Gemini punya batas harian. Tiga fitur ini membuat bot **tetap pintar tanpa boros kuota**:
+> rekap yang **di-cache**, FAQ yang dijawab **tanpa AI**, dan laporan pemakaian agar Admin tahu siapa/apa yang paling banyak memakai.
+
+#### 1. Pantau Pemakaian (`/pemakaian`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/pemakaian lihat`** | Operasi AI **hari ini**: total, rincian per jenis (`Chat`, `Cari`, `Rekap`, `Auto-Chat`, `Galeri`, `Transform`, `Fakta`), 5 member teraktif, & channel tersibuk. |
+| **`/pemakaian tren hari:7`** | Tren harian: total operasi vs **cache hit** (yang menghemat kuota). |
+| **`/pemakaian status`** | Ringkasan penghematan: jumlah cache hit, batas harian per member, TTL cache rekap, & jumlah entri FAQ lokal. |
+| **`/pemakaian reset`** *(Admin)* | Bersihkan catatan pemakaian hari ini. |
+
+**Yang dicatat:** hanya operasi yang **benar-benar memanggil Gemini**. `/faq tanya`, cache hit `/ringkas channel`,
+dan seluruh perintah non-AI **tidak** dihitung sebagai pemakaian (justru tercatat sebagai `cache hit` → bukti penghematan).
+
+#### 2. Rekap Channel Ber-cache (`/ringkas channel`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/ringkas channel periode:6 jam terakhir`** | Rekap obrolan channel/thread per rentang waktu (1 jam → 7 hari). |
+| **`/ringkas channel periode:24 jam terakhir paksa:True`** | Abaikan cache & buat rekap **baru** (memakai 1 panggilan AI). |
+| **`/ringkas channel ... publik:True`** | Tampilkan hasil rekap ke channel, bukan hanya ke peminta. |
+
+**Cara kerja cache:**
+1. Hasil rekap disimpan **`REKAP_CACHE_TTL_SEC`** (default **1800 detik / 30 menit**) per pasangan **channel + periode**.
+2. Permintaan berulang untuk channel & periode yang sama dalam 30 menit → **0 kuota** (diambil dari cache, embed diberi label `♻️`).
+3. Maksimal `REKAP_MAX_MESSAGES` (default **400**) pesan dianalisis agar token tetap hemat.
+
+#### 3. FAQ Server Lokal (`/faq`) — 0 Kuota
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/faq tanya pertanyaan:cara verifikasi?`** | Jawaban dicari **lokal** (pencocokan kata kunci) dari basis FAQ server — **tanpa memanggil AI**. |
+| **`/faq daftar`** | Semua entri FAQ/Info server + jumlah kuota yang dihemat. |
+| **`/faq tambah topik:Cara verifikasi isi:Klik tombol ✅ di #verifikasi`** *(Admin)* | Tambah/perbarui entri FAQ. |
+| **`/faq hapus target:2`** *(Admin)* | Hapus entri berdasarkan nomor urut (`/faq daftar`) atau nama topik. |
+
+**Dua manfaat satu entri:** entri FAQ dipakai `/faq tanya` (0 kuota) **dan** otomatis ikut sebagai konteks resmi
+saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info server.
+
+**Batas maksimal:** `MAX_SERVER_KNOWLEDGE_ENTRIES` (default **25 entri** per server) agar prompt tetap kecil & hemat token.
+
+#### 4. Batas Harian AI per Member (opsional)
+
+- `AI_DAILY_CAP_PER_USER=0` → **tanpa batas** (bawaan).
+- `AI_DAILY_CAP_PER_USER=20` → tiap member maksimal **20 operasi AI per hari** pada perintah AI berbasis slash
+  (`/cari`, `/ringkas link`, `/ringkas chat`, `/ringkas channel`, cek fakta, terjemah, dll.); setelah itu bot
+  menyarankan `/faq tanya` & cache rekap. Obrolan AI di ruang privat `/sesi` & Auto-Chat tetap berjalan
+  (tetap tercatat di `/pemakaian`).
+- **Admin server bebas** dari jeda antar-perintah **dan** batas harian ini (agar tetap bisa mengurus server);
+  member & staf biasa tetap dibatasi.
+- Data disimpan di `data/ai_usage.json` dan otomatis **dipangkas** menyisakan `AI_USAGE_KEEP_DAYS` (default **7 hari**).
+
+#### 5. Urutan Paling Hemat Kuota
+
+1. **`/faq tanya`** → 0 kuota (info server, aturan, jam event, dsb).
+2. **`/ringkas channel`** berulang → 0 kuota (cache 30 menit).
+3. **`/cari`** & **`/ringkas link`** → 1 panggilan per permintaan.
+4. **Obrolan AI** (`/sesi`, Auto-Chat) → paling mahal, pakai saat memang perlu kreativitas/penalaran.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -494,6 +712,14 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Matikan Voice Channel Statistik Server** | `/serverstats otomatis aktif:False` |
 | **Matikan Auto Role** | `/autorole atur role:@Member aktif:False` |
 | **Matikan Anti-Phishing Guard** | `/keamanan phising aktif:False` |
+| **Matikan Anti-Spam/Anti-Raid** | `/keamanan spam aktif:False` |
+| **Ganti Anti-Spam ke mode paling longgar** | `/keamanan spam mode:lapor` (hanya mencatat, tanpa tindakan) |
+| **Matikan leveling (data tetap aman)** | `/level atur aktif:False` |
+| **Matikan sistem tiket** | `/tiket matikan` |
+| **Matikan batas harian AI per member** | Kosongkan/isi `AI_DAILY_CAP_PER_USER=0` lalu restart |
+| **Matikan cache rekap channel** *(setiap rekap memakai kuota)* | `REKAP_CACHE_TTL_SEC=0` lalu restart |
+| **Kosongkan cache rekap sekarang** | `/pemakaian reset cache_rekap:True` |
+| **Matikan FAQ lokal (jawaban tanpa AI)** | `/faq hapus target:<nomor>` untuk tiap entri |
 | **Matikan Starboard (sorotan pesan)** | `/starboard atur aktif:False` |
 | **Matikan Gerbang Verifikasi** | `/verifikasi matikan` |
 | **Lepas Sticky Message** di suatu channel | `/sticky lepas channel:#umum` |
@@ -517,7 +743,7 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 
 ## 📋 Daftar Lengkap Command & Tombol
 
-Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (hemat kuota batas command global Discord & siap dikembangkan ke modul *All-in-One* berikutnya):
+Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas** (hemat kuota batas command global Discord & siap dikembangkan ke modul *All-in-One* berikutnya):
 
 ### 1. Menu Tekan-Tahan Pesan / Klik Kanan (*Apps*)
 | Menu Apps | Akses | Keterangan |
@@ -571,6 +797,10 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/fakta atur` | `channel`, `aktif`, `jadwal` | *(Admin)* Atur jadwal **multi-slot** 3–4 Fakta Unik Dunia (default `08:00,12:00,16:00,20:00`, maks 6 slot/hari). |
 | `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga (tanpa mengubah jadwal). |
 | `/fakta status` | — | Lihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini. |
+| `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Anti-Phishing Guard: hapus link berbahaya + peringatan + log. |
+| `/keamanan cek` | `link` | Periksa keamanan sebuah link (semua member). |
+| `/keamanan spam` | `aktif`, `mode`, `log_channel`, `ambang_banjir`, `jendela`, `mention_maks`, `link_maks`, `kapital`, `timeout_detik`, `kecualikan_channel`, `kecualikan_role` | *(Admin)* Anti-spam & anti-raid, **mode bawaan `lapor`** (tanpa menghapus apa pun). |
+| `/keamanan spam-status` | — | Lihat ambang deteksi, pengecualian, & statistik penjaga spam. |
 
 ### 5. Slash Commands Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)
 
@@ -615,8 +845,57 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/musik hentikan` | — | Stop, kosongkan antrean, & keluar dari voice. |
 | `/musik pengaturan` | `pengumuman`, `role_dj`, `volume_default` | *(Admin)* Pengumuman Now Playing, role DJ, volume default. |
 | `/musik status` | — | Kesehatan node Lavalink & status pemutaran. |
-| `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
-| `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
+
+### 7. Slash Commands Keramaian Server (`/giveaway`, `/ultah`, `/jawab-otomatis`, `/pengumuman`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/giveaway mulai` | `hadiah`, `durasi`, `pemenang`, `channel`, `syarat_role` | *(Admin)* Pasang giveaway + tombol **🎉 Ikuti Giveaway**. |
+| `/giveaway akhiri` | `id_pesan` | *(Admin)* Tutup lebih awal & umumkan pemenang. |
+| `/giveaway reroll` | `id_pesan` | *(Admin)* Undi ulang dari peserta yang belum pernah menang. |
+| `/giveaway daftar` | — | Giveaway berjalan + riwayat pemenang. |
+| `/ultah set` | `tanggal` | Daftarkan tanggal lahir (`12-08`, `12/8/2000`, `12 Agustus`). |
+| `/ultah hapus` | — | Hapus data ulang tahun sendiri. |
+| `/ultah daftar` | `bulan` | Daftar ulang tahun member server. |
+| `/ultah atur` | `channel`, `jam` | *(Admin)* Channel & jam ucapan otomatis (kosongkan `channel` = mati). |
+| `/jawab-otomatis tambah` | `pemicu`, `balasan`, `persis`, `channel` | *(Admin)* Tambah aturan balasan kata kunci. |
+| `/jawab-otomatis hapus` | `pemicu`, `channel` | *(Admin)* Hapus satu aturan. |
+| `/jawab-otomatis daftar` | `channel` | Lihat aturan yang aktif + jeda aman. |
+| `/jawab-otomatis atur` | `channel`, `aktif`, `jeda` | *(Admin)* Aktifkan/nonaktifkan & atur jeda (0–300 detik). |
+| `/pengumuman tambah` | `isi`, `jadwal`, `judul`, `channel` | *(Admin)* Jadwalkan pengumuman (harian / mingguan / sekali). |
+| `/pengumuman daftar` | — | Lihat seluruh jadwal & kiriman berikutnya. |
+| `/pengumuman hapus` | `id` | *(Admin)* Hapus pengumuman terjadwal. |
+| `/pengumuman atur` | `id`, `aktif` | *(Admin)* Jeda atau aktifkan lagi tanpa menghapus. |
+
+### 8. Slash Commands Level & Tiket (`/level`, `/tiket`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/level lihat` | `member` | Kartu level + progress bar XP. |
+| `/level papan` | `halaman` | Papan peringkat 10 besar server. |
+| `/level atur` | `aktif`, `pengumuman`, `channel_pengumuman`, `jeda`, `xp_minimal`, `xp_maksimal`, `abaikan_channel`, `abaikan_role` | *(Admin)* Konfigurasi leveling. |
+| `/level role` | `level`, `role` | *(Admin)* Hadiah role otomatis per level. |
+| `/level status` | — | Statistik & konfigurasi leveling. |
+| `/tiket panel` | `channel`, `staff_role`, `log_channel`, `max_open` | *(Admin)* Pasang panel **🎟️ Buat Tiket**. |
+| `/tiket status` | — | Konfigurasi, statistik, & tiket aktif. |
+| `/tiket daftar` | `hanya_milikku` | Daftar tiket aktif. |
+| `/tiket tambah` | `member` | *(Staf)* Tambah member ke thread tiket. |
+| `/tiket tutup` | — | Tutup tiket + kirim transkrip. |
+| `/tiket matikan` | — | *(Admin)* Matikan sistem tiket. |
+
+### 9. Slash Commands Hemat Kuota AI (`/pemakaian`, `/ringkas channel`, `/faq`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/pemakaian lihat` | — | Pemakaian AI hari ini (per jenis, member teraktif, channel tersibuk). |
+| `/pemakaian tren` | `hari` | Tren harian total operasi vs cache hit. |
+| `/pemakaian status` | — | Ringkasan penghematan: cache hit, batas harian, TTL cache, entri FAQ. |
+| `/pemakaian reset` | `cache_rekap` | *(Admin)* Bersihkan catatan pemakaian & cache rekap. |
+| `/ringkas channel` | `periode`, `paksa`, `publik` | Rekap obrolan per periode (cache 30 menit = 0 kuota). |
+| `/faq tanya` | `pertanyaan` | Jawaban lokal dari FAQ server — **0 kuota**. |
+| `/faq daftar` | — | Daftar seluruh entri FAQ server. |
+| `/faq tambah` | `topik`, `isi` | *(Admin)* Tambah/perbarui entri FAQ. |
+| `/faq hapus` | `target` | *(Admin)* Hapus entri FAQ (nomor urut atau topik). |
 
 ---
 
@@ -662,7 +941,29 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `MUSIC_DEFAULT_VOLUME` | Opsional | `60` | Volume default saat bot bergabung ke voice (`1`–`150`). |
 | `MUSIC_MAX_QUEUE` | Opsional | `50` | Batas jumlah lagu dalam antrean (menjaga RAM tetap kecil). |
 | `MUSIC_IDLE_DISCONNECT_SEC` | Opsional | `300` | Keluar otomatis dari voice setelah sekian detik tanpa lagu. |
-
+| `AUTO_REPLY_MAX_RULES` | Opsional | `25` | Batas aturan `/jawab-otomatis` per channel. |
+| `AUTO_REPLY_COOLDOWN_SEC` | Opsional | `20` | Jeda aman antar-balasan otomatis (detik) agar channel tidak dibanjiri. |
+| `ANNOUNCEMENT_MAX_PER_GUILD` | Opsional | `15` | Batas pengumuman terjadwal per server. |
+| `GIVEAWAY_HISTORY_MAX` | Opsional | `25` | Jumlah giveaway selesai yang tetap disimpan di `data/engagement.json`. |
+| `SPAM_FLOOD_COUNT` | Opsional | `6` | Jumlah pesan sebelum dianggap banjir (flood). |
+| `SPAM_FLOOD_WINDOW_SEC` | Opsional | `10` | Jendela waktu (detik) untuk menghitung flood. |
+| `SPAM_MENTION_LIMIT` | Opsional | `6` | Batas mention dalam satu pesan. |
+| `SPAM_LINK_LIMIT` | Opsional | `4` | Batas jumlah link dalam satu pesan. |
+| `SPAM_CAPS_MIN_LENGTH` | Opsional | `20` | Panjang minimum pesan sebelum HURUF KAPITAL diperiksa. |
+| `SPAM_TIMEOUT_SEC` | Opsional | `300` | Durasi time-out mode `timeout` (maks 86400). |
+| `SPAM_RAID_JOIN_COUNT` | Opsional | `8` | Jumlah join pemicu peringatan raid. |
+| `SPAM_RAID_WINDOW_SEC` | Opsional | `60` | Jendela waktu (detik) deteksi raid. |
+| `LEVELS_XP_MIN` / `LEVELS_XP_MAX` | Opsional | `15` / `25` | Rentang XP acak per pesan. |
+| `LEVELS_COOLDOWN_SEC` | Opsional | `60` | Jeda minimum antar XP per member (anti-farming). |
+| `LEVELS_MAX_LEVEL` | Opsional | `100` | Batas atas level. |
+| `LEVELS_MAX_MEMBERS` | Opsional | `500` | Jumlah member teratas yang disimpan per server. |
+| `TICKET_MAX_OPEN_PER_USER` | Opsional | `2` | Batas tiket aktif per member. |
+| `TICKET_MAX_TRANSCRIPT_LINES` | Opsional | `400` | Jumlah baris pesan pada transkrip tiket. |
+| `TICKET_AUTO_CLOSE_HOURS` | Opsional | `0` | Tutup otomatis tiket menggantung setelah N jam (0 = nonaktif). |
+| `AI_DAILY_CAP_PER_USER` | Opsional | `0` | Batas operasi AI per member per hari (`0` = tanpa batas). |
+| `AI_USAGE_KEEP_DAYS` | Opsional | `7` | Berapa hari catatan `data/ai_usage.json` disimpan sebelum dipangkas. |
+| `REKAP_CACHE_TTL_SEC` | Opsional | `1800` | Umur cache `/ringkas channel` dalam detik (`0` = cache mati). |
+| `REKAP_MAX_MESSAGES` | Opsional | `400` | Maksimal pesan yang dianalisis saat membuat rekap berperiode. |
 ---
 
 ## 🔑 Persiapan di Discord Developer Portal
@@ -712,7 +1013,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.7.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.10.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/sesi panel`** di channel panel AI privat.
@@ -746,18 +1047,26 @@ ai-discord-chat/
 ├── main.py             # Entrypoint ringan (Wispbyte Startup File), sinkronisasi tree, & background loop
 ├── cogs/               # Modul fitur terpisah (siap ekspansi All-in-One)
 │   ├── session_cog.py  # Grup /sesi (panel, model, reset, tutup) & perute ruang privat ai-/draw-
-│   ├── tools_cog.py    # Grup /ringkas (chat & link), /cari, /bantuan, /status, & 3 Context Menus
+│   ├── tools_cog.py    # Grup /ringkas (chat, channel, link), /cari, /bantuan, /status, & 3 Context Menus
 │   ├── agent_cog.py    # Grup /agent (panel, status, chat, gallery, persona, welcome, digest, info, dll.)
 │   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
-│   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
+│   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing, Anti-Spam)
 │   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
 │   ├── music_cog.py    # Grup /musik (putar, cari, antrean berhalaman, seek, sebelumnya, filter, autoplay, DJ, panel)
+│   ├── engagement_cog.py # Grup /giveaway, /ultah, /jawab-otomatis, /pengumuman (tanpa kuota AI)
+│   ├── growth_cog.py   # Grup /level (XP, papan peringkat) & /tiket (tiket thread privat)
+│   ├── insights_cog.py # Grup /pemakaian (statistik kuota AI) & /faq (jawaban lokal 0 kuota)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
 ├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
 ├── music.py            # Klien Lavalink (wavelink), panel pemutar Rythm (progress bar, filter, autoplay), pengaturan per server
+├── engagement.py       # Giveaway, ulang tahun, auto-responder, & pengumuman terjadwal (0 kuota AI)
+├── antispam.py         # Penjaga anti-spam & anti-raid ringan (mode bawaan: lapor saja)
+├── levels.py           # Sistem level & XP + role hadiah (Rumus 5L²+50L+100)
+├── tickets.py          # Tiket dukungan berbasis private thread + transkrip .txt
+├── insights.py         # Pencatat pemakaian AI, cache rekap berperiode, & mesin FAQ lokal (0 kuota)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
@@ -768,7 +1077,7 @@ ai-discord-chat/
 ├── .env.example        # Template contoh pengisian variabel .env
 ├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 55 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 72 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---

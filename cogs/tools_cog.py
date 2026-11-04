@@ -16,6 +16,7 @@ from community_agent import (
     youtube_agent_channels,
 )
 from config import (
+    REKAP_CACHE_TTL_SEC,
     BOT_TIMEZONE,
     BOT_VERSION,
     ENABLE_GOOGLE_SEARCH,
@@ -36,6 +37,10 @@ from community_tools import (
     sticky_channels,
     verification_guilds,
 )
+from engagement import announcements, auto_reply_channels, birthdays, giveaways
+from levels import level_guilds as _level_guilds, levels as _levels
+from tickets import tickets as _tickets
+import insights
 from games import active_channel_games
 from music import get_player, music_status
 from storage import image_thread_settings, thread_chats
@@ -54,6 +59,15 @@ from cogs.helpers import (
     get_memory_usage_mb,
     resolve_public_feature_channel_id,
 )
+
+
+def _record_interaction_ai_use(interaction, kind: str) -> None:
+    """Mencatat pemakaian AI dari sebuah interaksi (aman bila atribut tidak lengkap)."""
+    insights.record_ai_usage(
+        kind,
+        user_id=getattr(getattr(interaction, "user", None), "id", 0) or 0,
+        channel_id=getattr(interaction, "channel_id", 0) or 0,
+    )
 
 
 ringkas_group = app_commands.Group(
@@ -160,12 +174,18 @@ async def ringkas_chat_cmd(
         return
 
     collected_lines.reverse()
+    insights.record_ai_usage(
+        "ringkas_chat",
+        user_id=getattr(getattr(interaction, "user", None), "id", 0) or 0,
+        channel_id=getattr(target, "id", 0) or 0,
+    )
     summary_text, err_msg = await ai_handler.summarize_channel_messages(
         collected_lines,
         target.name,
         timezone_name=tz_name,
         http_session=http_session,
     )
+    await insights.save_ai_usage_to_disk()
 
     if err_msg or not summary_text:
         await interaction.followup.send(err_msg or "⚠️ Gagal membuat ringkasan.", ephemeral=True)
@@ -178,6 +198,180 @@ async def ringkas_chat_cmd(
         timestamp=discord.utils.utcnow(),
     )
     embed.set_footer(text=f"Diminta oleh {interaction.user.display_name}")
+    await interaction.followup.send(embed=embed, ephemeral=not publik)
+
+
+@ringkas_group.command(
+    name="channel",
+    description="Rekap obrolan channel per periode (ber-cache, mengulang = 0 kuota AI)",
+)
+@app_commands.describe(
+    periode="Rentang waktu obrolan yang direkap",
+    paksa="True = abaikan cache dan buat rekap baru (memakai kuota AI)",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+@app_commands.choices(
+    periode=[
+        app_commands.Choice(name=f"{insights.period_label(hours)}", value=key)
+        for key, hours in insights.REKAP_PERIODS.items()
+    ]
+)
+async def ringkas_channel_cmd(
+    interaction: discord.Interaction,
+    periode: app_commands.Choice[str] | None = None,
+    paksa: bool = False,
+    publik: bool = False,
+):
+    target = interaction.channel
+    if not isinstance(target, (discord.TextChannel, discord.Thread, discord.VoiceChannel)) or interaction.guild is None:
+        await interaction.response.send_message(
+            "⚠️ Command `/ringkas channel` hanya dapat digunakan di Text Channel, Voice Channel, atau Thread server.",
+            ephemeral=True,
+        )
+        return
+
+    if isinstance(interaction.user, discord.Member):
+        user_perms = target.permissions_for(interaction.user)
+        if not (user_perms.view_channel and user_perms.read_message_history):
+            await interaction.response.send_message(
+                f"⚠️ Anda tidak memiliki izin membaca riwayat pesan di {target.mention}.",
+                ephemeral=True,
+            )
+            return
+
+    if interaction.guild.me is not None:
+        bot_perms = target.permissions_for(interaction.guild.me)
+        if not (bot_perms.view_channel and bot_perms.read_message_history):
+            await interaction.response.send_message(
+                f"⚠️ Bot belum memiliki izin `Read Message History` di {target.mention}.",
+                ephemeral=True,
+            )
+            return
+
+    hours = insights.REKAP_PERIODS.get(periode.value, 24) if periode else 24
+    label = insights.period_label(hours)
+
+    if not paksa:
+        cached = insights.get_cached_rekap(target.id, hours)
+        if cached:
+            insights.record_ai_usage(
+                "rekap",
+                user_id=getattr(getattr(interaction, "user", None), "id", 0) or 0,
+                channel_id=getattr(target, "id", 0) or 0,
+                cache_hit=True,
+            )
+            await insights.save_ai_usage_to_disk()
+            age_sec = insights.cache_age(cached)
+            embed = insights.build_rekap_embed(
+                target.name,
+                cached.get("text") or "_Rekap kosong._",
+                hours=hours,
+                message_count=int(cached.get("count") or 0),
+                cached=True,
+                cache_age_sec=age_sec,
+                requested_by=cached.get("requester") or "",
+            )
+            embed.set_footer(
+                text=(
+                    f"♻️ Dari cache {max(0, age_sec // 60)} menit lalu — 0 kuota AI • "
+                    f"minta rekap baru dengan /ringkas channel paksa:True"
+                )
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=not publik)
+            return
+
+    if not await enforce_member_cooldown(interaction, "rekap"):
+        return
+
+    await interaction.response.defer(ephemeral=not publik)
+
+    g_cfg = get_guild_settings(interaction.guild.id)
+    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
+    http_session = get_interaction_http_session(interaction)
+
+    cutoff = time.time() - hours * 3600
+    limit_count = insights.rekap_message_limit()
+    collected_lines: list[str] = []
+    try:
+        async for msg in target.history(limit=limit_count * 3):
+            if msg.created_at.timestamp() < cutoff:
+                break
+            if msg.type not in (discord.MessageType.default, discord.MessageType.reply):
+                continue
+            if msg.author.bot and msg.embeds and not (msg.content or "").strip():
+                continue
+            text = (msg.content or "").strip()
+            extras: list[str] = []
+            if has_voice_or_audio_attachment(msg):
+                extras.append("[Voice Note/Audio]")
+            elif msg.attachments:
+                extras.append(f"[Lampiran: {', '.join(a.filename for a in msg.attachments[:2])}]")
+            if getattr(msg, "stickers", None):
+                extras.append(f"[Stiker: {msg.stickers[0].name}]")
+
+            combined = " ".join(filter(None, [text, *extras])).strip()
+            if not combined:
+                continue
+            author_tag = f"{msg.author.display_name} (Bot)" if msg.author.bot else msg.author.display_name
+            collected_lines.append(f"[{author_tag}]: {combined[:400]}")
+            if len(collected_lines) >= limit_count:
+                break
+    except Exception as exc:
+        await interaction.followup.send(
+            f"⚠️ Gagal mengambil riwayat pesan: `{sanitize_error_message(exc)}`",
+            ephemeral=True,
+        )
+        return
+
+    if not collected_lines:
+        await interaction.followup.send(
+            f"📭 Tidak ada pesan dalam **{label}** di {target.mention}. "
+            f"Coba periode yang lebih panjang.",
+            ephemeral=True,
+        )
+        return
+
+    collected_lines.reverse()
+    insights.record_ai_usage(
+        "rekap",
+        user_id=getattr(getattr(interaction, "user", None), "id", 0) or 0,
+        channel_id=getattr(target, "id", 0) or 0,
+    )
+    summary_text, err_msg = await ai_handler.summarize_channel_messages(
+        collected_lines,
+        target.name,
+        timezone_name=tz_name,
+        http_session=http_session,
+    )
+    await insights.save_ai_usage_to_disk()
+
+    if err_msg or not summary_text:
+        await interaction.followup.send(err_msg or "⚠️ Gagal membuat rekap.", ephemeral=True)
+        return
+
+    insights.store_rekap(
+        target.id,
+        hours,
+        summary_text,
+        message_count=len(collected_lines),
+        requester=interaction.user.display_name,
+    )
+    await insights.save_ai_usage_to_disk()
+
+    embed = insights.build_rekap_embed(
+        target.name,
+        summary_text,
+        hours=hours,
+        message_count=len(collected_lines),
+        cached=False,
+        requested_by=interaction.user.display_name,
+    )
+    embed.set_footer(
+        text=(
+            f"Diminta oleh {interaction.user.display_name} • "
+            f"rekap berikutnya dalam {max(1, REKAP_CACHE_TTL_SEC // 60)} menit gratis (cache)"
+        )
+    )
     await interaction.followup.send(embed=embed, ephemeral=not publik)
 
 
@@ -230,12 +424,14 @@ async def ringkas_link_cmd(
         tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
     http_session = get_interaction_http_session(interaction)
 
+    _record_interaction_ai_use(interaction, "ringkas_link")
     summary_text, err_msg = await ai_handler.analyze_link_with_gemini(
         url.strip(),
         question=pertanyaan,
         timezone_name=tz_name,
         http_session=http_session,
     )
+    await insights.save_ai_usage_to_disk()
     if err_msg or not summary_text:
         await interaction.followup.send(err_msg or "⚠️ Gagal menganalisis link tersebut.", ephemeral=True)
         return
@@ -301,11 +497,13 @@ async def slash_cari(
         tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
     http_session = get_interaction_http_session(interaction)
 
+    _record_interaction_ai_use(interaction, "cari")
     answer_text, err_msg = await ai_handler.search_web_with_gemini(
         pertanyaan,
         timezone_name=tz_name,
         http_session=http_session,
     )
+    await insights.save_ai_usage_to_disk()
     if err_msg or not answer_text:
         await interaction.followup.send(err_msg or "⚠️ Gagal mencari informasi.", ephemeral=True)
         return
@@ -381,6 +579,22 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
             f"`{len(reaction_role_panels)}` panel role | `{len(reminders)}` pengingat | "
             f"`{len(starboard_guilds)}` starboard | `{len(sticky_channels)}` sticky | "
             f"`{len(verification_guilds)}` verifikasi"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🎉 Keramaian Server (0 kuota AI)",
+        value=(
+            f"`{len(giveaways)}` giveaway | `{len(birthdays)}` ultah | "
+            f"`{len(auto_reply_channels)}` auto-responder | `{len(announcements)}` pengumuman"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📈 Level & 🎟️ Tiket",
+        value=(
+            f"`{len(_level_guilds)}` server leveling | `{len(_levels)}` data XP | "
+            f"`{len(_tickets)}` tiket tercatat"
         ),
         inline=False,
     )
@@ -464,6 +678,7 @@ async def _run_message_context_action(
         tz_name = BOT_TIMEZONE
         if interaction.guild is not None:
             tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
+        _record_interaction_ai_use(interaction, "fakta")
         result_text, err_msg = await ai_handler.fact_check_message_with_gemini(
             msg_text,
             media_parts=media_parts or None,
@@ -472,6 +687,7 @@ async def _run_message_context_action(
             http_session=http_session,
         )
     else:
+        _record_interaction_ai_use(interaction, "transform")
         result_text, err_msg = await ai_handler.transform_message_with_gemini(
             action,
             msg_text,

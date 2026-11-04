@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import ai_handler
+import insights
 from community_agent import format_server_knowledge_for_prompt
 from config import (
     AI_MODELS,
@@ -191,6 +192,11 @@ async def handle_private_session_message(bot: commands.Bot, message: discord.Mes
                     srv_knowledge = format_server_knowledge_for_prompt(
                         message.guild.id if message.guild else None
                     )
+                    insights.record_ai_usage(
+                        "chat",
+                        user_id=message.author.id,
+                        channel_id=message.channel.id,
+                    )
                     reply_text = await ai_handler.get_ai_response(
                         message.channel.id,
                         prompt,
@@ -253,6 +259,11 @@ async def handle_private_session_message(bot: commands.Bot, message: discord.Mes
         async with lock:
             async with message.channel.typing():
                 try:
+                    insights.record_ai_usage(
+                        "galeri",
+                        user_id=message.author.id,
+                        channel_id=message.channel.id,
+                    )
                     engine_label, picture, err_detail = await ai_handler.generate_image(
                         message.channel.id,
                         prompt,

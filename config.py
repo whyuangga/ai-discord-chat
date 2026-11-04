@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.7.0-beta"
+BOT_VERSION = "1.11.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -151,6 +151,11 @@ GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
 SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
 COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
 MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
+ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
+ANTISPAM_FILE = DATA_DIR / "antispam.json"
+LEVELS_FILE = DATA_DIR / "levels.json"
+AI_USAGE_FILE = DATA_DIR / "ai_usage.json"
+TICKETS_FILE = DATA_DIR / "tickets.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -180,6 +185,69 @@ STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, mi
 REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
 # Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
 STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# ==============================================================================
+# HEMAT KUOTA AI (Tier 3) — rekap ber-cache, pemakaian, & FAQ lokal
+# ==============================================================================
+# Batas operasi AI per member per hari (0 = tanpa batas). Hanya menghitung
+# operasi yang benar-benar memanggil Gemini; cache hit & FAQ lokal tidak dihitung.
+AI_DAILY_CAP_PER_USER: int = _env_int("AI_DAILY_CAP_PER_USER", 0, minimum=0)
+# Berapa hari catatan pemakaian disimpan (agar file JSON tetap kecil)
+AI_USAGE_KEEP_DAYS: int = _env_int("AI_USAGE_KEEP_DAYS", 7, minimum=1)
+# Cache hasil `/ringkas channel` (detik). 0 = cache dimatikan.
+REKAP_CACHE_TTL_SEC: int = _env_int("REKAP_CACHE_TTL_SEC", 1800, minimum=0)
+# Batas jumlah pesan yang dianalisis saat membuat rekap berperiode
+REKAP_MAX_MESSAGES: int = _env_int("REKAP_MAX_MESSAGES", 400, minimum=20)
+
+# ==============================================================================
+# LEVELING & XP (Tier 2C) — default NONAKTIF
+# ==============================================================================
+# XP per pesan (acak antara min & max) + jeda per member agar tidak bisa dispam.
+LEVELS_XP_MIN: int = _env_int("LEVELS_XP_MIN", 15, minimum=1)
+LEVELS_XP_MAX: int = _env_int("LEVELS_XP_MAX", 25, minimum=1)
+LEVELS_COOLDOWN_SEC: int = _env_int("LEVELS_COOLDOWN_SEC", 60, minimum=0)
+# Batas atas level agar perhitungan tetap cepat & wajar
+LEVELS_MAX_LEVEL: int = _env_int("LEVELS_MAX_LEVEL", 100, minimum=5)
+# Jumlah member teratas yang disimpan per server (menjaga file JSON tetap kecil)
+LEVELS_MAX_MEMBERS: int = _env_int("LEVELS_MAX_MEMBERS", 500, minimum=25)
+
+# ==============================================================================
+# SISTEM TIKET DUKUNGAN (Tier 2C) — default NONAKTIF
+# ==============================================================================
+# Tiket dibuat sebagai Private Thread (tidak memakan slot channel server).
+TICKET_MAX_OPEN_PER_USER: int = _env_int("TICKET_MAX_OPEN_PER_USER", 2, minimum=1)
+TICKET_MAX_TRANSCRIPT_LINES: int = _env_int("TICKET_MAX_TRANSCRIPT_LINES", 400, minimum=50)
+TICKET_AUTO_CLOSE_HOURS: int = _env_int("TICKET_AUTO_CLOSE_HOURS", 0, minimum=0)
+
+# ==============================================================================
+# ANTI-SPAM & ANTI-RAID RINGAN (Tier 2B) — default LAPOR SAJA
+# ==============================================================================
+# Penjaga spam hanya aktif setelah Admin menyalakannya lewat /keamanan spam.
+# Ambang di bawah adalah nilai awal & bisa diubah per server dari Discord.
+SPAM_FLOOD_COUNT: int = _env_int("SPAM_FLOOD_COUNT", 6, minimum=3)
+SPAM_FLOOD_WINDOW_SEC: int = _env_int("SPAM_FLOOD_WINDOW_SEC", 10, minimum=3)
+SPAM_MENTION_LIMIT: int = _env_int("SPAM_MENTION_LIMIT", 6, minimum=2)
+SPAM_LINK_LIMIT: int = _env_int("SPAM_LINK_LIMIT", 4, minimum=1)
+# Huruf kapital berlebihan sengaja NONAKTIF secara bawaan (sering salah tuduh)
+SPAM_CAPS_MIN_LENGTH: int = _env_int("SPAM_CAPS_MIN_LENGTH", 20, minimum=8)
+# Durasi time-out maksimum saat mode "timeout" dipilih (detik, maks 1 hari)
+SPAM_TIMEOUT_SEC: int = min(86400, _env_int("SPAM_TIMEOUT_SEC", 300, minimum=60))
+# Deteksi raid: jumlah join dalam jendela waktu sebelum Admin diberi peringatan
+SPAM_RAID_JOIN_COUNT: int = _env_int("SPAM_RAID_JOIN_COUNT", 8, minimum=3)
+SPAM_RAID_WINDOW_SEC: int = _env_int("SPAM_RAID_WINDOW_SEC", 60, minimum=10)
+
+# ==============================================================================
+# FITUR ENGAGEMENT (Giveaway, Ulang Tahun, Auto-Responder, Pengumuman Terjadwal)
+# ==============================================================================
+# Semua fitur di bawah ini GRATIS (tanpa kuota Gemini) & default NONAKTIF.
+# Batas jumlah aturan/pesan dibuat kecil agar file data/engagement.json tetap ringan.
+AUTO_REPLY_MAX_RULES: int = _env_int("AUTO_REPLY_MAX_RULES", 25, minimum=1)
+# Jeda aman (detik) agar auto-responder tidak pernah membanjiri channel
+AUTO_REPLY_COOLDOWN_SEC: int = _env_int("AUTO_REPLY_COOLDOWN_SEC", 20, minimum=0)
+# Batas pengumuman terjadwal per server
+ANNOUNCEMENT_MAX_PER_GUILD: int = _env_int("ANNOUNCEMENT_MAX_PER_GUILD", 15, minimum=1)
+# Batas giveaway selesai yang tetap disimpan (agar JSON tetap kecil)
+GIVEAWAY_HISTORY_MAX: int = _env_int("GIVEAWAY_HISTORY_MAX", 25, minimum=1)
+
 # Backup konfigurasi otomatis: interval hari (0 = matikan) & channel log error global
 BACKUP_INTERVAL_DAYS: int = _env_int("BACKUP_INTERVAL_DAYS", 7, minimum=0)
 BOT_LOG_CHANNEL_ID: int = _env_int("BOT_LOG_CHANNEL_ID", 0, minimum=0)

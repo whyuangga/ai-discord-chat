@@ -36,6 +36,24 @@ from community_tools import (
     maybe_refresh_sticky,
     save_community_tools_to_disk,
 )
+from antispam import (
+    handle_channel_delete as handle_antispam_channel_delete,
+    handle_member_join_guard,
+    handle_spam_guard,
+    save_antispam_to_disk,
+)
+from cogs.growth_cog import handle_message_xp
+from levels import handle_channel_delete as handle_levels_channel_delete, save_levels_to_disk
+from tickets import (
+    handle_channel_delete as handle_tickets_channel_delete,
+    handle_thread_delete as handle_tickets_thread_delete,
+    save_tickets_to_disk,
+)
+from engagement import (
+    handle_channel_delete as handle_engagement_channel_delete,
+    match_auto_reply,
+    save_engagement_to_disk,
+)
 from config import BOT_VERSION
 from games import active_channel_games, cancel_channel_game, handle_active_game_guess
 from storage import remove_thread_data, save_sessions_to_disk
@@ -87,6 +105,9 @@ def register_events_cog(bot: commands.Bot) -> None:
         tid = payload.thread_id
         cancel_channel_game(tid)
         remove_agent_thread_runtime(tid)
+        if handle_tickets_thread_delete(tid):
+            await save_tickets_to_disk()
+            logger.info("Catatan tiket %s dibersihkan karena thread dihapus.", tid)
         if remove_thread_data(tid):
             await save_sessions_to_disk()
             logger.info("Data sesi privat dibersihkan karena thread %s dihapus.", tid)
@@ -133,6 +154,14 @@ def register_events_cog(bot: commands.Bot) -> None:
                 await save_server_features_to_disk()
         if handle_community_channel_delete(channel):
             await save_community_tools_to_disk()
+        if handle_engagement_channel_delete(channel):
+            await save_engagement_to_disk()
+        if handle_antispam_channel_delete(channel):
+            await save_antispam_to_disk()
+        if handle_levels_channel_delete(channel):
+            await save_levels_to_disk()
+        if handle_tickets_channel_delete(channel):
+            await save_tickets_to_disk()
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:
@@ -168,9 +197,13 @@ def register_events_cog(bot: commands.Bot) -> None:
 
     @bot.event
     async def on_member_join(member: discord.Member):
-        """Menyambut member baru & memasang Auto Role (jika diaktifkan Admin)."""
+        """Menyambut member baru, memasang Auto Role, & mendeteksi lonjakan join (raid)."""
         if not getattr(member, "bot", False) and member.guild.id in autorole_guilds:
             await apply_autorole_to_member(member)
+        try:
+            await handle_member_join_guard(bot, member)  # hanya melapor, tidak menendang
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Anti-Raid gagal memeriksa member join: %s", exc)
         await trigger_member_welcome(bot, member.guild, member)
 
     @bot.event
@@ -214,6 +247,42 @@ def register_events_cog(bot: commands.Bot) -> None:
                     return
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Anti-Phishing gagal memeriksa pesan: %s", exc)
+
+        # 1B-2. Penjaga Anti-Spam ringan (mode default: hanya lapor ke channel log).
+        #       Admin, staf, bot, & channel/role pengecualian selalu diabaikan sehingga
+        #       obrolan antar-member tidak pernah terusik.
+        if message.guild is not None:
+            try:
+                if await handle_spam_guard(message, bot=bot):
+                    return
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Anti-Spam gagal memeriksa pesan: %s", exc)
+
+        # 1C. XP Leveling (hanya channel/role yang diizinkan, ada jeda anti-farming)
+        if message.guild is not None:
+            try:
+                await handle_message_xp(bot, message)
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Pemberian XP level gagal: %s", exc)
+
+        # 1D. Balasan Otomatis berbasis kata kunci (khusus channel yang diaktifkan Admin).
+        #     Dijalankan sebelum AI & hanya bila benar-benar cocok, sehingga obrolan
+        #     antar-member tidak pernah terganggu (ada jeda aman per channel).
+        if message.guild is not None:
+            try:
+                auto_reply = match_auto_reply(message.channel.id, message.content or "")
+                if auto_reply:
+                    await message.reply(
+                        auto_reply[:1900],
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                    await save_engagement_to_disk()
+                    return
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Auto-responder gagal: %s", exc)
 
         # 2. Rute AI Agent Komunitas di Text Channel, Channel Forum/Media, & Thread Publik
         if isinstance(message.channel, (discord.TextChannel, discord.Thread)) and bot.user is not None:
