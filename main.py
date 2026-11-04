@@ -42,6 +42,7 @@ from music import (
     connect_nodes,
     load_music_settings_from_disk,
     music_status,
+    run_music_panel_check,
     save_music_settings_to_disk,
 )
 from server_features import (
@@ -62,6 +63,7 @@ from views import (
     ForumPostSolvedView,
     ImageSettingsView,
     MainPanelControlView,
+    MusicPlayerView,
     VerificationGateView,
 )
 
@@ -197,6 +199,7 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(ImageSettingsView())
         self.add_view(ForumPostSolvedView())
         self.add_view(VerificationGateView())
+        self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
 
         # 3B. Hubungkan node musik Lavalink (dilewati otomatis bila belum dikonfigurasi)
         if WAVELINK_AVAILABLE:
@@ -208,6 +211,8 @@ class GeminiDiscordBot(commands.Bot):
         # 4. Jalankan background watcher untuk Pemecah Sepi, Morning Digest, & Pembersih RAM
         if not idle_chat_watcher.is_running():
             idle_chat_watcher.start()
+        if WAVELINK_AVAILABLE and not music_panel_watcher.is_running():
+            music_panel_watcher.start()
 
         # 5. Sinkronisasi Slash Commands (tanpa duplikasi Guild vs Global)
         try:
@@ -231,6 +236,8 @@ class GeminiDiscordBot(commands.Bot):
     async def close(self) -> None:
         if idle_chat_watcher.is_running():
             idle_chat_watcher.cancel()
+        if music_panel_watcher.is_running():
+            music_panel_watcher.cancel()
         await save_sessions_to_disk()
         await save_agent_config_to_disk()
         await save_game_scores_to_disk()
@@ -275,6 +282,20 @@ async def idle_chat_watcher():
 
 @idle_chat_watcher.before_loop
 async def before_idle_chat_watcher():
+    await bot.wait_until_ready()
+
+
+@tasks.loop(seconds=10)
+async def music_panel_watcher():
+    """Memperbarui progress bar panel pemutar musik (ala Rythm) tiap 10 detik."""
+    try:
+        await run_music_panel_check(bot)
+    except Exception as exc:
+        logger.warning("Error pada music_panel_watcher: %s", sanitize_error_message(exc))
+
+
+@music_panel_watcher.before_loop
+async def before_music_panel_watcher():
     await bot.wait_until_ready()
 
 

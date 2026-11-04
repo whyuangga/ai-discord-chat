@@ -3306,6 +3306,124 @@ async def test_music_helpers_settings_and_embeds():
 
 
 @pytest.mark.asyncio
+async def test_music_rythm_panel_progress_seek_filters_and_pagination():
+    """v1.7.0-beta+ : progress bar, seek, filter audio, autoplay, & antrean berhalaman."""
+    # 1. Progress bar ala Rythm (14 karakter + knob)
+    bar = music.build_progress_bar(90_000, 215_000)
+    assert music.BAR_KNOB in bar
+    assert bar.count(music.BAR_FILLED) == 14
+    assert music.build_progress_bar(0, 0).startswith(music.BAR_KNOB)  # live stream / tanpa durasi
+    assert music.build_progress_bar(999_999, 215_000).count(music.BAR_FILLED) == 14
+
+    # 2. Parsing posisi seek: detik, mm:ss, hh:mm:ss
+    assert music.parse_seek("90") == 90_000
+    assert music.parse_seek("1:30") == 90_000
+    assert music.parse_seek("01:02:03") == 3_723_000
+    assert music.parse_seek(" 45 ") == 45_000
+    for invalid in ("", None, "abc", "1:2:3:4"):
+        assert music.parse_seek(invalid) is None
+
+    # 3. Preset filter audio
+    assert "off" in music.FILTER_PRESETS and "bassboost" in music.FILTER_PRESETS
+    assert "nightcore" in music.FILTER_PRESETS and "8d" in music.FILTER_PRESETS
+    bass = music.build_filters("bassboost")
+    assert bass is not None and bass.equalizer is not None
+    assert music.build_filters("nightcore").timescale is not None
+    assert music.build_filters("nya~") is not None  # preset tak dikenal = tanpa efek
+    player = _FakePlayer(volume=60)
+
+    async def _fake_set_filters(filters):
+        player.filters = filters
+
+    player.set_filters = _fake_set_filters
+    assert await music.apply_filter(player, "bassboost") is True
+    assert player.filters is not None
+    assert await music.apply_filter(None, "bassboost") is False
+
+    # 4. Autoplay via Lavalink
+    assert music.autoplay_label(True).startswith("♾️")
+    assert music.autoplay_label(False).startswith("➡️")
+    assert music.set_autoplay(player, True) is True
+    assert player.autoplay is wavelink.AutoPlayMode.enabled
+    assert music.set_autoplay(player, False) is True
+    assert player.autoplay is wavelink.AutoPlayMode.disabled
+    assert music.set_autoplay(None, True) is False
+
+    # 5. Pengaturan filter & autoplay tersimpan per server
+    music.set_music_settings(77, filter_name="nightcore", autoplay=True)
+    assert music.music_guilds[77]["filter"] == "nightcore"
+    assert music.music_guilds[77]["autoplay"] is True
+    # Preset tak dikenal diabaikan (nilai lama dipertahankan), bukan merusak pengaturan
+    music.set_music_settings(77, filter_name="preset-palsu")
+    assert music.music_guilds[77]["filter"] == "nightcore"
+    music.set_music_settings(77, filter_name="off", autoplay=False)
+    assert music.music_guilds[77]["filter"] == "off"
+    assert music.music_guilds[77]["autoplay"] is False
+
+    # 6. Antrean berhalaman (10 lagu per halaman)
+    tracks = [_FakeTrack(f"Lagu {idx}") for idx in range(25)]
+    assert music.QUEUE_PAGE_SIZE == 10
+    embed, page, total_pages = music.build_queue_page_embed(tracks, page=0, total_length=1_000)
+    assert (page, total_pages) == (0, 3)
+    assert "Lagu 0" in embed.fields[0].value and "Lagu 9" in embed.fields[0].value
+    embed2, page2, _ = music.build_queue_page_embed(tracks, page=2)
+    assert page2 == 2
+    assert "Lagu 20" in embed2.fields[0].value and "Lagu 24" in embed2.fields[0].value
+    # Halaman di luar rentang otomatis dijepit
+    _, clamped, _ = music.build_queue_page_embed(tracks, page=99)
+    assert clamped == 2
+    empty_page, _, empty_total = music.build_queue_page_embed([])
+    assert empty_total == 1 and "masih kosong" in empty_page.description
+
+    # 7. Tombol panel persisten (9 tombol) & paginasi antrean
+    panel_view = views.MusicPlayerView()
+    assert panel_view.is_persistent() is True
+    assert [c.custom_id for c in panel_view.children] == [
+        "music:panel:pause",
+        "music:panel:skip",
+        "music:panel:previous",
+        "music:panel:stop",
+        "music:panel:queue",
+        "music:panel:loop",
+        "music:panel:shuffle",
+        "music:panel:vol_down",
+        "music:panel:vol_up",
+    ]
+    queue_view = views.QueuePaginationView(tracks, requester_id=501, page=1)
+    assert len(queue_view.children) == 3
+    assert "Halaman 2/3" in queue_view.children[1].label
+    assert queue_view.children[0].disabled is False
+
+    # 8. Lagu sebelumnya dari riwayat antrean
+    player2 = _FakePlayer(volume=50)
+    previous, current = _FakeTrack("Sebelum"), _FakeTrack("Sekarang")
+    player2.current = current
+    player2.queue.history = [previous]
+    assert await music.skip_previous(player2) is True
+    assert player2.current is previous
+    assert await music.skip_previous(player2) is False  # riwayat habis
+
+    # 9. Embed panel pemutar memuat progress bar, filter, & autoplay
+    player3 = _FakePlayer(volume=80)
+    player3.current = _FakeTrack()
+    player3.position = 90_000
+    panel_embed = music.build_player_embed(
+        player3, filter_name="bassboost", autoplay=True, hint="Panel uji"
+    )
+    panel_text = (
+        " ".join(f"{f.name} {f.value}" for f in panel_embed.fields)
+        + panel_embed.description
+        + panel_embed.footer.text
+    )
+    assert music.BAR_FILLED in panel_embed.description
+    assert "1:30 / 3:35" in panel_embed.description
+    assert "bass boost" in panel_text.lower()
+    assert "Autoplay" in panel_text
+    assert "80%" in panel_text
+    assert "Panel uji" in panel_embed.footer.text
+
+
+@pytest.mark.asyncio
 async def test_music_queue_flow_and_dj_permissions():
     """Antrean dibatasi MUSIC_MAX_QUEUE, lagu pertama langsung diputar, & hak kontrol DJ."""
     player = _FakePlayer(volume=60)
@@ -3374,6 +3492,8 @@ async def test_music_command_structure_and_setup_guard(monkeypatch):
     assert {c.name for c in musik.commands} == {
         "putar", "cari", "antrean", "sekarang", "lewati", "jeda", "lanjut",
         "hentikan", "volume", "ulang", "acak", "pengaturan", "status",
+        # v1.7.0-beta+ (Rythm Mode): seek, lagu sebelumnya, filter, autoplay, panel
+        "seek", "sebelumnya", "filter", "autoplay", "panel",
     }
     for sub in musik.commands:
         assert 1 <= len(sub.description) <= 100

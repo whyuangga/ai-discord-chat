@@ -6,29 +6,41 @@ from discord.ext import commands
 
 import music
 from music import (
+    FILTER_PRESETS,
     LOOP_MODES,
     MUSIC_SETUP_HINT,
+    QUEUE_PAGE_SIZE,
     MusicUnavailable,
     announce_channels,
+    apply_filter,
     build_now_playing_embed,
+    build_player_embed,
     build_queue_embed,
+    build_queue_page_embed,
     build_search_embed,
     can_control,
+    close_panel,
     enqueue_tracks,
     ensure_player,
     format_duration,
     get_music_settings,
     get_player,
     loop_label_from_mode,
+    music_panels,
     music_status,
+    parse_seek,
     play_first_if_idle,
     remember_announce_channel,
     save_music_settings_to_disk,
     search_tracks,
+    send_or_update_panel,
+    set_autoplay,
     set_music_settings,
+    skip_previous,
     track_title,
 )
 from config import MUSIC_MAX_QUEUE
+from views import MusicPlayerView, QueuePaginationView
 
 logger = logging.getLogger("gemini_bot.music_cog")
 
@@ -186,6 +198,15 @@ async def musik_putar_cmd(
 
     remember_announce_channel(interaction.guild.id, interaction.channel_id)
 
+    # Panel pemutar ala Rythm (satu pesan yang di-edit, bukan pesan baru tiap lagu)
+    if get_music_settings(interaction.guild.id).get("announce", True):
+        await send_or_update_panel(
+            interaction.client,
+            interaction.guild.id,
+            channel=interaction.channel,
+            view=MusicPlayerView(),
+        )
+
     if playlist_name:
         await interaction.followup.send(
             f"📥 **Playlist `{playlist_name[:80]}`** dimasukkan — "
@@ -196,14 +217,10 @@ async def musik_putar_cmd(
         return
 
     if started:
-        embed = build_now_playing_embed(
-            tracks[0],
-            requester=interaction.user.display_name,
-            queue_length=len(player.queue),
-            volume=getattr(player, "volume", None),
-            loop_label=loop_label_from_mode(getattr(player.queue, "mode", None)),
+        await interaction.followup.send(
+            f"▶️ Memutar **{track_title(tracks[0], 80)}** — kontrol lewat panel di channel ini.",
+            ephemeral=True,
         )
-        await interaction.followup.send(embed=embed)
         return
 
     total_ms = sum(int(getattr(t, "length", 0) or 0) for t in remaining)
@@ -241,8 +258,9 @@ async def musik_cari_cmd(interaction: discord.Interaction, query: str):
     )
 
 
-@musik_group.command(name="antrean", description="Lihat daftar lagu yang menunggu diputar")
-async def musik_antrean_cmd(interaction: discord.Interaction):
+@musik_group.command(name="antrean", description="Lihat antrean musik berhalaman (◀ ▶) beserta total durasi")
+@app_commands.describe(halaman=f"Halaman antrean yang ingin dilihat ({QUEUE_PAGE_SIZE} lagu per halaman)")
+async def musik_antrean_cmd(interaction: discord.Interaction, halaman: int = 1):
     if interaction.guild is None:
         return
     player = get_player(interaction.guild)
@@ -253,15 +271,13 @@ async def musik_antrean_cmd(interaction: discord.Interaction):
         return
 
     tracks = list(player.queue)
-    total = sum(int(getattr(t, "length", 0) or 0) for t in tracks)
-    await interaction.response.send_message(
-        embed=build_queue_embed(
-            tracks,
-            total_length=total,
-            now_playing=getattr(player, "current", None),
-        ),
-        ephemeral=True,
+    view = QueuePaginationView(
+        tracks,
+        requester_id=interaction.user.id,
+        page=max(0, int(halaman) - 1),
+        now_playing=getattr(player, "current", None),
     )
+    await interaction.response.send_message(embed=view._embed(), view=view, ephemeral=True)
 
 
 @musik_group.command(name="sekarang", description="Lihat lagu yang sedang diputar beserta progresnya")
@@ -276,18 +292,14 @@ async def musik_sekarang_cmd(interaction: discord.Interaction):
         )
         return
 
-    embed = build_now_playing_embed(
-        current,
-        queue_length=len(player.queue),
-        volume=getattr(player, "volume", None),
-        paused=bool(getattr(player, "paused", False)),
-        loop_label=loop_label_from_mode(getattr(player.queue, "mode", None)),
+    settings = get_music_settings(interaction.guild.id)
+    embed = build_player_embed(
+        player,
+        track=current,
+        filter_name=settings.get("filter", "off"),
+        autoplay=bool(settings.get("autoplay", False)),
+        hint="Detail lagu aktif • pakai tombol pada panel untuk kontrol cepat",
     )
-    position = format_duration(getattr(player, "position", 0))
-    length = "LIVE" if getattr(current, "is_stream", False) else format_duration(
-        getattr(current, "length", 0)
-    )
-    embed.add_field(name="▶️ Progres", value=f"`{position} / {length}`", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -314,9 +326,128 @@ async def musik_lewati_cmd(interaction: discord.Interaction, jumlah: int = 1):
         await interaction.response.send_message(f"⚠️ Gagal melewati lagu: `{exc}`", ephemeral=True)
         return
 
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
     await interaction.response.send_message(
         f"⏭️ Dilewati: **{track_title(skipped_track)}**" if skipped_track else "⏭️ Lagu dilewati.",
         ephemeral=True,
+    )
+
+
+@musik_group.command(name="sebelumnya", description="Putar kembali lagu sebelumnya dari riwayat antrean")
+async def musik_sebelumnya_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    player = await _require_player(interaction)
+    if player is None:
+        return
+
+    if not await skip_previous(player):
+        await interaction.response.send_message(
+            "⚠️ Belum ada riwayat lagu sebelumnya di sesi ini.", ephemeral=True
+        )
+        return
+
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
+    await interaction.response.send_message("⏮️ Kembali ke lagu sebelumnya.", ephemeral=True)
+
+
+@musik_group.command(name="seek", description="Lompat ke detik/menit tertentu pada lagu yang sedang diputar")
+@app_commands.describe(posisi="Posisi tujuan: 90 (detik), 1:30, atau 01:02:03")
+async def musik_seek_cmd(interaction: discord.Interaction, posisi: str):
+    if interaction.guild is None:
+        return
+    player = await _require_player(interaction)
+    if player is None:
+        return
+
+    current = getattr(player, "current", None)
+    target_ms = parse_seek(posisi)
+    if target_ms is None:
+        await interaction.response.send_message(
+            "⚠️ Format posisi tidak valid. Contoh: `seek posisi:1:30` atau `seek posisi:95`.",
+            ephemeral=True,
+        )
+        return
+    if current is None:
+        await interaction.response.send_message("⚠️ Tidak ada lagu yang diputar.", ephemeral=True)
+        return
+
+    length = int(getattr(current, "length", 0) or 0)
+    if length and target_ms >= length:
+        await interaction.response.send_message(
+            f"⚠️ Posisi melebihi durasi lagu (`{format_duration(length)}`).", ephemeral=True
+        )
+        return
+
+    try:
+        await player.seek(target_ms)
+    except Exception as exc:  # pragma: no cover - node menolak seek
+        await interaction.response.send_message(f"⚠️ Gagal melompat: `{exc}`", ephemeral=True)
+        return
+
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
+    await interaction.response.send_message(
+        f"⏩ Melompat ke `{format_duration(target_ms)}`.", ephemeral=True
+    )
+
+
+@musik_group.command(name="autoplay", description="Putar rekomendasi lagu otomatis saat antrean habis")
+@app_commands.describe(aktif="True untuk menyalakan autoplay, False untuk mematikan")
+async def musik_autoplay_cmd(interaction: discord.Interaction, aktif: bool = True):
+    if interaction.guild is None:
+        return
+
+    player = get_player(interaction.guild)
+    if player is not None and not can_control(player, interaction.user):
+        await interaction.response.send_message(
+            "⚠️ Kamu harus berada di voice channel yang sama dengan bot (atau punya role DJ).",
+            ephemeral=True,
+        )
+        return
+
+    if player is not None and not set_autoplay(player, aktif):
+        await interaction.response.send_message(
+            "⚠️ Node Lavalink ini belum mendukung autoplay.", ephemeral=True
+        )
+        return
+
+    set_music_settings(interaction.guild.id, autoplay=aktif)
+    await save_music_settings_to_disk()
+    if player is not None:
+        await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
+    await interaction.response.send_message(
+        ("♾️ **Autoplay AKTIF** — lagu rekomendasi akan diputar otomatis saat antrean habis."
+         if aktif else "➡️ **Autoplay NONAKTIF** — pemutaran berhenti saat antrean habis."),
+        ephemeral=True,
+    )
+
+
+@musik_group.command(name="filter", description="Terapkan efek audio: bass boost, nightcore, 8D, vaporwave, dll.")
+@app_commands.describe(jenis="Preset filter audio yang ingin dipakai")
+@app_commands.choices(
+    jenis=[
+        app_commands.Choice(name=f"{label}", value=key) for key, label in FILTER_PRESETS.items()
+    ]
+)
+async def musik_filter_cmd(interaction: discord.Interaction, jenis: app_commands.Choice[str]):
+    if interaction.guild is None:
+        return
+    player = await _require_player(interaction)
+    if player is None:
+        return
+
+    ok = await apply_filter(player, jenis.value)
+    if not ok:
+        await interaction.response.send_message(
+            "⚠️ Node Lavalink ini tidak mendukung filter audio.", ephemeral=True
+        )
+        return
+
+    set_music_settings(interaction.guild.id, filter_name=jenis.value)
+    await save_music_settings_to_disk()
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
+    await interaction.response.send_message(
+        f"🎛️ Filter audio: **{FILTER_PRESETS.get(jenis.value, jenis.name)}**", ephemeral=True
     )
 
 
@@ -329,6 +460,7 @@ async def musik_jeda_cmd(interaction: discord.Interaction):
         return
 
     await player.pause(True)
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
     await interaction.response.send_message("⏸️ Musik dijeda. Lanjutkan dengan `/musik lanjut`.", ephemeral=True)
 
 
@@ -341,6 +473,7 @@ async def musik_lanjut_cmd(interaction: discord.Interaction):
         return
 
     await player.pause(False)
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
     await interaction.response.send_message("▶️ Musik dilanjutkan.", ephemeral=True)
 
 
@@ -360,6 +493,7 @@ async def musik_hentikan_cmd(interaction: discord.Interaction):
         logger.info("Gagal menghentikan musik: %s", exc)
 
     music.forget_announce_channel(interaction.guild.id)
+    await close_panel(interaction.client, interaction.guild.id)
     await interaction.response.send_message(
         "⏹️ Musik dihentikan, antrean dikosongkan, & bot keluar dari voice channel.",
         ephemeral=True,
@@ -384,6 +518,7 @@ async def musik_volume_cmd(interaction: discord.Interaction, level: int):
 
     set_music_settings(interaction.guild.id, volume=value)
     await save_music_settings_to_disk()
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
     warning = "\n⚠️ Di atas 100% bisa menyebabkan distorsi suara." if value > 100 else ""
     await interaction.response.send_message(
         f"🔊 Volume diatur ke **{value}%**.{warning}\n*(disimpan sebagai volume default server ini)*",
@@ -409,6 +544,7 @@ async def musik_ulang_cmd(interaction: discord.Interaction, mode: app_commands.C
 
     queue_mode = music.queue_mode_from_key(mode.value)
     player.queue.mode = queue_mode
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
     await interaction.response.send_message(
         f"🔁 Mode pengulangan: **{LOOP_MODES.get(mode.value, mode.name)}**", ephemeral=True
     )
@@ -429,8 +565,35 @@ async def musik_acak_cmd(interaction: discord.Interaction):
         return
 
     player.queue.shuffle()
+    await send_or_update_panel(interaction.client, interaction.guild.id, view=MusicPlayerView())
     await interaction.response.send_message(
         f"🔀 **{len(player.queue)} lagu** di antrean berhasil diacak.", ephemeral=True
+    )
+
+
+@musik_group.command(name="panel", description="Kirim ulang panel pemutar ala Rythm di channel ini")
+async def musik_panel_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    player = await _require_player(interaction)
+    if player is None:
+        return
+
+    message = await send_or_update_panel(
+        interaction.client,
+        interaction.guild.id,
+        channel=interaction.channel,
+        force_new=True,
+        view=MusicPlayerView(),
+    )
+    if message is None:
+        await interaction.response.send_message(
+            "⚠️ Panel tidak bisa dikirim. Pastikan bot punya izin **Kirim Pesan** & **Embed Links**.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.send_message(
+        f"✅ Panel pemutar dikirim di {message.channel.mention}.", ephemeral=True
     )
 
 
@@ -503,6 +666,8 @@ async def musik_status_cmd(interaction: discord.Interaction):
         f"• **Sedang diputar:** {track_title(player.current) if player and player.current else '_tidak ada_'}",
         f"• **Antrean:** `{len(player.queue) if player else 0}` lagu",
         f"• **Volume:** `{player.volume if player else cfg['volume']}%`",
+        f"• **Filter audio:** `{FILTER_PRESETS.get(cfg.get('filter', 'off'), 'Mati')}`",
+        f"• **Autoplay:** {'♾️ Aktif' if cfg.get('autoplay') else '➡️ Nonaktif'}",
         f"• **Pengumuman:** {'✅ Aktif' if cfg.get('announce', True) else '❌ Nonaktif'}",
         f"• **Channel pengumuman:** {f'<#{announce_channels[interaction.guild.id]}>' if interaction.guild.id in announce_channels else '_otomatis_'}",
     ]
@@ -539,18 +704,18 @@ def register_music_cog(bot: commands.Bot) -> None:
         cfg = get_music_settings(guild.id)
         if not cfg.get("announce", True):
             return
-        channel_id = announce_channels.get(guild.id)
+
+        # Rythm-style: satu panel per server yang di-EDIT setiap ganti lagu.
+        channel_id = announce_channels.get(guild.id) or (music_panels.get(guild.id) or {}).get("channel_id")
         channel = bot.get_channel(channel_id) if channel_id else None
-        if channel is None:
+        if channel is None and guild.id not in music_panels:
             return
         try:
-            await channel.send(
-                embed=build_now_playing_embed(
-                    track,
-                    queue_length=len(getattr(player, "queue", [])),
-                    volume=getattr(player, "volume", None),
-                    loop_label=loop_label_from_mode(getattr(getattr(player, "queue", None), "mode", None)),
-                )
+            await send_or_update_panel(
+                bot,
+                guild.id,
+                channel=channel,
+                view=MusicPlayerView(),
             )
         except discord.HTTPException:
             pass
@@ -591,6 +756,7 @@ def register_music_cog(bot: commands.Bot) -> None:
                 pass
         if guild is not None:
             music.forget_announce_channel(guild.id)
+            await close_panel(bot, guild.id)
         try:
             await player.disconnect()
         except Exception:  # pragma: no cover - sudah terputus

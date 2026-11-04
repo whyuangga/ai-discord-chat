@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 import discord
@@ -46,8 +47,10 @@ _music_lock = asyncio.Lock()
 
 # guild_id -> {"volume": int, "announce": bool, "dj_role_id": int|None, "last_track": str}
 music_guilds: dict[int, dict] = {}
-# guild_id -> channel_id tempat "Now Playing" diumumkan (runtime, tidak perlu persisten)
+# guild_id -> channel_id tempat panel pemutar dikirim (runtime, tidak perlu persisten)
 announce_channels: dict[int, int] = {}
+# guild_id -> {"channel_id": int, "message_id": int, "updated_at": float} panel pemutar Rythm-style
+music_panels: dict[int, dict] = {}
 
 MUSIC_SETUP_HINT = (
     "🎵 **Fitur musik belum aktif.**\n"
@@ -75,6 +78,16 @@ SOURCE_LABELS: dict[str, str] = {
     "local": "📁 Berkas Lokal",
 }
 
+FILTER_PRESETS: dict[str, str] = {
+    "off": "🔇 Tanpa Filter",
+    "bassboost": "🔊 Bass Boost",
+    "nightcore": "🌙 Nightcore",
+    "vaporwave": "🌊 Vaporwave",
+    "8d": "🎧 8D Audio",
+    "karaoke": "🎤 Karaoke",
+    "treble": "✨ Treble Boost",
+}
+
 LOOP_MODES: dict[str, str] = {
     "mati": "🔁 Mati (putar sekali)",
     "satu": "🔂 Ulangi Lagu Ini",
@@ -98,6 +111,8 @@ def default_music_settings() -> dict:
         "announce": True,
         "dj_role_id": None,
         "last_track": "",
+        "filter": "off",
+        "autoplay": False,
     }
 
 
@@ -119,6 +134,8 @@ def load_music_settings_from_disk() -> int:
                 "announce": bool(data.get("announce", True)),
                 "dj_role_id": _to_int(data.get("dj_role_id")) or None,
                 "last_track": str(data.get("last_track") or "")[:300],
+                "filter": str(data.get("filter") or "off") if str(data.get("filter") or "off") in FILTER_PRESETS else "off",
+                "autoplay": bool(data.get("autoplay", False)),
             }
         except (TypeError, ValueError):
             continue
@@ -155,6 +172,8 @@ def set_music_settings(
     announce: bool | None = None,
     dj_role_id: object = None,
     last_track: str | None = None,
+    filter_name: str | None = None,
+    autoplay: bool | None = None,
 ) -> dict:
     cfg = get_music_settings(guild_id)
     if volume is not None:
@@ -165,6 +184,10 @@ def set_music_settings(
         cfg["dj_role_id"] = _to_int(dj_role_id) or None
     if last_track is not None:
         cfg["last_track"] = str(last_track)[:300]
+    if filter_name is not None and str(filter_name) in FILTER_PRESETS:
+        cfg["filter"] = str(filter_name)
+    if autoplay is not None:
+        cfg["autoplay"] = bool(autoplay)
     return cfg
 
 
@@ -462,6 +485,12 @@ async def ensure_player(interaction: discord.Interaction):
         await player.set_volume(int(settings.get("volume") or MUSIC_DEFAULT_VOLUME))
     except Exception:  # pragma: no cover - node belum siap
         pass
+    # Terapkan kembali filter audio & autoplay yang tersimpan untuk server ini
+    saved_filter = settings.get("filter", "off")
+    if saved_filter and saved_filter != "off":
+        await apply_filter(player, saved_filter)
+    if settings.get("autoplay"):
+        set_autoplay(player, True)
     return player, None
 
 
@@ -525,3 +554,351 @@ def cleanup_music_runtime() -> int:
             announce_channels.pop(gid, None)
             cleaned += 1
     return cleaned
+
+
+# ==============================================================================
+# PANEL PEMUTAR GAYA RYTHM (progress bar hidup + tombol kontrol)
+# ==============================================================================
+BAR_FILLED = "▬"
+BAR_KNOB = "🔘"
+
+_BASS_BANDS: dict[int, float] = {0: 0.3, 1: 0.25, 2: 0.2, 3: 0.12, 4: 0.08}
+_TREBLE_BANDS: dict[int, float] = {10: 0.1, 11: 0.16, 12: 0.22, 13: 0.26, 14: 0.3}
+
+
+def build_progress_bar(position_ms: int | float | None, length_ms: int | float | None, size: int = 14) -> str:
+    """Progress bar ala Rythm: `▬▬▬🔘▬▬▬▬▬▬▬▬`."""
+    total = max(0, int(length_ms or 0))
+    position = max(0, int(position_ms or 0))
+    ratio = 0.0 if total <= 0 else max(0.0, min(1.0, position / total))
+    knob = max(0, min(size, int(round(ratio * size))))
+    return f"{BAR_FILLED * knob}{BAR_KNOB}{BAR_FILLED * (size - knob)}"
+
+
+def build_filters(kind: str | None):
+    """Membangun objek `Filters` Lavalink untuk preset tertentu (`off` = reset)."""
+    if not WAVELINK_AVAILABLE:
+        return None
+    filters = wavelink.Filters()
+    preset = str(kind or "off").lower().strip()
+    if preset == "bassboost":
+        filters.equalizer.set(bands=[{"band": b, "gain": g} for b, g in _BASS_BANDS.items()])
+    elif preset == "treble":
+        filters.equalizer.set(bands=[{"band": b, "gain": g} for b, g in _TREBLE_BANDS.items()])
+    elif preset == "nightcore":
+        filters.timescale.set(speed=1.2, pitch=1.2, rate=1.0)
+    elif preset == "vaporwave":
+        filters.timescale.set(speed=0.85, pitch=0.85, rate=1.0)
+    elif preset == "8d":
+        filters.rotation.set(rotation_hz=0.2)
+    elif preset == "karaoke":
+        filters.karaoke.set(level=1.0, mono_level=1.0, filter_band=220.0, filter_width=100.0)
+    return filters
+
+
+async def apply_filter(player, kind: str | None) -> bool:
+    """Menerapkan preset filter ke player. `False` bila gagal/node tidak mendukung."""
+    filters = build_filters(kind)
+    if filters is None or player is None:
+        return False
+    try:
+        await player.set_filters(filters)
+        return True
+    except Exception as exc:  # pragma: no cover - node lama tanpa filter
+        logger.info("Gagal menerapkan filter %s: %s", kind, sanitize_error_message(exc))
+        return False
+
+
+def parse_seek(raw: str | None) -> int | None:
+    """Membaca posisi lompat: `90`, `1:30`, atau `01:02:03` ➔ milidetik."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text) * 1000
+
+    parts = text.split(":")
+    if len(parts) not in (2, 3):
+        return None
+    try:
+        numbers = [int(p) for p in parts]
+    except ValueError:
+        return None
+    if any(n < 0 for n in numbers):
+        return None
+    if len(numbers) == 2:
+        minutes, seconds = numbers
+        total = minutes * 60 + seconds
+    else:
+        hours, minutes, seconds = numbers
+        total = hours * 3600 + minutes * 60 + seconds
+    return total * 1000
+
+
+def autoplay_label(enabled: bool) -> str:
+    return "♾️ Autoplay" if enabled else "➡️ Autoplay mati"
+
+
+def build_player_embed(
+    player,
+    *,
+    track=None,
+    filter_name: str | None = None,
+    autoplay: bool | None = None,
+    hint: str | None = None,
+) -> discord.Embed:
+    """Embed panel pemutar utama (progress bar + seluruh status dalam satu pesan)."""
+    current = track if track is not None else getattr(player, "current", None)
+    if current is None:
+        return discord.Embed(
+            title="⏹️ Tidak ada lagu yang diputar",
+            description="Tambahkan lagu dengan `/musik putar query:judul lagu`.",
+            color=discord.Color.dark_gray(),
+        )
+
+    paused = bool(getattr(player, "paused", False))
+    is_stream = bool(getattr(current, "is_stream", False))
+    position = max(0, _to_int(getattr(player, "position", 0)))
+    length = max(0, _to_int(getattr(current, "length", 0)))
+    queue_list = list(getattr(player, "queue", []) or [])
+    queue_total = sum(_to_int(getattr(t, "length", 0)) for t in queue_list)
+    preset = filter_name if filter_name in FILTER_PRESETS else "off"
+    autoplay_on = bool(autoplay)
+
+    if is_stream:
+        progress_line = f"{BAR_KNOB}{BAR_FILLED * 13}\n`🔴 LIVE`"
+    else:
+        progress_line = (
+            f"{build_progress_bar(position, length)}\n"
+            f"`{format_duration(position)} / {format_duration(length)}`"
+        )
+
+    embed = discord.Embed(
+        title=("⏸️ **Dijeda** — " if paused else "🎶 **Now Playing** — ") + track_title(current, 80),
+        description=progress_line,
+        color=discord.Color.dark_purple() if not paused else discord.Color.orange(),
+        url=track_url(current),
+    )
+    author = str(getattr(current, "author", "") or "")
+    if author:
+        embed.add_field(name="🎤 Artis", value=author[:100], inline=True)
+    embed.add_field(
+        name="🎧 Diminta",
+        value=str(track_requester_name(current))[:80],
+        inline=True,
+    )
+    embed.add_field(
+        name="📜 Antrean",
+        value=f"`{len(queue_list)}` lagu • `{format_duration(queue_total)}`",
+        inline=True,
+    )
+    embed.add_field(name="🔊 Volume", value=f"`{_to_int(getattr(player, 'volume', 0))}%`", inline=True)
+    embed.add_field(
+        name="🔁 Mode",
+        value=loop_label_from_mode(getattr(getattr(player, "queue", None), "mode", None)),
+        inline=True,
+    )
+    embed.add_field(name="🎛️ Filter", value=FILTER_PRESETS.get(preset, FILTER_PRESETS["off"]), inline=True)
+    embed.add_field(name="♾️ Autoplay", value=autoplay_label(autoplay_on), inline=True)
+    embed.add_field(name="📡 Sumber", value=source_label(current), inline=True)
+
+    artwork = str(getattr(current, "artwork", "") or "")
+    if artwork.startswith("http"):
+        embed.set_thumbnail(url=artwork)
+    embed.set_footer(text=(hint or "Panel pemutar • tombol di bawah untuk kontrol cepat")[:2048])
+    return embed
+
+
+def _panel_view():
+    """Lazy import agar `music.py` tetap bisa diimpor lebih dulu daripada `views.py`."""
+    try:
+        from views import MusicPlayerView
+
+        return MusicPlayerView()
+    except Exception:  # pragma: no cover - saat unit test tanpa views
+        return None
+
+
+async def send_or_update_panel(
+    bot: discord.Client,
+    guild_id: int,
+    *,
+    channel=None,
+    force_new: bool = False,
+    view=None,
+):
+    """Mengirim panel pemutar baru atau **mengedit** panel lama (satu pesan per server)."""
+    get_guild = getattr(bot, "get_guild", None)
+    guild = get_guild(guild_id) if callable(get_guild) else None
+    player = get_player(guild)
+    if player is None or getattr(player, "channel", None) is None:
+        await close_panel(bot, guild_id)
+        return None
+
+    settings = get_music_settings(guild_id)
+    embed = build_player_embed(
+        player,
+        filter_name=settings.get("filter", "off"),
+        autoplay=bool(settings.get("autoplay", False)),
+    )
+    panel_view = view if view is not None else _panel_view()
+    panel = music_panels.get(guild_id)
+
+    if panel and not force_new:
+        get_channel = getattr(bot, "get_channel", None)
+        target = get_channel(panel.get("channel_id")) if callable(get_channel) else None
+        if target is not None:
+            try:
+                message = target.get_partial_message(int(panel["message_id"]))
+                await message.edit(embed=embed, view=panel_view)
+                panel["updated_at"] = time.time()
+                return message
+            except discord.NotFound:
+                music_panels.pop(guild_id, None)
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.debug("Gagal memperbarui panel musik: %s", sanitize_error_message(exc))
+                return None
+
+    get_channel = getattr(bot, "get_channel", None)
+    target = channel
+    if target is None and callable(get_channel):
+        if panel:
+            target = get_channel(int(panel.get("channel_id") or 0))
+        if target is None:
+            target = get_channel(announce_channels.get(guild_id, 0))
+    if target is None:
+        return None
+
+    try:
+        message = await target.send(embed=embed, view=panel_view)
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.info("Gagal mengirim panel musik: %s", sanitize_error_message(exc))
+        return None
+
+    music_panels[guild_id] = {
+        "channel_id": int(getattr(target, "id", 0)),
+        "message_id": int(message.id),
+        "updated_at": time.time(),
+    }
+    remember_announce_channel(guild_id, getattr(target, "id", 0))
+    return message
+
+
+async def close_panel(bot: discord.Client, guild_id: int, *, delete: bool = True) -> bool:
+    """Menutup panel pemutar (hapus pesan bila memungkinkan)."""
+    panel = music_panels.pop(guild_id, None)
+    if not panel:
+        return False
+    if not delete:
+        return True
+    get_channel = getattr(bot, "get_channel", None)
+    channel = get_channel(int(panel.get("channel_id") or 0)) if callable(get_channel) else None
+    if channel is None:
+        return False
+    try:
+        await channel.get_partial_message(int(panel["message_id"])).delete()
+        return True
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return False
+
+
+async def run_music_panel_check(bot: discord.Client) -> int:
+    """Loop latar belakang: memperbarui progress bar panel pemutar tiap beberapa detik."""
+    updated = 0
+    for guild_id in list(music_panels.keys()):
+        get_guild = getattr(bot, "get_guild", None)
+        guild = get_guild(guild_id) if callable(get_guild) else None
+        player = get_player(guild)
+        if player is None or getattr(player, "channel", None) is None:
+            await close_panel(bot, guild_id)
+            continue
+        if not get_music_settings(guild_id).get("announce", True):
+            continue
+        if await send_or_update_panel(bot, guild_id):
+            updated += 1
+    return updated
+
+
+# ==============================================================================
+# ANTREAN BERPAGINASI (ala Rythm)
+# ==============================================================================
+QUEUE_PAGE_SIZE = 10
+
+
+def build_queue_page_embed(
+    tracks: list,
+    *,
+    page: int = 0,
+    page_size: int = QUEUE_PAGE_SIZE,
+    total_length: int = 0,
+    now_playing=None,
+) -> tuple[discord.Embed, int, int]:
+    """Embed antrean berhalaman. Mengembalikan `(embed, halaman_aktif, total_halaman)`."""
+    size = max(1, int(page_size))
+    total_pages = max(1, (len(tracks) + size - 1) // size)
+    current_page = max(0, min(total_pages - 1, int(page)))
+
+    embed = discord.Embed(
+        title="📜 Antrean Musik",
+        color=discord.Color.blurple(),
+        description=f"**{len(tracks)}** lagu • total `{format_duration(total_length)}`",
+    )
+
+    if not tracks:
+        embed.description = "Antrean masih kosong. Tambahkan dengan `/musik putar`."
+        return embed, 0, 1
+
+    start = current_page * size
+    lines = []
+    for offset, track in enumerate(tracks[start : start + size], start=start + 1):
+        length = "LIVE" if getattr(track, "is_stream", False) else format_duration(getattr(track, "length", 0))
+        lines.append(
+            f"`{offset}.` [{track_title(track, 55)}]({track_url(track) or 'https://discord.com'}) — `{length}`"
+        )
+    embed.add_field(
+        name=f"Berikutnya (halaman {current_page + 1}/{total_pages})",
+        value="\n".join(lines)[:1024],
+        inline=False,
+    )
+    if now_playing is not None:
+        embed.add_field(
+            name="🎶 Sedang Diputar",
+            value=f"[{track_title(now_playing, 60)}]({track_url(now_playing) or 'https://discord.com'})",
+            inline=False,
+        )
+    embed.set_footer(text=f"Halaman {current_page + 1} dari {total_pages} • gunakan tombol ◀ ▶ untuk berpindah")
+    return embed, current_page, total_pages
+
+
+async def skip_previous(player) -> bool:
+    """Memutar lagu sebelumnya dari riwayat antrean."""
+    history = getattr(getattr(player, "queue", None), "history", None)
+    if not history:
+        return False
+    try:
+        previous = history[-1]
+    except (IndexError, KeyError):
+        return False
+    if previous is None:
+        return False
+    try:
+        if hasattr(history, "delete"):
+            history.delete(-1)       # wavelink.Queue
+        else:
+            history.pop(-1)          # list biasa (unit test)
+    except Exception:  # pragma: no cover - history kosong
+        pass
+    await player.play(previous, add_history=False)
+    return True
+
+
+def set_autoplay(player, enabled: bool) -> bool:
+    """Menyalakan/mematikan autoplay rekomendasi lagu (fitur asli Lavalink)."""
+    if not WAVELINK_AVAILABLE or player is None:
+        return False
+    try:
+        player.autoplay = wavelink.AutoPlayMode.enabled if enabled else wavelink.AutoPlayMode.disabled
+        return True
+    except Exception as exc:  # pragma: no cover - node lama
+        logger.info("Gagal mengubah autoplay: %s", sanitize_error_message(exc))
+        return False

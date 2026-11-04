@@ -6,7 +6,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
-6. **🎵 Streaming Musik 24/7 (`/musik`)** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Lengkap dengan antrean, pencarian dropdown, jeda/lanjut, skip, volume, mode ulang, acak, **role DJ**, pengumuman *Now Playing*, dan keluar otomatis saat menganggur. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
+6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -322,10 +322,15 @@ Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan pand
 | **`/musik putar query:judul atau link`** | Cari & langsung putar (bot otomatis join voice channel kamu). Mendukung link YouTube, Spotify, SoundCloud, atau playlist. |
 | **`/musik putar query:... berikutnya:True`** | Selalu **antrekan** tanpa memotong lagu yang sedang berjalan. |
 | **`/musik cari query:...`** | Tampilkan 5 hasil + dropdown untuk memilih lagu. |
-| **`/musik antrean`** | Daftar lagu berikutnya + total durasi. |
-| **`/musik sekarang`** | Lagu aktif, progres, volume, & mode pengulangan. |
+| **`/musik antrean halaman:2`** | Antrean **berhalaman** (10 lagu/halaman, tombol ◀ ▶) + total durasi. |
+| **`/musik sekarang`** | Lagu aktif, **progress bar**, volume, filter, & mode pengulangan. |
 | **`/musik jeda` / `/musik lanjut`** | Jeda / lanjutkan tanpa keluar voice. |
 | **`/musik lewati jumlah:2`** | Lewati satu atau beberapa lagu. |
+| **`/musik sebelumnya`** | Kembali ke lagu sebelumnya dari riwayat antrean. |
+| **`/musik seek posisi:1:30`** | Lompat ke menit/detik tertentu (`95`, `1:30`, atau `01:02:03`). |
+| **`/musik filter jenis:bassboost`** | Efek audio: `off`, `bassboost`, `nightcore`, `vaporwave`, `8d`, `karaoke`, `treble`. |
+| **`/musik autoplay aktif:True`** | Putar rekomendasi otomatis begitu antrean habis. |
+| **`/musik panel`** | Kirim ulang panel pemutar bila pesan lamanya terhapus. |
 | **`/musik acak`** | Acak urutan antrean. |
 | **`/musik ulang mode:mati\|satu\|semua`** | Mode pengulangan. |
 | **`/musik volume level:70`** | Atur volume (disimpan sebagai default server, maks 150%). |
@@ -337,6 +342,8 @@ Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan pand
 - **Anti-nimbrung voice:** bot hanya bisa dikontrol member yang **berada di voice channel yang sama**, punya **role DJ**, atau Admin. Bot juga menolak berpindah channel kalau sedang memutar di channel lain.
 - **Keluar otomatis** setelah `MUSIC_IDLE_DISCONNECT_SEC` (default 5 menit) tanpa lagu — hemat RAM & tidak "nangkring" di voice selamanya.
 - **Batas antrean** `MUSIC_MAX_QUEUE` (default 50) agar RAM tetap kecil; lagu berlebih dilewati dengan pemberitahuan, bukan error.
+- **Panel pemutar ala Rythm:** satu pesan per server yang **di-edit** (bukan pesan baru tiap lagu) berisi progress bar `▬▬🔘▬▬` + 9 tombol. Progress bar disegarkan **tiap 10 detik** oleh `music_panel_watcher` (dilewati total bila fitur musik nonaktif). Bila pesan panel terhapus, `/musik panel` mengirim ulang; bila bot keluar voice, panel ikut dibersihkan.
+- **Filter & autoplay tersimpan per server** (`data/music_settings.json`) dan otomatis dipulihkan saat bot bergabung lagi ke voice channel.
 - **Pengumuman Now Playing** otomatis di channel asal command (bisa dimatikan lewat `/musik pengaturan pengumuman:False`).
 - **Tanpa FFmpeg lokal** sama sekali → aman untuk Wispbyte yang hanya boleh 1 proses.
 - **Dependensi voice otomatis:** `requirements.txt` sudah memuat `wavelink`, `PyNaCl` (enkripsi voice), & `davey` (protokol DAVE Discord terbaru), jadi Wispbyte cukup `pip install -r requirements.txt` seperti biasa.
@@ -593,10 +600,15 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | :--- | :--- | :--- |
 | `/musik putar` | `query`, `berikutnya` | Putar lagu/playlist dari YouTube, Spotify, SoundCloud, atau link langsung. |
 | `/musik cari` | `query` | Cari 5 lagu lalu pilih lewat dropdown (berlaku 60 detik). |
-| `/musik antrean` | — | Lihat antrean + total durasi. |
-| `/musik sekarang` | — | Lagu aktif, progres, volume, & mode pengulangan. |
+| `/musik antrean` | `halaman` | Lihat antrean berhalaman (10 lagu/halaman) + total durasi. |
+| `/musik sekarang` | — | Lagu aktif, progress bar, volume, & mode pengulangan. |
 | `/musik jeda` / `/musik lanjut` | — | Jeda / lanjutkan pemutaran. |
 | `/musik lewati` | `jumlah` | Lewati 1–10 lagu. |
+| `/musik sebelumnya` | — | Putar lagi lagu sebelumnya dari riwayat. |
+| `/musik seek` | `posisi` | Lompat ke posisi tertentu (`95`, `1:30`, `01:02:03`). |
+| `/musik filter` | `jenis` | Efek audio (bassboost/nightcore/vaporwave/8d/karaoke/treble/off). |
+| `/musik autoplay` | `aktif` | Autoplay rekomendasi saat antrean habis. |
+| `/musik panel` | — | Kirim ulang panel pemutar Rythm. |
 | `/musik acak` | — | Acak urutan antrean. |
 | `/musik ulang` | `mode` (`mati`/`satu`/`semua`) | Mode pengulangan. |
 | `/musik volume` | `level` (1–150) | Volume + simpan sebagai default server. |
@@ -739,13 +751,13 @@ ai-discord-chat/
 │   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
 │   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
 │   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
-│   ├── music_cog.py    # Grup /musik (putar, cari, antrean, jeda, lewati, volume, ulang, DJ, status)
+│   ├── music_cog.py    # Grup /musik (putar, cari, antrean berhalaman, seek, sebelumnya, filter, autoplay, DJ, panel)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
 ├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
-├── music.py            # Klien Lavalink (wavelink), pengaturan musik per server, embed Now Playing & antrean
+├── music.py            # Klien Lavalink (wavelink), panel pemutar Rythm (progress bar, filter, autoplay), pengaturan per server
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
