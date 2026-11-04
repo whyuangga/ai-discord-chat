@@ -35,6 +35,7 @@ from community_tools import (
     save_community_tools_to_disk,
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
+from ui_theme import load_ui_themes_from_disk, save_ui_themes_to_disk
 from antispam import (
     cleanup_antispam_runtime,
     load_antispam_from_disk,
@@ -198,6 +199,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
+        loaded_themes = load_ui_themes_from_disk()
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -234,6 +236,7 @@ class GeminiDiscordBot(commands.Bot):
             loaded_tickets,
         )
         logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
+        logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
@@ -303,6 +306,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_levels_to_disk()
         await save_tickets_to_disk()
         await save_ai_usage_to_disk()
+        await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()

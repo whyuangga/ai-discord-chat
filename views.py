@@ -2330,7 +2330,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="🎛️ Panel Klik-Tombol & Status",
             value=(
                 "• **`/agent panel`** — **Paling Praktis!** Pilih channel/forum lewat dropdown lalu klik ON/OFF fitur, ubah persona, & kelola FAQ tanpa hafal command.\n"
-                "• `/agent status` — Lihat ringkasan lengkap seluruh channel aktif & hitung mundur pemecah sepi."
+                "• `/agent status` — Lihat ringkasan lengkap seluruh channel aktif & hitung mundur pemecah sepi.\n"
+                "• **`/panel`** — Pantau semua modul (AI, Server, Komunitas, Musik, Kuota) dalam satu dashboard.\n"
+                "• **`/tampilan atur`** — Kustomisasi warna aksen, emoji, kepadatan, thumbnail, & footer panel."
             ),
             inline=False,
         )
@@ -2357,7 +2359,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ AI, Server & Hiburan (31 Menu Utama)",
+            name="⚡ AI, Server & Hiburan (33 Menu Utama)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
@@ -2365,6 +2367,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/cari`** — Cari berita, skor, cuaca, atau info terbaru hari ini.\n"
                 "• **`/game`** — 6 mode Mini-Game Tongkrongan & Papan Skor.\n"
                 "• **`/musik`** — streaming YouTube/Spotify via Lavalink (putar, antrean, volume, DJ).\n"
+                "**🎨 Tampilan & Pusat Kontrol**\n"
+                "• **`/panel`** — **Control Center**: kartu status semua modul + pindah tab lewat dropdown.\n"
+                "• **`/tampilan`** *(Admin)* — ubah warna aksen, emoji, kepadatan, & branding panel server.\n"
                 "**🛠️ Pengelolaan Server**\n"
                 "• **`/agent`** *(Admin)* — Panel kontrol AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
                 "• **`/serverstats`** — Statistik server + channel penghitung otomatis.\n"

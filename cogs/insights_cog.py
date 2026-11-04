@@ -13,6 +13,8 @@ from discord import app_commands
 from discord.ext import commands
 
 import insights
+import ui_kit
+import ui_theme
 from community_agent import (
     MAX_SERVER_KNOWLEDGE_ENTRIES,
     delete_server_knowledge,
@@ -164,10 +166,106 @@ pemakaian_group = app_commands.Group(
 )
 
 
+def build_usage_panel(guild_id: int | None) -> discord.ui.LayoutView:
+    """Panel pemakaian AI bergaya kartu (Components V2, 0 kuota AI)."""
+    key = insights.today_key()
+    bucket = insights.ai_usage.get(key) or insights._empty_bucket()
+    total = int(bucket.get("total") or 0)
+    hits = int(bucket.get("cache_hits") or 0)
+    cap_text = (
+        f"`{AI_DAILY_CAP_PER_USER}` operasi/hari per member"
+        if AI_DAILY_CAP_PER_USER > 0
+        else "_tanpa batas harian_"
+    )
+    kinds = insights._top_items(bucket.get("kinds") or {}, limit=8)
+    users = insights._top_items(bucket.get("users") or {}, limit=5)
+    channels = insights._top_items(bucket.get("channels") or {}, limit=5)
+
+    header = ui_kit.text(
+        ui_kit.title_line(
+            guild_id,
+            "insights",
+            "Pemakaian AI Hari Ini",
+            f"`{key}` • {cap_text}",
+        )
+    )
+    hero = ui_kit.text(
+        "\n".join(
+            [
+                ui_kit.status_line("Operasi AI", f"**{total}**", state="warn" if total > 200 else "on"),
+                ui_kit.status_line("Cache hit (hemat kuota)", f"**{hits}**", state="on"),
+                ui_kit.status_line("Efisiensi cache", ui_kit.progress_bar(hits, max(1, total)), state="on"),
+            ]
+        )
+    )
+    kind_text = (
+        "\n".join(f"• {insights.AI_KIND_LABELS.get(n, n)}: **{c}**" for n, c in kinds)
+        or "_belum ada pemakaian AI hari ini_"
+    )
+    people_text = "\n".join(f"• <@{uid}>: **{c}** operasi" for uid, c in users) or "_belum ada data member_"
+    channel_text = "\n".join(f"• <#{cid}>: **{c}** operasi" for cid, c in channels) or "_belum ada data channel_"
+
+    body = ui_kit.card(
+        guild_id,
+        header,
+        ui_kit.sep(),
+        hero,
+        ui_kit.sep(),
+        ui_kit.text(ui_kit.field_block("🧩 Jenis Operasi", kind_text.split("\n"))),
+        ui_kit.text(ui_kit.field_block("👥 Member Paling Aktif", people_text.split("\n"))),
+        ui_kit.text(ui_kit.field_block("📍 Channel Paling Ramai", channel_text.split("\n"))),
+        ui_kit.sep(),
+        ui_kit.action_row(
+            ui_kit.button(
+                "Tren 7 Hari",
+                emoji="📈",
+                custom_id="usage:trend",
+                callback=_usage_trend_callback,
+            ),
+            ui_kit.button(
+                "Dashboard",
+                emoji=ui_theme.emoji(guild_id, "panel", "🛰️"),
+                style=discord.ButtonStyle.primary,
+                custom_id="usage:dashboard",
+                callback=_usage_dashboard_callback,
+            ),
+        ),
+        ui_kit.text(f"-# {ui_theme.footer_text(guild_id, 'Statistik dihitung lokal — tanpa memanggil Gemini') or 'Statistik lokal • 0 kuota'}"),
+    )
+    return ui_kit.build_view(guild_id, body, timeout=300)
+
+
+async def _usage_trend_callback(interaction: discord.Interaction) -> None:
+    days = max(1, min(int(AI_USAGE_KEEP_DAYS), 7))
+    await interaction.response.edit_message(
+        embed=insights.build_usage_history_embed(days),
+        view=None,
+    )
+
+
+async def _usage_dashboard_callback(interaction: discord.Interaction) -> None:
+    from cogs.panel_cog import dashboard_embed, make_dashboard
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "ℹ️ Dashboard hanya tersedia di dalam server.", ephemeral=True
+        )
+        return
+    await ui_kit.edit_panel(
+        interaction,
+        make_dashboard(interaction.guild, "insights", interaction.user.id),
+        embed=dashboard_embed(interaction.guild, "insights"),
+    )
+
+
 @pemakaian_group.command(name="lihat", description="Pemakaian AI hari ini: jenis operasi, member, & channel tersibuk")
 async def pemakaian_lihat_cmd(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        embed=insights.build_usage_embed(), ephemeral=True
+    guild_id = interaction.guild.id if interaction.guild else None
+    await ui_kit.send_panel(
+        interaction,
+        build_usage_panel(guild_id),
+        embed=insights.build_usage_embed(),
+        ephemeral=True,
     )
 
 

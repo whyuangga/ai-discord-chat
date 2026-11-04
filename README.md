@@ -603,6 +603,42 @@ saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info s
 
 ---
 
+### K. Tampilan Panel Bergaya Web Hosting — `/panel` & `/tampilan` (Components V2)
+
+Discord kini mendukung **Components V2** (`Container`, `Section`, `TextDisplay`, `Separator`,
+`Thumbnail`, `Label`), jadi panel bot bisa tampil seperti dashboard web hosting: kartu berwarna
+aksen, baris status, badge ON/OFF, dan navigasi tab — **tanpa kuota AI sama sekali**.
+
+- **`/panel buka`** — **Control Center**. Satu pesan berisi kartu status + dropdown untuk berpindah tab:
+  `🏠 Ringkasan`, `🤖 AI Agent`, `🛠️ Server`, `🧩 Komunitas`, `🎵 Musik`, `📊 Kuota & Level`.
+  Tombol **🔄 Segarkan**, **🎨 Tampilan**, dan **🚪 Tutup** selalu tersedia.
+- **`/tampilan atur`** *(Admin)* — editor branding server: **warna aksen** (8 pilihan: ungu, biru, teal,
+  hijau, oranye, merah, pink, abu-abu), **gaya emoji** (standar/minimalis), **kepadatan** informasi,
+  **thumbnail**, **gaya navigasi** (dropdown atau baris tombol), **interval refresh** panel musik,
+  serta toggle **footer** dan **dialog konfirmasi**.
+- **`/tampilan pratinjau`** — lihat dashboard dengan tema yang sedang aktif sebelum disimpan rapi.
+- **`/tampilan reset`** — kembalikan semua tampilan ke bawaan bot (memakai dialog konfirmasi).
+- **`/pemakaian lihat`** — kini tampil sebagai kartu V2 dengan **progress bar** efisiensi cache.
+
+#### Batas Keras Discord yang Tidak Bisa Dilanggar
+
+| Batas | Nilai |
+| :--- | :--- |
+| Baris tombol per pesan | maks 5 baris, 5 tombol per baris |
+| Total komponen per pesan | ~40 komponen |
+| Opsi pada dropdown | maks 25 opsi |
+| Warna kartu | hanya pilihan aksen bawaan Discord (tidak bisa hex bebas) |
+| Teks satu blok | maks 4000 karakter |
+
+Tidak ada CSS, font kustom, animasi, atau gambar di dalam tombol — itu memang tidak didukung Discord.
+
+#### Kalau Server/Klien Tidak Mendukung V2
+
+Bot otomatis **mundur ke embed klasik** (warna aksen tetap dipakai). Jadi tidak ada command yang
+gagal hanya karena tampilan V2 ditolak klien. Data tema disimpan di **`data/ui_theme.json`** per server.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -933,6 +969,17 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 
 ---
 
+### 10. Slash Commands Tampilan & Control Center (Components V2)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/panel buka` | `tab` | Dashboard Control Center: kartu status + navigasi tab + tombol Segarkan/Tampilan/Tutup. |
+| `/tampilan atur` | — | *(Admin)* Editor tema: aksen, emoji, kepadatan, thumbnail, navigasi, refresh, footer, konfirmasi. |
+| `/tampilan pratinjau` | — | Lihat dashboard dengan tema aktif (ephemeral). |
+| `/tampilan reset` | — | *(Admin)* Kembalikan tema ke bawaan bot (dengan konfirmasi). |
+
+---
+
 ## ⚙️ Penjelasan Variabel `.env`
 
 Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sudah memiliki nilai default terbaik:
@@ -1090,8 +1137,11 @@ ai-discord-chat/
 │   ├── engagement_cog.py # Grup /giveaway, /ultah, /jawab-otomatis, /pengumuman (tanpa kuota AI)
 │   ├── growth_cog.py   # Grup /level (XP, papan peringkat) & /tiket (tiket thread privat)
 │   ├── insights_cog.py # Grup /pemakaian (statistik kuota AI) & /faq (jawaban lokal 0 kuota)
+│   ├── panel_cog.py    # Grup /panel (dashboard Control Center) & /tampilan (editor tema V2)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
+├── ui_theme.py         # Tema tampilan per server (aksen, emoji, kepadatan, footer) → data/ui_theme.json
+├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol, konfirmasi)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
 ├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)

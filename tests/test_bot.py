@@ -2203,6 +2203,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "giveaway", "ultah", "jawab-otomatis", "pengumuman",
         # v1.10.0-beta (Tier 2C): leveling & tiket dukungan
         "level", "tiket",
+        # v1.12.0-beta: Control Center & editor tema (Components V2)
+        "panel", "tampilan",
         # v1.11.0-beta (Tier 3): hemat kuota AI
         "faq", "pemakaian",
     }
@@ -4900,3 +4902,104 @@ async def test_music_node_diagnostics_and_reconnect(monkeypatch):
     assert sent and "Status Musik" in sent[0]
     assert "Role DJ" in sent[0] and "tidak wajib" in sent[0]
     assert "Lavalink belum tersambung" in sent[0]
+
+
+# ==============================================================================
+# v1.12.0-beta: Tema UI (ui_theme), Komponen V2 (ui_kit), & Control Center (/panel)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_ui_theme_defaults_customisation_and_persistence():
+    """Tema per server: default ungu, validasi nilai, simpan & muat dari disk."""
+    import ui_theme
+
+    ui_theme.ui_themes.clear()
+    theme = ui_theme.get_theme(4242)
+    assert theme["accent"] == "purple"
+    assert theme["density"] in ui_theme.DENSITIES
+    assert ui_theme.accent_color(4242).value == ui_theme.ACCENTS["purple"]["color"]
+    assert isinstance(ui_theme.emoji(4242, "panel", "🛰️"), str)
+
+    # nilai tidak valid diabaikan, nilai valid diterapkan
+    ui_theme.set_theme(4242, accent="tidak-ada", density="nyaman", refresh=9999, footer=False)
+    theme = ui_theme.get_theme(4242)
+    assert theme["accent"] == "purple"          # ditolak → tetap default
+    assert theme["density"] == "nyaman"         # diterima
+    assert theme["refresh"] in ui_theme.REFRESH_CHOICES  # dijepit ke pilihan sah
+    assert theme["footer"] is False
+    assert ui_theme.is_customized(4242)
+    assert ui_theme.footer_text(4242) is None
+
+    await ui_theme.save_ui_themes_to_disk()
+    ui_theme.ui_themes.clear()
+    loaded = ui_theme.load_ui_themes_from_disk()
+    assert loaded >= 1
+    assert ui_theme.get_theme(4242)["density"] == "nyaman"
+
+    ui_theme.reset_theme(4242)
+    assert not ui_theme.is_customized(4242)
+    assert ui_theme.get_theme(4242)["accent"] == "purple"
+
+
+def test_ui_kit_builds_valid_components_v2():
+    """Kartu V2, baris status, progress bar, tombol, dropdown, & konfirmasi bisa dirender."""
+    import ui_kit
+
+    gid = 7777
+    assert "00:00" in ui_kit.human_uptime(0) or "0" in ui_kit.human_uptime(0)
+    assert "🔘" in ui_kit.progress_bar(5, 10)
+    assert ui_kit.progress_bar(0, 0)  # tidak boleh ZeroDivisionError
+    assert ui_kit.field_block("Judul", []) == ""
+    assert "Judul" in ui_kit.field_block("Judul", ["• satu"])
+
+    async def _noop(interaction):  # pragma: no cover - hanya syarat callback async
+        return None
+
+    view = ui_kit.build_view(
+        gid,
+        ui_kit.card(
+            gid,
+            ui_kit.text("### Halo"),
+            ui_kit.sep(),
+            ui_kit.action_row(
+                ui_kit.button("OK", custom_id="t:ok", callback=_noop),
+                ui_kit.toggle_button(gid, "Fitur", True, custom_id="t:on", callback=_noop),
+            ),
+            ui_kit.action_row(
+                ui_kit.select_menu("t:sel", "Pilih…", [ui_kit.option("A", "a")], callback=_noop)
+            ),
+        ),
+    )
+    comps = view.to_components()
+    assert comps and comps[0]["type"] == 17  # Container
+    assert isinstance(ui_kit.fallback_embed(gid, "Judul", "Isi"), discord.Embed)
+
+    confirm = ui_kit.ConfirmView(gid, title="Hapus?", detail="Tidak bisa dibatalkan.")
+    assert confirm.to_components()[0]["type"] == 17
+
+
+@pytest.mark.asyncio
+async def test_panel_dashboard_and_theme_editor_render():
+    """/panel: setiap tab menghasilkan embed cadangan + kartu V2 tanpa error."""
+    from cogs import panel_cog
+
+    class _FakeGuild:
+        id = 8888
+        name = "Server Uji"
+        member_count = 12
+
+    guild = _FakeGuild()
+    for tab in panel_cog.TABS:
+        embed = panel_cog.dashboard_embed(guild, tab)
+        assert isinstance(embed, discord.Embed)
+        assert len(embed.description or "") <= 4096
+        view = panel_cog.make_dashboard(guild, tab, 100)
+        comps = view.to_components()
+        assert comps and comps[0]["type"] == 17
+
+    editor = panel_cog.make_theme_editor(guild, 100)
+    assert len(editor.to_components()) >= 2
+    assert isinstance(panel_cog.theme_embed(guild), discord.Embed)
+
+    # command terdaftar pada tree
+    names = {c.name for c in bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)}
+    assert {"panel", "tampilan"} <= names
