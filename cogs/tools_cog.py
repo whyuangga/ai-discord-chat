@@ -37,6 +37,7 @@ from community_tools import (
     verification_guilds,
 )
 from games import active_channel_games
+from music import get_player, music_status
 from storage import image_thread_settings, thread_chats
 from utils import (
     extract_message_attachments,
@@ -381,6 +382,16 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
             f"`{len(starboard_guilds)}` starboard | `{len(sticky_channels)}` sticky | "
             f"`{len(verification_guilds)}` verifikasi"
         ),
+        inline=False,
+    )
+    music_player = get_player(interaction.guild) if interaction.guild else None
+    embed.add_field(
+        name="🎵 Streaming Musik",
+        value=(
+            f"{music_status()}\n"
+            f"• Voice: {music_player.channel.mention if music_player and music_player.channel else '_idle'}"
+            f" | Antrean: `{len(music_player.queue) if music_player else 0}`"
+        )[:1024],
         inline=False,
     )
     last_error = get_last_error()

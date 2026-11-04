@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.6.0-beta"
+BOT_VERSION = "1.7.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -150,6 +150,7 @@ AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
 GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
 SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
 COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
+MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -182,6 +183,24 @@ STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
 # Backup konfigurasi otomatis: interval hari (0 = matikan) & channel log error global
 BACKUP_INTERVAL_DAYS: int = _env_int("BACKUP_INTERVAL_DAYS", 7, minimum=0)
 BOT_LOG_CHANNEL_ID: int = _env_int("BOT_LOG_CHANNEL_ID", 0, minimum=0)
+
+# ==============================================================================
+# STREAMING MUSIK (LAVALINK v4 + WAVELINK — TANPA FFMPEG LOKAL)
+# ==============================================================================
+# Wispbyte tidak menyediakan FFmpeg/yt-dlp, jadi audio didelegasikan ke node Lavalink v4.
+# Kosongkan `LAVALINK_URI` bila belum ingin memakai fitur musik (command /musik tetap muncul
+# dan hanya menampilkan panduan setup, bot tetap ringan).
+LAVALINK_URI: str = (os.getenv("LAVALINK_URI") or "").strip()
+LAVALINK_PASSWORD: str = (os.getenv("LAVALINK_PASSWORD") or "").strip()
+LAVALINK_NODE_NAME: str = (os.getenv("LAVALINK_NODE_NAME") or "utama").strip() or "utama"
+# Fitur musik dianggap aktif hanya bila URI & password node sudah diisi
+MUSIC_ENABLED: bool = bool(LAVALINK_URI and LAVALINK_PASSWORD)
+# Volume default saat bot bergabung ke voice channel (1-150)
+MUSIC_DEFAULT_VOLUME: int = min(150, _env_int("MUSIC_DEFAULT_VOLUME", 60, minimum=1))
+# Batas jumlah lagu dalam antrean agar RAM tetap kecil
+MUSIC_MAX_QUEUE: int = _env_int("MUSIC_MAX_QUEUE", 50, minimum=1)
+# Putus otomatis dari voice channel setelah sekian detik tanpa lagu (hemat resource)
+MUSIC_IDLE_DISCONNECT_SEC: int = _env_int("MUSIC_IDLE_DISCONNECT_SEC", 300, minimum=30)
 
 # ==============================================================================
 # DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI - RESPONS CEPAT)

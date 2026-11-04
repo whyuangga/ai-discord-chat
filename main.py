@@ -36,6 +36,14 @@ from community_tools import (
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
 from games import load_game_scores_from_disk, save_game_scores_to_disk
+from music import (
+    WAVELINK_AVAILABLE,
+    cleanup_music_runtime,
+    connect_nodes,
+    load_music_settings_from_disk,
+    music_status,
+    save_music_settings_to_disk,
+)
 from server_features import (
     load_server_features_from_disk,
     run_facts_check,
@@ -150,6 +158,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_panels, loaded_reminders_count, loaded_starboard, loaded_sticky, loaded_verify = (
             load_community_tools_from_disk()
         )
+        loaded_music = load_music_settings_from_disk()
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -168,6 +177,11 @@ class GeminiDiscordBot(commands.Bot):
             loaded_security,
         )
         logger.info(
+            "Musik dimuat: %d server dengan pengaturan tersimpan | %s",
+            loaded_music,
+            music_status(),
+        )
+        logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
             loaded_reminders_count,
@@ -184,7 +198,11 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(ForumPostSolvedView())
         self.add_view(VerificationGateView())
 
-        # 3B. Laporkan error Slash Command ke channel log (bila Admin mengaturnya)
+        # 3B. Hubungkan node musik Lavalink (dilewati otomatis bila belum dikonfigurasi)
+        if WAVELINK_AVAILABLE:
+            await connect_nodes(self)
+
+        # 3C. Laporkan error Slash Command ke channel log (bila Admin mengaturnya)
         self.tree.on_error = self._handle_app_command_error
 
         # 4. Jalankan background watcher untuk Pemecah Sepi, Morning Digest, & Pembersih RAM
@@ -218,6 +236,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_game_scores_to_disk()
         await save_server_features_to_disk()
         await save_community_tools_to_disk()
+        await save_music_settings_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -248,6 +267,7 @@ async def idle_chat_watcher():
             if cleanup_expired_sessions() > 0:
                 await save_sessions_to_disk()
             cleanup_stale_agent_runtime()
+            cleanup_music_runtime()
             prune_expired_user_cooldowns()
     except Exception as exc:
         logger.warning("Error pada idle_chat_watcher: %s", sanitize_error_message(exc))

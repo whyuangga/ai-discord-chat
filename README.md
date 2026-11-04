@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.6.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.7.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -6,6 +6,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
+6. **🎵 Streaming Musik 24/7 (`/musik`)** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Lengkap dengan antrean, pencarian dropdown, jeda/lanjut, skip, volume, mode ulang, acak, **role DJ**, pengumuman *Now Playing*, dan keluar otomatis saat menganggur. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -18,6 +19,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [C. Fitur Keamanan, Ketahanan & Performa](#c-fitur-keamanan-ketahanan--performa)
    - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
    - [E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI](#e-fitur-komunitas-ringan--gratis-tanpa-kuota-ai)
+   - [F. Streaming Musik 24/7 (`/musik` + Lavalink)](#f-streaming-musik-247-musik--lavalink)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
@@ -290,6 +292,58 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 
 ---
 
+### F. Streaming Musik 24/7 (`/musik` + Lavalink)
+
+> ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.
+> Supaya musik tetap jalan tanpa membebani bot (RAM tetap ~50–80 MB), audio didelegasikan ke **Lavalink v4**
+> — server kecil berbahasa Java khusus musik. Bot hanya mengirim perintah "putar lagu X" ke node tersebut.
+
+#### 1. Menyiapkan Node Lavalink (3 pilihan, semuanya gratis)
+
+| Pilihan | Cara | Cocok untuk |
+| :--- | :--- | :--- |
+| **A. Node publik gratis** | Ambil URI + password dari direktori node publik (mis. `lavalink.darrennathanael.com`). Tempel ke `LAVALINK_URI` & `LAVALINK_PASSWORD`. | Tes cepat / server kecil. **Node dipakai bersama**, bisa lambat atau mati sewaktu-waktu. |
+| **B. Host Lavalink sendiri (Docker)** | Jalankan lokal/VPS: `docker run -d -p 2333:2333 -e LAVALINK_SERVER_PASSWORD=rahasia ghcr.io/lavalink-devs/lavalink:4` lalu isi `LAVALINK_URI=ip-vps:2333`. | Paling stabil & privat. Butuh VPS kecil (RAM ±300 MB). |
+| **C. Platform gratis (Railway/Fly.io/Koyeb)** | Deploy image `ghcr.io/lavalink-devs/lavalink:4` dengan `application.yml` (password + plugin LavaSrc bila perlu Spotify). | Tanpa VPS, tapi ada batas jam gratis. |
+
+Setelah node siap, isi di **Variables Wispbyte** (atau `.env`):
+```text
+LAVALINK_URI=lavalink.contoh.com:2333
+LAVALINK_PASSWORD=password-node
+LAVALINK_NODE_NAME=utama
+```
+Lalu **restart bot**. Cek status dengan `/musik status` — baris *Node Lavalink* harus **✅ Siap memutar musik**.
+Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan panduan setup.
+
+#### 2. Daftar Command (`/musik`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/musik putar query:judul atau link`** | Cari & langsung putar (bot otomatis join voice channel kamu). Mendukung link YouTube, Spotify, SoundCloud, atau playlist. |
+| **`/musik putar query:... berikutnya:True`** | Selalu **antrekan** tanpa memotong lagu yang sedang berjalan. |
+| **`/musik cari query:...`** | Tampilkan 5 hasil + dropdown untuk memilih lagu. |
+| **`/musik antrean`** | Daftar lagu berikutnya + total durasi. |
+| **`/musik sekarang`** | Lagu aktif, progres, volume, & mode pengulangan. |
+| **`/musik jeda` / `/musik lanjut`** | Jeda / lanjutkan tanpa keluar voice. |
+| **`/musik lewati jumlah:2`** | Lewati satu atau beberapa lagu. |
+| **`/musik acak`** | Acak urutan antrean. |
+| **`/musik ulang mode:mati\|satu\|semua`** | Mode pengulangan. |
+| **`/musik volume level:70`** | Atur volume (disimpan sebagai default server, maks 150%). |
+| **`/musik hentikan`** | Stop, kosongkan antrean, & keluarkan bot dari voice. |
+| **`/musik pengaturan`** *(Admin)* | Pengumuman Now Playing, **role DJ**, & volume default. |
+| **`/musik status`** | Cek node Lavalink, antrean, volume, & channel pengumuman. |
+
+#### 3. Perilaku & Pengamanan
+- **Anti-nimbrung voice:** bot hanya bisa dikontrol member yang **berada di voice channel yang sama**, punya **role DJ**, atau Admin. Bot juga menolak berpindah channel kalau sedang memutar di channel lain.
+- **Keluar otomatis** setelah `MUSIC_IDLE_DISCONNECT_SEC` (default 5 menit) tanpa lagu — hemat RAM & tidak "nangkring" di voice selamanya.
+- **Batas antrean** `MUSIC_MAX_QUEUE` (default 50) agar RAM tetap kecil; lagu berlebih dilewati dengan pemberitahuan, bukan error.
+- **Pengumuman Now Playing** otomatis di channel asal command (bisa dimatikan lewat `/musik pengaturan pengumuman:False`).
+- **Tanpa FFmpeg lokal** sama sekali → aman untuk Wispbyte yang hanya boleh 1 proses.
+- **Dependensi voice otomatis:** `requirements.txt` sudah memuat `wavelink`, `PyNaCl` (enkripsi voice), & `davey` (protokol DAVE Discord terbaru), jadi Wispbyte cukup `pip install -r requirements.txt` seperti biasa.
+- **Tanpa node Lavalink pun bot tetap ringan**: modul musik hanya diimpor sekali, tidak ada loop latar belakang tambahan.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -438,6 +492,9 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Lepas Sticky Message** di suatu channel | `/sticky lepas channel:#umum` |
 | **Hapus panel Reaction Role** | Hapus pesan panelnya, lalu `/panel-role daftar` untuk memastikan |
 | **Matikan backup otomatis & log error** | `/perawatan atur otomatis:False` |
+| **Hentikan musik & keluarkan bot dari voice** | `/musik hentikan` |
+| **Matikan pengumuman Now Playing** | `/musik pengaturan pengumuman:False` |
+| **Matikan fitur musik sepenuhnya** *(bot tetap jalan)* | Kosongkan `LAVALINK_URI` & `LAVALINK_PASSWORD`, lalu restart |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
 | **Matikan fitur Rangkum YouTube & Link Web** di suatu channel | `/agent youtube channel:#share-video aktif:False` |
@@ -529,6 +586,23 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/perawatan backup` | `channel` | *(Admin)* Kirim ZIP backup konfigurasi sekarang. |
 | `/perawatan atur` | `backup_channel`, `log_channel`, `otomatis` | *(Admin)* Atur backup otomatis & channel log error. |
 | `/perawatan status` | — | Status backup, log error, ukuran data, & RAM bot. |
+
+### 6. Slash Commands Streaming Musik (`/musik`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/musik putar` | `query`, `berikutnya` | Putar lagu/playlist dari YouTube, Spotify, SoundCloud, atau link langsung. |
+| `/musik cari` | `query` | Cari 5 lagu lalu pilih lewat dropdown (berlaku 60 detik). |
+| `/musik antrean` | — | Lihat antrean + total durasi. |
+| `/musik sekarang` | — | Lagu aktif, progres, volume, & mode pengulangan. |
+| `/musik jeda` / `/musik lanjut` | — | Jeda / lanjutkan pemutaran. |
+| `/musik lewati` | `jumlah` | Lewati 1–10 lagu. |
+| `/musik acak` | — | Acak urutan antrean. |
+| `/musik ulang` | `mode` (`mati`/`satu`/`semua`) | Mode pengulangan. |
+| `/musik volume` | `level` (1–150) | Volume + simpan sebagai default server. |
+| `/musik hentikan` | — | Stop, kosongkan antrean, & keluar dari voice. |
+| `/musik pengaturan` | `pengumuman`, `role_dj`, `volume_default` | *(Admin)* Pengumuman Now Playing, role DJ, volume default. |
+| `/musik status` | — | Kesehatan node Lavalink & status pemutaran. |
 | `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
 | `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
 
@@ -570,6 +644,12 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `STICKY_MIN_INTERVAL_SEC` | Opsional | `5` | Jeda minimum (detik) sebelum sticky message turun ulang, agar channel tidak dibanjiri bot. |
 | `BACKUP_INTERVAL_DAYS` | Opsional | `7` | Interval backup konfigurasi otomatis ke channel `/perawatan atur` (`0` = nonaktif). |
 | `BOT_LOG_CHANNEL_ID` | Opsional | *(kosong)* | ID channel global untuk laporan error bot (bisa juga diatur per server lewat `/perawatan atur log_channel`). |
+| `LAVALINK_URI` | Opsional | *(kosong)* | Alamat node Lavalink v4 (`host:port`, `https://…`, atau `wss://…`). Kosong = fitur musik nonaktif. |
+| `LAVALINK_PASSWORD` | Opsional | *(kosong)* | Password node Lavalink. Wajib diisi bersama `LAVALINK_URI` untuk mengaktifkan musik. |
+| `LAVALINK_NODE_NAME` | Opsional | `utama` | Nama node untuk log. |
+| `MUSIC_DEFAULT_VOLUME` | Opsional | `60` | Volume default saat bot bergabung ke voice (`1`–`150`). |
+| `MUSIC_MAX_QUEUE` | Opsional | `50` | Batas jumlah lagu dalam antrean (menjaga RAM tetap kecil). |
+| `MUSIC_IDLE_DISCONNECT_SEC` | Opsional | `300` | Keluar otomatis dari voice setelah sekian detik tanpa lagu. |
 
 ---
 
@@ -620,7 +700,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.6.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.7.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/sesi panel`** di channel panel AI privat.
@@ -659,11 +739,13 @@ ai-discord-chat/
 │   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
 │   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
 │   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
+│   ├── music_cog.py    # Grup /musik (putar, cari, antrean, jeda, lewati, volume, ulang, DJ, status)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
 ├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
+├── music.py            # Klien Lavalink (wavelink), pengaturan musik per server, embed Now Playing & antrean
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
@@ -674,7 +756,7 @@ ai-discord-chat/
 ├── .env.example        # Template contoh pengisian variabel .env
 ├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 52 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 55 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---

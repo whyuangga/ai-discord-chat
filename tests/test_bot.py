@@ -12,8 +12,10 @@ import ai_handler
 import community_agent
 import community_tools
 import games
+import music
 import server_features
 import views
+import wavelink
 import main as bot_main
 
 
@@ -81,6 +83,7 @@ def clean_storage_state(tmp_path, monkeypatch):
     monkeypatch.setattr(games, "GAME_SCORES_FILE", scores_path)
     monkeypatch.setattr(server_features, "DATA_DIR", tmp_path)
     monkeypatch.setattr(server_features, "SERVER_FEATURES_FILE", tmp_path / "server_features.json")
+    monkeypatch.setattr(music, "MUSIC_FILE", tmp_path / "music_settings.json")
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -106,6 +109,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_tools.maintenance_guilds.clear()
     community_tools._sticky_last_refresh.clear()
     community_tools._last_error.update({"at": 0.0, "context": "", "message": ""})
+    music.music_guilds.clear()
+    music.announce_channels.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -2146,17 +2151,18 @@ async def test_free_tier_member_cooldown_and_admin_panel_view():
 @pytest.mark.asyncio
 async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
     """Menguji arsitektur modular cogs/, HelpMenuView (/bantuan), ServerFaqManagerView, & pembersih RAM."""
-    # 1. Pastikan top-level slash commands ringkas (19 command utama, hemat slot dari batas 100 Discord)
+    # 1. Pastikan top-level slash commands ringkas (20 command utama, hemat slot dari batas 100 Discord)
     chat_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
     assert {c.name for c in chat_cmds} == {
         "sesi", "ringkas", "cari", "game", "agent", "bantuan", "status",
         "serverstats", "autorole", "fakta", "keamanan",
         "panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan",
+        "musik",
     }
     assert len(chat_cmds) <= 100
 
     # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
-    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "admin"):
+    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin"):
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
@@ -3151,3 +3157,269 @@ async def test_app_command_error_handler_reports_to_log_channel(monkeypatch):
     await bot_main.bot._handle_app_command_error(interaction2, cooldown)
     assert "12" in interaction2.response.sent[0]
     assert len(log_channel.sent) == 1
+
+
+# ==============================================================================
+# STREAMING MUSIK (v1.7.0-beta): Lavalink + wavelink, tanpa FFmpeg lokal
+# ==============================================================================
+class _FakeTrack:
+    def __init__(self, title="Lagu Uji", author="Penyanyi", length=215_000, source="youtube"):
+        self.title = title
+        self.author = author
+        self.length = length
+        self.source = source
+        self.uri = f"https://youtube.com/watch?v={abs(hash(title)) % 10**8}"
+        self.artwork = "https://i.ytimg.com/vi/contoh/hqdefault.jpg"
+        self.is_stream = False
+        self.extras = {}
+
+
+class _FakeQueue:
+    def __init__(self):
+        self.items = []
+        self.mode = wavelink.QueueMode.normal
+        self.history = []
+
+    def __len__(self):
+        return len(self.items)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __getitem__(self, idx):
+        return self.items[idx]
+
+    async def put_wait(self, item):
+        self.items.append(item)
+        return len(self.items)
+
+    def get(self):
+        return self.items.pop(0) if self.items else None
+
+    def clear(self):
+        self.items.clear()
+
+    def shuffle(self):
+        self.items.reverse()
+
+
+class _FakePlayer:
+    def __init__(self, volume=60):
+        self.queue = _FakeQueue()
+        self.current = None
+        self.volume = volume
+        self.played = []
+        self.paused = False
+        self.skipped = 0
+
+    async def play(self, track, **kwargs):
+        self.current = track
+        self.played.append(track)
+        return track
+
+    async def set_volume(self, value):
+        self.volume = value
+
+    async def pause(self, value):
+        self.paused = value
+
+    async def skip(self, force=True):
+        self.skipped += 1
+        self.current = None
+
+    async def stop(self):
+        self.current = None
+
+
+@pytest.mark.asyncio
+async def test_music_helpers_settings_and_embeds():
+    """URI Lavalink, format durasi, pengaturan per server, & embed Now Playing/Antrean."""
+    # 1. Normalisasi URI node (menerima banyak format)
+    assert music.normalize_lavalink_uri("lavalink.example.com:2333") == "ws://lavalink.example.com:2333"
+    assert music.normalize_lavalink_uri("https://node.example.com:443") == "wss://node.example.com:443"
+    assert music.normalize_lavalink_uri("wss://node.example.com:2333/") == "wss://node.example.com:2333"
+    assert music.normalize_lavalink_uri("node.example.com") == "ws://node.example.com:2333"
+    assert music.normalize_lavalink_uri("") is None
+    assert music.normalize_lavalink_uri(None) is None
+
+    # 2. Format durasi
+    assert music.format_duration(0) == "0:00"
+    assert music.format_duration(215_000) == "3:35"
+    assert music.format_duration(3_725_000) == "1:02:05"
+
+    # 3. Pengaturan musik per server (default & persistensi)
+    cfg = music.get_music_settings(10)
+    assert cfg["volume"] == config.MUSIC_DEFAULT_VOLUME
+    assert cfg["announce"] is True
+    music.set_music_settings(10, volume=95, announce=False, dj_role_id=333)
+    assert music.music_guilds[10]["volume"] == 95
+    assert music.music_guilds[10]["dj_role_id"] == 333
+    # Volume selalu dijepit pada rentang aman 1-150
+    music.set_music_settings(10, volume=999)
+    assert music.music_guilds[10]["volume"] == 150
+    music.set_music_settings(10, volume=0)
+    assert music.music_guilds[10]["volume"] == 1
+
+    await music.save_music_settings_to_disk()
+    music.music_guilds.clear()
+    assert music.load_music_settings_from_disk() == 1
+    assert music.music_guilds[10]["volume"] == 1
+    assert music.music_guilds[10]["announce"] is False
+
+    # 4. Mode pengulangan
+    assert music.queue_mode_from_key("satu") is wavelink.QueueMode.loop
+    assert music.queue_mode_from_key("semua") is wavelink.QueueMode.loop_all
+    assert music.queue_mode_from_key("ngawur") is wavelink.QueueMode.normal
+    assert "Ulangi Semua" in music.loop_label_from_mode(wavelink.QueueMode.loop_all)
+    assert "Mati" in music.loop_label_from_mode(None)
+
+    # 5. Embed Now Playing & Antrean
+    track = _FakeTrack()
+    requester = type("U", (), {"id": 501, "display_name": "Warga"})()
+    music.mark_requester(track, requester)
+    assert track.extras["requester"] == "Warga"
+
+    embed = music.build_now_playing_embed(
+        track, queue_length=3, volume=70, loop_label=music.LOOP_MODES["mati"]
+    )
+    assert "Lagu Uji" in embed.title
+    values = " ".join(f"{f.name} {f.value}" for f in embed.fields)
+    assert "3:35" in values
+    assert "Warga" in values
+    assert "70%" in values
+    assert "YouTube" in values
+    assert embed.url == track.uri
+
+    queue_embed = music.build_queue_embed([_FakeTrack("Lagu A"), _FakeTrack("Lagu B")], total_length=430_000)
+    assert "2** lagu" in queue_embed.description
+    assert "Lagu A" in queue_embed.fields[0].value
+
+    empty_embed = music.build_queue_embed([], now_playing=track)
+    assert "masih kosong" in empty_embed.description
+
+    search_embed = music.build_search_embed("cari lagu", [_FakeTrack()])
+    assert "Hasil Pencarian" in search_embed.title
+    assert len(search_embed.fields) == 1
+
+
+@pytest.mark.asyncio
+async def test_music_queue_flow_and_dj_permissions():
+    """Antrean dibatasi MUSIC_MAX_QUEUE, lagu pertama langsung diputar, & hak kontrol DJ."""
+    player = _FakePlayer(volume=60)
+    user = type("U", (), {"id": 501, "display_name": "Warga"})()
+
+    tracks = [_FakeTrack(f"Lagu {idx}") for idx in range(3)]
+    assert await music.play_first_if_idle(player, tracks, user) is True
+    assert player.current.title == "Lagu 0"
+    assert player.current.extras["requester"] == "Warga"
+
+    # Player sudah memutar lagu -> tidak menimpa
+    assert await music.play_first_if_idle(player, [_FakeTrack("Lain")], user) is False
+
+    added, skipped = await music.enqueue_tracks(player, tracks[1:], user)
+    assert added == 2 and skipped == 0
+    assert len(player.queue) == 2
+
+    # Antrean penuh -> sisa lagu dilewati, bukan error
+    player.queue.items = [_FakeTrack() for _ in range(config.MUSIC_MAX_QUEUE)]
+    added2, skipped2 = await music.enqueue_tracks(player, [_FakeTrack("X"), _FakeTrack("Y")], user)
+    assert added2 == 0 and skipped2 == 2
+
+    # Hak kontrol: admin & member di voice channel yang sama boleh, yang lain tidak
+    admin = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": True, "manage_guild": True})(),
+        "roles": [],
+        "voice": None,
+    })()
+    assert music.can_control(player, admin) is True
+
+    player.channel = type("Ch", (), {"id": 900})()
+    player.guild = type("G", (), {"id": 10})()
+    same_voice = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": False, "manage_guild": False})(),
+        "roles": [],
+        "voice": type("V", (), {"channel": type("Ch", (), {"id": 900})()})(),
+    })()
+    other_voice = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": False, "manage_guild": False})(),
+        "roles": [],
+        "voice": type("V", (), {"channel": type("Ch", (), {"id": 901})()})(),
+    })()
+    assert music.can_control(player, same_voice) is True
+    assert music.can_control(player, other_voice) is False
+
+    # Role DJ memberi izin walau tidak ikut voice channel
+    music.get_music_settings(10)["dj_role_id"] = 777
+    dj_member = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": False, "manage_guild": False})(),
+        "roles": [type("R", (), {"id": 777})()],
+        "voice": None,
+    })()
+    assert music.can_control(player, dj_member) is True
+
+    # Runtime pengumuman dibersihkan saat data server hilang
+    music.remember_announce_channel(99, 1234)
+    assert music.cleanup_music_runtime() >= 1
+    assert 99 not in music.announce_channels
+
+
+@pytest.mark.asyncio
+async def test_music_command_structure_and_setup_guard(monkeypatch):
+    """`/musik` terdaftar lengkap, tetap ada walau node belum diisi, & memberi panduan setup."""
+    tree_cmds = {c.name: c for c in bot_main.bot.tree.get_commands()}
+    musik = tree_cmds["musik"]
+    assert {c.name for c in musik.commands} == {
+        "putar", "cari", "antrean", "sekarang", "lewati", "jeda", "lanjut",
+        "hentikan", "volume", "ulang", "acak", "pengaturan", "status",
+    }
+    for sub in musik.commands:
+        assert 1 <= len(sub.description) <= 100
+
+    # Tanpa konfigurasi Lavalink, bot tetap hidup & command memberi panduan setup
+    monkeypatch.setattr(music, "MUSIC_ENABLED", False)
+    assert "Belum dikonfigurasi" in music.music_status()
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+            self.done = False
+
+        def is_done(self):
+            return self.done
+
+        async def send_message(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.done = True
+            self.sent.append(content)
+
+        async def defer(self, ephemeral=False):
+            self.done = True
+
+    class _Follow:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.sent.append(content)
+
+    class _Interaction:
+        guild = type("G", (), {"id": 10, "voice_client": None})()
+
+        def __init__(self):
+            self.response = _Resp()
+            self.followup = _Follow()
+            self.user = type("U", (), {"id": 501, "display_name": "Warga", "voice": None})()
+
+    import cogs.music_cog as music_cog
+
+    interaction = _Interaction()
+    await music_cog.musik_putar_cmd.callback(interaction, "lagu uji", False)
+    assert interaction.followup.sent and "LAVALINK_URI" in interaction.followup.sent[0]
+
+    interaction2 = _Interaction()
+    await music_cog.musik_antrean_cmd.callback(interaction2)
+    assert "Belum ada musik" in interaction2.response.sent[0]
+
+    # Parser pencarian menolak query kosong tanpa memanggil node
+    monkeypatch.setattr(music, "MUSIC_ENABLED", True)
+    tracks, playlist = await music.search_tracks("")
+    assert tracks == [] and playlist is None

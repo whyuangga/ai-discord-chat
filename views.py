@@ -1595,6 +1595,47 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+    elif category == "musik":
+        embed = discord.Embed(
+            title="🎵 Streaming Musik 24/7 (`/musik`) — Lavalink",
+            description=(
+                "Putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music**, dan lainnya tanpa membebani "
+                "server bot (audio diproses node Lavalink, bukan CPU bot)."
+            ),
+            color=discord.Color.dark_purple(),
+        )
+        embed.add_field(
+            name="▶️ Memutar Lagu",
+            value=(
+                "• `/musik putar query:judul lagu` — cari & langsung putar (bot join voice channel kamu).\n"
+                "• `/musik putar query:https://youtu.be/xxxx` — tempel tautan YouTube/Spotify/playlist.\n"
+                "• `/musik cari query:...` — lihat 5 hasil lalu pilih dari dropdown.\n"
+                "• `/musik putar query:... berikutnya:True` — selalu antrekan tanpa memotong lagu berjalan."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🎛️ Kontrol Pemutaran",
+            value=(
+                "• `/musik sekarang` — lagu aktif + progres & volume.\n"
+                "• `/musik antrean` — daftar lagu berikutnya + total durasi.\n"
+                "• `/musik jeda` / `/musik lanjut` — jeda & lanjutkan.\n"
+                "• `/musik lewati jumlah:2` — lewati lagu (bisa beberapa sekaligus).\n"
+                "• `/musik acak` — acak antrean, `/musik ulang mode:satu|semua|mati`.\n"
+                "• `/musik volume level:70` — atur volume (disimpan sebagai default server).\n"
+                "• `/musik hentikan` — stop, kosongkan antrean, & keluar dari voice."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="⚙️ Admin & Status",
+            value=(
+                "• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n"
+                "• `/musik status` — cek node Lavalink, antrean, & pengaturan server.\n"
+                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Panduan lengkap ada di README bagian F."
+            ),
+            inline=False,
+        )
     elif category == "admin":
         embed = discord.Embed(
             title="⚙️ Panduan Admin & AI Komunitas (`/agent`)",
@@ -1632,7 +1673,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ Daftar Slash Command Utama (19 Menu Ringkas)",
+            name="⚡ Daftar Slash Command Utama (20 Menu Ringkas)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
@@ -1649,6 +1690,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/panel-role`** — Reaction role, **`/poll`** — polling, **`/ingatkan`** — pengingat.\n"
                 "• **`/starboard`** — sorotan pesan populer, **`/sticky`** — pesan petunjuk menempel.\n"
                 "• **`/info`** — profil member & server, **`/perawatan`** — backup & log error.\n"
+                "**🎵 Hiburan Audio**\n"
+                "• **`/musik`** — streaming YouTube/Spotify/SoundCloud via Lavalink (putar, antrean, volume, DJ).\n"
                 "• **`/status`** & **`/bantuan`** — Cek kesehatan bot & buka panduan ini."
             ),
             inline=False,
@@ -1714,6 +1757,12 @@ class HelpMenuView(discord.ui.View):
                 value="server",
                 emoji="🛠️",
                 description="Panduan /serverstats, /autorole, /fakta, & /keamanan",
+            ),
+            discord.SelectOption(
+                label="Streaming Musik 24/7 (/musik & Lavalink)",
+                value="musik",
+                emoji="🎵",
+                description="Putar lagu YouTube/Spotify, antrean, volume, & role DJ",
             ),
             discord.SelectOption(
                 label="Fitur Komunitas Ringan (Role, Poll, Starboard, Sticky)",
