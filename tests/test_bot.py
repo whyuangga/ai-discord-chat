@@ -10,9 +10,12 @@ import storage
 import utils
 import ai_handler
 import community_agent
+import community_tools
 import games
+import music
 import server_features
 import views
+import wavelink
 import main as bot_main
 
 
@@ -79,7 +82,11 @@ def clean_storage_state(tmp_path, monkeypatch):
     monkeypatch.setattr(games, "DATA_DIR", tmp_path)
     monkeypatch.setattr(games, "GAME_SCORES_FILE", scores_path)
     monkeypatch.setattr(server_features, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(community_tools, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(community_tools, "COMMUNITY_TOOLS_FILE", tmp_path / "community_tools.json")
     monkeypatch.setattr(server_features, "SERVER_FEATURES_FILE", tmp_path / "server_features.json")
+    monkeypatch.setattr(music, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(music, "MUSIC_FILE", tmp_path / "music_settings.json")
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -97,6 +104,16 @@ def clean_storage_state(tmp_path, monkeypatch):
     server_features.autorole_guilds.clear()
     server_features.facts_guilds.clear()
     server_features.security_guilds.clear()
+    community_tools.reaction_role_panels.clear()
+    community_tools.reminders.clear()
+    community_tools.starboard_guilds.clear()
+    community_tools.sticky_channels.clear()
+    community_tools.verification_guilds.clear()
+    community_tools.maintenance_guilds.clear()
+    community_tools._sticky_last_refresh.clear()
+    community_tools._last_error.update({"at": 0.0, "context": "", "message": ""})
+    music.music_guilds.clear()
+    music.announce_channels.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -1664,6 +1681,7 @@ async def test_discord_command_and_view_hard_limits():
         views.ChatPersonaSwitchView(),
         views.ImageSettingsView(),
         views.ForumPostSolvedView(),
+        views.VerificationGateView(),
     ]
     seen_ids: set[str] = set()
     for v in persistent_views:
@@ -2136,15 +2154,18 @@ async def test_free_tier_member_cooldown_and_admin_panel_view():
 @pytest.mark.asyncio
 async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
     """Menguji arsitektur modular cogs/, HelpMenuView (/bantuan), ServerFaqManagerView, & pembersih RAM."""
-    # 1. Pastikan top-level slash commands ringkas (11 command utama, hemat slot dari batas 100 Discord)
+    # 1. Pastikan top-level slash commands ringkas (20 command utama, hemat slot dari batas 100 Discord)
     chat_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
     assert {c.name for c in chat_cmds} == {
         "sesi", "ringkas", "cari", "game", "agent", "bantuan", "status",
         "serverstats", "autorole", "fakta", "keamanan",
+        "panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan",
+        "musik",
     }
+    assert len(chat_cmds) <= 100
 
     # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
-    for cat in ("overview", "sesi", "tools", "games", "server", "admin"):
+    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin"):
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
@@ -2379,11 +2400,10 @@ async def test_serverstats_autorole_facts_and_phishing_guard():
     assert server_features.set_autorole_config(10, [222], enabled=False) is None
     assert server_features.get_autorole_role_ids(10) == []
 
-    # 3. Fakta Harian default 08:00 & cadangan offline selalu tersedia
+    # 3. Fakta Harian default 4 slot (08:00, 12:00, 16:00, 20:00) & cadangan offline selalu tersedia
     f_cfg = server_features.set_facts_config(10, 7002, enabled=True)
-    assert f_cfg["hour"] == config.FACTS_DEFAULT_HOUR == 8
-    assert f_cfg["minute"] == config.FACTS_DEFAULT_MINUTE == 0
-    assert f_cfg["last_sent_date"] == ""
+    assert f_cfg["times"] == config.FACTS_DEFAULT_TIMES == ["08:00", "12:00", "16:00", "20:00"]
+    assert f_cfg["sent_slots"] == {}
     fallback = server_features.build_facts_fallback(4)
     assert fallback.count("—") >= 4
     assert server_features.set_facts_config(10, 7002, enabled=False) is None
@@ -2534,8 +2554,96 @@ async def test_phishing_guard_deletes_bad_links_and_ignores_safe_ones():
 
 
 @pytest.mark.asyncio
-async def test_facts_daily_scheduler_once_per_day_and_serverstats_throttle(monkeypatch):
-    """Rubrik Fakta Unik Dunia terkirim sekali per hari & Server Stats mematuhi batas rate limit."""
+async def test_facts_multi_slot_schedule_parsing_and_migration(monkeypatch):
+    """Jadwal Fakta Unik Dunia fleksibel (multi-slot), bisa diubah Admin, & migrasi konfigurasi lama."""
+    # 1. Parser menerima banyak format penulisan jam
+    assert server_features.parse_schedule_input("08:00,12:00,16:00,20:00") == (
+        ["08:00", "12:00", "16:00", "20:00"], None,
+    )
+    assert server_features.parse_schedule_input("8,12,16,20") == (
+        ["08:00", "12:00", "16:00", "20:00"], None,
+    )
+    assert server_features.parse_schedule_input("8.30 16.00") == (["08:30", "16:00"], None)
+    assert server_features.parse_schedule_input("09:00; 15:00; 21:00") == (
+        ["09:00", "15:00", "21:00"], None,
+    )
+    assert server_features.parse_schedule_input("10:00 dan 22:00") == (["10:00", "22:00"], None)
+
+    # Input kosong -> default 4 slot
+    assert server_features.parse_schedule_input("")[0] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # Duplikat & urutan acak dirapikan
+    assert server_features.parse_schedule_input("20:00, 08:00, 20:00, 12:00")[0] == [
+        "08:00", "12:00", "20:00",
+    ]
+
+    # Format salah ditolak dengan pesan jelas (tidak merusak jadwal lama)
+    invalid, err = server_features.parse_schedule_input("25:00, abc")
+    assert invalid is None
+    assert "tidak dikenali" in err
+
+    too_many, err2 = server_features.parse_schedule_input("1,2,3,4,5,6,7")
+    assert too_many is None
+    assert "Maksimal" in err2
+
+    # 2. Label suasana waktu & slot berikutnya
+    assert "Pagi" in server_features.describe_slot("08:00")
+    assert "Siang" in server_features.describe_slot("12:00")
+    assert "Sore" in server_features.describe_slot("16:00")
+    assert "Malam" in server_features.describe_slot("20:00")
+    assert server_features.next_facts_slot(["08:00", "12:00", "16:00", "20:00"], now_minutes=13 * 60) == (
+        "16:00", 180,
+    )
+    assert server_features.next_facts_slot(["08:00", "20:00"], now_minutes=21 * 60) == ("08:00", 660)
+
+    # 3. Admin bebas mengganti jadwal (1x, 2x, 3x, 4x, hingga 6x sehari)
+    cfg = server_features.set_facts_config(10, 7002, enabled=True, times="08:00,20:00")
+    assert cfg["times"] == ["08:00", "20:00"]
+    cfg = server_features.set_facts_config(10, 7002, enabled=True, times="8,12,16,20")
+    assert cfg["times"] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # Tanpa parameter `times`, jadwal lama dipertahankan
+    cfg = server_features.set_facts_config(10, 7002, enabled=True)
+    assert cfg["times"] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # Jadwal tidak valid -> tidak merusak konfigurasi
+    assert server_features.set_facts_config(10, 7002, enabled=True, times="ngawur") is None
+    assert server_features.facts_guilds[10]["times"] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # 4. Migrasi otomatis dari format lama (hour/minute tunggal + last_sent_date)
+    await server_features.save_server_features_to_disk()
+    legacy = {
+        "facts": {
+            "77": {
+                "enabled": True,
+                "channel_id": 7777,
+                "hour": 9,
+                "minute": 30,
+                "last_sent_date": "2026-11-04",
+                "recent_facts": ["fakta lama"],
+            }
+        }
+    }
+    server_features.SERVER_FEATURES_FILE.write_text(json.dumps(legacy), encoding="utf-8")
+    server_features.facts_guilds.clear()
+    server_features.load_server_features_from_disk()
+    migrated = server_features.facts_guilds[77]
+    assert migrated["times"] == ["09:30"]
+    assert migrated["sent_slots"] == {"2026-11-04": ["09:30"]}
+    assert migrated["recent_facts"] == ["fakta lama"]
+
+    # 5. Konfigurasi multi-slot tahan restart
+    server_features.facts_guilds.clear()
+    server_features.set_facts_config(10, 7002, enabled=True, times="07:00,13:00,21:00")
+    await server_features.save_server_features_to_disk()
+    server_features.facts_guilds.clear()
+    server_features.load_server_features_from_disk()
+    assert server_features.facts_guilds[10]["times"] == ["07:00", "13:00", "21:00"]
+
+
+@pytest.mark.asyncio
+async def test_facts_multi_slot_dispatch_and_serverstats_throttle(monkeypatch):
+    """Fakta terkirim sekali per slot per hari, anti-banjir saat bot offline, & Server Stats hemat rate limit."""
     sent_embeds: list = []
 
     class _FakeFactsChannel:
@@ -2553,23 +2661,888 @@ async def test_facts_daily_scheduler_once_per_day_and_serverstats_throttle(monke
         return "🇯🇵 **Jepang** — fakta uji harian.\n\n🇧🇷 **Brasil** — fakta uji kedua.", None
 
     monkeypatch.setattr(server_features, "generate_daily_facts", _fake_generate)
-    server_features.set_facts_config(10, 7002, enabled=True, hour=0, minute=0)
 
+    fixed = {
+        "iso_date": "2026-11-04",
+        "hour": 13,
+        "minute": 5,
+        "clock": "13:05 WIB",
+        "day_name": "Rabu",
+        "date_str": "4 November 2026",
+        "tz_label": "WIB",
+        "vibe": "Siang hari",
+        "summary": "Rabu, 4 November 2026 | Pukul 13:05 WIB",
+    }
+
+    def _fake_time_context(tz_name: str = "Asia/Jakarta") -> dict:
+        return dict(fixed)
+
+    monkeypatch.setattr(server_features, "get_realtime_time_context", _fake_time_context)
+    server_features.set_facts_config(10, 7002, enabled=True, times="08:00,12:00,16:00,20:00")
+
+    # 13:05 -> slot 08:00 & 12:00 sudah lewat, tapi hanya 1 pesan dikirim (anti-banjir)
     assert await server_features.run_facts_check(_FakeFactsBot()) == 1
     assert len(sent_embeds) == 1
     assert "Fakta Unik Dunia" in sent_embeds[0].title
-    assert server_features.facts_guilds[10]["last_sent_date"] != ""
+    assert "Siang" in sent_embeds[0].title
+    assert server_features.facts_guilds[10]["sent_slots"] == {
+        "2026-11-04": ["08:00", "12:00"],
+    }
 
-    # Sudah terkirim hari ini -> tidak dobel kirim
+    # Dijalankan lagi di menit yang sama -> tidak dobel kirim
     assert await server_features.run_facts_check(_FakeFactsBot()) == 0
     assert len(sent_embeds) == 1
 
-    # Jadwal belum tiba -> tidak terkirim
-    server_features.facts_guilds[10]["last_sent_date"] = ""
-    server_features.set_facts_config(10, 7002, enabled=True, hour=23, minute=59)
+    # Pukul 16:05 -> slot sore terkirim
+    fixed["hour"], fixed["minute"], fixed["clock"] = 16, 5, "16:05 WIB"
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 2
+    assert "Sore" in sent_embeds[1].title
+    assert server_features.facts_guilds[10]["sent_slots"]["2026-11-04"] == [
+        "08:00", "12:00", "16:00",
+    ]
+
+    # Pukul 07:00 keesokan hari -> semua slot baru dimulai lagi
+    fixed.update({"iso_date": "2026-11-05", "hour": 7, "minute": 0, "clock": "07:00 WIB"})
     assert await server_features.run_facts_check(_FakeFactsBot()) == 0
+    assert len(sent_embeds) == 2
+
+    fixed["hour"], fixed["minute"], fixed["clock"] = 8, 0, "08:00 WIB"
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 3
+    assert "Pagi" in sent_embeds[2].title
+
+    # Jadwal 1x sehari tetap dihormati
+    server_features.set_facts_config(10, 7002, enabled=True, times="21:00")
+    fixed.update({"iso_date": "2026-11-06", "hour": 20, "minute": 59, "clock": "20:59 WIB"})
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 0
+    fixed["hour"], fixed["minute"], fixed["clock"] = 21, 0, "21:00 WIB"
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 4
 
     # Server Stats: baru saja diperbarui -> tidak memanggil API channel (aman rate limit)
     server_features.set_serverstats_config(10, enabled=True)
     server_features.serverstats_guilds[10]["last_update_at"] = time.time()
     assert await server_features.update_serverstats_channels(_FakeStatsGuild()) == 0
+
+
+@pytest.mark.asyncio
+async def test_default_four_daily_slots_fire_exactly_once(monkeypatch):
+    """Jadwal default 08:00, 12:00, 16:00, 20:00 terkirim tepat sekali di setiap slot."""
+    sent_titles: list[str] = []
+
+    class _FakeChannel:
+        async def send(self, embed=None, **kwargs):
+            sent_titles.append(embed.title)
+            return None
+
+    class _FakeBot:
+        user = type("FakeBotUser", (), {"display_name": "Whas"})()
+
+        def get_channel(self, cid):
+            return _FakeChannel() if cid == 7002 else None
+
+    async def _fake_generate(*args, **kwargs):
+        return "🇯🇵 **Jepang** — fakta uji.\n\n🇧🇷 **Brasil** — fakta uji kedua.", None
+
+    monkeypatch.setattr(server_features, "generate_daily_facts", _fake_generate)
+
+    clock = {"hour": 0, "minute": 0}
+
+    def _fake_time_context(tz_name: str = "Asia/Jakarta") -> dict:
+        return {
+            "iso_date": "2026-11-04",
+            "hour": clock["hour"],
+            "minute": clock["minute"],
+            "clock": f"{clock['hour']:02d}:{clock['minute']:02d} WIB",
+            "day_name": "Rabu",
+            "date_str": "4 November 2026",
+            "tz_label": "WIB",
+            "vibe": "uji",
+            "summary": "uji",
+        }
+
+    monkeypatch.setattr(server_features, "get_realtime_time_context", _fake_time_context)
+    server_features.set_facts_config(10, 7002, enabled=True)
+
+    # Simulasikan satu hari penuh (menit demi menit di sekitar setiap slot)
+    for hour, minute in [
+        (7, 59), (8, 0), (8, 1), (11, 59), (12, 0), (12, 30),
+        (15, 59), (16, 0), (16, 45), (19, 59), (20, 0), (20, 10), (23, 59),
+    ]:
+        clock["hour"], clock["minute"] = hour, minute
+        await server_features.run_facts_check(_FakeBot())
+
+    assert len(sent_titles) == 4
+    assert "Pagi" in sent_titles[0]
+    assert "Siang" in sent_titles[1]
+    assert "Sore" in sent_titles[2]
+    assert "Malam" in sent_titles[3]
+    assert server_features.facts_guilds[10]["sent_slots"] == {
+        "2026-11-04": ["08:00", "12:00", "16:00", "20:00"],
+    }
+
+
+# ==============================================================================
+# FITUR KOMUNITAS RINGAN (v1.6.0-beta): Reaction Role, Poll, Reminder, Starboard,
+# Verifikasi, Sticky, Info, Backup, & Log Error — semuanya tanpa kuota Gemini.
+# ==============================================================================
+class _FakeReaction:
+    def __init__(self, emoji: str, count: int):
+        self.emoji = emoji
+        self.count = count
+
+
+class _FakeAuthor:
+    def __init__(self, name: str = "Warga", bot: bool = False):
+        self.display_name = name
+        self.bot = bot
+        self.display_avatar = type("Avatar", (), {"url": "https://cdn.example.com/a.png"})()
+
+
+class _FakeStarboardMessage:
+    def __init__(self, *, mid: int = 500, content: str = "Halo dunia", count: int = 0):
+        self.id = mid
+        self.content = content
+        self.author = _FakeAuthor()
+        self.reactions = [_FakeReaction("⭐", count)]
+        self.attachments = []
+        self.jump_url = f"https://discord.com/channels/1/2/{mid}"
+        self.created_at = discord.utils.utcnow()
+
+
+class _FakeSendableChannel:
+    def __init__(self, *, message=None, cid: int = 7002):
+        self.id = cid
+        self.sent = []
+        self.deleted = []
+        self._message = message
+
+    async def send(self, content=None, embed=None, file=None, poll=None, view=None, **kwargs):
+        self.sent.append({"content": content, "embed": embed, "file": file, "poll": poll})
+        return type("SentMessage", (), {"id": 9000 + len(self.sent)})()
+
+    async def fetch_message(self, mid):
+        if self._message is None:
+            raise discord.NotFound(response=None, message="tidak ada")
+        return self._message
+
+    def get_partial_message(self, mid):
+        channel = self
+
+        class _Partial:
+            async def delete(self):
+                channel.deleted.append(mid)
+
+        return _Partial()
+
+
+class _FakeCommunityBot:
+    def __init__(self, channels: dict):
+        self._channels = channels
+        self.user = type("FakeBotUser", (), {"display_name": "Whas"})()
+
+    def get_channel(self, cid):
+        return self._channels.get(cid)
+
+
+@pytest.mark.asyncio
+async def test_community_reaction_roles_and_reminders():
+    """Reaction Role (panel, opsi, resolve emoji) & Reminder (parser, kuota, pengiriman, persistensi)."""
+    # 1. Panel reaction role
+    panel = community_tools.create_reaction_role_panel(10, 7002, 555, title="Ambil Role", description="Klik emoji")
+    assert panel["options"] == []
+    assert community_tools.add_reaction_role_option(555, "🎮", 111, "Gamer") is not None
+    assert community_tools.add_reaction_role_option(555, "🎨", 222, "Artist") is not None
+    # Duplikat emoji maupun duplikat role ditolak
+    assert community_tools.add_reaction_role_option(555, "🎮", 333, "Lain") is None
+    assert community_tools.add_reaction_role_option(555, "🎵", 111, "Lain") is None
+    assert community_tools.resolve_reaction_role(555, "🎨") == 222
+    assert community_tools.resolve_reaction_role(555, "🎮") == 111
+    assert community_tools.resolve_reaction_role(555, "🎯") is None
+    assert community_tools.resolve_reaction_role(999, "🎮") is None
+
+    # Emoji kustom (nama:id) tetap cocok berdasarkan namanya
+    community_tools.add_reaction_role_option(555, "panda:123456789012345678", 444, "Panda")
+    assert community_tools.resolve_reaction_role(555, "panda:987654321098765432") == 444
+
+    assert community_tools.remove_reaction_role_option(555, "🎵") is None
+    assert community_tools.remove_reaction_role_option(555, "🎮") is not None
+    assert community_tools.resolve_reaction_role(555, "🎮") is None
+
+    # 2. Parser durasi pengingat
+    assert community_tools.parse_reminder_duration("10m") == 600
+    assert community_tools.parse_reminder_duration("2j") == 7200
+    assert community_tools.parse_reminder_duration("1j30m") == 5400
+    assert community_tools.parse_reminder_duration("2 hari") == 172800
+    assert community_tools.parse_reminder_duration("45") == 2700  # tanpa satuan = menit
+    assert community_tools.parse_reminder_duration("1 jam dan 15 menit") == 4500
+    assert community_tools.parse_reminder_duration("") is None
+    assert community_tools.parse_reminder_duration("besok pagi") is None
+    assert community_tools.parse_reminder_duration("400 hari") is None  # melebihi batas 365 hari
+    assert community_tools.format_duration_short(5400) == "1j 30m"
+
+    # 3. Reminder: simpan, batasi kuota, daftar, & batalkan
+    reminder = community_tools.add_reminder(10, 7002, 501, "Mabar jam 8", 60)
+    assert reminder is not None and reminder["user_id"] == 501
+    assert len(community_tools.list_user_reminders(501)) == 1
+    assert community_tools.cancel_reminder(reminder["id"], 999) is False  # bukan pemilik
+    assert community_tools.cancel_reminder(reminder["id"], 501) is True
+    assert community_tools.list_user_reminders(501) == []
+
+    for idx in range(config.REMINDER_MAX_PER_USER):
+        community_tools.add_reminder(10, 7002, 502, f"Tugas {idx}", 60)
+    assert community_tools.add_reminder(10, 7002, 502, "Kelebihan", 60) is None
+
+    # 4. Pengiriman pengingat jatuh tempo
+    channel = _FakeSendableChannel()
+    bot = _FakeCommunityBot({7002: channel})
+    community_tools.reminders.clear()
+    due = community_tools.add_reminder(10, 7002, 503, "Rapat mulai", 30)
+    due["due_at"] = time.time() - 5  # sudah jatuh tempo
+    belum = community_tools.add_reminder(10, 7002, 504, "Nanti", 3600)
+
+    assert await community_tools.run_reminder_check(bot) == 1
+    assert len(channel.sent) == 1
+    assert "Rapat mulai" in channel.sent[0]["content"]
+    assert "<@503>" in channel.sent[0]["content"]
+    assert due["id"] not in community_tools.reminders
+    assert belum["id"] in community_tools.reminders
+
+    # 5. Persistensi: panel, reminder, & sticky tahan restart
+    community_tools.set_sticky_config(7002, 10, "Baca rules dulu ya!", title="📌 Rules")
+    await community_tools.save_community_tools_to_disk()
+    community_tools.reaction_role_panels.clear()
+    community_tools.reminders.clear()
+    community_tools.sticky_channels.clear()
+    counts = community_tools.load_community_tools_from_disk()
+    assert counts[0] == 1  # panel
+    assert counts[1] == 1  # reminder
+    assert counts[3] == 1  # sticky
+    assert community_tools.resolve_reaction_role(555, "🎨") == 222
+    assert community_tools.sticky_channels[7002]["content"].startswith("Baca rules")
+    assert community_tools.reminders[belum["id"]]["text"] == "Nanti"
+
+
+@pytest.mark.asyncio
+async def test_community_starboard_sticky_and_verification():
+    """Starboard (salin & hapus sorotan), Sticky message (debounce), & Gerbang verifikasi."""
+    # 1. Starboard: konfigurasi + sorotan saat ambang tercapai
+    cfg = community_tools.set_starboard_config(10, channel_id=8001, threshold=3, emoji="⭐")
+    assert cfg["threshold"] == 3 and cfg["channel_id"] == 8001
+
+    source = _FakeSendableChannel(message=_FakeStarboardMessage(mid=500, count=4))
+    starboard = _FakeSendableChannel()
+    bot = _FakeCommunityBot({7002: source, 8001: starboard})
+    payload = type(
+        "Payload",
+        (),
+        {"guild_id": 10, "channel_id": 7002, "message_id": 500, "emoji": "⭐", "user_id": 501, "member": None},
+    )()
+
+    assert await community_tools.handle_starboard_reaction(bot, payload, added=True) is True
+    assert len(starboard.sent) == 1
+    assert "Halo dunia" in starboard.sent[0]["embed"].description
+    # Kunci entri memakai string ID pesan & jumlah bintang dikurangi reaksi bot sendiri
+    assert "500" in community_tools.starboard_guilds[10]["entries"]
+    assert community_tools.starboard_guilds[10]["entries"]["500"]["count"] == 3
+
+    # Reaksi berikutnya tidak menduplikasi sorotan
+    assert await community_tools.handle_starboard_reaction(bot, payload, added=True) is False
+    assert len(starboard.sent) == 1
+
+    # Ambang turun di bawah batas -> sorotan dihapus
+    source._message = _FakeStarboardMessage(mid=500, count=1)
+    assert await community_tools.handle_starboard_reaction(bot, payload, added=False) is True
+    assert starboard.deleted == [9001]
+    assert community_tools.starboard_guilds[10]["entries"] == {}
+
+    # Emoji berbeda / pesan bot / channel starboard sendiri diabaikan
+    source._message = _FakeStarboardMessage(mid=500, count=9)
+    other_emoji = type("Payload", (), {**payload.__dict__, "emoji": "🔥"})()
+    assert await community_tools.handle_starboard_reaction(bot, other_emoji, added=True) is False
+    in_starboard = type("Payload", (), {**payload.__dict__, "channel_id": 8001})()
+    assert await community_tools.handle_starboard_reaction(bot, in_starboard, added=True) is False
+
+    # 2. Sticky message: kirim, simpan id, & dibatasi jeda agar tidak spam
+    cfg_sticky = community_tools.set_sticky_config(7002, 10, "Aturan server: jangan spam.", title="📌 Rules")
+    assert cfg_sticky is not None
+    channel = _FakeSendableChannel()
+    message = type("Msg", (), {"channel": channel})()
+    community_tools._sticky_last_refresh.clear()
+
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), message) is True
+    assert len(channel.sent) == 1
+    assert "jangan spam" in channel.sent[0]["embed"].description
+    assert community_tools.sticky_channels[7002]["last_message_id"] == 9001
+
+    # Langsung dipanggil lagi -> debounce menahan (tidak spam)
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), message) is False
+    assert len(channel.sent) == 1
+
+    # Setelah jeda lewat & pesan lama dihapus
+    community_tools._sticky_last_refresh[7002] = 0.0
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), message) is True
+    assert channel.deleted == [9001]
+    assert len(channel.sent) == 2
+
+    # Channel tanpa konfigurasi sticky tidak diapa-apakan
+    other_channel = _FakeSendableChannel()
+    other_message = type("Msg", (), {"channel": other_channel})()
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), other_message) is False
+
+    # 3. Gerbang verifikasi: konfigurasi + validasi role/pengguna
+    vcfg = community_tools.set_verification_config(10, channel_id=7003, role_id=333, enabled=True)
+    assert vcfg["role_id"] == 333
+    embed = community_tools.build_verification_embed("Server Uji", "Member", "Baca rules dulu")
+    assert "Server Uji" in embed.description
+    assert "Member" in embed.description
+
+    ok, pesan = await community_tools.grant_verification_role(object(), 10)
+    assert ok is False and "hanya bisa" in pesan
+    assert community_tools.set_verification_config(10, enabled=False) is None
+    assert 10 not in community_tools.verification_guilds
+    ok2, pesan2 = await community_tools.grant_verification_role(object(), 10)
+    assert ok2 is False and "belum aktif" in pesan2
+
+    # 4. Hapus channel membersihkan sticky/verifikasi yang menunjuk ke sana
+    community_tools.set_sticky_config(7002, 10, "Rules")
+    fake_channel = type("Channel", (), {"id": 7002, "guild": type("G", (), {"id": 10})()})()
+    assert community_tools.handle_channel_delete(fake_channel) is True
+    assert 7002 not in community_tools.sticky_channels
+
+
+@pytest.mark.asyncio
+async def test_community_backup_and_error_reporting():
+    """Backup konfigurasi (ZIP), backup otomatis berkala, & pelaporan error ke channel log."""
+    # 1. Arsip backup berisi seluruh data/*.json
+    data, filename = community_tools.build_backup_archive()
+    assert filename.startswith("backup-bot-") and filename.endswith(".zip")
+    import zipfile
+
+    with zipfile.ZipFile(__import__("io").BytesIO(data)) as archive:
+        names = archive.namelist()
+    assert "INFO.txt" in names
+    assert all(name.startswith("data/") or name == "INFO.txt" for name in names)
+
+    # 2. Kirim backup ke channel
+    channel = _FakeSendableChannel()
+    ok, info = await community_tools.send_backup(_FakeCommunityBot({}), channel)
+    assert ok is True and info == filename
+    assert len(channel.sent) == 1 and channel.sent[0]["file"] is not None
+
+    # 3. Backup otomatis menghormati interval
+    cfg = community_tools.set_maintenance_config(
+        10, backup_channel_id=8002, auto_backup=True
+    )
+    assert cfg["backup_channel_id"] == 8002
+    backup_channel = _FakeSendableChannel()
+    bot = _FakeCommunityBot({8002: backup_channel})
+
+    assert await community_tools.run_backup_check(bot) == 1
+    assert len(backup_channel.sent) == 1
+    assert cfg["last_backup_at"] > 0
+
+    # Baru saja backup -> tidak mengulang
+    assert await community_tools.run_backup_check(bot) == 0
+
+    # Interval lewat -> backup lagi
+    cfg["last_backup_at"] = time.time() - (config.BACKUP_INTERVAL_DAYS * 86400) - 60
+    assert await community_tools.run_backup_check(bot) == 1
+    assert len(backup_channel.sent) == 2
+
+    # Backup otomatis dimatikan -> tidak ada pengiriman
+    community_tools.set_maintenance_config(10, auto_backup=False)
+    cfg["last_backup_at"] = 0
+    assert await community_tools.run_backup_check(bot) == 0
+
+    # 4. Log error: rekam & kirim ke channel log
+    log_channel = _FakeSendableChannel()
+    log_bot = _FakeCommunityBot({8003: log_channel})
+    community_tools.set_maintenance_config(10, log_channel_id=8003)
+    err = RuntimeError("Koneksi Gemini timeout")
+    assert await community_tools.report_error(
+        log_bot, context="/cari", exc=err, guild=type("G", (), {"id": 10})()
+    ) is True
+    assert len(log_channel.sent) == 1
+    assert "Error" in log_channel.sent[0]["embed"].title
+
+    last = community_tools.get_last_error()
+    assert last["context"] == "/cari"
+    assert "timeout" in last["message"]
+
+    # Tanpa channel log -> tidak ada pengiriman, tapi error tetap tercatat
+    assert await community_tools.report_error(
+        _FakeCommunityBot({}), context="event:on_message", exc=err
+    ) is False
+    assert community_tools.get_last_error()["context"] == "event:on_message"
+
+
+def test_community_command_and_view_limits():
+    """Memastikan command fitur komunitas & View verifikasi mematuhi batas keras Discord."""
+    tree_cmds = {c.name: c for c in bot_main.bot.tree.get_commands()}
+    for name in ("panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan"):
+        assert name in tree_cmds
+
+    expected_subs = {
+        "panel-role": {"pasang", "tambah", "hapus", "daftar"},
+        "ingatkan": {"pasang", "daftar", "batal"},
+        "starboard": {"atur", "status"},
+        "verifikasi": {"pasang", "status", "matikan"},
+        "sticky": {"pasang", "lepas", "status"},
+        "info": {"user", "server"},
+        "perawatan": {"backup", "atur", "status"},
+    }
+    for group_name, subs in expected_subs.items():
+        assert {c.name for c in tree_cmds[group_name].commands} == subs
+
+    # /poll adalah command tunggal dengan parameter terbaca
+    poll_cmd = tree_cmds["poll"]
+    assert {p.name for p in poll_cmd.parameters} >= {"pertanyaan", "opsi", "durasi_jam", "multi", "anonim"}
+
+    view = views.VerificationGateView()
+    assert view.is_persistent() is True
+    assert [c.custom_id for c in view.children] == ["community:verify_gate"]
+
+
+@pytest.mark.asyncio
+async def test_app_command_error_handler_reports_to_log_channel(monkeypatch):
+    """Error Slash Command dibalas ke pengguna, dicatat, & dilaporkan ke channel log server."""
+    log_channel = _FakeSendableChannel()
+    monkeypatch.setattr(bot_main.bot, "get_channel", lambda cid: log_channel if cid == 8003 else None)
+    community_tools.set_maintenance_config(10, log_channel_id=8003)
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+            self.done = False
+
+        def is_done(self):
+            return self.done
+
+        async def send_message(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.done = True
+            self.sent.append(content)
+
+    class _Follow:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.sent.append(content)
+
+    class _Interaction:
+        guild = type("G", (), {"id": 10})()
+        command = type("C", (), {"qualified_name": "cari"})()
+        user = type("U", (), {"id": 501})()
+
+        def __init__(self):
+            self.response = _Resp()
+            self.followup = _Follow()
+
+    interaction = _Interaction()
+    await bot_main.bot._handle_app_command_error(interaction, RuntimeError("boom"))
+    assert interaction.response.sent and "kendala" in interaction.response.sent[0]
+
+    # Ringkasan error terkirim ke channel log & tercatat untuk /status
+    assert len(log_channel.sent) == 1
+    assert "Error" in log_channel.sent[0]["embed"].title
+    last = community_tools.get_last_error()
+    assert last["context"] == "/cari" and "boom" in last["message"]
+
+    # CommandOnCooldown dibalas dengan hitung mundur, tanpa laporan error ke channel log
+    import discord.app_commands as _ac
+
+    cooldown = _ac.CommandOnCooldown(
+        type("C", (), {"qualified_name": "cari"})(), retry_after=12.0
+    )
+    interaction2 = _Interaction()
+    await bot_main.bot._handle_app_command_error(interaction2, cooldown)
+    assert "12" in interaction2.response.sent[0]
+    assert len(log_channel.sent) == 1
+
+
+# ==============================================================================
+# STREAMING MUSIK (v1.7.0-beta): Lavalink + wavelink, tanpa FFmpeg lokal
+# ==============================================================================
+class _FakeTrack:
+    def __init__(self, title="Lagu Uji", author="Penyanyi", length=215_000, source="youtube"):
+        self.title = title
+        self.author = author
+        self.length = length
+        self.source = source
+        self.uri = f"https://youtube.com/watch?v={abs(hash(title)) % 10**8}"
+        self.artwork = "https://i.ytimg.com/vi/contoh/hqdefault.jpg"
+        self.is_stream = False
+        self.extras = {}
+
+
+class _FakeQueue:
+    def __init__(self):
+        self.items = []
+        self.mode = wavelink.QueueMode.normal
+        self.history = []
+
+    def __len__(self):
+        return len(self.items)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __getitem__(self, idx):
+        return self.items[idx]
+
+    async def put_wait(self, item):
+        self.items.append(item)
+        return len(self.items)
+
+    def get(self):
+        return self.items.pop(0) if self.items else None
+
+    def clear(self):
+        self.items.clear()
+
+    def shuffle(self):
+        self.items.reverse()
+
+
+class _FakePlayer:
+    def __init__(self, volume=60):
+        self.queue = _FakeQueue()
+        self.current = None
+        self.volume = volume
+        self.played = []
+        self.paused = False
+        self.skipped = 0
+
+    async def play(self, track, **kwargs):
+        self.current = track
+        self.played.append(track)
+        return track
+
+    async def set_volume(self, value):
+        self.volume = value
+
+    async def pause(self, value):
+        self.paused = value
+
+    async def skip(self, force=True):
+        self.skipped += 1
+        self.current = None
+
+    async def stop(self):
+        self.current = None
+
+
+@pytest.mark.asyncio
+async def test_music_helpers_settings_and_embeds():
+    """URI Lavalink, format durasi, pengaturan per server, & embed Now Playing/Antrean."""
+    # 1. Normalisasi URI node (menerima banyak format)
+    assert music.normalize_lavalink_uri("lavalink.example.com:2333") == "ws://lavalink.example.com:2333"
+    assert music.normalize_lavalink_uri("https://node.example.com:443") == "wss://node.example.com:443"
+    assert music.normalize_lavalink_uri("wss://node.example.com:2333/") == "wss://node.example.com:2333"
+    assert music.normalize_lavalink_uri("node.example.com") == "ws://node.example.com:2333"
+    assert music.normalize_lavalink_uri("") is None
+    assert music.normalize_lavalink_uri(None) is None
+
+    # 2. Format durasi
+    assert music.format_duration(0) == "0:00"
+    assert music.format_duration(215_000) == "3:35"
+    assert music.format_duration(3_725_000) == "1:02:05"
+
+    # 3. Pengaturan musik per server (default & persistensi)
+    cfg = music.get_music_settings(10)
+    assert cfg["volume"] == config.MUSIC_DEFAULT_VOLUME
+    assert cfg["announce"] is True
+    music.set_music_settings(10, volume=95, announce=False, dj_role_id=333)
+    assert music.music_guilds[10]["volume"] == 95
+    assert music.music_guilds[10]["dj_role_id"] == 333
+    # Volume selalu dijepit pada rentang aman 1-150
+    music.set_music_settings(10, volume=999)
+    assert music.music_guilds[10]["volume"] == 150
+    music.set_music_settings(10, volume=0)
+    assert music.music_guilds[10]["volume"] == 1
+
+    await music.save_music_settings_to_disk()
+    music.music_guilds.clear()
+    assert music.load_music_settings_from_disk() == 1
+    assert music.music_guilds[10]["volume"] == 1
+    assert music.music_guilds[10]["announce"] is False
+
+    # 4. Mode pengulangan
+    assert music.queue_mode_from_key("satu") is wavelink.QueueMode.loop
+    assert music.queue_mode_from_key("semua") is wavelink.QueueMode.loop_all
+    assert music.queue_mode_from_key("ngawur") is wavelink.QueueMode.normal
+    assert "Ulangi Semua" in music.loop_label_from_mode(wavelink.QueueMode.loop_all)
+    assert "Mati" in music.loop_label_from_mode(None)
+
+    # 5. Embed Now Playing & Antrean
+    track = _FakeTrack()
+    requester = type("U", (), {"id": 501, "display_name": "Warga"})()
+    music.mark_requester(track, requester)
+    assert track.extras["requester"] == "Warga"
+
+    embed = music.build_now_playing_embed(
+        track, queue_length=3, volume=70, loop_label=music.LOOP_MODES["mati"]
+    )
+    assert "Lagu Uji" in embed.title
+    values = " ".join(f"{f.name} {f.value}" for f in embed.fields)
+    assert "3:35" in values
+    assert "Warga" in values
+    assert "70%" in values
+    assert "YouTube" in values
+    assert embed.url == track.uri
+
+    queue_embed = music.build_queue_embed([_FakeTrack("Lagu A"), _FakeTrack("Lagu B")], total_length=430_000)
+    assert "2** lagu" in queue_embed.description
+    assert "Lagu A" in queue_embed.fields[0].value
+
+    empty_embed = music.build_queue_embed([], now_playing=track)
+    assert "masih kosong" in empty_embed.description
+
+    search_embed = music.build_search_embed("cari lagu", [_FakeTrack()])
+    assert "Hasil Pencarian" in search_embed.title
+    assert len(search_embed.fields) == 1
+
+
+@pytest.mark.asyncio
+async def test_music_rythm_panel_progress_seek_filters_and_pagination():
+    """v1.7.0-beta+ : progress bar, seek, filter audio, autoplay, & antrean berhalaman."""
+    # 1. Progress bar ala Rythm (14 karakter + knob)
+    bar = music.build_progress_bar(90_000, 215_000)
+    assert music.BAR_KNOB in bar
+    assert bar.count(music.BAR_FILLED) == 14
+    assert music.build_progress_bar(0, 0).startswith(music.BAR_KNOB)  # live stream / tanpa durasi
+    assert music.build_progress_bar(999_999, 215_000).count(music.BAR_FILLED) == 14
+
+    # 2. Parsing posisi seek: detik, mm:ss, hh:mm:ss
+    assert music.parse_seek("90") == 90_000
+    assert music.parse_seek("1:30") == 90_000
+    assert music.parse_seek("01:02:03") == 3_723_000
+    assert music.parse_seek(" 45 ") == 45_000
+    for invalid in ("", None, "abc", "1:2:3:4"):
+        assert music.parse_seek(invalid) is None
+
+    # 3. Preset filter audio
+    assert "off" in music.FILTER_PRESETS and "bassboost" in music.FILTER_PRESETS
+    assert "nightcore" in music.FILTER_PRESETS and "8d" in music.FILTER_PRESETS
+    bass = music.build_filters("bassboost")
+    assert bass is not None and bass.equalizer is not None
+    assert music.build_filters("nightcore").timescale is not None
+    assert music.build_filters("nya~") is not None  # preset tak dikenal = tanpa efek
+    player = _FakePlayer(volume=60)
+
+    async def _fake_set_filters(filters):
+        player.filters = filters
+
+    player.set_filters = _fake_set_filters
+    assert await music.apply_filter(player, "bassboost") is True
+    assert player.filters is not None
+    assert await music.apply_filter(None, "bassboost") is False
+
+    # 4. Autoplay via Lavalink
+    assert music.autoplay_label(True).startswith("♾️")
+    assert music.autoplay_label(False).startswith("➡️")
+    assert music.set_autoplay(player, True) is True
+    assert player.autoplay is wavelink.AutoPlayMode.enabled
+    assert music.set_autoplay(player, False) is True
+    assert player.autoplay is wavelink.AutoPlayMode.disabled
+    assert music.set_autoplay(None, True) is False
+
+    # 5. Pengaturan filter & autoplay tersimpan per server
+    music.set_music_settings(77, filter_name="nightcore", autoplay=True)
+    assert music.music_guilds[77]["filter"] == "nightcore"
+    assert music.music_guilds[77]["autoplay"] is True
+    # Preset tak dikenal diabaikan (nilai lama dipertahankan), bukan merusak pengaturan
+    music.set_music_settings(77, filter_name="preset-palsu")
+    assert music.music_guilds[77]["filter"] == "nightcore"
+    music.set_music_settings(77, filter_name="off", autoplay=False)
+    assert music.music_guilds[77]["filter"] == "off"
+    assert music.music_guilds[77]["autoplay"] is False
+
+    # 6. Antrean berhalaman (10 lagu per halaman)
+    tracks = [_FakeTrack(f"Lagu {idx}") for idx in range(25)]
+    assert music.QUEUE_PAGE_SIZE == 10
+    embed, page, total_pages = music.build_queue_page_embed(tracks, page=0, total_length=1_000)
+    assert (page, total_pages) == (0, 3)
+    assert "Lagu 0" in embed.fields[0].value and "Lagu 9" in embed.fields[0].value
+    embed2, page2, _ = music.build_queue_page_embed(tracks, page=2)
+    assert page2 == 2
+    assert "Lagu 20" in embed2.fields[0].value and "Lagu 24" in embed2.fields[0].value
+    # Halaman di luar rentang otomatis dijepit
+    _, clamped, _ = music.build_queue_page_embed(tracks, page=99)
+    assert clamped == 2
+    empty_page, _, empty_total = music.build_queue_page_embed([])
+    assert empty_total == 1 and "masih kosong" in empty_page.description
+
+    # 7. Tombol panel persisten (9 tombol) & paginasi antrean
+    panel_view = views.MusicPlayerView()
+    assert panel_view.is_persistent() is True
+    assert [c.custom_id for c in panel_view.children] == [
+        "music:panel:pause",
+        "music:panel:skip",
+        "music:panel:previous",
+        "music:panel:stop",
+        "music:panel:queue",
+        "music:panel:loop",
+        "music:panel:shuffle",
+        "music:panel:vol_down",
+        "music:panel:vol_up",
+    ]
+    queue_view = views.QueuePaginationView(tracks, requester_id=501, page=1)
+    assert len(queue_view.children) == 3
+    assert "Halaman 2/3" in queue_view.children[1].label
+    assert queue_view.children[0].disabled is False
+
+    # 8. Lagu sebelumnya dari riwayat antrean
+    player2 = _FakePlayer(volume=50)
+    previous, current = _FakeTrack("Sebelum"), _FakeTrack("Sekarang")
+    player2.current = current
+    player2.queue.history = [previous]
+    assert await music.skip_previous(player2) is True
+    assert player2.current is previous
+    assert await music.skip_previous(player2) is False  # riwayat habis
+
+    # 9. Embed panel pemutar memuat progress bar, filter, & autoplay
+    player3 = _FakePlayer(volume=80)
+    player3.current = _FakeTrack()
+    player3.position = 90_000
+    panel_embed = music.build_player_embed(
+        player3, filter_name="bassboost", autoplay=True, hint="Panel uji"
+    )
+    panel_text = (
+        " ".join(f"{f.name} {f.value}" for f in panel_embed.fields)
+        + panel_embed.description
+        + panel_embed.footer.text
+    )
+    assert music.BAR_FILLED in panel_embed.description
+    assert "1:30 / 3:35" in panel_embed.description
+    assert "bass boost" in panel_text.lower()
+    assert "Autoplay" in panel_text
+    assert "80%" in panel_text
+    assert "Panel uji" in panel_embed.footer.text
+
+
+@pytest.mark.asyncio
+async def test_music_queue_flow_and_dj_permissions():
+    """Antrean dibatasi MUSIC_MAX_QUEUE, lagu pertama langsung diputar, & hak kontrol DJ."""
+    player = _FakePlayer(volume=60)
+    user = type("U", (), {"id": 501, "display_name": "Warga"})()
+
+    tracks = [_FakeTrack(f"Lagu {idx}") for idx in range(3)]
+    assert await music.play_first_if_idle(player, tracks, user) is True
+    assert player.current.title == "Lagu 0"
+    assert player.current.extras["requester"] == "Warga"
+
+    # Player sudah memutar lagu -> tidak menimpa
+    assert await music.play_first_if_idle(player, [_FakeTrack("Lain")], user) is False
+
+    added, skipped = await music.enqueue_tracks(player, tracks[1:], user)
+    assert added == 2 and skipped == 0
+    assert len(player.queue) == 2
+
+    # Antrean penuh -> sisa lagu dilewati, bukan error
+    player.queue.items = [_FakeTrack() for _ in range(config.MUSIC_MAX_QUEUE)]
+    added2, skipped2 = await music.enqueue_tracks(player, [_FakeTrack("X"), _FakeTrack("Y")], user)
+    assert added2 == 0 and skipped2 == 2
+
+    # Hak kontrol: admin & member di voice channel yang sama boleh, yang lain tidak
+    admin = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": True, "manage_guild": True})(),
+        "roles": [],
+        "voice": None,
+    })()
+    assert music.can_control(player, admin) is True
+
+    player.channel = type("Ch", (), {"id": 900})()
+    player.guild = type("G", (), {"id": 10})()
+    same_voice = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": False, "manage_guild": False})(),
+        "roles": [],
+        "voice": type("V", (), {"channel": type("Ch", (), {"id": 900})()})(),
+    })()
+    other_voice = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": False, "manage_guild": False})(),
+        "roles": [],
+        "voice": type("V", (), {"channel": type("Ch", (), {"id": 901})()})(),
+    })()
+    assert music.can_control(player, same_voice) is True
+    assert music.can_control(player, other_voice) is False
+
+    # Role DJ memberi izin walau tidak ikut voice channel
+    music.get_music_settings(10)["dj_role_id"] = 777
+    dj_member = type("M", (), {
+        "guild_permissions": type("P", (), {"administrator": False, "manage_guild": False})(),
+        "roles": [type("R", (), {"id": 777})()],
+        "voice": None,
+    })()
+    assert music.can_control(player, dj_member) is True
+
+    # Runtime pengumuman dibersihkan saat data server hilang
+    music.remember_announce_channel(99, 1234)
+    assert music.cleanup_music_runtime() >= 1
+    assert 99 not in music.announce_channels
+
+
+@pytest.mark.asyncio
+async def test_music_command_structure_and_setup_guard(monkeypatch):
+    """`/musik` terdaftar lengkap, tetap ada walau node belum diisi, & memberi panduan setup."""
+    tree_cmds = {c.name: c for c in bot_main.bot.tree.get_commands()}
+    musik = tree_cmds["musik"]
+    assert {c.name for c in musik.commands} == {
+        "putar", "cari", "antrean", "sekarang", "lewati", "jeda", "lanjut",
+        "hentikan", "volume", "ulang", "acak", "pengaturan", "status",
+        # v1.7.0-beta+ (Rythm Mode): seek, lagu sebelumnya, filter, autoplay, panel
+        "seek", "sebelumnya", "filter", "autoplay", "panel",
+    }
+    for sub in musik.commands:
+        assert 1 <= len(sub.description) <= 100
+
+    # Tanpa konfigurasi Lavalink, bot tetap hidup & command memberi panduan setup
+    monkeypatch.setattr(music, "MUSIC_ENABLED", False)
+    assert "Belum dikonfigurasi" in music.music_status()
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+            self.done = False
+
+        def is_done(self):
+            return self.done
+
+        async def send_message(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.done = True
+            self.sent.append(content)
+
+        async def defer(self, ephemeral=False):
+            self.done = True
+
+    class _Follow:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.sent.append(content)
+
+    class _Interaction:
+        guild = type("G", (), {"id": 10, "voice_client": None})()
+
+        def __init__(self):
+            self.response = _Resp()
+            self.followup = _Follow()
+            self.user = type("U", (), {"id": 501, "display_name": "Warga", "voice": None})()
+
+    import cogs.music_cog as music_cog
+
+    interaction = _Interaction()
+    await music_cog.musik_putar_cmd.callback(interaction, "lagu uji", False)
+    assert interaction.followup.sent and "LAVALINK_URI" in interaction.followup.sent[0]
+
+    interaction2 = _Interaction()
+    await music_cog.musik_antrean_cmd.callback(interaction2)
+    assert "Belum ada musik" in interaction2.response.sent[0]
+
+    # Parser pencarian menolak query kosong tanpa memanggil node
+    monkeypatch.setattr(music, "MUSIC_ENABLED", True)
+    tracks, playlist = await music.search_tracks("")
+    assert tracks == [] and playlist is None

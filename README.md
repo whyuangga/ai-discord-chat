@@ -1,10 +1,12 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.5.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.7.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
 2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum* — `/agent`)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Panel Kontrol Admin Interaktif (`/agent panel`)** dengan *Spotlight Channel* & pengelola FAQ 1-klik, **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
 3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
-4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** setiap pagi pukul **08:00**, serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
+4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
+5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
+6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -16,6 +18,8 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [B. Fitur AI Agent & Otomasi Komunitas](#b-fitur-ai-agent--otomasi-komunitas)
    - [C. Fitur Keamanan, Ketahanan & Performa](#c-fitur-keamanan-ketahanan--performa)
    - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
+   - [E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI](#e-fitur-komunitas-ringan--gratis-tanpa-kuota-ai)
+   - [F. Streaming Musik 24/7 (`/musik` + Lavalink)](#f-streaming-musik-247-musik--lavalink)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
@@ -211,10 +215,18 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 - **`/autorole isi`** — berikan Auto Role ke member lama yang belum memilikinya (maks. 150 member per eksekusi, aman dari rate limit).
 - Role bot/integrasi, `@everyone`, dan role di atas posisi bot otomatis dilewati agar tidak error.
 
-#### 3. 🌍 Fakta Unik Dunia Setiap Pagi 08:00 (`/fakta`)
-- **`/fakta atur channel:#umum jam:08:00`** — setiap pagi bot mengirim **3–4 fakta menarik dari negara berbeda** (bendera + nama negara + penjelasan ringkas), misalnya dari Jepang, Islandia, Brasil, Mesir, dan lainnya.
-- Fakta hari sebelumnya **tidak diulang** (anti-monoton), dan jika Gemini sedang sibuk bot otomatis memakai **bank fakta offline** agar rubrik tetap terkirim.
-- **`/fakta sekarang`** untuk kirim contoh langsung, **`/fakta status`** untuk melihat jadwal & tanggal terakhir.
+#### 3. 🌍 Fakta Unik Dunia Terjadwal 4x Sehari (`/fakta`)
+- **Jadwal default: `08:00` (pagi) · `12:00` (siang) · `16:00` (sore) · `20:00` (malam)** — setiap slot bot mengirim **3–4 fakta menarik dari negara berbeda** (bendera + nama negara + penjelasan ringkas) dengan sapaan sesuai suasana waktu (pagi/siang/sore/malam).
+- **Jadwal bisa digonta-ganti Admin kapan saja:**
+  ```text
+  /fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
+  /fakta atur channel:#umum jadwal:8,20            ← 2x sehari (format singkat)
+  /fakta atur channel:#umum jadwal:09:00           ← 1x sehari
+  ```
+  Menerima **1–6 slot per hari** dengan format fleksibel (`8`, `08:00`, `8.30`, dipisah koma/spasi/`dan`). Autocomplete Discord juga menyediakan preset siap pakai.
+- **Anti-dobel & anti-banjir:** setiap slot hanya dikirim **sekali per hari**. Jika bot sempat mati/offline melewati beberapa slot, hanya **1 pesan terbaru** yang dikirim (slot terlewat ditandai selesai, bukan di-spam).
+- **Anti-monoton:** fakta yang sudah pernah dikirim (16 fakta terakhir) tidak diulang, dan jika Gemini sedang sibuk bot otomatis memakai **bank fakta offline** agar rubrik tetap terkirim.
+- **`/fakta sekarang`** untuk kirim contoh langsung (tanpa mengubah jadwal), **`/fakta status`** untuk melihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini.
 
 #### 4. 🛡️ Anti-Phishing Guard Tanpa API Berbayar (`/keamanan`)
 - **`/keamanan phising aktif:True`** *(Admin)* — bot memindai setiap link di pesan warga dan otomatis:
@@ -224,6 +236,118 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 - **Deteksi lokal gratis** (tanpa API berbayar / tanpa kartu kredit): domain tiruan brand populer (Discord, Steam, Roblox, Netflix, Binance, Shopee, DANA, BCA, dll.), karakter **punycode `xn--`**, link berbasis **IP langsung**, **TLD berisiko** (`.tk`, `.ml`, `.ga`, `.zip`, dll.), **pemendek URL** (`bit.ly` dsb.), trik `@` pada URL, dan **daftar hitam** domain phishing yang sudah dikenal.
 - **`/keamanan cek link:https://...`** bisa dipakai **semua member** untuk memeriksa keamanan link sebelum membuka.
 - Bisa dibatasi hanya ke channel tertentu, dan mode **ketat** (`ketat:True`) juga menindak link yang baru *mencurigakan*.
+
+---
+
+### E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI
+
+> 💡 Semua fitur di bagian ini **tidak memanggil Gemini sama sekali** (0 kuota, 0 biaya) dan **default NONAKTIF**.
+> Server yang belum memakai fitur ini tidak mendapat beban tambahan apa pun (tanpa event listener berat, tanpa RAM ekstra).
+
+#### 1. 🎭 Reaction Role — Member Ambil Role Sendiri (`/panel-role`)
+- **`/panel-role pasang channel:#ambil-role judul:Ambil Role role1:@Gamer emoji1:🎮 role2:@Artist emoji2:🎨`** — bot mengirim panel embed lalu memasang reaksi emoji secara otomatis (maks **3 role sekali pasang**).
+- Warga cukup **klik emoji** untuk mendapatkan role, **klik lagi** untuk melepasnya. Tidak ada kuota, tidak ada tombol kedaluwarsa.
+- **`/panel-role tambah pesan:<ID/link> emoji:🎵 role:@Musik`** — tambah role ke panel yang sudah ada.
+- **`/panel-role hapus`**, **`/panel-role daftar`** — kelola & lihat semua panel.
+- Posisi role diperiksa otomatis: role di atas role bot dilewati dengan peringatan jelas.
+
+#### 2. 📊 Polling Native Discord (`/poll`)
+- **`/poll pertanyaan:"Mabar malam ini jam berapa?" opsi:"Jam 8, Jam 9, Jam 10" durasi_jam:24`**
+- Memakai **Poll bawaan Discord**: hitung suara real-time, tampilan rapi, tidak bisa di-*double vote* — tanpa beban server sama sekali.
+- Mendukung **multi-pilihan** (`multi:True`), **anonim/terbuka** (`anonim:True`), dan durasi **1–768 jam** (maks 32 hari).
+- Maksimal **10 pilihan** (batas Discord); lebih dari itu dipotong otomatis dengan pemberitahuan.
+
+#### 3. ⏰ Pengingat Pribadi Tahan Restart (`/ingatkan`)
+- **`/ingatkan pasang waktu:"2j" pesan:"Rapat pengurus"`** — bot menagih kamu saat waktunya tiba (di channel atau DM bila channel tak bisa diakses).
+- Format waktu fleksibel: `10m`, `2j`, `1j30m`, `2 hari`, `45` (menit), bahkan `1 jam dan 15 menit`. Maksimal **365 hari**.
+- **Tahan restart:** pengingat disimpan di `data/community_tools.json`, jadi tetap dikirim walau bot baru di-*restart*.
+- **`/ingatkan daftar`** & **`/ingatkan batal nomor:3`** — kelola pengingat aktif (maks 15 per member).
+
+#### 4. ⭐ Starboard — Sorotan Pesan Populer (`/starboard`)
+- **`/starboard atur channel:#starboard batas:3 emoji:⭐`** — pesan warga yang mendapat **3 reaksi bintang** otomatis disalin ke channel sorotan (embed cantik + tautan sumber).
+- Bila reaksi turun di bawah batas, sorotannya **otomatis dihapus** agar starboard tetap rapi.
+- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan konfigurasi + jumlah sorotan.
+
+#### 5. ✅ Gerbang Verifikasi Anti-Bot (`/verifikasi`)
+- **`/verifikasi pasang channel:#verifikasi role:@Member`** — panel dengan tombol **✅ Verifikasi Saya**.
+- Member baru klik sekali → langsung dapat role akses, tanpa perlu Admin menunggu. Cocok dipadukan dengan `/autorole`.
+- **`/verifikasi status`** & **`/verifikasi matikan`** — pantau / matikan kapan saja.
+- Tombol bersifat **persisten** (`custom_id`), jadi tetap berfungsi setelah bot restart.
+
+#### 6. 📌 Sticky Message — Petunjuk Selalu di Bawah (`/sticky`)
+- **`/sticky pasang isi:"Baca #rules dulu sebelum chat!" channel:#umum judul:"📌 Aturan"`**
+- Setiap ada obrolan baru, bot menurunkan ulang pesan petunjuk ke bawah channel (pesan lama dihapus).
+- **Anti-spam:** jeda minimum **5 detik** per channel (`STICKY_MIN_INTERVAL_SEC`), jadi channel ramai tidak dibanjiri bot.
+- **`/sticky lepas`** & **`/sticky status`** — cabut / lihat daftar channel sticky.
+
+#### 7. 👤 Kartu Profil & Server (`/info`)
+- **`/info user member:@Warga`** — umur akun, tanggal bergabung, jumlah role, plus **peringatan keamanan** otomatis jika akun masih **< 7 hari** (indikasi akun raid).
+- **`/info server`** — total member (manusia vs bot), online, boost, jumlah channel, status verifikasi & auto role, pemilik, dan tanggal server dibuat.
+
+#### 8. 🗂️ Perawatan: Backup Otomatis & Log Error (`/perawatan`)
+- **`/perawatan atur backup_channel:#bot-backup log_channel:#bot-log`** — backup konfigurasi otomatis tiap **7 hari** (`BACKUP_INTERVAL_DAYS`) & laporan error masuk ke channel.
+- **`/perawatan backup`** — kirim berkas ZIP berisi seluruh `data/*.json` saat itu juga (penyelamat saat Wispbyte rebuild bersih).
+- **`/perawatan status`** — channel backup/log, waktu backup terakhir, ukuran arsip, & RAM bot.
+- Error Slash Command maupun error event otomatis diringkas ke channel log (tanpa membocorkan API key — sudah disanitasi) dan jejaknya tampil di **`/status`**.
+
+---
+
+### F. Streaming Musik 24/7 (`/musik` + Lavalink)
+
+> ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.
+> Supaya musik tetap jalan tanpa membebani bot (RAM tetap ~50–80 MB), audio didelegasikan ke **Lavalink v4**
+> — server kecil berbahasa Java khusus musik. Bot hanya mengirim perintah "putar lagu X" ke node tersebut.
+
+#### 1. Menyiapkan Node Lavalink (3 pilihan, semuanya gratis)
+
+| Pilihan | Cara | Cocok untuk |
+| :--- | :--- | :--- |
+| **A. Node publik gratis** | Ambil URI + password dari direktori node publik (mis. `lavalink.darrennathanael.com`). Tempel ke `LAVALINK_URI` & `LAVALINK_PASSWORD`. | Tes cepat / server kecil. **Node dipakai bersama**, bisa lambat atau mati sewaktu-waktu. |
+| **B. Host Lavalink sendiri (Docker)** | Jalankan lokal/VPS: `docker run -d -p 2333:2333 -e LAVALINK_SERVER_PASSWORD=rahasia ghcr.io/lavalink-devs/lavalink:4` lalu isi `LAVALINK_URI=ip-vps:2333`. | Paling stabil & privat. Butuh VPS kecil (RAM ±300 MB). |
+| **C. Platform gratis (Railway/Fly.io/Koyeb)** | Deploy image `ghcr.io/lavalink-devs/lavalink:4` dengan `application.yml` (password + plugin LavaSrc bila perlu Spotify). | Tanpa VPS, tapi ada batas jam gratis. |
+
+Setelah node siap, isi di **Variables Wispbyte** (atau `.env`):
+```text
+LAVALINK_URI=lavalink.contoh.com:2333
+LAVALINK_PASSWORD=password-node
+LAVALINK_NODE_NAME=utama
+```
+Lalu **restart bot**. Cek status dengan `/musik status` — baris *Node Lavalink* harus **✅ Siap memutar musik**.
+Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan panduan setup.
+
+#### 2. Daftar Command (`/musik`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/musik putar query:judul atau link`** | Cari & langsung putar (bot otomatis join voice channel kamu). Mendukung link YouTube, Spotify, SoundCloud, atau playlist. |
+| **`/musik putar query:... berikutnya:True`** | Selalu **antrekan** tanpa memotong lagu yang sedang berjalan. |
+| **`/musik cari query:...`** | Tampilkan 5 hasil + dropdown untuk memilih lagu. |
+| **`/musik antrean halaman:2`** | Antrean **berhalaman** (10 lagu/halaman, tombol ◀ ▶) + total durasi. |
+| **`/musik sekarang`** | Lagu aktif, **progress bar**, volume, filter, & mode pengulangan. |
+| **`/musik jeda` / `/musik lanjut`** | Jeda / lanjutkan tanpa keluar voice. |
+| **`/musik lewati jumlah:2`** | Lewati satu atau beberapa lagu. |
+| **`/musik sebelumnya`** | Kembali ke lagu sebelumnya dari riwayat antrean. |
+| **`/musik seek posisi:1:30`** | Lompat ke menit/detik tertentu (`95`, `1:30`, atau `01:02:03`). |
+| **`/musik filter jenis:bassboost`** | Efek audio: `off`, `bassboost`, `nightcore`, `vaporwave`, `8d`, `karaoke`, `treble`. |
+| **`/musik autoplay aktif:True`** | Putar rekomendasi otomatis begitu antrean habis. |
+| **`/musik panel`** | Kirim ulang panel pemutar bila pesan lamanya terhapus. |
+| **`/musik acak`** | Acak urutan antrean. |
+| **`/musik ulang mode:mati\|satu\|semua`** | Mode pengulangan. |
+| **`/musik volume level:70`** | Atur volume (disimpan sebagai default server, maks 150%). |
+| **`/musik hentikan`** | Stop, kosongkan antrean, & keluarkan bot dari voice. |
+| **`/musik pengaturan`** *(Admin)* | Pengumuman Now Playing, **role DJ**, & volume default. |
+| **`/musik status`** | Cek node Lavalink, antrean, volume, & channel pengumuman. |
+
+#### 3. Perilaku & Pengamanan
+- **Anti-nimbrung voice:** bot hanya bisa dikontrol member yang **berada di voice channel yang sama**, punya **role DJ**, atau Admin. Bot juga menolak berpindah channel kalau sedang memutar di channel lain.
+- **Keluar otomatis** setelah `MUSIC_IDLE_DISCONNECT_SEC` (default 5 menit) tanpa lagu — hemat RAM & tidak "nangkring" di voice selamanya.
+- **Batas antrean** `MUSIC_MAX_QUEUE` (default 50) agar RAM tetap kecil; lagu berlebih dilewati dengan pemberitahuan, bukan error.
+- **Panel pemutar ala Rythm:** satu pesan per server yang **di-edit** (bukan pesan baru tiap lagu) berisi progress bar `▬▬🔘▬▬` + 9 tombol. Progress bar disegarkan **tiap 10 detik** oleh `music_panel_watcher` (dilewati total bila fitur musik nonaktif). Bila pesan panel terhapus, `/musik panel` mengirim ulang; bila bot keluar voice, panel ikut dibersihkan.
+- **Filter & autoplay tersimpan per server** (`data/music_settings.json`) dan otomatis dipulihkan saat bot bergabung lagi ke voice channel.
+- **Pengumuman Now Playing** otomatis di channel asal command (bisa dimatikan lewat `/musik pengaturan pengumuman:False`).
+- **Tanpa FFmpeg lokal** sama sekali → aman untuk Wispbyte yang hanya boleh 1 proses.
+- **Dependensi voice otomatis:** `requirements.txt` sudah memuat `wavelink`, `PyNaCl` (enkripsi voice), & `davey` (protokol DAVE Discord terbaru), jadi Wispbyte cukup `pip install -r requirements.txt` seperti biasa.
+- **Tanpa node Lavalink pun bot tetap ringan**: modul musik hanya diimpor sekali, tidak ada loop latar belakang tambahan.
 
 ---
 
@@ -346,11 +470,12 @@ Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu c
 ```text
 /serverstats otomatis aktif:True
 /autorole atur role:@Member role2:@Notif
-/fakta atur channel:#umum jam:08:00
+/fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
 /keamanan phising aktif:True aksi:hapus_peringat log_channel:#mod-log
 ```
 - `/serverstats otomatis` membuat Voice Channel penghitung yang diperbarui ±10 menit sekali.
-- `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu 08:00).
+- `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu slot jadwal).
+- `/fakta status` menampilkan seluruh slot, slot berikutnya, dan slot yang sudah terkirim hari ini.
 - `/keamanan cek link:https://...` bisa dipakai semua member untuk memeriksa link.
 
 ---
@@ -369,6 +494,14 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Matikan Voice Channel Statistik Server** | `/serverstats otomatis aktif:False` |
 | **Matikan Auto Role** | `/autorole atur role:@Member aktif:False` |
 | **Matikan Anti-Phishing Guard** | `/keamanan phising aktif:False` |
+| **Matikan Starboard (sorotan pesan)** | `/starboard atur aktif:False` |
+| **Matikan Gerbang Verifikasi** | `/verifikasi matikan` |
+| **Lepas Sticky Message** di suatu channel | `/sticky lepas channel:#umum` |
+| **Hapus panel Reaction Role** | Hapus pesan panelnya, lalu `/panel-role daftar` untuk memastikan |
+| **Matikan backup otomatis & log error** | `/perawatan atur otomatis:False` |
+| **Hentikan musik & keluarkan bot dari voice** | `/musik hentikan` |
+| **Matikan pengumuman Now Playing** | `/musik pengaturan pengumuman:False` |
+| **Matikan fitur musik sepenuhnya** *(bot tetap jalan)* | Kosongkan `LAVALINK_URI` & `LAVALINK_PASSWORD`, lalu restart |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
 | **Matikan fitur Rangkum YouTube & Link Web** di suatu channel | `/agent youtube channel:#share-video aktif:False` |
@@ -435,9 +568,53 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
 | `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |
 | `/autorole isi` | — | *(Admin)* Berikan Auto Role ke member lama yang belum memilikinya (maks. 150). |
-| `/fakta atur` | `channel`, `aktif`, `jam` | *(Admin)* Jadwalkan rubrik 3–4 Fakta Unik Dunia (default pukul `08:00`). |
-| `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga. |
-| `/fakta status` | — | Lihat channel, jadwal, & tanggal terakhir fakta terkirim. |
+| `/fakta atur` | `channel`, `aktif`, `jadwal` | *(Admin)* Atur jadwal **multi-slot** 3–4 Fakta Unik Dunia (default `08:00,12:00,16:00,20:00`, maks 6 slot/hari). |
+| `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga (tanpa mengubah jadwal). |
+| `/fakta status` | — | Lihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini. |
+
+### 5. Slash Commands Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/panel-role pasang` | `channel`, `judul`, `role1`, `emoji1`, `deskripsi`, `role2`, `emoji2`, `role3`, `emoji3` | *(Admin)* Buat panel Reaction Role (maks 3 role sekali pasang). |
+| `/panel-role tambah` / `hapus` | `pesan`, `emoji`, `role` | *(Admin)* Tambah / hapus role pada panel yang sudah ada. |
+| `/panel-role daftar` | — | Lihat seluruh panel reaction role server. |
+| `/poll` | `pertanyaan`, `opsi`, `durasi_jam`, `multi`, `anonim` | Buat polling native Discord (hitung suara otomatis). |
+| `/ingatkan pasang` | `waktu`, `pesan`, `channel` | Pasang pengingat pribadi (`10m`, `2j`, `2 hari`, `1j30m`). |
+| `/ingatkan daftar` / `batal` | `nomor` | Lihat / batalkan pengingat aktif. |
+| `/starboard atur` | `channel`, `batas`, `emoji`, `aktif` | *(Admin)* Atur channel sorotan & ambang bintang. |
+| `/starboard status` | — | Lihat konfigurasi & jumlah pesan tersorot. |
+| `/verifikasi pasang` | `channel`, `role`, `catatan` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya**. |
+| `/verifikasi status` / `matikan` | — | Pantau / matikan gerbang verifikasi. |
+| `/sticky pasang` | `isi`, `channel`, `judul` | *(Admin)* Pasang pesan petunjuk yang selalu di bawah channel. |
+| `/sticky lepas` / `status` | `channel` | Lepas / lihat daftar sticky message. |
+| `/info user` | `member` | Kartu profil member (umur akun, join, role, flag akun baru). |
+| `/info server` | — | Ringkasan server (member, online, boost, channel, keamanan). |
+| `/perawatan backup` | `channel` | *(Admin)* Kirim ZIP backup konfigurasi sekarang. |
+| `/perawatan atur` | `backup_channel`, `log_channel`, `otomatis` | *(Admin)* Atur backup otomatis & channel log error. |
+| `/perawatan status` | — | Status backup, log error, ukuran data, & RAM bot. |
+
+### 6. Slash Commands Streaming Musik (`/musik`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/musik putar` | `query`, `berikutnya` | Putar lagu/playlist dari YouTube, Spotify, SoundCloud, atau link langsung. |
+| `/musik cari` | `query` | Cari 5 lagu lalu pilih lewat dropdown (berlaku 60 detik). |
+| `/musik antrean` | `halaman` | Lihat antrean berhalaman (10 lagu/halaman) + total durasi. |
+| `/musik sekarang` | — | Lagu aktif, progress bar, volume, & mode pengulangan. |
+| `/musik jeda` / `/musik lanjut` | — | Jeda / lanjutkan pemutaran. |
+| `/musik lewati` | `jumlah` | Lewati 1–10 lagu. |
+| `/musik sebelumnya` | — | Putar lagi lagu sebelumnya dari riwayat. |
+| `/musik seek` | `posisi` | Lompat ke posisi tertentu (`95`, `1:30`, `01:02:03`). |
+| `/musik filter` | `jenis` | Efek audio (bassboost/nightcore/vaporwave/8d/karaoke/treble/off). |
+| `/musik autoplay` | `aktif` | Autoplay rekomendasi saat antrean habis. |
+| `/musik panel` | — | Kirim ulang panel pemutar Rythm. |
+| `/musik acak` | — | Acak urutan antrean. |
+| `/musik ulang` | `mode` (`mati`/`satu`/`semua`) | Mode pengulangan. |
+| `/musik volume` | `level` (1–150) | Volume + simpan sebagai default server. |
+| `/musik hentikan` | — | Stop, kosongkan antrean, & keluar dari voice. |
+| `/musik pengaturan` | `pengumuman`, `role_dj`, `volume_default` | *(Admin)* Pengumuman Now Playing, role DJ, volume default. |
+| `/musik status` | — | Kesehatan node Lavalink & status pemutaran. |
 | `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
 | `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
 
@@ -470,9 +647,21 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `USER_COMMAND_COOLDOWN_SEC` | Opsional | `10` | Jeda wajar per-member (detik) antar pemakaian command berat (`/cari`, `/ringkas link`, `/ringkas chat`) demi melindungi kuota *Free Tier* (`0` = nonaktif; Admin otomatis bebas jeda). |
 | `ENABLE_PHISHING_GUARD` | Opsional | `true` | Mengaktifkan mesin Anti-Phishing lokal (tetap perlu dinyalakan per server lewat `/keamanan phising`). |
 | `SERVERSTATS_UPDATE_SEC` | Opsional | `600` | Interval pembaruan Voice Channel statistik (minimum `600` detik agar aman dari rate limit Discord). |
-| `FACTS_DEFAULT_HOUR` | Opsional | `8` | Jam default rubrik Fakta Unik Dunia (format 24 jam). |
-| `FACTS_DEFAULT_MINUTE` | Opsional | `0` | Menit default rubrik Fakta Unik Dunia. |
+| `FACTS_DEFAULT_TIMES` | Opsional | `08:00,12:00,16:00,20:00` | Jadwal default rubrik Fakta Unik Dunia (4 slot/hari). Bisa diubah per server via `/fakta atur`. |
+| `FACTS_MAX_SLOTS` | Opsional | `6` | Batas maksimal slot jadwal fakta per hari yang boleh dipasang Admin (`1`–`8`). |
 | `AUTOROLE_MAX_ROLES` | Opsional | `3` | Jumlah maksimal role yang bisa dipasang lewat Auto Role. |
+| `STARBOARD_EMOJI` | Opsional | `⭐` | Emoji default starboard (bisa diganti per server lewat `/starboard atur`). |
+| `STARBOARD_DEFAULT_THRESHOLD` | Opsional | `3` | Jumlah reaksi minimal agar pesan masuk starboard. |
+| `REMINDER_MAX_PER_USER` | Opsional | `15` | Maksimal pengingat aktif per member (`/ingatkan`). |
+| `STICKY_MIN_INTERVAL_SEC` | Opsional | `5` | Jeda minimum (detik) sebelum sticky message turun ulang, agar channel tidak dibanjiri bot. |
+| `BACKUP_INTERVAL_DAYS` | Opsional | `7` | Interval backup konfigurasi otomatis ke channel `/perawatan atur` (`0` = nonaktif). |
+| `BOT_LOG_CHANNEL_ID` | Opsional | *(kosong)* | ID channel global untuk laporan error bot (bisa juga diatur per server lewat `/perawatan atur log_channel`). |
+| `LAVALINK_URI` | Opsional | *(kosong)* | Alamat node Lavalink v4 (`host:port`, `https://…`, atau `wss://…`). Kosong = fitur musik nonaktif. |
+| `LAVALINK_PASSWORD` | Opsional | *(kosong)* | Password node Lavalink. Wajib diisi bersama `LAVALINK_URI` untuk mengaktifkan musik. |
+| `LAVALINK_NODE_NAME` | Opsional | `utama` | Nama node untuk log. |
+| `MUSIC_DEFAULT_VOLUME` | Opsional | `60` | Volume default saat bot bergabung ke voice (`1`–`150`). |
+| `MUSIC_MAX_QUEUE` | Opsional | `50` | Batas jumlah lagu dalam antrean (menjaga RAM tetap kecil). |
+| `MUSIC_IDLE_DISCONNECT_SEC` | Opsional | `300` | Keluar otomatis dari voice setelah sekian detik tanpa lagu. |
 
 ---
 
@@ -523,7 +712,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.5.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.7.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/sesi panel`** di channel panel AI privat.
@@ -561,10 +750,14 @@ ai-discord-chat/
 │   ├── agent_cog.py    # Grup /agent (panel, status, chat, gallery, persona, welcome, digest, info, dll.)
 │   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
 │   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
+│   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
+│   ├── music_cog.py    # Grup /musik (putar, cari, antrean berhalaman, seek, sebelumnya, filter, autoplay, DJ, panel)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
+├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
+├── music.py            # Klien Lavalink (wavelink), panel pemutar Rythm (progress bar, filter, autoplay), pengaturan per server
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
@@ -575,7 +768,7 @@ ai-discord-chat/
 ├── .env.example        # Template contoh pengisian variabel .env
 ├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 45 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 55 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---

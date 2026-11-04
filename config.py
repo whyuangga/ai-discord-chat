@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -22,7 +23,28 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.5.0-beta"
+def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[str]:
+    """Membaca daftar slot jam dari `.env` (misal: "08:00,12:00,16:00,20:00" atau "8,12,16,20")."""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return list(default)
+
+    found: list[str] = []
+    for chunk in re.split(r"[,;\s]+", raw):
+        match = re.fullmatch(r"(\d{1,2})[:.](\d{2})", chunk) or re.fullmatch(r"(\d{1,2})", chunk)
+        if not match:
+            continue
+        groups = match.groups()
+        hour = int(groups[0])
+        minute = int(groups[1]) if len(groups) > 1 else 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            found.append(f"{hour:02d}:{minute:02d}")
+
+    cleaned = sorted(set(found))[:max_slots]
+    return cleaned or list(default)
+
+
+BOT_VERSION = "1.7.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -127,6 +149,8 @@ SESSIONS_FILE = DATA_DIR / "sessions.json"
 AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
 GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
 SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
+COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
+MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -136,11 +160,47 @@ ENABLE_PHISHING_GUARD: bool = _env_bool("ENABLE_PHISHING_GUARD", True)
 # Interval pembaruan nama Voice Channel statistik (detik). Discord membatasi 2 rename / 10 menit per channel,
 # jadi nilai minimum aman adalah 600 detik (10 menit).
 SERVERSTATS_UPDATE_SEC: int = _env_int("SERVERSTATS_UPDATE_SEC", 600, minimum=600)
-# Jam default pengiriman Fakta Unik Dunia (format 24 jam) & menitnya
-FACTS_DEFAULT_HOUR: int = min(23, _env_int("FACTS_DEFAULT_HOUR", 8, minimum=0))
-FACTS_DEFAULT_MINUTE: int = min(59, _env_int("FACTS_DEFAULT_MINUTE", 0, minimum=0))
+# Jadwal default rubrik Fakta Unik Dunia: 4 slot per hari (pagi, siang, sore, malam).
+# Bisa diubah kapan saja oleh Admin lewat Discord: /fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
+FACTS_MAX_SLOTS: int = min(8, _env_int("FACTS_MAX_SLOTS", 6, minimum=1))
+FACTS_DEFAULT_TIMES: list[str] = _env_time_slots(
+    "FACTS_DEFAULT_TIMES",
+    ["08:00", "12:00", "16:00", "20:00"],
+    max_slots=FACTS_MAX_SLOTS,
+)
 # Jumlah maksimal role yang otomatis diberikan saat member bergabung
 AUTOROLE_MAX_ROLES: int = _env_int("AUTOROLE_MAX_ROLES", 3, minimum=1)
+
+# ==============================================================================
+# FITUR KOMUNITAS RINGAN (Reaction Role, Poll, Reminder, Starboard, Verifikasi, Sticky)
+# ==============================================================================
+# Semua fitur di bawah ini GRATIS (tanpa kuota Gemini) & default NONAKTIF sampai Admin menyalakannya.
+STARBOARD_EMOJI: str = (os.getenv("STARBOARD_EMOJI") or "⭐").strip() or "⭐"
+STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, minimum=1)
+REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
+# Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
+STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# Backup konfigurasi otomatis: interval hari (0 = matikan) & channel log error global
+BACKUP_INTERVAL_DAYS: int = _env_int("BACKUP_INTERVAL_DAYS", 7, minimum=0)
+BOT_LOG_CHANNEL_ID: int = _env_int("BOT_LOG_CHANNEL_ID", 0, minimum=0)
+
+# ==============================================================================
+# STREAMING MUSIK (LAVALINK v4 + WAVELINK — TANPA FFMPEG LOKAL)
+# ==============================================================================
+# Wispbyte tidak menyediakan FFmpeg/yt-dlp, jadi audio didelegasikan ke node Lavalink v4.
+# Kosongkan `LAVALINK_URI` bila belum ingin memakai fitur musik (command /musik tetap muncul
+# dan hanya menampilkan panduan setup, bot tetap ringan).
+LAVALINK_URI: str = (os.getenv("LAVALINK_URI") or "").strip()
+LAVALINK_PASSWORD: str = (os.getenv("LAVALINK_PASSWORD") or "").strip()
+LAVALINK_NODE_NAME: str = (os.getenv("LAVALINK_NODE_NAME") or "utama").strip() or "utama"
+# Fitur musik dianggap aktif hanya bila URI & password node sudah diisi
+MUSIC_ENABLED: bool = bool(LAVALINK_URI and LAVALINK_PASSWORD)
+# Volume default saat bot bergabung ke voice channel (1-150)
+MUSIC_DEFAULT_VOLUME: int = min(150, _env_int("MUSIC_DEFAULT_VOLUME", 60, minimum=1))
+# Batas jumlah lagu dalam antrean agar RAM tetap kecil
+MUSIC_MAX_QUEUE: int = _env_int("MUSIC_MAX_QUEUE", 50, minimum=1)
+# Putus otomatis dari voice channel setelah sekian detik tanpa lagu (hemat resource)
+MUSIC_IDLE_DISCONNECT_SEC: int = _env_int("MUSIC_IDLE_DISCONNECT_SEC", 300, minimum=30)
 
 # ==============================================================================
 # DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI - RESPONS CEPAT)

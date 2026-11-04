@@ -19,6 +19,8 @@ from config import (
     STYLE_OPTIONS,
     resolve_model_key,
 )
+import music
+from community_tools import grant_verification_role
 from community_agent import (
     GREETING_PERSONAS,
     STYLE_DESCRIPTIONS,
@@ -48,6 +50,7 @@ from community_agent import (
 )
 from server_features import (
     facts_guilds,
+    format_facts_schedule,
     save_server_features_to_disk,
     security_guilds,
     set_facts_config,
@@ -627,6 +630,239 @@ def _build_solved_disabled_view() -> discord.ui.View:
     return done_view
 
 
+class VerificationGateView(discord.ui.View):
+    """Tombol persisten "Verifikasi Saya" untuk membuka akses channel member baru."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Verifikasi Saya",
+        style=discord.ButtonStyle.success,
+        emoji="✅",
+        custom_id="community:verify_gate",
+    )
+    async def verify_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "⚠️ Tombol verifikasi hanya berlaku di dalam server.", ephemeral=True
+            )
+            return
+        ok, message = await grant_verification_role(interaction.user, interaction.guild.id)
+        await interaction.response.send_message(message, ephemeral=True)
+        if ok:
+            logger.info("Member %s lolos verifikasi di guild %s", interaction.user.id, interaction.guild.id)
+
+
+class QueuePaginationView(discord.ui.View):
+    """Tombol ◀ ▶ untuk berpindah halaman antrean musik (berlaku 120 detik)."""
+
+    def __init__(self, tracks: list, *, requester_id: int, page: int = 0, now_playing=None):
+        super().__init__(timeout=120)
+        self.tracks = tracks
+        self.requester_id = requester_id
+        self.page = page
+        self.now_playing = now_playing
+        self.total_length = sum(int(getattr(t, "length", 0) or 0) for t in tracks)
+        self._sync_buttons()
+
+    def _sync_buttons(self) -> None:
+        _, page, total_pages = music.build_queue_page_embed(
+            self.tracks,
+            page=self.page,
+            total_length=self.total_length,
+            now_playing=self.now_playing,
+        )
+        self.page = page
+        self.prev_btn.disabled = page <= 0
+        self.next_btn.disabled = page >= total_pages - 1
+        self.page_label.label = f"Halaman {page + 1}/{total_pages}"
+
+    def _embed(self) -> discord.Embed:
+        embed, page, _ = music.build_queue_page_embed(
+            self.tracks,
+            page=self.page,
+            total_length=self.total_length,
+            now_playing=self.now_playing,
+        )
+        self.page = page
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "💡 Jalankan `/musik antrean` sendiri untuk membuka daftar antreanmu.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, custom_id="music:queue:prev")
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = max(0, self.page - 1)
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self._embed(), view=self)
+
+    @discord.ui.button(label="Halaman 1/1", style=discord.ButtonStyle.secondary, disabled=True, custom_id="music:queue:page")
+    async def page_label(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, custom_id="music:queue:next")
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page += 1
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self._embed(), view=self)
+
+
+class MusicPlayerView(discord.ui.View):
+    """Panel kontrol pemutar musik persisten ala Rythm (tombol selalu aktif walau bot restart)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _player_or_warn(self, interaction: discord.Interaction):
+        """Mengambil player aktif + memeriksa hak kontrol member."""
+        player = music.get_player(interaction.guild)
+        if player is None or getattr(player, "channel", None) is None:
+            await interaction.response.send_message(
+                "⚠️ Tidak ada musik yang sedang diputar. Mulai dengan `/musik putar`.", ephemeral=True
+            )
+            return None
+        if not music.can_control(player, interaction.user):
+            await interaction.response.send_message(
+                "⚠️ Kamu harus berada di **voice channel yang sama** dengan bot "
+                "(atau punya role DJ / izin Admin) untuk memakai tombol ini.",
+                ephemeral=True,
+            )
+            return None
+        return player
+
+    async def _refresh(self, interaction: discord.Interaction) -> None:
+        await music.send_or_update_panel(
+            interaction.client,
+            interaction.guild_id,
+            view=MusicPlayerView(),
+        )
+
+    @discord.ui.button(emoji="⏯️", style=discord.ButtonStyle.primary, custom_id="music:panel:pause")
+    async def pause_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        await player.pause(not bool(getattr(player, "paused", False)))
+        await self._refresh(interaction)
+        await interaction.response.send_message(
+            "⏸️ Musik dijeda." if player.paused else "▶️ Musik dilanjutkan.", ephemeral=True
+        )
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, custom_id="music:panel:skip")
+    async def skip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        if getattr(player, "current", None) is None and len(getattr(player, "queue", [])) == 0:
+            await interaction.response.send_message("⚠️ Tidak ada lagu untuk dilewati.", ephemeral=True)
+            return
+        await player.skip(force=True)
+        await self._refresh(interaction)
+        await interaction.response.send_message("⏭️ Lagu dilewati.", ephemeral=True)
+
+    @discord.ui.button(emoji="⏮️", style=discord.ButtonStyle.secondary, custom_id="music:panel:previous")
+    async def previous_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        ok = await music.skip_previous(player)
+        if not ok:
+            await interaction.response.send_message(
+                "⚠️ Belum ada riwayat lagu sebelumnya.", ephemeral=True
+            )
+            return
+        await self._refresh(interaction)
+        await interaction.response.send_message("⏮️ Kembali ke lagu sebelumnya.", ephemeral=True)
+
+    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, custom_id="music:panel:stop")
+    async def stop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        try:
+            player.queue.clear()
+            await player.stop()
+            await player.disconnect()
+        except Exception:  # pragma: no cover - node mati
+            pass
+        await music.close_panel(interaction.client, interaction.guild_id)
+        music.forget_announce_channel(interaction.guild_id)
+        await interaction.response.send_message(
+            "⏹️ Musik dihentikan & bot keluar dari voice channel.", ephemeral=True
+        )
+
+    @discord.ui.button(emoji="📜", style=discord.ButtonStyle.secondary, custom_id="music:panel:queue")
+    async def queue_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = music.get_player(interaction.guild)
+        if player is None:
+            await interaction.response.send_message("⚠️ Tidak ada musik yang diputar.", ephemeral=True)
+            return
+        tracks = list(player.queue)
+        view = QueuePaginationView(
+            tracks,
+            requester_id=interaction.user.id,
+            now_playing=getattr(player, "current", None),
+        )
+        await interaction.response.send_message(embed=view._embed(), view=view, ephemeral=True)
+
+    @discord.ui.button(emoji="🔁", label="Loop", style=discord.ButtonStyle.secondary, custom_id="music:panel:loop")
+    async def loop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        current_mode = getattr(getattr(player, "queue", None), "mode", None)
+        next_key = {"normal": "satu", "loop": "semua", "loop_all": "mati"}.get(
+            getattr(current_mode, "name", "normal"), "satu"
+        )
+        player.queue.mode = music.queue_mode_from_key(next_key)
+        await self._refresh(interaction)
+        await interaction.response.send_message(
+            f"🔁 Mode pengulangan: **{music.LOOP_MODES[next_key]}**", ephemeral=True
+        )
+
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, custom_id="music:panel:shuffle")
+    async def shuffle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        if len(player.queue) < 2:
+            await interaction.response.send_message(
+                "⚠️ Antrean kurang dari 2 lagu, tidak ada yang bisa diacak.", ephemeral=True
+            )
+            return
+        player.queue.shuffle()
+        await self._refresh(interaction)
+        await interaction.response.send_message("🔀 Antrean diacak.", ephemeral=True)
+
+    @discord.ui.button(emoji="🔉", style=discord.ButtonStyle.secondary, custom_id="music:panel:vol_down")
+    async def volume_down_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        new_volume = max(1, int(getattr(player, "volume", 60)) - 10)
+        await player.set_volume(new_volume)
+        music.set_music_settings(interaction.guild_id, volume=new_volume)
+        await self._refresh(interaction)
+        await interaction.response.send_message(f"🔉 Volume: **{new_volume}%**", ephemeral=True)
+
+    @discord.ui.button(emoji="🔊", style=discord.ButtonStyle.secondary, custom_id="music:panel:vol_up")
+    async def volume_up_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        new_volume = min(150, int(getattr(player, "volume", 60)) + 10)
+        await player.set_volume(new_volume)
+        music.set_music_settings(interaction.guild_id, volume=new_volume)
+        await self._refresh(interaction)
+        await interaction.response.send_message(f"🔊 Volume: **{new_volume}%**", ephemeral=True)
+
+
 class ForumPostSolvedView(discord.ui.View):
     """Tombol persisten pada Postingan Forum agar penanya/Moderator bisa menandai diskusi selesai."""
 
@@ -831,8 +1067,10 @@ def build_agent_status_embed(
 
     f_cfg = facts_guilds.get(guild_id)
     if f_cfg and f_cfg.get("enabled"):
+        f_times = list(f_cfg.get("times") or [])
         facts_text = (
-            f"✅ Aktif di <#{f_cfg['channel_id']}> pukul **`{f_cfg['hour']:02d}:{f_cfg['minute']:02d} {t_ctx['tz_label']}`**"
+            f"✅ Aktif di <#{f_cfg['channel_id']}> — "
+            f"{format_facts_schedule(f_times)} {t_ctx['tz_label']} *({len(f_times)}x sehari)*"
         )
     else:
         facts_text = "_Belum aktif_"
@@ -1227,10 +1465,10 @@ class AgentAdminPanelView(discord.ui.View):
                 description="Kirim kartu perpisahan AI saat member keluar dari server",
             ),
             discord.SelectOption(
-                label="Toggle Fakta Unik Dunia 08:00 (ON / OFF)",
+                label="Toggle Fakta Unik Dunia (ON / OFF)",
                 value="toggle_facts",
                 emoji="🌍",
-                description="Kirim 3–4 fakta unik dari berbagai negara setiap pagi",
+                description="Kirim 3–4 fakta unik dari berbagai negara sesuai jadwal multi-slot",
             ),
         ],
         row=1,
@@ -1316,8 +1554,12 @@ class AgentAdminPanelView(discord.ui.View):
                 return
             f_cur = facts_guilds.get(guild_id)
             turn_on = not (f_cur and f_cur.get("enabled") and f_cur.get("channel_id") == cid)
-            set_facts_config(guild_id, cid, enabled=turn_on, hour=8, minute=0)
-            banner = f"🌍 **Fakta Unik Dunia 08:00** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+            f_cfg_new = set_facts_config(guild_id, cid, enabled=turn_on)
+            f_slots = format_facts_schedule((f_cfg_new or {}).get("times"))
+            banner = (
+                f"🌍 **Fakta Unik Dunia** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+                + (f"\n⏰ Jadwal aktif: {f_slots} *(ubah lewat `/fakta atur`)*" if turn_on else "")
+            )
 
         await save_agent_config_to_disk()
         await save_server_features_to_disk()
@@ -1495,9 +1737,10 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="🌍 Fakta Unik Dunia (`/fakta`)",
             value=(
-                "• `/fakta atur channel:#umum jam:08:00` — Rubrik **3–4 fakta menarik dari negara berbeda** setiap pagi.\n"
-                "• `/fakta sekarang` — Kirim contoh fakta saat ini juga.\n"
-                "• `/fakta status` — Lihat jadwal & tanggal terakhir terkirim."
+                "• `/fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00` — Rubrik **3–4 fakta menarik dari negara berbeda**, dikirim **4x sehari** (pagi, siang, sore, malam).\n"
+                "• **Jadwal fleksibel:** Admin bebas mengubah slot kapan saja (1x, 2x, 3x, hingga 6x sehari).\n"
+                "• `/fakta sekarang` — Kirim contoh fakta saat ini juga (tanpa mengubah jadwal).\n"
+                "• `/fakta status` — Lihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini."
             ),
             inline=False,
         )
@@ -1507,6 +1750,114 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/keamanan phising` *(Admin)* — Aktifkan penjaga link: hapus link berbahaya + peringatan + catatan log moderator.\n"
                 "• `/keamanan cek link:...` — Periksa keamanan link sebelum dibuka (bisa semua member).\n"
                 "• Deteksi lokal gratis: tiruan brand (Discord/Steam/dll), punycode `xn--`, IP langsung, TLD berisiko, pemendek URL, & daftar hitam phishing."
+            ),
+            inline=False,
+        )
+    elif category == "komunitas":
+        embed = discord.Embed(
+            title="🧩 Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)",
+            description=(
+                "Semua fitur di bawah ini **default NONAKTIF** dan hanya aktif setelah Admin menyalakannya. "
+                "Tidak memakai kuota Gemini sama sekali, jadi aman dipakai 24 jam."
+            ),
+            color=discord.Color.purple(),
+        )
+        embed.add_field(
+            name="🎭 Reaction Role (`/panel-role`)",
+            value=(
+                "• `/panel-role pasang channel:#ambil-role judul:Ambil Role role1:@Gamer emoji1:🎮` — member klik emoji untuk mengambil role sendiri.\n"
+                "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel yang sudah ada.\n"
+                "• `/panel-role daftar` — lihat seluruh panel di server ini."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📊 Polling & Pengingat (`/poll`, `/ingatkan`)",
+            value=(
+                "• `/poll pertanyaan:... opsi:Jam 8, Jam 9, Jam 10` — polling native Discord, suara dihitung otomatis.\n"
+                "• `/ingatkan pasang waktu:2j pesan:mabar` — bot mengingatkan kamu saat waktunya tiba (tahan restart).\n"
+                "• `/ingatkan daftar` & `/ingatkan batal nomor:3` — kelola pengingat aktifmu."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="⭐ Starboard (`/starboard`)",
+            value=(
+                "• `/starboard atur channel:#starboard batas:3` — pesan yang mendapat 3 bintang otomatis disalin ke channel sorotan.\n"
+                "• `/starboard status` — lihat konfigurasi & jumlah pesan tersorot."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="✅ Verifikasi & Sticky (`/verifikasi`, `/sticky`)",
+            value=(
+                "• `/verifikasi pasang channel:#verifikasi role:@Member` — member baru klik **✅ Verifikasi Saya** untuk membuka akses.\n"
+                "• `/sticky pasang isi:... channel:#umum` — pesan petunjuk yang otomatis tetap di bawah channel."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="👤 Profil & Perawatan (`/info`, `/perawatan`)",
+            value=(
+                "• `/info user` & `/info server` — kartu profil member (umur akun & tanggal join) dan ringkasan server.\n"
+                "• `/perawatan atur backup_channel:#bot-backup log_channel:#bot-log` — backup konfigurasi otomatis tiap 7 hari.\n"
+                "• `/perawatan backup` — kirim berkas backup sekarang; `/perawatan status` — cek ukuran data & RAM."
+            ),
+            inline=False,
+        )
+    elif category == "musik":
+        embed = discord.Embed(
+            title="🎵 Streaming Musik 24/7 (`/musik`) — Lavalink",
+            description=(
+                "Putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music**, dan lainnya tanpa membebani "
+                "server bot (audio diproses node Lavalink, bukan CPU bot)."
+            ),
+            color=discord.Color.dark_purple(),
+        )
+        embed.add_field(
+            name="▶️ Memutar Lagu",
+            value=(
+                "• `/musik putar query:judul lagu` — cari & langsung putar (bot join voice channel kamu).\n"
+                "• `/musik putar query:https://youtu.be/xxxx` — tempel tautan YouTube/Spotify/playlist.\n"
+                "• `/musik cari query:...` — lihat 5 hasil lalu pilih dari dropdown.\n"
+                "• `/musik putar query:... berikutnya:True` — selalu antrekan tanpa memotong lagu berjalan."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🎛️ Kontrol Pemutaran",
+            value=(
+                "• `/musik sekarang` — lagu aktif + progres bar & volume.\n"
+                "• `/musik antrean halaman:2` — antrean berhalaman (◀ ▶), 10 lagu/halaman.\n"
+                "• `/musik jeda` / `/musik lanjut` — jeda & lanjutkan.\n"
+                "• `/musik lewati jumlah:2` — lewati lagu (bisa beberapa sekaligus).\n"
+                "• `/musik sebelumnya` — putar lagi lagu sebelumnya dari riwayat.\n"
+                "• `/musik seek posisi:1:30` — lompat ke menit/detik tertentu.\n"
+                "• `/musik acak` — acak antrean, `/musik ulang mode:satu|semua|mati`.\n"
+                "• `/musik volume level:70` — atur volume (disimpan sebagai default server).\n"
+                "• `/musik hentikan` — stop, kosongkan antrean, & keluar dari voice."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🎚️ Panel Ala Rythm + Efek Audio",
+            value=(
+                "• Panel pemutar **satu pesan** muncul otomatis saat memutar lagu: progress bar "
+                "`▬▬🔘▬▬` yang bergerak tiap ±10 detik + **9 tombol** "
+                "(⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊).\n"
+                "• `/musik panel` — kirim ulang panel bila pesan lamanya terhapus.\n"
+                "• `/musik filter jenis:bassboost|nightcore|vaporwave|8d|karaoke|treble|off`.\n"
+                "• `/musik autoplay aktif:True` — putar rekomendasi otomatis saat antrean habis.\n"
+                "• Filter & autoplay **tersimpan per server** dan dipulihkan saat bot join lagi."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="⚙️ Admin & Status",
+            value=(
+                "• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n"
+                "• `/musik status` — cek node Lavalink, antrean, & pengaturan server.\n"
+                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Panduan lengkap ada di README bagian F."
             ),
             inline=False,
         )
@@ -1547,17 +1898,25 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ Daftar Slash Command Utama (11 Menu Ringkas)",
+            name="⚡ Daftar Slash Command Utama (20 Menu Ringkas)",
             value=(
+                "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
                 "• **`/ringkas`** — Rangkum obrolan channel (`chat`) atau link YouTube/Web (`link`).\n"
                 "• **`/cari`** — Cari berita, skor, cuaca, atau info terbaru hari ini.\n"
                 "• **`/game`** — 6 mode Mini-Game Tongkrongan & Papan Skor.\n"
+                "**🛠️ Pengelolaan Server**\n"
                 "• **`/agent`** *(Admin)* — Panel kontrol AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
                 "• **`/serverstats`** — Statistik server + channel penghitung otomatis.\n"
-                "• **`/autorole`** *(Admin)* — Role otomatis untuk member baru.\n"
-                "• **`/fakta`** — Rubrik Fakta Unik Dunia setiap pukul 08:00.\n"
+                "• **`/autorole`**, **`/verifikasi`** *(Admin)* — Role otomatis & gerbang verifikasi member.\n"
+                "• **`/fakta`** — Rubrik Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
                 "• **`/keamanan`** — Anti-phishing otomatis & cek keamanan link.\n"
+                "**🧩 Komunitas Ringan (Gratis)**\n"
+                "• **`/panel-role`** — Reaction role, **`/poll`** — polling, **`/ingatkan`** — pengingat.\n"
+                "• **`/starboard`** — sorotan pesan populer, **`/sticky`** — pesan petunjuk menempel.\n"
+                "• **`/info`** — profil member & server, **`/perawatan`** — backup & log error.\n"
+                "**🎵 Hiburan Audio**\n"
+                "• **`/musik`** — streaming YouTube/Spotify/SoundCloud via Lavalink (putar, antrean, volume, DJ).\n"
                 "• **`/status`** & **`/bantuan`** — Cek kesehatan bot & buka panduan ini."
             ),
             inline=False,
@@ -1623,6 +1982,18 @@ class HelpMenuView(discord.ui.View):
                 value="server",
                 emoji="🛠️",
                 description="Panduan /serverstats, /autorole, /fakta, & /keamanan",
+            ),
+            discord.SelectOption(
+                label="Streaming Musik 24/7 (/musik & Lavalink)",
+                value="musik",
+                emoji="🎵",
+                description="Putar lagu YouTube/Spotify, antrean, volume, & role DJ",
+            ),
+            discord.SelectOption(
+                label="Fitur Komunitas Ringan (Role, Poll, Starboard, Sticky)",
+                value="komunitas",
+                emoji="🧩",
+                description="Reaction role, poll, pengingat, starboard, verifikasi, & sticky",
             ),
             discord.SelectOption(
                 label="Panel Admin, Forum Pintar & Komunitas (/agent)",
