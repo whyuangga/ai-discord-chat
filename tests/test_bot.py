@@ -10,6 +10,7 @@ import storage
 import utils
 import ai_handler
 import community_agent
+import community_tools
 import games
 import server_features
 import views
@@ -97,6 +98,14 @@ def clean_storage_state(tmp_path, monkeypatch):
     server_features.autorole_guilds.clear()
     server_features.facts_guilds.clear()
     server_features.security_guilds.clear()
+    community_tools.reaction_role_panels.clear()
+    community_tools.reminders.clear()
+    community_tools.starboard_guilds.clear()
+    community_tools.sticky_channels.clear()
+    community_tools.verification_guilds.clear()
+    community_tools.maintenance_guilds.clear()
+    community_tools._sticky_last_refresh.clear()
+    community_tools._last_error.update({"at": 0.0, "context": "", "message": ""})
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -1664,6 +1673,7 @@ async def test_discord_command_and_view_hard_limits():
         views.ChatPersonaSwitchView(),
         views.ImageSettingsView(),
         views.ForumPostSolvedView(),
+        views.VerificationGateView(),
     ]
     seen_ids: set[str] = set()
     for v in persistent_views:
@@ -2136,15 +2146,17 @@ async def test_free_tier_member_cooldown_and_admin_panel_view():
 @pytest.mark.asyncio
 async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
     """Menguji arsitektur modular cogs/, HelpMenuView (/bantuan), ServerFaqManagerView, & pembersih RAM."""
-    # 1. Pastikan top-level slash commands ringkas (11 command utama, hemat slot dari batas 100 Discord)
+    # 1. Pastikan top-level slash commands ringkas (19 command utama, hemat slot dari batas 100 Discord)
     chat_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
     assert {c.name for c in chat_cmds} == {
         "sesi", "ringkas", "cari", "game", "agent", "bantuan", "status",
         "serverstats", "autorole", "fakta", "keamanan",
+        "panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan",
     }
+    assert len(chat_cmds) <= 100
 
     # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
-    for cat in ("overview", "sesi", "tools", "games", "server", "admin"):
+    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "admin"):
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
@@ -2760,3 +2772,382 @@ async def test_default_four_daily_slots_fire_exactly_once(monkeypatch):
     assert server_features.facts_guilds[10]["sent_slots"] == {
         "2026-11-04": ["08:00", "12:00", "16:00", "20:00"],
     }
+
+
+# ==============================================================================
+# FITUR KOMUNITAS RINGAN (v1.6.0-beta): Reaction Role, Poll, Reminder, Starboard,
+# Verifikasi, Sticky, Info, Backup, & Log Error — semuanya tanpa kuota Gemini.
+# ==============================================================================
+class _FakeReaction:
+    def __init__(self, emoji: str, count: int):
+        self.emoji = emoji
+        self.count = count
+
+
+class _FakeAuthor:
+    def __init__(self, name: str = "Warga", bot: bool = False):
+        self.display_name = name
+        self.bot = bot
+        self.display_avatar = type("Avatar", (), {"url": "https://cdn.example.com/a.png"})()
+
+
+class _FakeStarboardMessage:
+    def __init__(self, *, mid: int = 500, content: str = "Halo dunia", count: int = 0):
+        self.id = mid
+        self.content = content
+        self.author = _FakeAuthor()
+        self.reactions = [_FakeReaction("⭐", count)]
+        self.attachments = []
+        self.jump_url = f"https://discord.com/channels/1/2/{mid}"
+        self.created_at = discord.utils.utcnow()
+
+
+class _FakeSendableChannel:
+    def __init__(self, *, message=None, cid: int = 7002):
+        self.id = cid
+        self.sent = []
+        self.deleted = []
+        self._message = message
+
+    async def send(self, content=None, embed=None, file=None, poll=None, view=None, **kwargs):
+        self.sent.append({"content": content, "embed": embed, "file": file, "poll": poll})
+        return type("SentMessage", (), {"id": 9000 + len(self.sent)})()
+
+    async def fetch_message(self, mid):
+        if self._message is None:
+            raise discord.NotFound(response=None, message="tidak ada")
+        return self._message
+
+    def get_partial_message(self, mid):
+        channel = self
+
+        class _Partial:
+            async def delete(self):
+                channel.deleted.append(mid)
+
+        return _Partial()
+
+
+class _FakeCommunityBot:
+    def __init__(self, channels: dict):
+        self._channels = channels
+        self.user = type("FakeBotUser", (), {"display_name": "Whas"})()
+
+    def get_channel(self, cid):
+        return self._channels.get(cid)
+
+
+@pytest.mark.asyncio
+async def test_community_reaction_roles_and_reminders():
+    """Reaction Role (panel, opsi, resolve emoji) & Reminder (parser, kuota, pengiriman, persistensi)."""
+    # 1. Panel reaction role
+    panel = community_tools.create_reaction_role_panel(10, 7002, 555, title="Ambil Role", description="Klik emoji")
+    assert panel["options"] == []
+    assert community_tools.add_reaction_role_option(555, "🎮", 111, "Gamer") is not None
+    assert community_tools.add_reaction_role_option(555, "🎨", 222, "Artist") is not None
+    # Duplikat emoji maupun duplikat role ditolak
+    assert community_tools.add_reaction_role_option(555, "🎮", 333, "Lain") is None
+    assert community_tools.add_reaction_role_option(555, "🎵", 111, "Lain") is None
+    assert community_tools.resolve_reaction_role(555, "🎨") == 222
+    assert community_tools.resolve_reaction_role(555, "🎮") == 111
+    assert community_tools.resolve_reaction_role(555, "🎯") is None
+    assert community_tools.resolve_reaction_role(999, "🎮") is None
+
+    # Emoji kustom (nama:id) tetap cocok berdasarkan namanya
+    community_tools.add_reaction_role_option(555, "panda:123456789012345678", 444, "Panda")
+    assert community_tools.resolve_reaction_role(555, "panda:987654321098765432") == 444
+
+    assert community_tools.remove_reaction_role_option(555, "🎵") is None
+    assert community_tools.remove_reaction_role_option(555, "🎮") is not None
+    assert community_tools.resolve_reaction_role(555, "🎮") is None
+
+    # 2. Parser durasi pengingat
+    assert community_tools.parse_reminder_duration("10m") == 600
+    assert community_tools.parse_reminder_duration("2j") == 7200
+    assert community_tools.parse_reminder_duration("1j30m") == 5400
+    assert community_tools.parse_reminder_duration("2 hari") == 172800
+    assert community_tools.parse_reminder_duration("45") == 2700  # tanpa satuan = menit
+    assert community_tools.parse_reminder_duration("1 jam dan 15 menit") == 4500
+    assert community_tools.parse_reminder_duration("") is None
+    assert community_tools.parse_reminder_duration("besok pagi") is None
+    assert community_tools.parse_reminder_duration("400 hari") is None  # melebihi batas 365 hari
+    assert community_tools.format_duration_short(5400) == "1j 30m"
+
+    # 3. Reminder: simpan, batasi kuota, daftar, & batalkan
+    reminder = community_tools.add_reminder(10, 7002, 501, "Mabar jam 8", 60)
+    assert reminder is not None and reminder["user_id"] == 501
+    assert len(community_tools.list_user_reminders(501)) == 1
+    assert community_tools.cancel_reminder(reminder["id"], 999) is False  # bukan pemilik
+    assert community_tools.cancel_reminder(reminder["id"], 501) is True
+    assert community_tools.list_user_reminders(501) == []
+
+    for idx in range(config.REMINDER_MAX_PER_USER):
+        community_tools.add_reminder(10, 7002, 502, f"Tugas {idx}", 60)
+    assert community_tools.add_reminder(10, 7002, 502, "Kelebihan", 60) is None
+
+    # 4. Pengiriman pengingat jatuh tempo
+    channel = _FakeSendableChannel()
+    bot = _FakeCommunityBot({7002: channel})
+    community_tools.reminders.clear()
+    due = community_tools.add_reminder(10, 7002, 503, "Rapat mulai", 30)
+    due["due_at"] = time.time() - 5  # sudah jatuh tempo
+    belum = community_tools.add_reminder(10, 7002, 504, "Nanti", 3600)
+
+    assert await community_tools.run_reminder_check(bot) == 1
+    assert len(channel.sent) == 1
+    assert "Rapat mulai" in channel.sent[0]["content"]
+    assert "<@503>" in channel.sent[0]["content"]
+    assert due["id"] not in community_tools.reminders
+    assert belum["id"] in community_tools.reminders
+
+    # 5. Persistensi: panel, reminder, & sticky tahan restart
+    community_tools.set_sticky_config(7002, 10, "Baca rules dulu ya!", title="📌 Rules")
+    await community_tools.save_community_tools_to_disk()
+    community_tools.reaction_role_panels.clear()
+    community_tools.reminders.clear()
+    community_tools.sticky_channels.clear()
+    counts = community_tools.load_community_tools_from_disk()
+    assert counts[0] == 1  # panel
+    assert counts[1] == 1  # reminder
+    assert counts[3] == 1  # sticky
+    assert community_tools.resolve_reaction_role(555, "🎨") == 222
+    assert community_tools.sticky_channels[7002]["content"].startswith("Baca rules")
+    assert community_tools.reminders[belum["id"]]["text"] == "Nanti"
+
+
+@pytest.mark.asyncio
+async def test_community_starboard_sticky_and_verification():
+    """Starboard (salin & hapus sorotan), Sticky message (debounce), & Gerbang verifikasi."""
+    # 1. Starboard: konfigurasi + sorotan saat ambang tercapai
+    cfg = community_tools.set_starboard_config(10, channel_id=8001, threshold=3, emoji="⭐")
+    assert cfg["threshold"] == 3 and cfg["channel_id"] == 8001
+
+    source = _FakeSendableChannel(message=_FakeStarboardMessage(mid=500, count=4))
+    starboard = _FakeSendableChannel()
+    bot = _FakeCommunityBot({7002: source, 8001: starboard})
+    payload = type(
+        "Payload",
+        (),
+        {"guild_id": 10, "channel_id": 7002, "message_id": 500, "emoji": "⭐", "user_id": 501, "member": None},
+    )()
+
+    assert await community_tools.handle_starboard_reaction(bot, payload, added=True) is True
+    assert len(starboard.sent) == 1
+    assert "Halo dunia" in starboard.sent[0]["embed"].description
+    # Kunci entri memakai string ID pesan & jumlah bintang dikurangi reaksi bot sendiri
+    assert "500" in community_tools.starboard_guilds[10]["entries"]
+    assert community_tools.starboard_guilds[10]["entries"]["500"]["count"] == 3
+
+    # Reaksi berikutnya tidak menduplikasi sorotan
+    assert await community_tools.handle_starboard_reaction(bot, payload, added=True) is False
+    assert len(starboard.sent) == 1
+
+    # Ambang turun di bawah batas -> sorotan dihapus
+    source._message = _FakeStarboardMessage(mid=500, count=1)
+    assert await community_tools.handle_starboard_reaction(bot, payload, added=False) is True
+    assert starboard.deleted == [9001]
+    assert community_tools.starboard_guilds[10]["entries"] == {}
+
+    # Emoji berbeda / pesan bot / channel starboard sendiri diabaikan
+    source._message = _FakeStarboardMessage(mid=500, count=9)
+    other_emoji = type("Payload", (), {**payload.__dict__, "emoji": "🔥"})()
+    assert await community_tools.handle_starboard_reaction(bot, other_emoji, added=True) is False
+    in_starboard = type("Payload", (), {**payload.__dict__, "channel_id": 8001})()
+    assert await community_tools.handle_starboard_reaction(bot, in_starboard, added=True) is False
+
+    # 2. Sticky message: kirim, simpan id, & dibatasi jeda agar tidak spam
+    cfg_sticky = community_tools.set_sticky_config(7002, 10, "Aturan server: jangan spam.", title="📌 Rules")
+    assert cfg_sticky is not None
+    channel = _FakeSendableChannel()
+    message = type("Msg", (), {"channel": channel})()
+    community_tools._sticky_last_refresh.clear()
+
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), message) is True
+    assert len(channel.sent) == 1
+    assert "jangan spam" in channel.sent[0]["embed"].description
+    assert community_tools.sticky_channels[7002]["last_message_id"] == 9001
+
+    # Langsung dipanggil lagi -> debounce menahan (tidak spam)
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), message) is False
+    assert len(channel.sent) == 1
+
+    # Setelah jeda lewat & pesan lama dihapus
+    community_tools._sticky_last_refresh[7002] = 0.0
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), message) is True
+    assert channel.deleted == [9001]
+    assert len(channel.sent) == 2
+
+    # Channel tanpa konfigurasi sticky tidak diapa-apakan
+    other_channel = _FakeSendableChannel()
+    other_message = type("Msg", (), {"channel": other_channel})()
+    assert await community_tools.maybe_refresh_sticky(_FakeCommunityBot({}), other_message) is False
+
+    # 3. Gerbang verifikasi: konfigurasi + validasi role/pengguna
+    vcfg = community_tools.set_verification_config(10, channel_id=7003, role_id=333, enabled=True)
+    assert vcfg["role_id"] == 333
+    embed = community_tools.build_verification_embed("Server Uji", "Member", "Baca rules dulu")
+    assert "Server Uji" in embed.description
+    assert "Member" in embed.description
+
+    ok, pesan = await community_tools.grant_verification_role(object(), 10)
+    assert ok is False and "hanya bisa" in pesan
+    assert community_tools.set_verification_config(10, enabled=False) is None
+    assert 10 not in community_tools.verification_guilds
+    ok2, pesan2 = await community_tools.grant_verification_role(object(), 10)
+    assert ok2 is False and "belum aktif" in pesan2
+
+    # 4. Hapus channel membersihkan sticky/verifikasi yang menunjuk ke sana
+    community_tools.set_sticky_config(7002, 10, "Rules")
+    fake_channel = type("Channel", (), {"id": 7002, "guild": type("G", (), {"id": 10})()})()
+    assert community_tools.handle_channel_delete(fake_channel) is True
+    assert 7002 not in community_tools.sticky_channels
+
+
+@pytest.mark.asyncio
+async def test_community_backup_and_error_reporting():
+    """Backup konfigurasi (ZIP), backup otomatis berkala, & pelaporan error ke channel log."""
+    # 1. Arsip backup berisi seluruh data/*.json
+    data, filename = community_tools.build_backup_archive()
+    assert filename.startswith("backup-bot-") and filename.endswith(".zip")
+    import zipfile
+
+    with zipfile.ZipFile(__import__("io").BytesIO(data)) as archive:
+        names = archive.namelist()
+    assert "INFO.txt" in names
+    assert all(name.startswith("data/") or name == "INFO.txt" for name in names)
+
+    # 2. Kirim backup ke channel
+    channel = _FakeSendableChannel()
+    ok, info = await community_tools.send_backup(_FakeCommunityBot({}), channel)
+    assert ok is True and info == filename
+    assert len(channel.sent) == 1 and channel.sent[0]["file"] is not None
+
+    # 3. Backup otomatis menghormati interval
+    cfg = community_tools.set_maintenance_config(
+        10, backup_channel_id=8002, auto_backup=True
+    )
+    assert cfg["backup_channel_id"] == 8002
+    backup_channel = _FakeSendableChannel()
+    bot = _FakeCommunityBot({8002: backup_channel})
+
+    assert await community_tools.run_backup_check(bot) == 1
+    assert len(backup_channel.sent) == 1
+    assert cfg["last_backup_at"] > 0
+
+    # Baru saja backup -> tidak mengulang
+    assert await community_tools.run_backup_check(bot) == 0
+
+    # Interval lewat -> backup lagi
+    cfg["last_backup_at"] = time.time() - (config.BACKUP_INTERVAL_DAYS * 86400) - 60
+    assert await community_tools.run_backup_check(bot) == 1
+    assert len(backup_channel.sent) == 2
+
+    # Backup otomatis dimatikan -> tidak ada pengiriman
+    community_tools.set_maintenance_config(10, auto_backup=False)
+    cfg["last_backup_at"] = 0
+    assert await community_tools.run_backup_check(bot) == 0
+
+    # 4. Log error: rekam & kirim ke channel log
+    log_channel = _FakeSendableChannel()
+    log_bot = _FakeCommunityBot({8003: log_channel})
+    community_tools.set_maintenance_config(10, log_channel_id=8003)
+    err = RuntimeError("Koneksi Gemini timeout")
+    assert await community_tools.report_error(
+        log_bot, context="/cari", exc=err, guild=type("G", (), {"id": 10})()
+    ) is True
+    assert len(log_channel.sent) == 1
+    assert "Error" in log_channel.sent[0]["embed"].title
+
+    last = community_tools.get_last_error()
+    assert last["context"] == "/cari"
+    assert "timeout" in last["message"]
+
+    # Tanpa channel log -> tidak ada pengiriman, tapi error tetap tercatat
+    assert await community_tools.report_error(
+        _FakeCommunityBot({}), context="event:on_message", exc=err
+    ) is False
+    assert community_tools.get_last_error()["context"] == "event:on_message"
+
+
+def test_community_command_and_view_limits():
+    """Memastikan command fitur komunitas & View verifikasi mematuhi batas keras Discord."""
+    tree_cmds = {c.name: c for c in bot_main.bot.tree.get_commands()}
+    for name in ("panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan"):
+        assert name in tree_cmds
+
+    expected_subs = {
+        "panel-role": {"pasang", "tambah", "hapus", "daftar"},
+        "ingatkan": {"pasang", "daftar", "batal"},
+        "starboard": {"atur", "status"},
+        "verifikasi": {"pasang", "status", "matikan"},
+        "sticky": {"pasang", "lepas", "status"},
+        "info": {"user", "server"},
+        "perawatan": {"backup", "atur", "status"},
+    }
+    for group_name, subs in expected_subs.items():
+        assert {c.name for c in tree_cmds[group_name].commands} == subs
+
+    # /poll adalah command tunggal dengan parameter terbaca
+    poll_cmd = tree_cmds["poll"]
+    assert {p.name for p in poll_cmd.parameters} >= {"pertanyaan", "opsi", "durasi_jam", "multi", "anonim"}
+
+    view = views.VerificationGateView()
+    assert view.is_persistent() is True
+    assert [c.custom_id for c in view.children] == ["community:verify_gate"]
+
+
+@pytest.mark.asyncio
+async def test_app_command_error_handler_reports_to_log_channel(monkeypatch):
+    """Error Slash Command dibalas ke pengguna, dicatat, & dilaporkan ke channel log server."""
+    log_channel = _FakeSendableChannel()
+    monkeypatch.setattr(bot_main.bot, "get_channel", lambda cid: log_channel if cid == 8003 else None)
+    community_tools.set_maintenance_config(10, log_channel_id=8003)
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+            self.done = False
+
+        def is_done(self):
+            return self.done
+
+        async def send_message(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.done = True
+            self.sent.append(content)
+
+    class _Follow:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, embed=None, ephemeral=False, **kwargs):
+            self.sent.append(content)
+
+    class _Interaction:
+        guild = type("G", (), {"id": 10})()
+        command = type("C", (), {"qualified_name": "cari"})()
+        user = type("U", (), {"id": 501})()
+
+        def __init__(self):
+            self.response = _Resp()
+            self.followup = _Follow()
+
+    interaction = _Interaction()
+    await bot_main.bot._handle_app_command_error(interaction, RuntimeError("boom"))
+    assert interaction.response.sent and "kendala" in interaction.response.sent[0]
+
+    # Ringkasan error terkirim ke channel log & tercatat untuk /status
+    assert len(log_channel.sent) == 1
+    assert "Error" in log_channel.sent[0]["embed"].title
+    last = community_tools.get_last_error()
+    assert last["context"] == "/cari" and "boom" in last["message"]
+
+    # CommandOnCooldown dibalas dengan hitung mundur, tanpa laporan error ke channel log
+    import discord.app_commands as _ac
+
+    cooldown = _ac.CommandOnCooldown(
+        type("C", (), {"qualified_name": "cari"})(), retry_after=12.0
+    )
+    interaction2 = _Interaction()
+    await bot_main.bot._handle_app_command_error(interaction2, cooldown)
+    assert "12" in interaction2.response.sent[0]
+    assert len(log_channel.sent) == 1

@@ -29,6 +29,13 @@ from community_agent import (
     welcome_agent_guilds,
     youtube_agent_channels,
 )
+from community_tools import (
+    handle_channel_delete as handle_community_channel_delete,
+    handle_reaction_role,
+    handle_starboard_reaction,
+    maybe_refresh_sticky,
+    save_community_tools_to_disk,
+)
 from config import BOT_VERSION
 from games import active_channel_games, cancel_channel_game, handle_active_game_guess
 from storage import remove_thread_data, save_sessions_to_disk
@@ -124,10 +131,40 @@ def register_events_cog(bot: commands.Bot) -> None:
             if channel.id in (sec_cfg.get("channel_ids") or []):
                 sec_cfg["channel_ids"] = [c for c in sec_cfg["channel_ids"] if c != channel.id]
                 await save_server_features_to_disk()
+        if handle_community_channel_delete(channel):
+            await save_community_tools_to_disk()
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:
             await save_agent_config_to_disk()
+
+    @bot.event
+    async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+        """Menangani Reaction Role & Starboard saat sebuah emoji ditambahkan."""
+        if payload.guild_id is None:
+            return
+        if bot.user is not None and payload.user_id == bot.user.id:
+            return  # abaikan reaksi bot sendiri (mis. emoji panel reaction role)
+        try:
+            if await handle_starboard_reaction(bot, payload, added=True):
+                return
+            await handle_reaction_role(bot, payload, added=True)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Reaction handler gagal: %s", exc)
+
+    @bot.event
+    async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+        """Mencabut role / menghapus sorotan saat emoji dilepas."""
+        if payload.guild_id is None:
+            return
+        if bot.user is not None and payload.user_id == bot.user.id:
+            return
+        try:
+            if await handle_starboard_reaction(bot, payload, added=False):
+                return
+            await handle_reaction_role(bot, payload, added=False)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Reaction handler gagal: %s", exc)
 
     @bot.event
     async def on_member_join(member: discord.Member):
@@ -145,6 +182,13 @@ def register_events_cog(bot: commands.Bot) -> None:
     async def on_message(message: discord.Message):
         if message.author.bot:
             return
+
+        # 0. Sticky message: turunkan ulang pesan petunjuk ke bawah channel
+        if message.guild is not None and isinstance(message.channel, discord.TextChannel):
+            try:
+                await maybe_refresh_sticky(bot, message)
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Sticky message gagal diperbarui: %s", exc)
 
         # Cadangan Auto-Welcome lewat pesan System Join Discord (bekerja walau Server Members Intent belum aktif)
         if message.type == discord.MessageType.new_member and message.guild is not None:

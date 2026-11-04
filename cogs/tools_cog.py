@@ -28,6 +28,14 @@ from config import (
     GEMINI_REASONING_MODEL,
     GEMINI_SEARCH_MODEL,
 )
+from community_tools import (
+    get_last_error,
+    reaction_role_panels,
+    reminders,
+    starboard_guilds,
+    sticky_channels,
+    verification_guilds,
+)
 from games import active_channel_games
 from storage import image_thread_settings, thread_chats
 from utils import (
@@ -325,9 +333,10 @@ async def slash_bantuan(interaction: discord.Interaction):
 
 @app_commands.command(
     name="status",
-    description="Lihat status koneksi bot, latensi, pemakaian RAM, dan sesi Gemini aktif",
+    description="Lihat status koneksi bot, latensi, RAM, antrean AI, & kesehatan fitur",
 )
-async def slash_status(interaction: discord.Interaction):
+@app_commands.describe(publik="True bila ingin menampilkan status ini ke seluruh channel")
+async def slash_status(interaction: discord.Interaction, publik: bool = False):
     client = getattr(interaction, "client", None)
     started_at = float(getattr(client, "started_at", time.time()))
     uptime_sec = max(0, int(time.time() - started_at))
@@ -365,6 +374,24 @@ async def slash_status(interaction: discord.Interaction):
         ),
         inline=True,
     )
+    embed.add_field(
+        name="🧩 Fitur Komunitas",
+        value=(
+            f"`{len(reaction_role_panels)}` panel role | `{len(reminders)}` pengingat | "
+            f"`{len(starboard_guilds)}` starboard | `{len(sticky_channels)}` sticky | "
+            f"`{len(verification_guilds)}` verifikasi"
+        ),
+        inline=False,
+    )
+    last_error = get_last_error()
+    if last_error["at"]:
+        error_text = (
+            f"`{last_error['context']}` — {time.strftime('%d/%m %H:%M', time.localtime(last_error['at']))}\n"
+            f"> {last_error['message'][:200]}"
+        )
+    else:
+        error_text = "_Tidak ada error tercatat_"
+    embed.add_field(name="🩺 Error Terakhir", value=error_text[:1024], inline=False)
     embed.add_field(name="🕒 Jam Lokal Server", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
     img_engine_info = (
         f"`{GEMINI_IMAGE_MODEL}` (Paid)"
@@ -386,7 +413,7 @@ async def slash_status(interaction: discord.Interaction):
         ),
         inline=False,
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=not publik)
 
 
 async def _run_message_context_action(

@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.5.1-beta"
+BOT_VERSION = "1.6.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -149,6 +149,7 @@ SESSIONS_FILE = DATA_DIR / "sessions.json"
 AGENT_CONFIG_FILE = DATA_DIR / "agent_config.json"
 GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
 SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
+COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -168,6 +169,19 @@ FACTS_DEFAULT_TIMES: list[str] = _env_time_slots(
 )
 # Jumlah maksimal role yang otomatis diberikan saat member bergabung
 AUTOROLE_MAX_ROLES: int = _env_int("AUTOROLE_MAX_ROLES", 3, minimum=1)
+
+# ==============================================================================
+# FITUR KOMUNITAS RINGAN (Reaction Role, Poll, Reminder, Starboard, Verifikasi, Sticky)
+# ==============================================================================
+# Semua fitur di bawah ini GRATIS (tanpa kuota Gemini) & default NONAKTIF sampai Admin menyalakannya.
+STARBOARD_EMOJI: str = (os.getenv("STARBOARD_EMOJI") or "⭐").strip() or "⭐"
+STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, minimum=1)
+REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
+# Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
+STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# Backup konfigurasi otomatis: interval hari (0 = matikan) & channel log error global
+BACKUP_INTERVAL_DAYS: int = _env_int("BACKUP_INTERVAL_DAYS", 7, minimum=0)
+BOT_LOG_CHANNEL_ID: int = _env_int("BOT_LOG_CHANNEL_ID", 0, minimum=0)
 
 # ==============================================================================
 # DAFTAR MODE / PERSONA AI (MURNI GOOGLE GEMINI - RESPONS CEPAT)

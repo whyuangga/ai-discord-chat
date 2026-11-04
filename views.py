@@ -19,6 +19,7 @@ from config import (
     STYLE_OPTIONS,
     resolve_model_key,
 )
+from community_tools import grant_verification_role
 from community_agent import (
     GREETING_PERSONAS,
     STYLE_DESCRIPTIONS,
@@ -626,6 +627,30 @@ def _build_solved_disabled_view() -> discord.ui.View:
         )
     )
     return done_view
+
+
+class VerificationGateView(discord.ui.View):
+    """Tombol persisten "Verifikasi Saya" untuk membuka akses channel member baru."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Verifikasi Saya",
+        style=discord.ButtonStyle.success,
+        emoji="✅",
+        custom_id="community:verify_gate",
+    )
+    async def verify_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "⚠️ Tombol verifikasi hanya berlaku di dalam server.", ephemeral=True
+            )
+            return
+        ok, message = await grant_verification_role(interaction.user, interaction.guild.id)
+        await interaction.response.send_message(message, ephemeral=True)
+        if ok:
+            logger.info("Member %s lolos verifikasi di guild %s", interaction.user.id, interaction.guild.id)
 
 
 class ForumPostSolvedView(discord.ui.View):
@@ -1518,6 +1543,58 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+    elif category == "komunitas":
+        embed = discord.Embed(
+            title="🧩 Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)",
+            description=(
+                "Semua fitur di bawah ini **default NONAKTIF** dan hanya aktif setelah Admin menyalakannya. "
+                "Tidak memakai kuota Gemini sama sekali, jadi aman dipakai 24 jam."
+            ),
+            color=discord.Color.purple(),
+        )
+        embed.add_field(
+            name="🎭 Reaction Role (`/panel-role`)",
+            value=(
+                "• `/panel-role pasang channel:#ambil-role judul:Ambil Role role1:@Gamer emoji1:🎮` — member klik emoji untuk mengambil role sendiri.\n"
+                "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel yang sudah ada.\n"
+                "• `/panel-role daftar` — lihat seluruh panel di server ini."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📊 Polling & Pengingat (`/poll`, `/ingatkan`)",
+            value=(
+                "• `/poll pertanyaan:... opsi:Jam 8, Jam 9, Jam 10` — polling native Discord, suara dihitung otomatis.\n"
+                "• `/ingatkan pasang waktu:2j pesan:mabar` — bot mengingatkan kamu saat waktunya tiba (tahan restart).\n"
+                "• `/ingatkan daftar` & `/ingatkan batal nomor:3` — kelola pengingat aktifmu."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="⭐ Starboard (`/starboard`)",
+            value=(
+                "• `/starboard atur channel:#starboard batas:3` — pesan yang mendapat 3 bintang otomatis disalin ke channel sorotan.\n"
+                "• `/starboard status` — lihat konfigurasi & jumlah pesan tersorot."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="✅ Verifikasi & Sticky (`/verifikasi`, `/sticky`)",
+            value=(
+                "• `/verifikasi pasang channel:#verifikasi role:@Member` — member baru klik **✅ Verifikasi Saya** untuk membuka akses.\n"
+                "• `/sticky pasang isi:... channel:#umum` — pesan petunjuk yang otomatis tetap di bawah channel."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="👤 Profil & Perawatan (`/info`, `/perawatan`)",
+            value=(
+                "• `/info user` & `/info server` — kartu profil member (umur akun & tanggal join) dan ringkasan server.\n"
+                "• `/perawatan atur backup_channel:#bot-backup log_channel:#bot-log` — backup konfigurasi otomatis tiap 7 hari.\n"
+                "• `/perawatan backup` — kirim berkas backup sekarang; `/perawatan status` — cek ukuran data & RAM."
+            ),
+            inline=False,
+        )
     elif category == "admin":
         embed = discord.Embed(
             title="⚙️ Panduan Admin & AI Komunitas (`/agent`)",
@@ -1555,17 +1632,23 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ Daftar Slash Command Utama (11 Menu Ringkas)",
+            name="⚡ Daftar Slash Command Utama (19 Menu Ringkas)",
             value=(
+                "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
                 "• **`/ringkas`** — Rangkum obrolan channel (`chat`) atau link YouTube/Web (`link`).\n"
                 "• **`/cari`** — Cari berita, skor, cuaca, atau info terbaru hari ini.\n"
                 "• **`/game`** — 6 mode Mini-Game Tongkrongan & Papan Skor.\n"
+                "**🛠️ Pengelolaan Server**\n"
                 "• **`/agent`** *(Admin)* — Panel kontrol AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
                 "• **`/serverstats`** — Statistik server + channel penghitung otomatis.\n"
-                "• **`/autorole`** *(Admin)* — Role otomatis untuk member baru.\n"
-                "• **`/fakta`** — Rubrik Fakta Unik Dunia setiap pukul 08:00.\n"
+                "• **`/autorole`**, **`/verifikasi`** *(Admin)* — Role otomatis & gerbang verifikasi member.\n"
+                "• **`/fakta`** — Rubrik Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
                 "• **`/keamanan`** — Anti-phishing otomatis & cek keamanan link.\n"
+                "**🧩 Komunitas Ringan (Gratis)**\n"
+                "• **`/panel-role`** — Reaction role, **`/poll`** — polling, **`/ingatkan`** — pengingat.\n"
+                "• **`/starboard`** — sorotan pesan populer, **`/sticky`** — pesan petunjuk menempel.\n"
+                "• **`/info`** — profil member & server, **`/perawatan`** — backup & log error.\n"
                 "• **`/status`** & **`/bantuan`** — Cek kesehatan bot & buka panduan ini."
             ),
             inline=False,
@@ -1631,6 +1714,12 @@ class HelpMenuView(discord.ui.View):
                 value="server",
                 emoji="🛠️",
                 description="Panduan /serverstats, /autorole, /fakta, & /keamanan",
+            ),
+            discord.SelectOption(
+                label="Fitur Komunitas Ringan (Role, Poll, Starboard, Sticky)",
+                value="komunitas",
+                emoji="🧩",
+                description="Reaction role, poll, pengingat, starboard, verifikasi, & sticky",
             ),
             discord.SelectOption(
                 label="Panel Admin, Forum Pintar & Komunitas (/agent)",

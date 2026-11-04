@@ -1,10 +1,11 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.5.1-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.6.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
 2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum* — `/agent`)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Panel Kontrol Admin Interaktif (`/agent panel`)** dengan *Spotlight Channel* & pengelola FAQ 1-klik, **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
 3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
+5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -16,6 +17,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [B. Fitur AI Agent & Otomasi Komunitas](#b-fitur-ai-agent--otomasi-komunitas)
    - [C. Fitur Keamanan, Ketahanan & Performa](#c-fitur-keamanan-ketahanan--performa)
    - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
+   - [E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI](#e-fitur-komunitas-ringan--gratis-tanpa-kuota-ai)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
@@ -235,6 +237,59 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 
 ---
 
+### E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI
+
+> 💡 Semua fitur di bagian ini **tidak memanggil Gemini sama sekali** (0 kuota, 0 biaya) dan **default NONAKTIF**.
+> Server yang belum memakai fitur ini tidak mendapat beban tambahan apa pun (tanpa event listener berat, tanpa RAM ekstra).
+
+#### 1. 🎭 Reaction Role — Member Ambil Role Sendiri (`/panel-role`)
+- **`/panel-role pasang channel:#ambil-role judul:Ambil Role role1:@Gamer emoji1:🎮 role2:@Artist emoji2:🎨`** — bot mengirim panel embed lalu memasang reaksi emoji secara otomatis (maks **3 role sekali pasang**).
+- Warga cukup **klik emoji** untuk mendapatkan role, **klik lagi** untuk melepasnya. Tidak ada kuota, tidak ada tombol kedaluwarsa.
+- **`/panel-role tambah pesan:<ID/link> emoji:🎵 role:@Musik`** — tambah role ke panel yang sudah ada.
+- **`/panel-role hapus`**, **`/panel-role daftar`** — kelola & lihat semua panel.
+- Posisi role diperiksa otomatis: role di atas role bot dilewati dengan peringatan jelas.
+
+#### 2. 📊 Polling Native Discord (`/poll`)
+- **`/poll pertanyaan:"Mabar malam ini jam berapa?" opsi:"Jam 8, Jam 9, Jam 10" durasi_jam:24`**
+- Memakai **Poll bawaan Discord**: hitung suara real-time, tampilan rapi, tidak bisa di-*double vote* — tanpa beban server sama sekali.
+- Mendukung **multi-pilihan** (`multi:True`), **anonim/terbuka** (`anonim:True`), dan durasi **1–768 jam** (maks 32 hari).
+- Maksimal **10 pilihan** (batas Discord); lebih dari itu dipotong otomatis dengan pemberitahuan.
+
+#### 3. ⏰ Pengingat Pribadi Tahan Restart (`/ingatkan`)
+- **`/ingatkan pasang waktu:"2j" pesan:"Rapat pengurus"`** — bot menagih kamu saat waktunya tiba (di channel atau DM bila channel tak bisa diakses).
+- Format waktu fleksibel: `10m`, `2j`, `1j30m`, `2 hari`, `45` (menit), bahkan `1 jam dan 15 menit`. Maksimal **365 hari**.
+- **Tahan restart:** pengingat disimpan di `data/community_tools.json`, jadi tetap dikirim walau bot baru di-*restart*.
+- **`/ingatkan daftar`** & **`/ingatkan batal nomor:3`** — kelola pengingat aktif (maks 15 per member).
+
+#### 4. ⭐ Starboard — Sorotan Pesan Populer (`/starboard`)
+- **`/starboard atur channel:#starboard batas:3 emoji:⭐`** — pesan warga yang mendapat **3 reaksi bintang** otomatis disalin ke channel sorotan (embed cantik + tautan sumber).
+- Bila reaksi turun di bawah batas, sorotannya **otomatis dihapus** agar starboard tetap rapi.
+- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan konfigurasi + jumlah sorotan.
+
+#### 5. ✅ Gerbang Verifikasi Anti-Bot (`/verifikasi`)
+- **`/verifikasi pasang channel:#verifikasi role:@Member`** — panel dengan tombol **✅ Verifikasi Saya**.
+- Member baru klik sekali → langsung dapat role akses, tanpa perlu Admin menunggu. Cocok dipadukan dengan `/autorole`.
+- **`/verifikasi status`** & **`/verifikasi matikan`** — pantau / matikan kapan saja.
+- Tombol bersifat **persisten** (`custom_id`), jadi tetap berfungsi setelah bot restart.
+
+#### 6. 📌 Sticky Message — Petunjuk Selalu di Bawah (`/sticky`)
+- **`/sticky pasang isi:"Baca #rules dulu sebelum chat!" channel:#umum judul:"📌 Aturan"`**
+- Setiap ada obrolan baru, bot menurunkan ulang pesan petunjuk ke bawah channel (pesan lama dihapus).
+- **Anti-spam:** jeda minimum **5 detik** per channel (`STICKY_MIN_INTERVAL_SEC`), jadi channel ramai tidak dibanjiri bot.
+- **`/sticky lepas`** & **`/sticky status`** — cabut / lihat daftar channel sticky.
+
+#### 7. 👤 Kartu Profil & Server (`/info`)
+- **`/info user member:@Warga`** — umur akun, tanggal bergabung, jumlah role, plus **peringatan keamanan** otomatis jika akun masih **< 7 hari** (indikasi akun raid).
+- **`/info server`** — total member (manusia vs bot), online, boost, jumlah channel, status verifikasi & auto role, pemilik, dan tanggal server dibuat.
+
+#### 8. 🗂️ Perawatan: Backup Otomatis & Log Error (`/perawatan`)
+- **`/perawatan atur backup_channel:#bot-backup log_channel:#bot-log`** — backup konfigurasi otomatis tiap **7 hari** (`BACKUP_INTERVAL_DAYS`) & laporan error masuk ke channel.
+- **`/perawatan backup`** — kirim berkas ZIP berisi seluruh `data/*.json` saat itu juga (penyelamat saat Wispbyte rebuild bersih).
+- **`/perawatan status`** — channel backup/log, waktu backup terakhir, ukuran arsip, & RAM bot.
+- Error Slash Command maupun error event otomatis diringkas ke channel log (tanpa membocorkan API key — sudah disanitasi) dan jejaknya tampil di **`/status`**.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -378,6 +433,11 @@ Semua fitur dapat dimatikan satu per satu **langsung lewat Discord tanpa perlu m
 | **Matikan Voice Channel Statistik Server** | `/serverstats otomatis aktif:False` |
 | **Matikan Auto Role** | `/autorole atur role:@Member aktif:False` |
 | **Matikan Anti-Phishing Guard** | `/keamanan phising aktif:False` |
+| **Matikan Starboard (sorotan pesan)** | `/starboard atur aktif:False` |
+| **Matikan Gerbang Verifikasi** | `/verifikasi matikan` |
+| **Lepas Sticky Message** di suatu channel | `/sticky lepas channel:#umum` |
+| **Hapus panel Reaction Role** | Hapus pesan panelnya, lalu `/panel-role daftar` untuk memastikan |
+| **Matikan backup otomatis & log error** | `/perawatan atur otomatis:False` |
 | **Matikan Auto-Komentar Galeri total** di suatu channel | `/agent gallery channel:#galeri aktif:False` |
 | **Matikan Auto-Reaction Emoji saja** di Galeri *(komentar teks tetap jalan)* | `/agent gallery channel:#galeri aktif:True auto_reaction:False` |
 | **Matikan fitur Rangkum YouTube & Link Web** di suatu channel | `/agent youtube channel:#share-video aktif:False` |
@@ -447,6 +507,28 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/fakta atur` | `channel`, `aktif`, `jadwal` | *(Admin)* Atur jadwal **multi-slot** 3–4 Fakta Unik Dunia (default `08:00,12:00,16:00,20:00`, maks 6 slot/hari). |
 | `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga (tanpa mengubah jadwal). |
 | `/fakta status` | — | Lihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini. |
+
+### 5. Slash Commands Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/panel-role pasang` | `channel`, `judul`, `role1`, `emoji1`, `deskripsi`, `role2`, `emoji2`, `role3`, `emoji3` | *(Admin)* Buat panel Reaction Role (maks 3 role sekali pasang). |
+| `/panel-role tambah` / `hapus` | `pesan`, `emoji`, `role` | *(Admin)* Tambah / hapus role pada panel yang sudah ada. |
+| `/panel-role daftar` | — | Lihat seluruh panel reaction role server. |
+| `/poll` | `pertanyaan`, `opsi`, `durasi_jam`, `multi`, `anonim` | Buat polling native Discord (hitung suara otomatis). |
+| `/ingatkan pasang` | `waktu`, `pesan`, `channel` | Pasang pengingat pribadi (`10m`, `2j`, `2 hari`, `1j30m`). |
+| `/ingatkan daftar` / `batal` | `nomor` | Lihat / batalkan pengingat aktif. |
+| `/starboard atur` | `channel`, `batas`, `emoji`, `aktif` | *(Admin)* Atur channel sorotan & ambang bintang. |
+| `/starboard status` | — | Lihat konfigurasi & jumlah pesan tersorot. |
+| `/verifikasi pasang` | `channel`, `role`, `catatan` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya**. |
+| `/verifikasi status` / `matikan` | — | Pantau / matikan gerbang verifikasi. |
+| `/sticky pasang` | `isi`, `channel`, `judul` | *(Admin)* Pasang pesan petunjuk yang selalu di bawah channel. |
+| `/sticky lepas` / `status` | `channel` | Lepas / lihat daftar sticky message. |
+| `/info user` | `member` | Kartu profil member (umur akun, join, role, flag akun baru). |
+| `/info server` | — | Ringkasan server (member, online, boost, channel, keamanan). |
+| `/perawatan backup` | `channel` | *(Admin)* Kirim ZIP backup konfigurasi sekarang. |
+| `/perawatan atur` | `backup_channel`, `log_channel`, `otomatis` | *(Admin)* Atur backup otomatis & channel log error. |
+| `/perawatan status` | — | Status backup, log error, ukuran data, & RAM bot. |
 | `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
 | `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
 
@@ -482,6 +564,12 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `FACTS_DEFAULT_TIMES` | Opsional | `08:00,12:00,16:00,20:00` | Jadwal default rubrik Fakta Unik Dunia (4 slot/hari). Bisa diubah per server via `/fakta atur`. |
 | `FACTS_MAX_SLOTS` | Opsional | `6` | Batas maksimal slot jadwal fakta per hari yang boleh dipasang Admin (`1`–`8`). |
 | `AUTOROLE_MAX_ROLES` | Opsional | `3` | Jumlah maksimal role yang bisa dipasang lewat Auto Role. |
+| `STARBOARD_EMOJI` | Opsional | `⭐` | Emoji default starboard (bisa diganti per server lewat `/starboard atur`). |
+| `STARBOARD_DEFAULT_THRESHOLD` | Opsional | `3` | Jumlah reaksi minimal agar pesan masuk starboard. |
+| `REMINDER_MAX_PER_USER` | Opsional | `15` | Maksimal pengingat aktif per member (`/ingatkan`). |
+| `STICKY_MIN_INTERVAL_SEC` | Opsional | `5` | Jeda minimum (detik) sebelum sticky message turun ulang, agar channel tidak dibanjiri bot. |
+| `BACKUP_INTERVAL_DAYS` | Opsional | `7` | Interval backup konfigurasi otomatis ke channel `/perawatan atur` (`0` = nonaktif). |
+| `BOT_LOG_CHANNEL_ID` | Opsional | *(kosong)* | ID channel global untuk laporan error bot (bisa juga diatur per server lewat `/perawatan atur log_channel`). |
 
 ---
 
@@ -532,7 +620,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.5.1-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.6.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/sesi panel`** di channel panel AI privat.
@@ -570,10 +658,12 @@ ai-discord-chat/
 │   ├── agent_cog.py    # Grup /agent (panel, status, chat, gallery, persona, welcome, digest, info, dll.)
 │   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
 │   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
+│   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
+├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
@@ -584,7 +674,7 @@ ai-discord-chat/
 ├── .env.example        # Template contoh pengisian variabel .env
 ├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 47 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 52 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---

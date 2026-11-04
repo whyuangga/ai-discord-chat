@@ -1,6 +1,17 @@
 from discord.ext import commands
 
 from cogs.agent_cog import agent_group, register_agent_cog, trigger_member_welcome
+from cogs.community_cog import (
+    info_group,
+    ingatkan_group,
+    panelrole_group,
+    perawatan_group,
+    register_community_cog,
+    slash_poll,
+    starboard_group,
+    sticky_group,
+    verifikasi_group,
+)
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
 from cogs.server_cog import (
@@ -32,12 +43,21 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_agent_cog(bot)
     register_games_cog(bot)
     register_server_cog(bot)
+    register_community_cog(bot)
     register_events_cog(bot)
 
 
 __all__ = [
     "agent_group",
     "autorole_group",
+    "info_group",
+    "ingatkan_group",
+    "panelrole_group",
+    "perawatan_group",
+    "slash_poll",
+    "starboard_group",
+    "sticky_group",
+    "verifikasi_group",
     "fakta_group",
     "keamanan_group",
     "serverstats_group",
