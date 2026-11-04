@@ -76,7 +76,13 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
             serverstats_guilds[int(gid_str)] = {
                 "enabled": True,
                 "category_id": _to_int(data.get("category_id")) or None,
+                "category_name": str(data.get("category_name") or STATS_CATEGORY_NAME)[:100],
                 "channels": {str(k): _to_int(v) for k, v in (data.get("channels") or {}).items()},
+                "emojis": {
+                    str(k): str(v)[:8]
+                    for k, v in (data.get("emojis") or {}).items()
+                    if str(k) in {key for key, _, _ in STATS_CHANNEL_SPECS}
+                },
                 "last_update_at": float(data.get("last_update_at") or 0.0),
             }
         except (TypeError, ValueError):
@@ -210,10 +216,64 @@ def set_serverstats_config(guild_id: int, *, enabled: bool) -> dict | None:
     serverstats_guilds[guild_id] = {
         "enabled": True,
         "category_id": existing.get("category_id"),
+        "category_name": str(existing.get("category_name") or STATS_CATEGORY_NAME),
         "channels": dict(existing.get("channels") or {}),
+        "emojis": dict(existing.get("emojis") or {}),
         "last_update_at": float(existing.get("last_update_at") or 0.0),
     }
     return serverstats_guilds[guild_id]
+
+
+def default_stats_emojis() -> dict[str, str]:
+    """Ikon bawaan tiap channel statistik (dari `STATS_CHANNEL_SPECS`)."""
+    return {key: emoji for key, emoji, _ in STATS_CHANNEL_SPECS}
+
+
+def stats_emojis(guild_id: int) -> dict[str, str]:
+    """Ikon channel statistik milik server (default bila belum dikustomisasi)."""
+    base = default_stats_emojis()
+    cfg = serverstats_guilds.get(int(guild_id)) or {}
+    base.update({k: v for k, v in (cfg.get("emojis") or {}).items() if k in base})
+    return base
+
+
+def set_serverstats_emojis(guild_id: int, mapping: dict[str, str | None]) -> dict[str, str]:
+    """Mengubah ikon (emoji) channel statistik. Nilai kosong/`-` = tanpa ikon."""
+    cfg = serverstats_guilds.get(int(guild_id))
+    if cfg is None:
+        cfg = set_serverstats_config(int(guild_id), enabled=True)
+    stored = dict(cfg.get("emojis") or {})
+    valid = {key for key, _, _ in STATS_CHANNEL_SPECS}
+    for key, value in mapping.items():
+        if key not in valid or value is None:
+            continue
+        text = str(value).strip()
+        if text in {"-", "tanpa", "none", "kosong"}:
+            text = ""
+        stored[key] = text[:8]
+    cfg["emojis"] = stored
+    return stats_emojis(int(guild_id))
+
+
+def reset_serverstats_appearance(guild_id: int) -> None:
+    """Mengembalikan ikon & nama kategori statistik ke bawaan bot."""
+    cfg = serverstats_guilds.get(int(guild_id))
+    if cfg is None:
+        return
+    cfg["emojis"] = {}
+    cfg["category_name"] = STATS_CATEGORY_NAME
+
+
+def set_serverstats_category_name(guild_id: int, name: str | None) -> str:
+    """Mengubah nama kategori channel statistik (boleh tanpa emoji)."""
+    cfg = serverstats_guilds.get(int(guild_id))
+    if cfg is None:
+        cfg = set_serverstats_config(int(guild_id), enabled=True)
+    text = str(name).strip()[:100] if name else STATS_CATEGORY_NAME
+    if text in {"-", "tanpa", "none", "kosong"}:
+        text = "Statistik Server"
+    cfg["category_name"] = text
+    return text
 
 
 def _count_channel_types(guild: discord.Guild) -> dict[str, int]:
@@ -326,7 +386,8 @@ def build_serverstats_embed(
 
 
 def _stats_channel_name(emoji: str, label: str, value: str) -> str:
-    return f"{emoji} {label}: {value}"[:100]
+    prefix = f"{emoji} " if emoji else ""
+    return f"{prefix}{label}: {value}"[:100]
 
 
 async def update_serverstats_channels(
@@ -377,21 +438,30 @@ async def update_serverstats_channels(
         if isinstance(found, discord.CategoryChannel):
             category = found
 
+    changed = 0
+    desired_category = str(cfg.get("category_name") or STATS_CATEGORY_NAME)[:100]
     if category is None:
         try:
-            category = await guild.create_category(STATS_CATEGORY_NAME, reason="Server Stats otomatis")
+            category = await guild.create_category(desired_category, reason="Server Stats otomatis")
             cfg["category_id"] = category.id
         except (discord.Forbidden, discord.HTTPException, AttributeError) as exc:
             logger.warning("Gagal membuat kategori Server Stats: %s", sanitize_error_message(exc))
             return 0
+    elif str(getattr(category, "name", "")) != desired_category:
+        try:
+            await category.edit(name=desired_category, reason="Ganti nama kategori Server Stats")
+            changed += 1
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=True)
     }
 
     channels_cfg: dict = cfg.setdefault("channels", {})
-    changed = 0
-    for key, emoji, label in STATS_CHANNEL_SPECS:
+    emojis = stats_emojis(guild.id)
+    for key, _default_emoji, label in STATS_CHANNEL_SPECS:
+        emoji = emojis.get(key, _default_emoji)
         desired = _stats_channel_name(emoji, label, values[key])
         existing = guild.get_channel(int(channels_cfg[key])) if channels_cfg.get(key) else None
 
@@ -399,7 +469,8 @@ async def update_serverstats_channels(
             existing = None
             # Cari channel yang sudah ada dengan nama serupa agar tidak duplikat saat restart
             for ch in getattr(guild, "voice_channels", []) or []:
-                if str(getattr(ch, "name", "")).startswith(f"{emoji} {label}:"):
+                # Cocokkan lewat label ("Total Member:") agar tidak duplikat saat ikon diganti
+                if f"{label}:" in str(getattr(ch, "name", "")):
                     existing = ch
                     break
 

@@ -5211,3 +5211,38 @@ async def test_theme_settings_actually_apply(monkeypatch):
     assert ui_theme.refresh_interval(gid) == 10  # jatuh kembali ke default
 
     ui_theme.reset_theme(gid)
+
+
+def test_serverstats_icon_customisation():
+    """`/serverstats ikon`: emoji channel statistik bisa diganti/dihapus & direset."""
+    import server_features as sf
+    from cogs.server_cog import serverstats_group
+
+    gid = 4747
+    sf.serverstats_guilds.pop(gid, None)
+    sf.set_serverstats_config(gid, enabled=True)
+
+    # 1. default mengikuti STATS_CHANNEL_SPECS
+    assert sf.stats_emojis(gid)["members"] == "👥"
+
+    # 2. ganti sebagian + hapus ikon dengan "-"
+    sf.set_serverstats_emojis(gid, {"members": "📈", "humans": "-", "bots": "🤖"})
+    emojis = sf.stats_emojis(gid)
+    assert emojis["members"] == "📈"
+    assert emojis["humans"] == ""
+    assert emojis["online"] == "🟢"  # tidak diubah
+
+    # 3. nama channel menyesuaikan (dengan & tanpa ikon)
+    assert sf._stats_channel_name("", "Manusia", "5") == "Manusia: 5"
+    assert sf._stats_channel_name("📈", "Total Member", "9") == "📈 Total Member: 9"
+
+    # 4. nama kategori & reset
+    assert sf.set_serverstats_category_name(gid, "-") == "Statistik Server"
+    sf.reset_serverstats_appearance(gid)
+    assert sf.stats_emojis(gid)["members"] == "👥"
+    assert sf.serverstats_guilds[gid]["category_name"] == sf.STATS_CATEGORY_NAME
+
+    # 5. command terdaftar
+    assert {"lihat", "otomatis", "ikon"} <= {c.name for c in serverstats_group.commands}
+
+    sf.serverstats_guilds.pop(gid, None)

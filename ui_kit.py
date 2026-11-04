@@ -331,6 +331,26 @@ async def edit_panel(
     return False
 
 
+async def follow_panel(
+    interaction: discord.Interaction,
+    view: ui.LayoutView,
+    *,
+    embed: discord.Embed | None = None,
+    ephemeral: bool = True,
+) -> bool:
+    """Seperti `send_panel`, tetapi lewat `followup` (dipakai setelah `defer`)."""
+    try:
+        await interaction.followup.send(view=view, ephemeral=ephemeral)
+        return True
+    except (discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Followup panel V2 ditolak (%s) — memakai embed klasik.", exc)
+
+    if embed is None:
+        embed = fallback_embed(None, "Panel tidak dapat ditampilkan")
+    await interaction.followup.send(embed=embed, ephemeral=ephemeral)
+    return False
+
+
 # ==============================================================================
 # KONFIRMASI AKSI BERBAHAYA
 # ==============================================================================

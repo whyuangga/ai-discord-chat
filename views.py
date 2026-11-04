@@ -2458,7 +2458,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="📊 Statistik Server (`/serverstats`)",
             value=(
                 "• `/serverstats lihat` — Kartu statistik lengkap: anggota, manusia/bot, boost, channel, role, emoji, & tanggal server dibuat.\n"
-                "• `/serverstats otomatis` *(Admin)* — Membuat **Voice Channel penghitung** (👥 Total Member, 🙋 Manusia, 🤖 Bot, 🟢 Online, 💎 Boost) yang ter-update otomatis tiap ±10 menit."
+                "• `/serverstats otomatis` *(Admin)* — Membuat **Voice Channel penghitung** (👥 Total Member, 🙋 Manusia, 🤖 Bot, 🟢 Online, 💎 Boost) yang ter-update otomatis tiap ±10 menit.\n"
+                "• `/serverstats ikon` *(Admin)* — Ganti/hapus emoji ikon tiap channel (isi `-` untuk tanpa ikon) & nama kategorinya. Ikon 🔊 bawaan Discord untuk voice channel tidak bisa diganti."
             ),
             inline=False,
         )

@@ -643,6 +643,10 @@ aksen, baris status, badge ON/OFF, dan navigasi tab — **tanpa kuota AI sama se
 | `/giveaway daftar` | Daftar giveaway aktif & riwayat sebagai kartu. |
 | `/pemakaian reset`, `/musik hentikan`, `/tampilan reset` | Dialog **konfirmasi bergaya kartu** sebelum aksi merusak (bisa dimatikan Admin lewat `/tampilan atur`). |
 
+> **Soal ikon 🔊 di channel statistik:** ikon pengeras suara itu adalah ikon bawaan Discord untuk
+> **Voice Channel** dan tidak bisa diganti bot mana pun. Yang bisa diatur adalah emoji di dalam
+> **nama** channel (lewat `/serverstats ikon`) dan nama kategorinya.
+
 #### Batas Keras Discord yang Tidak Bisa Dilanggar
 
 | Batas | Nilai |
@@ -884,6 +888,7 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | :--- | :--- | :--- |
 | `/serverstats lihat` | — | Kartu statistik server: anggota, online, boost, channel, role, emoji, stiker, tanggal dibuat, & pemilik. |
 | `/serverstats otomatis` | `aktif` | *(Admin)* Membuat/mematikan Voice Channel penghitung statistik yang diperbarui ±10 menit. |
+| `/serverstats ikon` | `anggota`, `manusia`, `bot`, `online`, `boost`, `kategori`, `reset` | *(Admin)* Ganti atau hapus emoji ikon tiap channel statistik + nama kategori. Isi `-` untuk menghapus ikon. |
 | `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
 | `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |
 | `/autorole isi` | — | *(Admin)* Berikan Auto Role ke member lama yang belum memilikinya (maks. 150). |
