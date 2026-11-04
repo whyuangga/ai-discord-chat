@@ -1,10 +1,10 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.5.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.5.1-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
 2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum* — `/agent`)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Panel Kontrol Admin Interaktif (`/agent panel`)** dengan *Spotlight Channel* & pengelola FAQ 1-klik, **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
 3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
-4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** setiap pagi pukul **08:00**, serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
+4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -211,10 +211,18 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 - **`/autorole isi`** — berikan Auto Role ke member lama yang belum memilikinya (maks. 150 member per eksekusi, aman dari rate limit).
 - Role bot/integrasi, `@everyone`, dan role di atas posisi bot otomatis dilewati agar tidak error.
 
-#### 3. 🌍 Fakta Unik Dunia Setiap Pagi 08:00 (`/fakta`)
-- **`/fakta atur channel:#umum jam:08:00`** — setiap pagi bot mengirim **3–4 fakta menarik dari negara berbeda** (bendera + nama negara + penjelasan ringkas), misalnya dari Jepang, Islandia, Brasil, Mesir, dan lainnya.
-- Fakta hari sebelumnya **tidak diulang** (anti-monoton), dan jika Gemini sedang sibuk bot otomatis memakai **bank fakta offline** agar rubrik tetap terkirim.
-- **`/fakta sekarang`** untuk kirim contoh langsung, **`/fakta status`** untuk melihat jadwal & tanggal terakhir.
+#### 3. 🌍 Fakta Unik Dunia Terjadwal 4x Sehari (`/fakta`)
+- **Jadwal default: `08:00` (pagi) · `12:00` (siang) · `16:00` (sore) · `20:00` (malam)** — setiap slot bot mengirim **3–4 fakta menarik dari negara berbeda** (bendera + nama negara + penjelasan ringkas) dengan sapaan sesuai suasana waktu (pagi/siang/sore/malam).
+- **Jadwal bisa digonta-ganti Admin kapan saja:**
+  ```text
+  /fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
+  /fakta atur channel:#umum jadwal:8,20            ← 2x sehari (format singkat)
+  /fakta atur channel:#umum jadwal:09:00           ← 1x sehari
+  ```
+  Menerima **1–6 slot per hari** dengan format fleksibel (`8`, `08:00`, `8.30`, dipisah koma/spasi/`dan`). Autocomplete Discord juga menyediakan preset siap pakai.
+- **Anti-dobel & anti-banjir:** setiap slot hanya dikirim **sekali per hari**. Jika bot sempat mati/offline melewati beberapa slot, hanya **1 pesan terbaru** yang dikirim (slot terlewat ditandai selesai, bukan di-spam).
+- **Anti-monoton:** fakta yang sudah pernah dikirim (16 fakta terakhir) tidak diulang, dan jika Gemini sedang sibuk bot otomatis memakai **bank fakta offline** agar rubrik tetap terkirim.
+- **`/fakta sekarang`** untuk kirim contoh langsung (tanpa mengubah jadwal), **`/fakta status`** untuk melihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini.
 
 #### 4. 🛡️ Anti-Phishing Guard Tanpa API Berbayar (`/keamanan`)
 - **`/keamanan phising aktif:True`** *(Admin)* — bot memindai setiap link di pesan warga dan otomatis:
@@ -346,11 +354,12 @@ Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu c
 ```text
 /serverstats otomatis aktif:True
 /autorole atur role:@Member role2:@Notif
-/fakta atur channel:#umum jam:08:00
+/fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
 /keamanan phising aktif:True aksi:hapus_peringat log_channel:#mod-log
 ```
 - `/serverstats otomatis` membuat Voice Channel penghitung yang diperbarui ±10 menit sekali.
-- `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu 08:00).
+- `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu slot jadwal).
+- `/fakta status` menampilkan seluruh slot, slot berikutnya, dan slot yang sudah terkirim hari ini.
 - `/keamanan cek link:https://...` bisa dipakai semua member untuk memeriksa link.
 
 ---
@@ -435,9 +444,9 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
 | `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |
 | `/autorole isi` | — | *(Admin)* Berikan Auto Role ke member lama yang belum memilikinya (maks. 150). |
-| `/fakta atur` | `channel`, `aktif`, `jam` | *(Admin)* Jadwalkan rubrik 3–4 Fakta Unik Dunia (default pukul `08:00`). |
-| `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga. |
-| `/fakta status` | — | Lihat channel, jadwal, & tanggal terakhir fakta terkirim. |
+| `/fakta atur` | `channel`, `aktif`, `jadwal` | *(Admin)* Atur jadwal **multi-slot** 3–4 Fakta Unik Dunia (default `08:00,12:00,16:00,20:00`, maks 6 slot/hari). |
+| `/fakta sekarang` | `channel` *(opsional)* | *(Admin)* Kirim contoh fakta saat ini juga (tanpa mengubah jadwal). |
+| `/fakta status` | — | Lihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini. |
 | `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
 | `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
 
@@ -470,8 +479,8 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `USER_COMMAND_COOLDOWN_SEC` | Opsional | `10` | Jeda wajar per-member (detik) antar pemakaian command berat (`/cari`, `/ringkas link`, `/ringkas chat`) demi melindungi kuota *Free Tier* (`0` = nonaktif; Admin otomatis bebas jeda). |
 | `ENABLE_PHISHING_GUARD` | Opsional | `true` | Mengaktifkan mesin Anti-Phishing lokal (tetap perlu dinyalakan per server lewat `/keamanan phising`). |
 | `SERVERSTATS_UPDATE_SEC` | Opsional | `600` | Interval pembaruan Voice Channel statistik (minimum `600` detik agar aman dari rate limit Discord). |
-| `FACTS_DEFAULT_HOUR` | Opsional | `8` | Jam default rubrik Fakta Unik Dunia (format 24 jam). |
-| `FACTS_DEFAULT_MINUTE` | Opsional | `0` | Menit default rubrik Fakta Unik Dunia. |
+| `FACTS_DEFAULT_TIMES` | Opsional | `08:00,12:00,16:00,20:00` | Jadwal default rubrik Fakta Unik Dunia (4 slot/hari). Bisa diubah per server via `/fakta atur`. |
+| `FACTS_MAX_SLOTS` | Opsional | `6` | Batas maksimal slot jadwal fakta per hari yang boleh dipasang Admin (`1`–`8`). |
 | `AUTOROLE_MAX_ROLES` | Opsional | `3` | Jumlah maksimal role yang bisa dipasang lewat Auto Role. |
 
 ---
@@ -523,7 +532,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.5.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.5.1-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/sesi panel`** di channel panel AI privat.
@@ -575,7 +584,7 @@ ai-discord-chat/
 ├── .env.example        # Template contoh pengisian variabel .env
 ├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 45 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 47 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---

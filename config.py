@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -22,7 +23,28 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on", "ya"}
 
 
-BOT_VERSION = "1.5.0-beta"
+def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[str]:
+    """Membaca daftar slot jam dari `.env` (misal: "08:00,12:00,16:00,20:00" atau "8,12,16,20")."""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return list(default)
+
+    found: list[str] = []
+    for chunk in re.split(r"[,;\s]+", raw):
+        match = re.fullmatch(r"(\d{1,2})[:.](\d{2})", chunk) or re.fullmatch(r"(\d{1,2})", chunk)
+        if not match:
+            continue
+        groups = match.groups()
+        hour = int(groups[0])
+        minute = int(groups[1]) if len(groups) > 1 else 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            found.append(f"{hour:02d}:{minute:02d}")
+
+    cleaned = sorted(set(found))[:max_slots]
+    return cleaned or list(default)
+
+
+BOT_VERSION = "1.5.1-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -136,9 +158,14 @@ ENABLE_PHISHING_GUARD: bool = _env_bool("ENABLE_PHISHING_GUARD", True)
 # Interval pembaruan nama Voice Channel statistik (detik). Discord membatasi 2 rename / 10 menit per channel,
 # jadi nilai minimum aman adalah 600 detik (10 menit).
 SERVERSTATS_UPDATE_SEC: int = _env_int("SERVERSTATS_UPDATE_SEC", 600, minimum=600)
-# Jam default pengiriman Fakta Unik Dunia (format 24 jam) & menitnya
-FACTS_DEFAULT_HOUR: int = min(23, _env_int("FACTS_DEFAULT_HOUR", 8, minimum=0))
-FACTS_DEFAULT_MINUTE: int = min(59, _env_int("FACTS_DEFAULT_MINUTE", 0, minimum=0))
+# Jadwal default rubrik Fakta Unik Dunia: 4 slot per hari (pagi, siang, sore, malam).
+# Bisa diubah kapan saja oleh Admin lewat Discord: /fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
+FACTS_MAX_SLOTS: int = min(8, _env_int("FACTS_MAX_SLOTS", 6, minimum=1))
+FACTS_DEFAULT_TIMES: list[str] = _env_time_slots(
+    "FACTS_DEFAULT_TIMES",
+    ["08:00", "12:00", "16:00", "20:00"],
+    max_slots=FACTS_MAX_SLOTS,
+)
 # Jumlah maksimal role yang otomatis diberikan saat member bergabung
 AUTOROLE_MAX_ROLES: int = _env_int("AUTOROLE_MAX_ROLES", 3, minimum=1)
 

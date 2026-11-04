@@ -26,8 +26,8 @@ from config import (
     BOT_TIMEZONE,
     DATA_DIR,
     ENABLE_PHISHING_GUARD,
-    FACTS_DEFAULT_HOUR,
-    FACTS_DEFAULT_MINUTE,
+    FACTS_DEFAULT_TIMES,
+    FACTS_MAX_SLOTS,
     SERVER_FEATURES_FILE,
     SERVERSTATS_UPDATE_SEC,
 )
@@ -105,14 +105,7 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         try:
             if not data.get("enabled", True):
                 continue
-            facts_guilds[int(gid_str)] = {
-                "enabled": True,
-                "channel_id": _to_int(data.get("channel_id")),
-                "hour": max(0, min(23, _to_int(data.get("hour"), FACTS_DEFAULT_HOUR))),
-                "minute": max(0, min(59, _to_int(data.get("minute"), FACTS_DEFAULT_MINUTE))),
-                "last_sent_date": str(data.get("last_sent_date") or ""),
-                "recent_facts": [str(x) for x in (data.get("recent_facts") or [])[-12:]],
-            }
+            facts_guilds[int(gid_str)] = _parse_facts_guild_config(data)
         except (TypeError, ValueError):
             continue
 
@@ -133,6 +126,38 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
             continue
 
     return len(serverstats_guilds), len(autorole_guilds), len(facts_guilds), len(security_guilds)
+
+
+def _parse_facts_guild_config(data: dict) -> dict:
+    """Normalisasi konfigurasi Fakta Unik Dunia, termasuk migrasi format lama (hour/minute tunggal)."""
+    raw_times = data.get("times")
+    if raw_times:
+        times = _normalize_times(raw_times)
+    else:
+        legacy_hour = max(0, min(23, _to_int(data.get("hour"), 8)))
+        legacy_minute = max(0, min(59, _to_int(data.get("minute"), 0)))
+        times = [f"{legacy_hour:02d}:{legacy_minute:02d}"]
+
+    sent_raw = data.get("sent_slots")
+    sent_slots: dict[str, list[str]] = {}
+    if isinstance(sent_raw, dict):
+        for day, slots in sent_raw.items():
+            day_key = str(day)[:10]
+            sent_slots[day_key] = [s for s in _normalize_times(slots) if s in times]
+    else:
+        # Migrasi: konfigurasi lama hanya menyimpan `last_sent_date` tanpa detail slot.
+        legacy_date = str(data.get("last_sent_date") or "")
+        if legacy_date and len(times) == 1:
+            sent_slots[legacy_date[:10]] = [times[0]]
+
+    sent_slots = {k: v for k, v in sent_slots.items() if v}
+    return {
+        "enabled": True,
+        "channel_id": _to_int(data.get("channel_id")),
+        "times": times,
+        "sent_slots": dict(sorted(sent_slots.items())[-2:]),
+        "recent_facts": [str(x) for x in (data.get("recent_facts") or [])[-16:]],
+    }
 
 
 async def save_server_features_to_disk() -> None:
@@ -506,8 +531,158 @@ async def backfill_autoroles(guild: discord.Guild, *, limit: int = 150) -> tuple
 
 
 # ==============================================================================
-# 3. FAKTA UNIK DUNIA HARIAN (/fakta)
+# 3. FAKTA UNIK DUNIA HARIAN MULTI-SLOT (/fakta)
 # ==============================================================================
+SLOT_VIBES: tuple[tuple[int, int, str, str], ...] = (
+    (4, 10, "☀️ Pagi", "sapaan semangat pagi, temani warga sarapan & mulai aktivitas"),
+    (10, 15, "🌤️ Siang", "sapaan siang santai, temani jam istirahat & makan siang"),
+    (15, 18, "🌇 Sore", "sapaan sore, temani warga pulang aktivitas & ngopi sore"),
+    (18, 24, "🌙 Malam", "sapaan malam, temani warga nongkrong & istirahat malam"),
+    (0, 4, "🌌 Dini Hari", "sapaan dini hari untuk para begadang"),
+)
+
+
+def slot_to_minutes(value: object) -> int | None:
+    """Mengubah slot jam fleksibel ('8', '08:00', '8.30', ' 20 : 00 ') menjadi total menit."""
+    if isinstance(value, (int, float)):
+        hour = int(value)
+        return hour * 60 if 0 <= hour <= 23 else None
+
+    text = str(value or "").strip()
+    match = re.fullmatch(r"(\d{1,2})(?:\s*[:.]\s*(\d{1,2}))?", text)
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour * 60 + minute
+
+
+def minutes_to_slot(minutes: int) -> str:
+    total = max(0, min(1439, int(minutes)))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _normalize_times(values: object) -> list[str]:
+    """Merapikan daftar slot jam: unik, urut, & dibatasi `FACTS_MAX_SLOTS`."""
+    raw_items: list[object]
+    if isinstance(values, str):
+        raw_items = [chunk for chunk in re.split(r"[,;|/\s]+", values) if chunk]
+    elif isinstance(values, (list, tuple, set)):
+        raw_items = list(values)
+    else:
+        raw_items = []
+
+    found: list[str] = []
+    for item in raw_items:
+        minutes = slot_to_minutes(item)
+        if minutes is None:
+            continue
+        slot = minutes_to_slot(minutes)
+        if slot not in found:
+            found.append(slot)
+
+    return sorted(found)[:FACTS_MAX_SLOTS]
+
+
+def parse_schedule_input(
+    raw_value: str | None,
+    *,
+    default_times: list[str] | None = None,
+) -> tuple[list[str] | None, str | None]:
+    """Membaca input jadwal Admin yang fleksibel.
+
+    Contoh yang diterima: `08:00,12:00,16:00,20:00`, `8,12,16,20`, `8.30 12.00 16.00`,
+    `09:00; 15:00; 21:00`, `10:00 dan 22:00`.
+
+    Mengembalikan `(times, None)` bila valid, `(None, pesan_error)` bila ada format salah,
+    dan daftar default bila input kosong.
+    """
+    defaults = _normalize_times(default_times or FACTS_DEFAULT_TIMES)
+    text = str(raw_value or "").strip()
+    if not text:
+        return (defaults or list(FACTS_DEFAULT_TIMES)), None
+
+    normalized = re.sub(r"(?i)\s+dan\s+", ",", text)
+    chunks = [chunk for chunk in re.split(r"[,;|/\s]+", normalized) if chunk.strip()]
+    if not chunks:
+        return (defaults or list(FACTS_DEFAULT_TIMES)), None
+
+    parsed: list[str] = []
+    invalid: list[str] = []
+    for chunk in chunks:
+        minutes = slot_to_minutes(chunk)
+        if minutes is None:
+            invalid.append(chunk.strip())
+            continue
+        slot = minutes_to_slot(minutes)
+        if slot not in parsed:
+            parsed.append(slot)
+
+    if invalid:
+        shown = ", ".join(f"`{item[:12]}`" for item in invalid[:5])
+        return None, f"Format jam tidak dikenali: {shown}"
+    if not parsed:
+        return None, "Tidak ada jam valid yang bisa dibaca."
+    if len(parsed) > FACTS_MAX_SLOTS:
+        return None, f"Maksimal **{FACTS_MAX_SLOTS} slot** per hari (kamu mengirim {len(parsed)})."
+    return sorted(parsed), None
+
+
+def describe_slot(slot: str | None) -> str:
+    """Label suasana waktu untuk sebuah slot (Pagi/Siang/Sore/Malam/Dini Hari)."""
+    minutes = slot_to_minutes(slot)
+    if minutes is None:
+        return "🕒 Kapan Saja"
+    hour = minutes // 60
+    for start, end, label, _ in SLOT_VIBES:
+        if start <= hour < end:
+            return label
+    return "🌙 Malam"
+
+
+def slot_vibe_hint(slot: str | None) -> str:
+    minutes = slot_to_minutes(slot)
+    if minutes is None:
+        return "netral, ramah, dan hangat"
+    hour = minutes // 60
+    for start, end, _, hint in SLOT_VIBES:
+        if start <= hour < end:
+            return hint
+    return "netral, ramah, dan hangat"
+
+
+def format_facts_schedule(times: list[str] | None) -> str:
+    """Format daftar slot untuk ditampilkan di Discord: `08:00` • `12:00` • ..."""
+    slots = _normalize_times(times or FACTS_DEFAULT_TIMES)
+    return " • ".join(f"`{slot}`" for slot in slots) if slots else "_belum diatur_"
+
+
+def next_facts_slot(times: list[str] | None, *, now_minutes: int) -> tuple[str, int] | None:
+    """Mengembalikan `(slot_berikutnya, menit_tersisa)` dari jadwal hari ini."""
+    slots = [slot_to_minutes(item) for item in _normalize_times(times or FACTS_DEFAULT_TIMES)]
+    valid = sorted(item for item in slots if item is not None)
+    if not valid:
+        return None
+    for minutes in valid:
+        if minutes > now_minutes:
+            return minutes_to_slot(minutes), minutes - now_minutes
+    first = valid[0]
+    return minutes_to_slot(first), (1440 - now_minutes) + first
+
+
+def sent_slots_today(cfg: dict | None, iso_date: str) -> list[str]:
+    """Daftar slot yang sudah terkirim pada tanggal tertentu (aman untuk data rusak)."""
+    if not cfg:
+        return []
+    raw = cfg.get("sent_slots")
+    if not isinstance(raw, dict):
+        return []
+    return [str(slot) for slot in (raw.get(iso_date) or []) if slot_to_minutes(slot) is not None]
+
+
 FACTS_FALLBACK: tuple[str, ...] = (
     "🇯🇵 **Jepang** — Di Jepang ada kereta cepat Shinkansen yang rata-rata terlambatnya kurang dari satu menit per tahun.",
     "🇮🇸 **Islandia** — Hampir seluruh listrik Islandia berasal dari energi panas bumi dan air, bukan batu bara.",
@@ -527,22 +702,44 @@ def set_facts_config(
     channel_id: int,
     *,
     enabled: bool,
-    hour: int | None = None,
-    minute: int | None = None,
+    times: list[str] | str | None = None,
 ) -> dict | None:
-    """Mengatur jadwal rubrik Fakta Unik Dunia harian (default 08:00)."""
+    """Mengatur jadwal multi-slot rubrik Fakta Unik Dunia.
+
+    `times` menerima daftar slot (mis. `["08:00", "12:00"]`) maupun teks bebas
+    (`"8,12,16,20"`). Bila `None`, jadwal lama dipertahankan (atau memakai default
+    `08:00 • 12:00 • 16:00 • 20:00` untuk server baru).
+    """
     if not enabled:
         facts_guilds.pop(guild_id, None)
         return None
 
     existing = facts_guilds.get(guild_id) or {}
+    if times is None:
+        chosen_times = _normalize_times(existing.get("times") or FACTS_DEFAULT_TIMES)
+    else:
+        parsed, error = parse_schedule_input(
+            times if isinstance(times, str) else ",".join(str(t) for t in times)
+        )
+        if error or not parsed:
+            return None
+        chosen_times = parsed
+
+    # Slot yang sudah terkirim hari ini tetap dipertahankan, tetapi dibuang bila jadwal berubah.
+    kept_sent: dict[str, list[str]] = {}
+    raw_sent = existing.get("sent_slots")
+    if isinstance(raw_sent, dict):
+        for day, slots in list(raw_sent.items())[-2:]:
+            valid = [s for s in _normalize_times(slots) if s in chosen_times]
+            if valid:
+                kept_sent[str(day)[:10]] = valid
+
     facts_guilds[guild_id] = {
         "enabled": True,
         "channel_id": int(channel_id),
-        "hour": max(0, min(23, int(hour if hour is not None else existing.get("hour", FACTS_DEFAULT_HOUR)))),
-        "minute": max(0, min(59, int(minute if minute is not None else existing.get("minute", FACTS_DEFAULT_MINUTE)))),
-        "last_sent_date": str(existing.get("last_sent_date") or ""),
-        "recent_facts": list(existing.get("recent_facts") or [])[-12:],
+        "times": chosen_times,
+        "sent_slots": kept_sent,
+        "recent_facts": list(existing.get("recent_facts") or [])[-16:],
     }
     return facts_guilds[guild_id]
 
@@ -552,19 +749,27 @@ async def generate_daily_facts(
     bot_display_name: str,
     *,
     count: int = 4,
+    slot: str | None = None,
     http_session=None,
 ) -> tuple[str | None, str | None]:
     """Membuat 3–4 fakta unik dari berbagai negara memakai Gemini Free Tier."""
     guild_cfg = get_guild_settings(guild_id)
     agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
     cfg = facts_guilds.get(guild_id) or {}
-    recent = [str(x) for x in (cfg.get("recent_facts") or [])[-8:]]
+    recent = [str(x) for x in (cfg.get("recent_facts") or [])[-16:]]
     avoid_block = ""
     if recent:
         joined = " | ".join(f'"{r[:90]}"' for r in recent)
         avoid_block = (
             f"\nJANGAN mengulang fakta berikut yang sudah pernah dipakai: [{joined}]. "
             "Pilih negara & fakta yang benar-benar berbeda."
+        )
+
+    session_block = ""
+    if slot:
+        session_block = (
+            f"\nSesi ini adalah **{describe_slot(slot)}** ({slot}). "
+            f"Awali dengan satu sapaan singkat bernuansa {slot_vibe_hint(slot)}, lalu lanjut ke fakta.\n"
         )
 
     system_prompt = (
@@ -574,13 +779,14 @@ async def generate_daily_facts(
     )
     user_prompt = (
         f"Buat tepat {count} fakta unik & benar dari {count} NEGARA BERBEDA di benua/region yang berbeda-beda "
-        "(contoh: Asia Timur, Asia Tenggara, Eropa, Afrika, Amerika Latin, Timur Tengah, Oseania).\n\n"
+        "(contoh: Asia Timur, Asia Tenggara, Eropa, Afrika, Amerika Latin, Timur Tengah, Oseania).\n"
+        f"{session_block}\n"
         "ATURAN FORMAT (wajib dipatuhi):\n"
         f"1. Setiap fakta diawali emoji bendera negara + nama negara tebal, contoh: 🇯🇵 **Jepang** — fakta...\n"
         "2. Satu fakta 1–2 kalimat pendek, maksimal 220 karakter.\n"
         "3. Fakta harus spesifik, unik, dan tidak normatif (budaya, alam, sains, kuliner, sejarah, teknologi).\n"
         "4. Pisahkan setiap fakta dengan satu baris kosong.\n"
-        "5. Tanpa judul, tanpa pengantar, tanpa penutup, tanpa penomoran tambahan."
+        "5. Tanpa judul, tanpa pengantar berlebihan, tanpa penutup, tanpa penomoran tambahan."
         f"{avoid_block}"
     )
 
@@ -588,7 +794,7 @@ async def generate_daily_facts(
         system_prompt,
         [{"role": "user", "parts": [{"text": user_prompt}]}],
         temperature=0.95,
-        max_tokens=1200,
+        max_tokens=1400,
         thinking_level="minimal",
         has_media=False,
         http_session=http_session,
@@ -600,25 +806,49 @@ async def generate_daily_facts(
     return None, "Gagal membuat fakta (cek GEMINI_API_KEY atau kuota Free Tier)."
 
 
-def build_facts_fallback(count: int = 4) -> str:
-    """Cadangan fakta statis agar rubrik tetap terkirim walau Gemini sedang gangguan."""
+def build_facts_fallback(count: int = 4, *, slot: str | None = None) -> str:
+    """Cadangan fakta statis agar rubrik tetap terkirim walau Gemini sedang gangguan.
+
+    Pemilihan fakta dibedakan per slot (pagi/siang/sore/malam) agar tidak selalu sama.
+    """
     day_index = int(time.time() // 86400)
-    picked = [FACTS_FALLBACK[(day_index + i) % len(FACTS_FALLBACK)] for i in range(count)]
+    slot_minutes = slot_to_minutes(slot) or 0
+    offset = day_index + (slot_minutes // 60) * 3
+    picked = [FACTS_FALLBACK[(offset + i) % len(FACTS_FALLBACK)] for i in range(max(3, count))]
     return "\n\n".join(picked)
 
 
-def build_facts_embed(guild_config: dict, content: str) -> discord.Embed:
+def build_facts_embed(
+    guild_config: dict,
+    content: str,
+    *,
+    slot: str | None = None,
+    times: list[str] | None = None,
+) -> discord.Embed:
     t_ctx = get_realtime_time_context(guild_config.get("timezone", BOT_TIMEZONE))
+    slot_label = describe_slot(slot) if slot else ""
+    title = f"🌍 Fakta Unik Dunia — {t_ctx['day_name']}, {t_ctx['date_str']}"
+    if slot_label:
+        title = f"🌍 Fakta Unik Dunia • {slot_label} — {t_ctx['day_name']}, {t_ctx['date_str']}"
+
+    footer_bits = [f"Rubrik Fakta Harian • {t_ctx['clock']}"]
+    if times:
+        footer_bits.append("Jadwal: " + " / ".join(_normalize_times(times)))
     return discord.Embed(
-        title=f"🌍 Fakta Unik Dunia — {t_ctx['day_name']}, {t_ctx['date_str']}",
+        title=title[:256],
         description=content[:4050],
         color=discord.Color.gold(),
         timestamp=discord.utils.utcnow(),
-    ).set_footer(text=f"Rubrik Fakta Harian • {t_ctx['clock']}")
+    ).set_footer(text=" • ".join(footer_bits)[:2048])
 
 
 async def run_facts_check(bot: discord.Client, *, http_session=None) -> int:
-    """Loop latar belakang: mengirim rubrik Fakta Unik Dunia sesuai jadwal tiap server."""
+    """Loop latar belakang: mengirim rubrik Fakta Unik Dunia sesuai seluruh slot jadwal server.
+
+    - Mengecek tiap menit; slot yang jamnya sudah lewat & belum terkirim hari ini langsung dikirim.
+    - Bila bot sempat offline melewati beberapa slot, hanya **1 pesan** yang dikirim dan
+      slot-slot yang terlewat ditandai selesai agar tidak membanjiri channel.
+    """
     sent = 0
     for gid, cfg in list(facts_guilds.items()):
         if not cfg.get("enabled"):
@@ -629,29 +859,41 @@ async def run_facts_check(bot: discord.Client, *, http_session=None) -> int:
 
         guild_cfg = get_guild_settings(gid)
         t_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
-        if str(cfg.get("last_sent_date") or "") == t_ctx["iso_date"]:
+        today = t_ctx["iso_date"]
+        times = _normalize_times(cfg.get("times") or FACTS_DEFAULT_TIMES)
+        already_sent = sent_slots_today(cfg, today)
+        now_minutes = t_ctx["hour"] * 60 + t_ctx["minute"]
+
+        due_slots = [
+            slot
+            for slot in times
+            if (slot_to_minutes(slot) or 0) <= now_minutes and slot not in already_sent
+        ]
+
+        # Pangkas riwayat slot tanggal lama agar RAM & file JSON tetap kecil.
+        cfg["sent_slots"] = {today: already_sent} if already_sent else {}
+        if not due_slots:
             continue
 
-        due_hour = int(cfg.get("hour", FACTS_DEFAULT_HOUR))
-        due_minute = int(cfg.get("minute", FACTS_DEFAULT_MINUTE))
-        if (t_ctx["hour"], t_ctx["minute"]) < (due_hour, due_minute):
-            continue
-
+        current_slot = due_slots[-1]
         bot_name = getattr(getattr(bot, "user", None), "display_name", None) or "Teman"
-        content, err = await generate_daily_facts(gid, bot_name, http_session=http_session)
+        content, err = await generate_daily_facts(
+            gid, bot_name, slot=current_slot, http_session=http_session
+        )
         if not content:
             logger.info("Fakta harian memakai cadangan statis: %s", err)
-            content = build_facts_fallback()
+            content = build_facts_fallback(slot=current_slot)
 
         try:
-            await channel.send(embed=build_facts_embed(guild_cfg, content))
+            await channel.send(embed=build_facts_embed(guild_cfg, content, slot=current_slot, times=times))
             sent += 1
         except (discord.Forbidden, discord.HTTPException) as exc:
             logger.warning("Gagal kirim Fakta Harian di %s: %s", gid, sanitize_error_message(exc))
             continue
 
-        cfg["last_sent_date"] = t_ctx["iso_date"]
-        cfg["recent_facts"] = (list(cfg.get("recent_facts") or []) + [content[:400]])[-12:]
+        # Tandai seluruh slot yang sudah lewat agar tidak terjadi penumpukan pesan.
+        cfg["sent_slots"] = {today: sorted(set(already_sent) | set(due_slots))}
+        cfg["recent_facts"] = (list(cfg.get("recent_facts") or []) + [content[:400]])[-16:]
         await save_server_features_to_disk()
     return sent
 

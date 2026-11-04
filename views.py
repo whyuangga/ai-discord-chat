@@ -48,6 +48,7 @@ from community_agent import (
 )
 from server_features import (
     facts_guilds,
+    format_facts_schedule,
     save_server_features_to_disk,
     security_guilds,
     set_facts_config,
@@ -831,8 +832,10 @@ def build_agent_status_embed(
 
     f_cfg = facts_guilds.get(guild_id)
     if f_cfg and f_cfg.get("enabled"):
+        f_times = list(f_cfg.get("times") or [])
         facts_text = (
-            f"✅ Aktif di <#{f_cfg['channel_id']}> pukul **`{f_cfg['hour']:02d}:{f_cfg['minute']:02d} {t_ctx['tz_label']}`**"
+            f"✅ Aktif di <#{f_cfg['channel_id']}> — "
+            f"{format_facts_schedule(f_times)} {t_ctx['tz_label']} *({len(f_times)}x sehari)*"
         )
     else:
         facts_text = "_Belum aktif_"
@@ -1227,10 +1230,10 @@ class AgentAdminPanelView(discord.ui.View):
                 description="Kirim kartu perpisahan AI saat member keluar dari server",
             ),
             discord.SelectOption(
-                label="Toggle Fakta Unik Dunia 08:00 (ON / OFF)",
+                label="Toggle Fakta Unik Dunia (ON / OFF)",
                 value="toggle_facts",
                 emoji="🌍",
-                description="Kirim 3–4 fakta unik dari berbagai negara setiap pagi",
+                description="Kirim 3–4 fakta unik dari berbagai negara sesuai jadwal multi-slot",
             ),
         ],
         row=1,
@@ -1316,8 +1319,12 @@ class AgentAdminPanelView(discord.ui.View):
                 return
             f_cur = facts_guilds.get(guild_id)
             turn_on = not (f_cur and f_cur.get("enabled") and f_cur.get("channel_id") == cid)
-            set_facts_config(guild_id, cid, enabled=turn_on, hour=8, minute=0)
-            banner = f"🌍 **Fakta Unik Dunia 08:00** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+            f_cfg_new = set_facts_config(guild_id, cid, enabled=turn_on)
+            f_slots = format_facts_schedule((f_cfg_new or {}).get("times"))
+            banner = (
+                f"🌍 **Fakta Unik Dunia** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+                + (f"\n⏰ Jadwal aktif: {f_slots} *(ubah lewat `/fakta atur`)*" if turn_on else "")
+            )
 
         await save_agent_config_to_disk()
         await save_server_features_to_disk()
@@ -1495,9 +1502,10 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="🌍 Fakta Unik Dunia (`/fakta`)",
             value=(
-                "• `/fakta atur channel:#umum jam:08:00` — Rubrik **3–4 fakta menarik dari negara berbeda** setiap pagi.\n"
-                "• `/fakta sekarang` — Kirim contoh fakta saat ini juga.\n"
-                "• `/fakta status` — Lihat jadwal & tanggal terakhir terkirim."
+                "• `/fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00` — Rubrik **3–4 fakta menarik dari negara berbeda**, dikirim **4x sehari** (pagi, siang, sore, malam).\n"
+                "• **Jadwal fleksibel:** Admin bebas mengubah slot kapan saja (1x, 2x, 3x, hingga 6x sehari).\n"
+                "• `/fakta sekarang` — Kirim contoh fakta saat ini juga (tanpa mengubah jadwal).\n"
+                "• `/fakta status` — Lihat seluruh slot, slot berikutnya, & slot yang sudah terkirim hari ini."
             ),
             inline=False,
         )

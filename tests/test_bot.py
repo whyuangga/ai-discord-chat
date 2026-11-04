@@ -2379,11 +2379,10 @@ async def test_serverstats_autorole_facts_and_phishing_guard():
     assert server_features.set_autorole_config(10, [222], enabled=False) is None
     assert server_features.get_autorole_role_ids(10) == []
 
-    # 3. Fakta Harian default 08:00 & cadangan offline selalu tersedia
+    # 3. Fakta Harian default 4 slot (08:00, 12:00, 16:00, 20:00) & cadangan offline selalu tersedia
     f_cfg = server_features.set_facts_config(10, 7002, enabled=True)
-    assert f_cfg["hour"] == config.FACTS_DEFAULT_HOUR == 8
-    assert f_cfg["minute"] == config.FACTS_DEFAULT_MINUTE == 0
-    assert f_cfg["last_sent_date"] == ""
+    assert f_cfg["times"] == config.FACTS_DEFAULT_TIMES == ["08:00", "12:00", "16:00", "20:00"]
+    assert f_cfg["sent_slots"] == {}
     fallback = server_features.build_facts_fallback(4)
     assert fallback.count("—") >= 4
     assert server_features.set_facts_config(10, 7002, enabled=False) is None
@@ -2534,8 +2533,96 @@ async def test_phishing_guard_deletes_bad_links_and_ignores_safe_ones():
 
 
 @pytest.mark.asyncio
-async def test_facts_daily_scheduler_once_per_day_and_serverstats_throttle(monkeypatch):
-    """Rubrik Fakta Unik Dunia terkirim sekali per hari & Server Stats mematuhi batas rate limit."""
+async def test_facts_multi_slot_schedule_parsing_and_migration(monkeypatch):
+    """Jadwal Fakta Unik Dunia fleksibel (multi-slot), bisa diubah Admin, & migrasi konfigurasi lama."""
+    # 1. Parser menerima banyak format penulisan jam
+    assert server_features.parse_schedule_input("08:00,12:00,16:00,20:00") == (
+        ["08:00", "12:00", "16:00", "20:00"], None,
+    )
+    assert server_features.parse_schedule_input("8,12,16,20") == (
+        ["08:00", "12:00", "16:00", "20:00"], None,
+    )
+    assert server_features.parse_schedule_input("8.30 16.00") == (["08:30", "16:00"], None)
+    assert server_features.parse_schedule_input("09:00; 15:00; 21:00") == (
+        ["09:00", "15:00", "21:00"], None,
+    )
+    assert server_features.parse_schedule_input("10:00 dan 22:00") == (["10:00", "22:00"], None)
+
+    # Input kosong -> default 4 slot
+    assert server_features.parse_schedule_input("")[0] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # Duplikat & urutan acak dirapikan
+    assert server_features.parse_schedule_input("20:00, 08:00, 20:00, 12:00")[0] == [
+        "08:00", "12:00", "20:00",
+    ]
+
+    # Format salah ditolak dengan pesan jelas (tidak merusak jadwal lama)
+    invalid, err = server_features.parse_schedule_input("25:00, abc")
+    assert invalid is None
+    assert "tidak dikenali" in err
+
+    too_many, err2 = server_features.parse_schedule_input("1,2,3,4,5,6,7")
+    assert too_many is None
+    assert "Maksimal" in err2
+
+    # 2. Label suasana waktu & slot berikutnya
+    assert "Pagi" in server_features.describe_slot("08:00")
+    assert "Siang" in server_features.describe_slot("12:00")
+    assert "Sore" in server_features.describe_slot("16:00")
+    assert "Malam" in server_features.describe_slot("20:00")
+    assert server_features.next_facts_slot(["08:00", "12:00", "16:00", "20:00"], now_minutes=13 * 60) == (
+        "16:00", 180,
+    )
+    assert server_features.next_facts_slot(["08:00", "20:00"], now_minutes=21 * 60) == ("08:00", 660)
+
+    # 3. Admin bebas mengganti jadwal (1x, 2x, 3x, 4x, hingga 6x sehari)
+    cfg = server_features.set_facts_config(10, 7002, enabled=True, times="08:00,20:00")
+    assert cfg["times"] == ["08:00", "20:00"]
+    cfg = server_features.set_facts_config(10, 7002, enabled=True, times="8,12,16,20")
+    assert cfg["times"] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # Tanpa parameter `times`, jadwal lama dipertahankan
+    cfg = server_features.set_facts_config(10, 7002, enabled=True)
+    assert cfg["times"] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # Jadwal tidak valid -> tidak merusak konfigurasi
+    assert server_features.set_facts_config(10, 7002, enabled=True, times="ngawur") is None
+    assert server_features.facts_guilds[10]["times"] == ["08:00", "12:00", "16:00", "20:00"]
+
+    # 4. Migrasi otomatis dari format lama (hour/minute tunggal + last_sent_date)
+    await server_features.save_server_features_to_disk()
+    legacy = {
+        "facts": {
+            "77": {
+                "enabled": True,
+                "channel_id": 7777,
+                "hour": 9,
+                "minute": 30,
+                "last_sent_date": "2026-11-04",
+                "recent_facts": ["fakta lama"],
+            }
+        }
+    }
+    server_features.SERVER_FEATURES_FILE.write_text(json.dumps(legacy), encoding="utf-8")
+    server_features.facts_guilds.clear()
+    server_features.load_server_features_from_disk()
+    migrated = server_features.facts_guilds[77]
+    assert migrated["times"] == ["09:30"]
+    assert migrated["sent_slots"] == {"2026-11-04": ["09:30"]}
+    assert migrated["recent_facts"] == ["fakta lama"]
+
+    # 5. Konfigurasi multi-slot tahan restart
+    server_features.facts_guilds.clear()
+    server_features.set_facts_config(10, 7002, enabled=True, times="07:00,13:00,21:00")
+    await server_features.save_server_features_to_disk()
+    server_features.facts_guilds.clear()
+    server_features.load_server_features_from_disk()
+    assert server_features.facts_guilds[10]["times"] == ["07:00", "13:00", "21:00"]
+
+
+@pytest.mark.asyncio
+async def test_facts_multi_slot_dispatch_and_serverstats_throttle(monkeypatch):
+    """Fakta terkirim sekali per slot per hari, anti-banjir saat bot offline, & Server Stats hemat rate limit."""
     sent_embeds: list = []
 
     class _FakeFactsChannel:
@@ -2553,23 +2640,123 @@ async def test_facts_daily_scheduler_once_per_day_and_serverstats_throttle(monke
         return "🇯🇵 **Jepang** — fakta uji harian.\n\n🇧🇷 **Brasil** — fakta uji kedua.", None
 
     monkeypatch.setattr(server_features, "generate_daily_facts", _fake_generate)
-    server_features.set_facts_config(10, 7002, enabled=True, hour=0, minute=0)
 
+    fixed = {
+        "iso_date": "2026-11-04",
+        "hour": 13,
+        "minute": 5,
+        "clock": "13:05 WIB",
+        "day_name": "Rabu",
+        "date_str": "4 November 2026",
+        "tz_label": "WIB",
+        "vibe": "Siang hari",
+        "summary": "Rabu, 4 November 2026 | Pukul 13:05 WIB",
+    }
+
+    def _fake_time_context(tz_name: str = "Asia/Jakarta") -> dict:
+        return dict(fixed)
+
+    monkeypatch.setattr(server_features, "get_realtime_time_context", _fake_time_context)
+    server_features.set_facts_config(10, 7002, enabled=True, times="08:00,12:00,16:00,20:00")
+
+    # 13:05 -> slot 08:00 & 12:00 sudah lewat, tapi hanya 1 pesan dikirim (anti-banjir)
     assert await server_features.run_facts_check(_FakeFactsBot()) == 1
     assert len(sent_embeds) == 1
     assert "Fakta Unik Dunia" in sent_embeds[0].title
-    assert server_features.facts_guilds[10]["last_sent_date"] != ""
+    assert "Siang" in sent_embeds[0].title
+    assert server_features.facts_guilds[10]["sent_slots"] == {
+        "2026-11-04": ["08:00", "12:00"],
+    }
 
-    # Sudah terkirim hari ini -> tidak dobel kirim
+    # Dijalankan lagi di menit yang sama -> tidak dobel kirim
     assert await server_features.run_facts_check(_FakeFactsBot()) == 0
     assert len(sent_embeds) == 1
 
-    # Jadwal belum tiba -> tidak terkirim
-    server_features.facts_guilds[10]["last_sent_date"] = ""
-    server_features.set_facts_config(10, 7002, enabled=True, hour=23, minute=59)
+    # Pukul 16:05 -> slot sore terkirim
+    fixed["hour"], fixed["minute"], fixed["clock"] = 16, 5, "16:05 WIB"
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 2
+    assert "Sore" in sent_embeds[1].title
+    assert server_features.facts_guilds[10]["sent_slots"]["2026-11-04"] == [
+        "08:00", "12:00", "16:00",
+    ]
+
+    # Pukul 07:00 keesokan hari -> semua slot baru dimulai lagi
+    fixed.update({"iso_date": "2026-11-05", "hour": 7, "minute": 0, "clock": "07:00 WIB"})
     assert await server_features.run_facts_check(_FakeFactsBot()) == 0
+    assert len(sent_embeds) == 2
+
+    fixed["hour"], fixed["minute"], fixed["clock"] = 8, 0, "08:00 WIB"
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 3
+    assert "Pagi" in sent_embeds[2].title
+
+    # Jadwal 1x sehari tetap dihormati
+    server_features.set_facts_config(10, 7002, enabled=True, times="21:00")
+    fixed.update({"iso_date": "2026-11-06", "hour": 20, "minute": 59, "clock": "20:59 WIB"})
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 0
+    fixed["hour"], fixed["minute"], fixed["clock"] = 21, 0, "21:00 WIB"
+    assert await server_features.run_facts_check(_FakeFactsBot()) == 1
+    assert len(sent_embeds) == 4
 
     # Server Stats: baru saja diperbarui -> tidak memanggil API channel (aman rate limit)
     server_features.set_serverstats_config(10, enabled=True)
     server_features.serverstats_guilds[10]["last_update_at"] = time.time()
     assert await server_features.update_serverstats_channels(_FakeStatsGuild()) == 0
+
+
+@pytest.mark.asyncio
+async def test_default_four_daily_slots_fire_exactly_once(monkeypatch):
+    """Jadwal default 08:00, 12:00, 16:00, 20:00 terkirim tepat sekali di setiap slot."""
+    sent_titles: list[str] = []
+
+    class _FakeChannel:
+        async def send(self, embed=None, **kwargs):
+            sent_titles.append(embed.title)
+            return None
+
+    class _FakeBot:
+        user = type("FakeBotUser", (), {"display_name": "Whas"})()
+
+        def get_channel(self, cid):
+            return _FakeChannel() if cid == 7002 else None
+
+    async def _fake_generate(*args, **kwargs):
+        return "🇯🇵 **Jepang** — fakta uji.\n\n🇧🇷 **Brasil** — fakta uji kedua.", None
+
+    monkeypatch.setattr(server_features, "generate_daily_facts", _fake_generate)
+
+    clock = {"hour": 0, "minute": 0}
+
+    def _fake_time_context(tz_name: str = "Asia/Jakarta") -> dict:
+        return {
+            "iso_date": "2026-11-04",
+            "hour": clock["hour"],
+            "minute": clock["minute"],
+            "clock": f"{clock['hour']:02d}:{clock['minute']:02d} WIB",
+            "day_name": "Rabu",
+            "date_str": "4 November 2026",
+            "tz_label": "WIB",
+            "vibe": "uji",
+            "summary": "uji",
+        }
+
+    monkeypatch.setattr(server_features, "get_realtime_time_context", _fake_time_context)
+    server_features.set_facts_config(10, 7002, enabled=True)
+
+    # Simulasikan satu hari penuh (menit demi menit di sekitar setiap slot)
+    for hour, minute in [
+        (7, 59), (8, 0), (8, 1), (11, 59), (12, 0), (12, 30),
+        (15, 59), (16, 0), (16, 45), (19, 59), (20, 0), (20, 10), (23, 59),
+    ]:
+        clock["hour"], clock["minute"] = hour, minute
+        await server_features.run_facts_check(_FakeBot())
+
+    assert len(sent_titles) == 4
+    assert "Pagi" in sent_titles[0]
+    assert "Siang" in sent_titles[1]
+    assert "Sore" in sent_titles[2]
+    assert "Malam" in sent_titles[3]
+    assert server_features.facts_guilds[10]["sent_slots"] == {
+        "2026-11-04": ["08:00", "12:00", "16:00", "20:00"],
+    }
