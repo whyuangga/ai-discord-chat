@@ -35,6 +35,11 @@ from community_tools import (
     save_community_tools_to_disk,
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
+from antispam import (
+    cleanup_antispam_runtime,
+    load_antispam_from_disk,
+    save_antispam_to_disk,
+)
 from engagement import (
     cleanup_engagement_runtime,
     load_engagement_from_disk,
@@ -171,6 +176,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_giveaways, loaded_birthdays, loaded_autoreply, loaded_announcements = (
             load_engagement_from_disk()
         )
+        loaded_antispam = load_antispam_from_disk()
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -200,6 +206,7 @@ class GeminiDiscordBot(commands.Bot):
             loaded_autoreply,
             loaded_announcements,
         )
+        logger.info("Anti-Spam & Anti-Raid dimuat: %d server aktif.", loaded_antispam)
         logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
@@ -263,6 +270,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_community_tools_to_disk()
         await save_music_settings_to_disk()
         await save_engagement_to_disk()
+        await save_antispam_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -296,6 +304,7 @@ async def idle_chat_watcher():
             cleanup_stale_agent_runtime()
             cleanup_music_runtime()
             cleanup_engagement_runtime()
+            cleanup_antispam_runtime()
             prune_expired_user_cooldowns()
     except Exception as exc:
         logger.warning("Error pada idle_chat_watcher: %s", sanitize_error_message(exc))

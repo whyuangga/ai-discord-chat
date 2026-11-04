@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.8.0-beta"
+BOT_VERSION = "1.9.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -152,6 +152,7 @@ SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
 COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
 MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
+ANTISPAM_FILE = DATA_DIR / "antispam.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -181,6 +182,23 @@ STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, mi
 REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
 # Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
 STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# ==============================================================================
+# ANTI-SPAM & ANTI-RAID RINGAN (Tier 2B) — default LAPOR SAJA
+# ==============================================================================
+# Penjaga spam hanya aktif setelah Admin menyalakannya lewat /keamanan spam.
+# Ambang di bawah adalah nilai awal & bisa diubah per server dari Discord.
+SPAM_FLOOD_COUNT: int = _env_int("SPAM_FLOOD_COUNT", 6, minimum=3)
+SPAM_FLOOD_WINDOW_SEC: int = _env_int("SPAM_FLOOD_WINDOW_SEC", 10, minimum=3)
+SPAM_MENTION_LIMIT: int = _env_int("SPAM_MENTION_LIMIT", 6, minimum=2)
+SPAM_LINK_LIMIT: int = _env_int("SPAM_LINK_LIMIT", 4, minimum=1)
+# Huruf kapital berlebihan sengaja NONAKTIF secara bawaan (sering salah tuduh)
+SPAM_CAPS_MIN_LENGTH: int = _env_int("SPAM_CAPS_MIN_LENGTH", 20, minimum=8)
+# Durasi time-out maksimum saat mode "timeout" dipilih (detik, maks 1 hari)
+SPAM_TIMEOUT_SEC: int = min(86400, _env_int("SPAM_TIMEOUT_SEC", 300, minimum=60))
+# Deteksi raid: jumlah join dalam jendela waktu sebelum Admin diberi peringatan
+SPAM_RAID_JOIN_COUNT: int = _env_int("SPAM_RAID_JOIN_COUNT", 8, minimum=3)
+SPAM_RAID_WINDOW_SEC: int = _env_int("SPAM_RAID_WINDOW_SEC", 60, minimum=10)
+
 # ==============================================================================
 # FITUR ENGAGEMENT (Giveaway, Ulang Tahun, Auto-Responder, Pengumuman Terjadwal)
 # ==============================================================================

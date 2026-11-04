@@ -36,6 +36,12 @@ from community_tools import (
     maybe_refresh_sticky,
     save_community_tools_to_disk,
 )
+from antispam import (
+    handle_channel_delete as handle_antispam_channel_delete,
+    handle_member_join_guard,
+    handle_spam_guard,
+    save_antispam_to_disk,
+)
 from engagement import (
     handle_channel_delete as handle_engagement_channel_delete,
     match_auto_reply,
@@ -140,6 +146,8 @@ def register_events_cog(bot: commands.Bot) -> None:
             await save_community_tools_to_disk()
         if handle_engagement_channel_delete(channel):
             await save_engagement_to_disk()
+        if handle_antispam_channel_delete(channel):
+            await save_antispam_to_disk()
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:
@@ -175,9 +183,13 @@ def register_events_cog(bot: commands.Bot) -> None:
 
     @bot.event
     async def on_member_join(member: discord.Member):
-        """Menyambut member baru & memasang Auto Role (jika diaktifkan Admin)."""
+        """Menyambut member baru, memasang Auto Role, & mendeteksi lonjakan join (raid)."""
         if not getattr(member, "bot", False) and member.guild.id in autorole_guilds:
             await apply_autorole_to_member(member)
+        try:
+            await handle_member_join_guard(bot, member)  # hanya melapor, tidak menendang
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Anti-Raid gagal memeriksa member join: %s", exc)
         await trigger_member_welcome(bot, member.guild, member)
 
     @bot.event
@@ -221,6 +233,16 @@ def register_events_cog(bot: commands.Bot) -> None:
                     return
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Anti-Phishing gagal memeriksa pesan: %s", exc)
+
+        # 1B-2. Penjaga Anti-Spam ringan (mode default: hanya lapor ke channel log).
+        #       Admin, staf, bot, & channel/role pengecualian selalu diabaikan sehingga
+        #       obrolan antar-member tidak pernah terusik.
+        if message.guild is not None:
+            try:
+                if await handle_spam_guard(message, bot=bot):
+                    return
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Anti-Spam gagal memeriksa pesan: %s", exc)
 
         # 1C. Balasan Otomatis berbasis kata kunci (khusus channel yang diaktifkan Admin).
         #     Dijalankan sebelum AI & hanya bila benar-benar cocok, sehingga obrolan

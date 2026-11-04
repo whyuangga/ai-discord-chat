@@ -1837,6 +1837,21 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+        embed.add_field(
+            name="🚨 Anti-Spam & Anti-Raid (`/keamanan spam`)",
+            value=(
+                "• `/keamanan spam aktif:True` — **mode awalnya hanya *lapor*** ke channel log, "
+                "tidak ada pesan yang dihapus.\n"
+                "• `/keamanan spam mode:hapus log_channel:#mod-log` — hapus pesan spam otomatis.\n"
+                "• `/keamanan spam mode:timeout timeout_detik:600` — hapus + time-out sementara.\n"
+                "• `/keamanan spam-status` — lihat ambang deteksi, pengecualian, & jumlah tindakan.\n"
+                "• Deteksi lokal: banjir pesan, pesan berulang, mention massal, link beruntun, "
+                "& HURUF KAPITAL (opsional). **Admin, staf, & role pengecualian tidak pernah diperiksa.**\n"
+                "• **Anti-Raid:** lonjakan member join hanya memicu *peringatan* ke channel log — "
+                "tidak pernah menendang atau mem-ban otomatis."
+            ),
+            inline=False,
+        )
     elif category == "komunitas":
         embed = discord.Embed(
             title="🧩 Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)",

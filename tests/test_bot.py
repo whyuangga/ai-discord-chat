@@ -10,6 +10,7 @@ import storage
 import utils
 import ai_handler
 import community_agent
+import antispam
 import community_tools
 import engagement
 import games
@@ -90,6 +91,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     monkeypatch.setattr(music, "MUSIC_FILE", tmp_path / "music_settings.json")
     monkeypatch.setattr(engagement, "DATA_DIR", tmp_path)
     monkeypatch.setattr(engagement, "ENGAGEMENT_FILE", tmp_path / "engagement.json")
+    monkeypatch.setattr(antispam, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(antispam, "ANTISPAM_FILE", tmp_path / "antispam.json")
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -123,6 +126,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     engagement.auto_reply_channels.clear()
     engagement.announcements.clear()
     engagement._last_auto_reply_at.clear()
+    antispam.spam_guilds.clear()
+    antispam.reset_runtime_state()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -157,6 +162,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     engagement.auto_reply_channels.clear()
     engagement.announcements.clear()
     engagement._last_auto_reply_at.clear()
+    antispam.spam_guilds.clear()
+    antispam.reset_runtime_state()
     utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
 
@@ -3986,3 +3993,218 @@ async def test_engagement_giveaway_buttons_and_command_smoke():
     # Tombol batalkan mengeluarkan peserta
     await view.leave_btn.callback(ix_join)
     assert engagement.giveaways[message_id]["entries"] == []
+
+
+# ==============================================================================
+# ANTI-SPAM & ANTI-RAID RINGAN (Tier 2B)
+# ==============================================================================
+class _SpamMessage:
+    """Pesan tiruan untuk menguji penjaga anti-spam."""
+
+    def __init__(
+        self,
+        *,
+        content: str,
+        author_id: int = 501,
+        channel_id: int = 700,
+        guild_id: int = 10,
+        mentions: int = 0,
+        bot: bool = False,
+        admin: bool = False,
+        manage_messages: bool = False,
+        role_ids: tuple[int, ...] = (),
+    ):
+        self.content = content
+        self.guild = type("G", (), {"id": guild_id})()
+        self.channel = type("Ch", (), {"id": channel_id, "mention": f"<#{channel_id}>"})()
+        self.mentions = [object() for _ in range(mentions)]
+        self.author = type(
+            "U",
+            (),
+            {
+                "id": author_id,
+                "bot": bot,
+                "roles": [type("R", (), {"id": rid})() for rid in role_ids],
+                "guild_permissions": type(
+                    "P",
+                    (),
+                    {
+                        "administrator": admin,
+                        "manage_messages": manage_messages,
+                        "manage_guild": False,
+                    },
+                )(),
+            },
+        )()
+        self.deleted = 0
+        self.timeouts = []
+
+    async def delete(self):
+        self.deleted += 1
+
+    @property
+    def author_is_timed_out(self) -> bool:
+        return bool(self.timeouts)
+
+
+class _SpamMember:
+    def __init__(self, guild_id: int = 10, uid: int = 501, bot: bool = False):
+        self.guild = type("G", (), {"id": guild_id, "name": "Server Uji"})()
+        self.id = uid
+        self.bot = bot
+        self.mention = f"<@{uid}>"
+
+
+def _make_timeout_author(message: _SpamMessage):
+    async def _timeout(delta, reason=None):
+        message.timeouts.append(delta)
+
+    message.author.timeout = _timeout
+    return message
+
+
+@pytest.mark.asyncio
+async def test_antispam_detection_rules_and_exemptions():
+    """Deteksi flood, duplikat, mention, & link; admin/staf/pengecualian selalu diabaikan."""
+    antispam.set_spam_config(10, aktif=True)
+    assert antispam.is_spam_guard_active(10) is True
+    cfg = antispam.get_spam_config(10)
+    assert cfg["mode"] == "lapor"  # default aman
+
+    # 1. Flood: 6 pesan dalam jendela 10 detik
+    for idx in range(5):
+        assert antispam.detect_spam(_SpamMessage(content=f"halo {idx}"), now=1000.0 + idx) is None
+    flood = antispam.detect_spam(_SpamMessage(content="halo 99"), now=1006.0)
+    assert flood is not None and flood["reason"] == "flood"
+    assert "6" in flood["detail"]
+
+    # 2. Pesan berulang (isi sama 3x)
+    for idx in range(2):
+        assert antispam.detect_spam(_SpamMessage(content="promo murah!!", author_id=600), now=2000.0 + idx) is None
+    dup = antispam.detect_spam(_SpamMessage(content="promo murah!!", author_id=600), now=2002.0)
+    assert dup is not None and dup["reason"] == "duplikat"
+
+    # 3. Mention massal
+    mention = antispam.detect_spam(_SpamMessage(content="@everyone", author_id=601, mentions=6), now=3000.0)
+    assert mention is not None and mention["reason"] == "mention"
+    assert antispam.detect_spam(_SpamMessage(content="@halo", author_id=601, mentions=2), now=3001.0) is None
+
+    # 4. Link beruntun (4 link dalam satu pesan) & link sama berulang 3x
+    many_links = " ".join(f"https://contoh{idx}.com/a" for idx in range(4))
+    link_hit = antispam.detect_spam(_SpamMessage(content=many_links, author_id=602), now=4000.0)
+    assert link_hit is not None and link_hit["reason"] == "link"
+    for idx in range(2):
+        antispam.detect_spam(_SpamMessage(content="https://sama.com/x", author_id=603), now=5000.0 + idx)
+    repeated = antispam.detect_spam(_SpamMessage(content="https://sama.com/x", author_id=603), now=5002.0)
+    assert repeated is not None and repeated["reason"] == "link"
+
+    # 5. Admin, staf, & bot tidak pernah diperiksa
+    assert antispam.detect_spam(_SpamMessage(content="spam", admin=True, mentions=9), now=6000.0) is None
+    assert antispam.detect_spam(_SpamMessage(content="spam", manage_messages=True, mentions=9), now=6001.0) is None
+    assert antispam.detect_spam(_SpamMessage(content="spam", bot=True, mentions=9), now=6002.0) is None
+
+    # 6. Channel & role pengecualian
+    antispam.set_spam_config(10, exempt_channels=[700], exempt_roles=[55])
+    antispam.reset_runtime_state()
+    assert antispam.detect_spam(_SpamMessage(content="spam", mentions=9), now=7000.0) is None
+    assert (
+        antispam.detect_spam(_SpamMessage(content="x", mentions=9, role_ids=(55,), channel_id=701), now=7001.0)
+        is None
+    )
+
+    # 7. Huruf kapital hanya ditindak bila diaktifkan
+    antispam.set_spam_config(10, caps_enabled=False, exempt_channels=[], exempt_roles=[])
+    antispam.reset_runtime_state()
+    assert antispam.detect_spam(_SpamMessage(content="INI PESAN SANGAT KERAS SEKALI", author_id=610), now=8000.0) is None
+    antispam.set_spam_config(10, caps_enabled=True)
+    caps = antispam.detect_spam(_SpamMessage(content="INI PESAN SANGAT KERAS SEKALI", author_id=611), now=8100.0)
+    assert caps is not None and caps["reason"] == "caps"
+
+    # 8. Penjaga yang dimatikan tidak memeriksa apa pun
+    antispam.set_spam_config(10, aktif=False)
+    antispam.reset_runtime_state()
+    assert antispam.detect_spam(_SpamMessage(content="spam", mentions=9), now=9000.0) is None
+
+
+@pytest.mark.asyncio
+async def test_antispam_actions_modes_and_raid_alert():
+    """Mode lapor tidak menghapus, mode hapus menghapus, mode timeout men-time-out, & anti-raid melapor."""
+    log_channel = _FakeAnnouncementChannel(900)
+    bot = _FakeBotForEngagement({900: log_channel})
+
+    # --- Mode lapor: pesan TIDAK dihapus, tetapi laporan terkirim ---
+    antispam.set_spam_config(10, aktif=True, log_channel_id=900)
+    antispam.reset_runtime_state()
+    message = _SpamMessage(content="@everyone", mentions=6)
+    assert await antispam.handle_spam_guard(message, bot=bot, now=10_000.0) is False
+    assert message.deleted == 0
+    assert log_channel.sent, "laporan anti-spam harus dikirim ke channel log"
+    alert = log_channel.sent[0]["embed"]
+    assert "Anti-Spam" in alert.title
+    assert alert.footer.text.startswith("Mode aman")
+    # Laporan berikutnya tertahan kooldown 2 menit
+    second = _SpamMessage(content="@everyone", mentions=6)
+    await antispam.handle_spam_guard(second, bot=bot, now=10_001.0)
+    assert len(log_channel.sent) == 1
+
+    # --- Mode hapus: pesan dihapus ---
+    antispam.set_spam_config(10, mode="hapus")
+    antispam.reset_runtime_state()
+    to_delete = _SpamMessage(content="@everyone", mentions=6, author_id=700)
+    assert await antispam.handle_spam_guard(to_delete, bot=bot, now=11_000.0) is True
+    assert to_delete.deleted == 1
+
+    # --- Mode timeout: pesan dihapus + author di-time-out ---
+    antispam.set_spam_config(10, mode="timeout", timeout_sec=600)
+    antispam.reset_runtime_state()
+    to_timeout = _make_timeout_author(_SpamMessage(content="@everyone", mentions=6, author_id=701))
+    assert await antispam.handle_spam_guard(to_timeout, bot=bot, now=12_000.0) is True
+    assert to_timeout.deleted == 1
+    assert to_timeout.timeouts and to_timeout.timeouts[0].total_seconds() == 600
+    assert antispam.get_spam_config(10)["blocked"] >= 1
+
+    # --- Anti-raid: lonjakan join menghasilkan SATU peringatan (tanpa menendang) ---
+    antispam.reset_runtime_state()
+    sent_before = len(log_channel.sent)
+    for idx in range(config.SPAM_RAID_JOIN_COUNT - 1):
+        assert await antispam.handle_member_join_guard(bot, _SpamMember(uid=800 + idx), now=20_000.0 + idx) is False
+    assert await antispam.handle_member_join_guard(bot, _SpamMember(uid=899), now=20_010.0) is True
+    raid_alert = log_channel.sent[-1]["embed"]
+    assert "Raid" in raid_alert.title
+    assert "tidak pernah menendang" in raid_alert.footer.text
+    # Tidak ada peringatan berulang dalam jendela yang sama
+    assert await antispam.handle_member_join_guard(bot, _SpamMember(uid=900), now=20_011.0) is False
+    assert len(log_channel.sent) == sent_before + 1
+
+    # --- Persistensi konfigurasi ---
+    await antispam.save_antispam_to_disk()
+    assert antispam.ANTISPAM_FILE.exists()
+    antispam.spam_guilds.clear()
+    assert antispam.load_antispam_from_disk() == 1
+    reloaded = antispam.get_spam_config(10)
+    assert reloaded["mode"] == "timeout" and reloaded["timeout_sec"] == 600
+
+    # --- Status embed & pembersihan ---
+    status = antispam.build_spam_status_embed(10)
+    text = " ".join(f"{f.name} {f.value}" for f in status.fields)
+    assert "Anti-Spam" in status.title
+    assert "`600` detik" in text
+    assert "NONAKTIF" in antispam.build_spam_status_embed(99).title
+    assert antispam.cleanup_antispam_runtime() >= 0
+
+
+@pytest.mark.asyncio
+async def test_antispam_command_and_help_structure():
+    """`/keamanan spam` & `/keamanan spam-status` terdaftar, plus panduan /bantuan diperbarui."""
+    from cogs.server_cog import keamanan_group
+
+    assert {c.name for c in keamanan_group.commands} == {"phising", "cek", "spam", "spam-status"}
+    for cmd in keamanan_group.commands:
+        assert len(cmd.description) <= 100
+
+    # Mode yang tersedia harus mencakup "lapor" sebagai default aman
+    assert set(antispam.SPAM_MODES) == {"lapor", "hapus", "timeout"}
+    assert "lapor" in antispam.default_config()["mode"]
+
+    help_embed = views.build_help_embed("server")
+    assert any("Anti-Spam" in f.name for f in help_embed.fields)

@@ -4,6 +4,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from antispam import (
+    SPAM_MODES,
+    build_spam_status_embed,
+    get_spam_config,
+    save_antispam_to_disk,
+    set_spam_config,
+)
 from cogs.helpers import get_interaction_http_session
 from server_features import (
     PHISHING_ACTIONS,
@@ -654,6 +661,124 @@ async def keamanan_cek_cmd(interaction: discord.Interaction, link: str):
     )
     embed.set_footer(text="Anti-Phishing Guard • Selalu cek ejaan domain sebelum login")
     await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@keamanan_group.command(
+    name="spam",
+    description="Aktifkan penjaga anti-spam & anti-raid ringan (default hanya melapor)",
+)
+@app_commands.describe(
+    aktif="True untuk menyalakan, False untuk mematikan penjaga spam",
+    mode="Tindakan: lapor (aman) / hapus pesan / timeout member",
+    log_channel="Channel untuk menerima laporan anti-spam & peringatan raid",
+    ambang_banjir="Jumlah pesan dalam jendela waktu sebelum dianggap flood (3-30)",
+    jendela="Jendela waktu (detik) untuk menghitung flood (3-120)",
+    mention_maks="Batas mention dalam satu pesan (2-25)",
+    link_maks="Batas jumlah link dalam satu pesan (1-10)",
+    kapital="True untuk ikut menindak HURUF KAPITAL berlebihan (sering salah tuduh)",
+    timeout_detik="Durasi time-out saat mode timeout (60-86400 detik)",
+    kecualikan_channel="Channel yang tidak pernah diperiksa",
+    kecualikan_role="Role yang tidak pernah diperiksa (mis. role staf)",
+)
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="👀 Lapor ke log saja (aman, tanpa tindakan)", value="lapor"),
+        app_commands.Choice(name="🧹 Hapus pesan + catat ke log", value="hapus"),
+        app_commands.Choice(name="⏳ Hapus + time-out member sementara", value="timeout"),
+    ]
+)
+async def keamanan_spam_cmd(
+    interaction: discord.Interaction,
+    aktif: bool = True,
+    mode: app_commands.Choice[str] | None = None,
+    log_channel: discord.TextChannel | None = None,
+    ambang_banjir: app_commands.Range[int, 3, 30] | None = None,
+    jendela: app_commands.Range[int, 3, 120] | None = None,
+    mention_maks: app_commands.Range[int, 2, 25] | None = None,
+    link_maks: app_commands.Range[int, 1, 10] | None = None,
+    kapital: bool | None = None,
+    timeout_detik: app_commands.Range[int, 60, 86400] | None = None,
+    kecualikan_channel: discord.TextChannel | None = None,
+    kecualikan_role: discord.Role | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    if not aktif:
+        cfg = set_spam_config(interaction.guild.id, aktif=False)
+        await save_antispam_to_disk()
+        await interaction.response.send_message(
+            "🛑 **Penjaga Anti-Spam dimatikan.** Bot tidak lagi memeriksa pesan warga."
+            if cfg is None
+            else "ℹ️ Penjaga Anti-Spam memang belum aktif.",
+            ephemeral=True,
+        )
+        return
+
+    existing = get_spam_config(interaction.guild.id)
+    changes: dict = {"aktif": True}
+    if mode is not None:
+        changes["mode"] = mode.value
+    if log_channel is not None:
+        changes["log_channel_id"] = log_channel.id
+    if ambang_banjir is not None:
+        changes["flood_count"] = int(ambang_banjir)
+    if jendela is not None:
+        changes["flood_window"] = int(jendela)
+    if mention_maks is not None:
+        changes["mention_limit"] = int(mention_maks)
+    if link_maks is not None:
+        changes["link_limit"] = int(link_maks)
+    if kapital is not None:
+        changes["caps_enabled"] = bool(kapital)
+    if timeout_detik is not None:
+        changes["timeout_sec"] = int(timeout_detik)
+    if kecualikan_channel is not None:
+        changes["exempt_channels"] = sorted(
+            set(existing.get("exempt_channels") or []) | {kecualikan_channel.id}
+        )
+    if kecualikan_role is not None:
+        changes["exempt_roles"] = sorted(
+            set(existing.get("exempt_roles") or []) | {kecualikan_role.id}
+        )
+
+    cfg = set_spam_config(interaction.guild.id, **changes) or get_spam_config(interaction.guild.id)
+    await save_antispam_to_disk()
+
+    log_info = f"<#{cfg['log_channel_id']}>" if cfg.get("log_channel_id") else "*belum diatur*"
+    warn = (
+        "\n> ⚠️ **Mode lapor** hanya mencatat ke channel log — tidak ada pesan yang dihapus. "
+        "Ubah ke `mode:hapus` setelah yakin."
+        if cfg.get("mode") == "lapor"
+        else ""
+    )
+    await interaction.response.send_message(
+        f"🛡️ **Penjaga Anti-Spam aktif!**\n"
+        f"• **Mode:** {SPAM_MODES.get(cfg['mode'], SPAM_MODES['lapor'])}\n"
+        f"• **Log moderasi:** {log_info}\n"
+        f"• **Flood:** `{cfg['flood_count']}` pesan / `{cfg['flood_window']}` detik\n"
+        f"• **Mention massal:** `{cfg['mention_limit']}` • **Link:** `{cfg['link_limit']}`\n"
+        f"• **Huruf kapital:** {'✅ aktif' if cfg.get('caps_enabled') else '⛔ nonaktif'}\n"
+        f"• **Anti-Raid:** lapor otomatis (tidak menendang)\n"
+        f"> Admin, pengurus, & role pengecualian **tidak pernah** diperiksa.{warn}",
+        ephemeral=True,
+    )
+
+
+@keamanan_group.command(
+    name="spam-status",
+    description="Lihat konfigurasi & statistik penjaga anti-spam server ini",
+)
+async def keamanan_spam_status_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    await interaction.response.send_message(
+        embed=build_spam_status_embed(interaction.guild.id, interaction.guild),
+        ephemeral=True,
+    )
 
 
 def register_server_cog(bot: commands.Bot) -> None:
