@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.7.0-beta"
+BOT_VERSION = "1.8.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -151,6 +151,7 @@ GAME_SCORES_FILE = DATA_DIR / "game_scores.json"
 SERVER_FEATURES_FILE = DATA_DIR / "server_features.json"
 COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
 MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
+ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -180,6 +181,19 @@ STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, mi
 REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
 # Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
 STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# ==============================================================================
+# FITUR ENGAGEMENT (Giveaway, Ulang Tahun, Auto-Responder, Pengumuman Terjadwal)
+# ==============================================================================
+# Semua fitur di bawah ini GRATIS (tanpa kuota Gemini) & default NONAKTIF.
+# Batas jumlah aturan/pesan dibuat kecil agar file data/engagement.json tetap ringan.
+AUTO_REPLY_MAX_RULES: int = _env_int("AUTO_REPLY_MAX_RULES", 25, minimum=1)
+# Jeda aman (detik) agar auto-responder tidak pernah membanjiri channel
+AUTO_REPLY_COOLDOWN_SEC: int = _env_int("AUTO_REPLY_COOLDOWN_SEC", 20, minimum=0)
+# Batas pengumuman terjadwal per server
+ANNOUNCEMENT_MAX_PER_GUILD: int = _env_int("ANNOUNCEMENT_MAX_PER_GUILD", 15, minimum=1)
+# Batas giveaway selesai yang tetap disimpan (agar JSON tetap kecil)
+GIVEAWAY_HISTORY_MAX: int = _env_int("GIVEAWAY_HISTORY_MAX", 25, minimum=1)
+
 # Backup konfigurasi otomatis: interval hari (0 = matikan) & channel log error global
 BACKUP_INTERVAL_DAYS: int = _env_int("BACKUP_INTERVAL_DAYS", 7, minimum=0)
 BOT_LOG_CHANNEL_ID: int = _env_int("BOT_LOG_CHANNEL_ID", 0, minimum=0)

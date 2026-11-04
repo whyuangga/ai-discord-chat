@@ -36,6 +36,7 @@ from community_tools import (
     sticky_channels,
     verification_guilds,
 )
+from engagement import announcements, auto_reply_channels, birthdays, giveaways
 from games import active_channel_games
 from music import get_player, music_status
 from storage import image_thread_settings, thread_chats
@@ -381,6 +382,14 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
             f"`{len(reaction_role_panels)}` panel role | `{len(reminders)}` pengingat | "
             f"`{len(starboard_guilds)}` starboard | `{len(sticky_channels)}` sticky | "
             f"`{len(verification_guilds)}` verifikasi"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🎉 Keramaian Server (0 kuota AI)",
+        value=(
+            f"`{len(giveaways)}` giveaway | `{len(birthdays)}` ultah | "
+            f"`{len(auto_reply_channels)}` auto-responder | `{len(announcements)}` pengumuman"
         ),
         inline=False,
     )

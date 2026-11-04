@@ -35,6 +35,12 @@ from community_tools import (
     save_community_tools_to_disk,
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
+from engagement import (
+    cleanup_engagement_runtime,
+    load_engagement_from_disk,
+    run_engagement_check,
+    save_engagement_to_disk,
+)
 from games import load_game_scores_from_disk, save_game_scores_to_disk
 from music import (
     WAVELINK_AVAILABLE,
@@ -63,6 +69,7 @@ from views import (
     ForumPostSolvedView,
     ImageSettingsView,
     MainPanelControlView,
+    GiveawayJoinView,
     MusicPlayerView,
     VerificationGateView,
 )
@@ -161,6 +168,9 @@ class GeminiDiscordBot(commands.Bot):
             load_community_tools_from_disk()
         )
         loaded_music = load_music_settings_from_disk()
+        loaded_giveaways, loaded_birthdays, loaded_autoreply, loaded_announcements = (
+            load_engagement_from_disk()
+        )
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -184,6 +194,13 @@ class GeminiDiscordBot(commands.Bot):
             music_status(),
         )
         logger.info(
+            "Fitur engagement dimuat: %d Giveaway, %d Ulang Tahun, %d Auto-Responder, %d Pengumuman Terjadwal.",
+            loaded_giveaways,
+            loaded_birthdays,
+            loaded_autoreply,
+            loaded_announcements,
+        )
+        logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
             loaded_reminders_count,
@@ -200,6 +217,7 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(ForumPostSolvedView())
         self.add_view(VerificationGateView())
         self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
+        self.add_view(GiveawayJoinView())  # tombol 🎉 giveaway tetap aktif setelah restart
 
         # 3B. Hubungkan node musik Lavalink (dilewati otomatis bila belum dikonfigurasi)
         if WAVELINK_AVAILABLE:
@@ -244,6 +262,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_server_features_to_disk()
         await save_community_tools_to_disk()
         await save_music_settings_to_disk()
+        await save_engagement_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -264,6 +283,7 @@ async def idle_chat_watcher():
     try:
         await run_idle_chat_check(bot, http_session=bot.http_session)
         await run_reminder_check(bot)
+        await run_engagement_check(bot)  # giveaway berakhir, ucapan ultah, pengumuman terjadwal
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_morning_digest_check(bot, http_session=bot.http_session)
             await run_facts_check(bot, http_session=bot.http_session)
@@ -275,6 +295,7 @@ async def idle_chat_watcher():
                 await save_sessions_to_disk()
             cleanup_stale_agent_runtime()
             cleanup_music_runtime()
+            cleanup_engagement_runtime()
             prune_expired_user_cooldowns()
     except Exception as exc:
         logger.warning("Error pada idle_chat_watcher: %s", sanitize_error_message(exc))

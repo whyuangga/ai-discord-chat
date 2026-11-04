@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.7.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.8.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -7,6 +7,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
+7. **🎉 Fitur Keramaian Server Tanpa Kuota AI (Tier 2A)** — **`/giveaway`** undian berhadiah bertombol yang tahan restart, **`/ultah`** daftar & ucapan ulang tahun otomatis tiap hari, **`/jawab-otomatis`** balasan kata kunci per channel dengan jeda aman, dan **`/pengumuman`** pengumuman terjadwal (harian / mingguan / sekali). Semua **0 request Gemini**, data lokal di `data/engagement.json`, dan **default NONAKTIF** sampai Admin menyalakannya.
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -20,6 +21,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
    - [E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI](#e-fitur-komunitas-ringan--gratis-tanpa-kuota-ai)
    - [F. Streaming Musik 24/7 (`/musik` + Lavalink)](#f-streaming-musik-247-musik--lavalink)
+   - [G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman](#g-fitur-keramaian-server--giveaway-ultah-auto-responder--pengumuman)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
@@ -351,6 +353,67 @@ Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan pand
 
 ---
 
+### G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman
+
+> 💡 **Empat fitur ini benar-benar 0 kuota Gemini.** Tidak ada satu pun permintaan AI, semuanya
+> berjalan lokal memakai `data/engagement.json`. Cocok untuk server yang kuota AI-nya ingin
+> dihemat untuk obrolan & ringkasan saja.
+
+#### 1. Giveaway (`/giveaway`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/giveaway mulai hadiah:<teks> durasi:2jam pemenang:3`** | Pasang giveaway + tombol **🎉 Ikuti Giveaway** (peserta otomatis dicatat). |
+| **`/giveaway mulai ... syarat_role:@Booster`** | Batasi peserta hanya pemilik role tertentu. |
+| **`/giveaway akhiri id_pesan:<ID>`** | Tutup lebih awal & umumkan pemenang. ID pesan dikirim saat giveaway dibuat. |
+| **`/giveaway reroll id_pesan:<ID>`** | Undi ulang dari peserta yang belum pernah menang. |
+| **`/giveaway daftar`** | Giveaway yang masih berjalan + riwayat pemenang terakhir. |
+
+- **Format durasi fleksibel:** `30m`, `2 jam`, `1j30m`, `2 hari`, `45` (menit). Minimal 1 menit.
+- **Tahan restart:** tombol memakai `custom_id` persisten, jadi peserta tetap bisa klik setelah bot restart.
+- Satu akun = satu peluang (klik berulang tidak menambah peluang); peserta bisa membatalkan sendiri.
+- Giveaway yang waktunya habis ditutup otomatis oleh loop latar belakang (maksimal ±15 detik setelah waktunya).
+
+#### 2. Ulang Tahun (`/ultah`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/ultah set tanggal:12-08`** | Daftarkan/perbarui tanggal lahir. Menerima `12-08`, `12/8/2000`, `12 Agustus 1999`, `1 Januari`. |
+| **`/ultah daftar bulan:8`** | Lihat daftar ulang tahun member (opsional filter satu bulan). |
+| **`/ultah hapus`** | Hapus data sendiri kapan saja. |
+| **`/ultah atur channel:#umum jam:08:00`** *(Admin)* | Channel & jam ucapan otomatis. Kosongkan `channel` untuk mematikan. |
+
+- Yang disimpan hanya **tanggal & bulan** (tahun opsional untuk menghitung umur). Tidak ada data lain.
+- Ucapan dikirim **sekali per hari** pada jam yang diatur, mengikuti zona waktu server (`/agent` persona/timezone).
+
+#### 3. Balasan Otomatis (`/jawab-otomatis`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/jawab-otomatis tambah pemicu:cara daftar balasan:Ketik /verifikasi`** | Bot menjawab saat kata kunci muncul. |
+| **`/jawab-otomatis tambah pemicu:ping balasan:pong persis:True`** | Hanya menanggapi bila pesannya **sama persis**. |
+| **`/jawab-otomatis daftar`** / **`hapus pemicu:...`** | Lihat & hapus aturan di channel tersebut. |
+| **`/jawab-otomatis atur aktif:False jeda:30`** | Jeda/matikan tanpa menghapus aturan. |
+
+- **Aman untuk obrolan:** hanya aktif di channel yang dipilih Admin, minimal pemicu 3 karakter,
+  dan ada **jeda aman** (default 20 detik) agar bot tidak pernah membanjiri channel.
+- Maksimal `AUTO_REPLY_MAX_RULES` (default 25) aturan per channel.
+
+#### 4. Pengumuman Terjadwal (`/pengumuman`)
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/pengumuman tambah isi:... jadwal:08:00`** | Setiap hari pukul 08:00 (waktu server). |
+| **`/pengumuman tambah isi:... jadwal:senin 19:00`** | Setiap minggu (nama hari Indonesia). |
+| **`/pengumuman tambah isi:... jadwal:sekali 31-12-2026 23:59`** | Satu kali saja, lalu otomatis nonaktif. |
+| **`/pengumuman daftar`** / **`hapus id:3`** / **`atur id:3 aktif:False`** | Kelola jadwal tanpa menghapus isi. |
+
+- Format jadwal ringkas: `08:00`, `harian 20:30`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.
+- Batas `ANNOUNCEMENT_MAX_PER_GUILD` (default 15) pengumuman per server.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -615,8 +678,27 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **7 menu tingkat atas** (h
 | `/musik hentikan` | — | Stop, kosongkan antrean, & keluar dari voice. |
 | `/musik pengaturan` | `pengumuman`, `role_dj`, `volume_default` | *(Admin)* Pengumuman Now Playing, role DJ, volume default. |
 | `/musik status` | — | Kesehatan node Lavalink & status pemutaran. |
-| `/keamanan phising` | `aktif`, `aksi`, `channel`, `log_channel`, `ketat` | *(Admin)* Aktifkan Anti-Phishing Guard: hapus link berbahaya, peringatkan warga, & catat ke log. |
-| `/keamanan cek` | `link` | Periksa keamanan sebuah link (tersedia untuk semua member, hasil privat). |
+
+### 7. Slash Commands Keramaian Server (`/giveaway`, `/ultah`, `/jawab-otomatis`, `/pengumuman`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/giveaway mulai` | `hadiah`, `durasi`, `pemenang`, `channel`, `syarat_role` | *(Admin)* Pasang giveaway + tombol **🎉 Ikuti Giveaway**. |
+| `/giveaway akhiri` | `id_pesan` | *(Admin)* Tutup lebih awal & umumkan pemenang. |
+| `/giveaway reroll` | `id_pesan` | *(Admin)* Undi ulang dari peserta yang belum pernah menang. |
+| `/giveaway daftar` | — | Giveaway berjalan + riwayat pemenang. |
+| `/ultah set` | `tanggal` | Daftarkan tanggal lahir (`12-08`, `12/8/2000`, `12 Agustus`). |
+| `/ultah hapus` | — | Hapus data ulang tahun sendiri. |
+| `/ultah daftar` | `bulan` | Daftar ulang tahun member server. |
+| `/ultah atur` | `channel`, `jam` | *(Admin)* Channel & jam ucapan otomatis (kosongkan `channel` = mati). |
+| `/jawab-otomatis tambah` | `pemicu`, `balasan`, `persis`, `channel` | *(Admin)* Tambah aturan balasan kata kunci. |
+| `/jawab-otomatis hapus` | `pemicu`, `channel` | *(Admin)* Hapus satu aturan. |
+| `/jawab-otomatis daftar` | `channel` | Lihat aturan yang aktif + jeda aman. |
+| `/jawab-otomatis atur` | `channel`, `aktif`, `jeda` | *(Admin)* Aktifkan/nonaktifkan & atur jeda (0–300 detik). |
+| `/pengumuman tambah` | `isi`, `jadwal`, `judul`, `channel` | *(Admin)* Jadwalkan pengumuman (harian / mingguan / sekali). |
+| `/pengumuman daftar` | — | Lihat seluruh jadwal & kiriman berikutnya. |
+| `/pengumuman hapus` | `id` | *(Admin)* Hapus pengumuman terjadwal. |
+| `/pengumuman atur` | `id`, `aktif` | *(Admin)* Jeda atau aktifkan lagi tanpa menghapus. |
 
 ---
 
@@ -662,7 +744,10 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `MUSIC_DEFAULT_VOLUME` | Opsional | `60` | Volume default saat bot bergabung ke voice (`1`–`150`). |
 | `MUSIC_MAX_QUEUE` | Opsional | `50` | Batas jumlah lagu dalam antrean (menjaga RAM tetap kecil). |
 | `MUSIC_IDLE_DISCONNECT_SEC` | Opsional | `300` | Keluar otomatis dari voice setelah sekian detik tanpa lagu. |
-
+| `AUTO_REPLY_MAX_RULES` | Opsional | `25` | Batas aturan `/jawab-otomatis` per channel. |
+| `AUTO_REPLY_COOLDOWN_SEC` | Opsional | `20` | Jeda aman antar-balasan otomatis (detik) agar channel tidak dibanjiri. |
+| `ANNOUNCEMENT_MAX_PER_GUILD` | Opsional | `15` | Batas pengumuman terjadwal per server. |
+| `GIVEAWAY_HISTORY_MAX` | Opsional | `25` | Jumlah giveaway selesai yang tetap disimpan di `data/engagement.json`. |
 ---
 
 ## 🔑 Persiapan di Discord Developer Portal
@@ -712,7 +797,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 5. Buka tab **Console**, lalu klik tombol **Start**.
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
-   ✅ Bot v1.7.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
+   ✅ Bot v1.8.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
    ```
 7. Sekarang masuk ke server Discord Anda dan coba:
    - Ketik **`/sesi panel`** di channel panel AI privat.
@@ -752,12 +837,14 @@ ai-discord-chat/
 │   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing)
 │   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
 │   ├── music_cog.py    # Grup /musik (putar, cari, antrean berhalaman, seek, sebelumnya, filter, autoplay, DJ, panel)
+│   ├── engagement_cog.py # Grup /giveaway, /ultah, /jawab-otomatis, /pengumuman (tanpa kuota AI)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, cleanup channel/thread)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
 ├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
 ├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
 ├── music.py            # Klien Lavalink (wavelink), panel pemutar Rythm (progress bar, filter, autoplay), pengaturan per server
+├── engagement.py       # Giveaway, ulang tahun, auto-responder, & pengumuman terjadwal (0 kuota AI)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan

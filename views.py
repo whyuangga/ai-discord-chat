@@ -19,6 +19,7 @@ from config import (
     STYLE_OPTIONS,
     resolve_model_key,
 )
+import engagement
 import music
 from community_tools import grant_verification_role
 from community_agent import (
@@ -652,6 +653,89 @@ class VerificationGateView(discord.ui.View):
         await interaction.response.send_message(message, ephemeral=True)
         if ok:
             logger.info("Member %s lolos verifikasi di guild %s", interaction.user.id, interaction.guild.id)
+
+
+class GiveawayJoinView(discord.ui.View):
+    """Tombol persisten 🎉 untuk mengikuti/membatalkan giveaway (tahan restart bot)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _refresh(self, interaction: discord.Interaction, cfg: dict) -> None:
+        """Mengedit pesan giveaway agar jumlah peserta langsung terlihat."""
+        try:
+            await interaction.message.edit(
+                embed=engagement.build_giveaway_embed(cfg, ended=bool(cfg.get("ended"))),
+                view=GiveawayJoinView(),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+    @discord.ui.button(label="Ikuti Giveaway", emoji="🎉", style=discord.ButtonStyle.success, custom_id="engagement:giveaway:join")
+    async def join_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None or interaction.message is None:
+            await interaction.response.send_message("⚠️ Giveaway hanya berlaku di dalam server.", ephemeral=True)
+            return
+
+        role_ids = {
+            getattr(role, "id", 0) for role in (getattr(interaction.user, "roles", None) or [])
+        }
+        status, cfg = engagement.join_giveaway(
+            interaction.message.id, interaction.user.id, role_ids=role_ids
+        )
+        if status == "tidak_ada":
+            await interaction.response.send_message(
+                "⚠️ Data giveaway ini tidak ditemukan (mungkin bot baru restart). "
+                "Minta Admin membuat giveaway baru.",
+                ephemeral=True,
+            )
+            return
+        if status == "ended":
+            await interaction.response.send_message("⏹️ Giveaway ini sudah berakhir.", ephemeral=True)
+            return
+        if status == "duplikat":
+            await interaction.response.send_message(
+                "✅ Kamu **sudah terdaftar**. Semoga beruntung!", ephemeral=True
+            )
+            return
+        if status == "syarat":
+            await interaction.response.send_message(
+                f"🔒 Giveaway ini hanya untuk pemilik <@&{cfg.get('role_id')}>.", ephemeral=True
+            )
+            return
+
+        await engagement.save_engagement_to_disk()
+        await self._refresh(interaction, cfg or {})
+        await interaction.response.send_message(
+            f"🎉 **Berhasil ikut!** Total peserta sekarang `{len(cfg.get('entries') or [])}` orang.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Batalkan", style=discord.ButtonStyle.secondary, custom_id="engagement:giveaway:leave")
+    async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.guild is None or interaction.message is None:
+            await interaction.response.send_message("⚠️ Giveaway hanya berlaku di dalam server.", ephemeral=True)
+            return
+
+        status, cfg = engagement.leave_giveaway(interaction.message.id, interaction.user.id)
+        if status == "tidak_ada":
+            await interaction.response.send_message("⚠️ Data giveaway ini tidak ditemukan.", ephemeral=True)
+            return
+        if status == "ended":
+            await interaction.response.send_message("⏹️ Giveaway ini sudah berakhir.", ephemeral=True)
+            return
+        if status == "tidak_terdaftar":
+            await interaction.response.send_message(
+                "ℹ️ Kamu memang belum terdaftar di giveaway ini.", ephemeral=True
+            )
+            return
+
+        await engagement.save_engagement_to_disk()
+        await self._refresh(interaction, cfg or {})
+        await interaction.response.send_message(
+            "👋 Pesertaan dibatalkan. Kamu bisa ikut lagi kapan saja sebelum waktu habis.",
+            ephemeral=True,
+        )
 
 
 class QueuePaginationView(discord.ui.View):
@@ -1805,6 +1889,58 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+    elif category == "engagement":
+        embed = discord.Embed(
+            title="🎉 Giveaway, Ulang Tahun, Auto-Responder & Pengumuman",
+            description=(
+                "Fitur **keramaian server** yang berjalan **tanpa kuota Gemini** sama sekali "
+                "(0 request AI). Semua default NONAKTIF sampai Admin menyalakannya."
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name="🎁 Giveaway (`/giveaway`)",
+            value=(
+                "• `/giveaway mulai hadiah:Nitro 1 Bulan durasi:2jam pemenang:3` — tombol **🎉 Ikuti Giveaway** "
+                "dipasang otomatis.\n"
+                "• `/giveaway akhiri id_pesan:...` — tutup lebih awal & umumkan pemenang.\n"
+                "• `/giveaway reroll id_pesan:...` — undi ulang dari peserta yang belum menang.\n"
+                "• `/giveaway daftar` — giveaway yang masih berjalan + riwayat pemenang.\n"
+                "• Bisa dibatasi role: `syarat_role:@Booster`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🎂 Ulang Tahun (`/ultah`)",
+            value=(
+                "• `/ultah set tanggal:12-08` — daftarkan tanggal lahir (boleh `12/8/2000` atau `12 Agustus`).\n"
+                "• `/ultah daftar bulan:8` — lihat daftar ulang tahun member.\n"
+                "• `/ultah hapus` — hapus data sendiri kapan saja.\n"
+                "• `/ultah atur channel:#umum jam:08:00` *(Admin)* — ucapan otomatis tiap hari."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🤖 Balasan Otomatis (`/jawab-otomatis`)",
+            value=(
+                "• `/jawab-otomatis tambah pemicu:cara daftar balasan:...` — bot menjawab saat kata kunci muncul.\n"
+                "• `/jawab-otomatis daftar` / `hapus pemicu:...` — kelola aturan per channel.\n"
+                "• `/jawab-otomatis atur aktif:False jeda:30` — matikan sementara & atur jeda aman.\n"
+                "• Aman untuk obrolan: hanya aktif di channel yang dipilih, ada jeda antar-balasan."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📢 Pengumuman Terjadwal (`/pengumuman`)",
+            value=(
+                "• `/pengumuman tambah isi:... jadwal:08:00` — setiap hari.\n"
+                "• `/pengumuman tambah isi:... jadwal:senin 19:00` — setiap minggu.\n"
+                "• `/pengumuman tambah isi:... jadwal:sekali 31-12-2026 23:59` — sekali saja.\n"
+                "• `/pengumuman daftar` / `hapus id:3` / `atur id:3 aktif:False` — kelola jadwal."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Semua data disimpan lokal di data/engagement.json — tanpa database eksternal.")
     elif category == "musik":
         embed = discord.Embed(
             title="🎵 Streaming Musik 24/7 (`/musik`) — Lavalink",
@@ -1898,7 +2034,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ Daftar Slash Command Utama (20 Menu Ringkas)",
+            name="⚡ Daftar Slash Command Utama (24 Menu Ringkas)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
@@ -1915,6 +2051,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/panel-role`** — Reaction role, **`/poll`** — polling, **`/ingatkan`** — pengingat.\n"
                 "• **`/starboard`** — sorotan pesan populer, **`/sticky`** — pesan petunjuk menempel.\n"
                 "• **`/info`** — profil member & server, **`/perawatan`** — backup & log error.\n"
+                "**🎉 Keramaian Server (Gratis, Tanpa AI)**\n"
+                "• **`/giveaway`** — undian berhadiah bertombol, **`/ultah`** — ucapan ulang tahun otomatis.\n"
+                "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
                 "**🎵 Hiburan Audio**\n"
                 "• **`/musik`** — streaming YouTube/Spotify/SoundCloud via Lavalink (putar, antrean, volume, DJ).\n"
                 "• **`/status`** & **`/bantuan`** — Cek kesehatan bot & buka panduan ini."
@@ -1982,6 +2121,12 @@ class HelpMenuView(discord.ui.View):
                 value="server",
                 emoji="🛠️",
                 description="Panduan /serverstats, /autorole, /fakta, & /keamanan",
+            ),
+            discord.SelectOption(
+                label="Giveaway, Ulang Tahun, Auto-Responder & Pengumuman",
+                value="engagement",
+                emoji="🎉",
+                description="Undian berhadiah, ucapan ultah otomatis, & pengumuman terjadwal",
             ),
             discord.SelectOption(
                 label="Streaming Musik 24/7 (/musik & Lavalink)",

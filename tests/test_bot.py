@@ -11,6 +11,7 @@ import utils
 import ai_handler
 import community_agent
 import community_tools
+import engagement
 import games
 import music
 import server_features
@@ -87,6 +88,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     monkeypatch.setattr(server_features, "SERVER_FEATURES_FILE", tmp_path / "server_features.json")
     monkeypatch.setattr(music, "DATA_DIR", tmp_path)
     monkeypatch.setattr(music, "MUSIC_FILE", tmp_path / "music_settings.json")
+    monkeypatch.setattr(engagement, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(engagement, "ENGAGEMENT_FILE", tmp_path / "engagement.json")
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -114,6 +117,12 @@ def clean_storage_state(tmp_path, monkeypatch):
     community_tools._last_error.update({"at": 0.0, "context": "", "message": ""})
     music.music_guilds.clear()
     music.announce_channels.clear()
+    engagement.giveaways.clear()
+    engagement.birthday_guilds.clear()
+    engagement.birthdays.clear()
+    engagement.auto_reply_channels.clear()
+    engagement.announcements.clear()
+    engagement._last_auto_reply_at.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -142,6 +151,12 @@ def clean_storage_state(tmp_path, monkeypatch):
     server_features.facts_guilds.clear()
     server_features.security_guilds.clear()
     community_agent.channel_histories.clear()
+    engagement.giveaways.clear()
+    engagement.birthday_guilds.clear()
+    engagement.birthdays.clear()
+    engagement.auto_reply_channels.clear()
+    engagement.announcements.clear()
+    engagement._last_auto_reply_at.clear()
     utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
 
@@ -2154,18 +2169,20 @@ async def test_free_tier_member_cooldown_and_admin_panel_view():
 @pytest.mark.asyncio
 async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
     """Menguji arsitektur modular cogs/, HelpMenuView (/bantuan), ServerFaqManagerView, & pembersih RAM."""
-    # 1. Pastikan top-level slash commands ringkas (20 command utama, hemat slot dari batas 100 Discord)
+    # 1. Pastikan top-level slash commands ringkas (24 command utama, hemat slot dari batas 100 Discord)
     chat_cmds = bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)
     assert {c.name for c in chat_cmds} == {
         "sesi", "ringkas", "cari", "game", "agent", "bantuan", "status",
         "serverstats", "autorole", "fakta", "keamanan",
         "panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan",
         "musik",
+        # v1.8.0-beta (Tier 2A): fitur keramaian server tanpa kuota AI
+        "giveaway", "ultah", "jawab-otomatis", "pengumuman",
     }
     assert len(chat_cmds) <= 100
 
     # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
-    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin"):
+    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin", "engagement"):
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
@@ -3546,3 +3563,426 @@ async def test_music_command_structure_and_setup_guard(monkeypatch):
     monkeypatch.setattr(music, "MUSIC_ENABLED", True)
     tracks, playlist = await music.search_tracks("")
     assert tracks == [] and playlist is None
+
+
+# ==============================================================================
+# FITUR ENGAGEMENT (Giveaway, Ulang Tahun, Auto-Responder, Pengumuman Terjadwal)
+# ==============================================================================
+class _FakeAnnouncementChannel:
+    """Channel tiruan yang merekam pesan/embed/berkas yang dikirim bot."""
+
+    def __init__(self, cid: int = 700):
+        self.id = cid
+        self.mention = f"<#{cid}>"
+        self.sent: list[dict] = []
+        self.edited: list[dict] = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append({"args": args, **kwargs})
+        return type("Msg", (), {"id": 900 + len(self.sent)})()
+
+    def get_partial_message(self, mid: int):
+        channel = self
+
+        class _Partial:
+            id = mid
+            channel = self
+
+            async def edit(self, *args, **kwargs):
+                channel.edited.append({"args": args, **kwargs})
+                return None
+
+        return _Partial()
+
+
+class _FakeBotForEngagement:
+    def __init__(self, channels: dict[int, object] | None = None, guilds: dict[int, object] | None = None):
+        self._channels = channels or {}
+        self._guilds = guilds or {}
+
+    def get_channel(self, cid: int):
+        return self._channels.get(int(cid))
+
+    def get_guild(self, gid: int):
+        return self._guilds.get(int(gid))
+
+
+@pytest.mark.asyncio
+async def test_engagement_giveaway_flow_and_persistence():
+    """Giveaway: peserta unik, syarat role, pengundian, reroll, & simpan/muat ulang."""
+    cfg = engagement.create_giveaway(
+        guild_id=10,
+        channel_id=700,
+        message_id=555,
+        prize="Nitro 1 Bulan",
+        host_id=1,
+        seconds=3600,
+        winner_count=2,
+        role_id=42,
+    )
+    assert cfg["prize"] == "Nitro 1 Bulan" and cfg["winner_count"] == 2
+
+    # Peserta tanpa role syarat ditolak
+    status, _ = engagement.join_giveaway(555, 501, role_ids={7})
+    assert status == "syarat"
+    # Peserta dengan role syarat diterima
+    assert engagement.join_giveaway(555, 501, role_ids={42})[0] == "ok"
+    assert engagement.join_giveaway(555, 502, role_ids={42, 9})[0] == "ok"
+    assert engagement.join_giveaway(555, 503, role_ids={42})[0] == "ok"
+    # Duplikat & pembatalan
+    assert engagement.join_giveaway(555, 501, role_ids={42})[0] == "duplikat"
+    assert engagement.leave_giveaway(555, 501)[0] == "ok"
+    assert engagement.leave_giveaway(555, 501)[0] == "tidak_terdaftar"
+    assert engagement.join_giveaway(555, 501, role_ids={42})[0] == "ok"
+
+    import random
+
+    ended = engagement.end_giveaway(555, rng=random.Random(7))
+    assert ended is not None and ended["ended"] is True
+    assert len(ended["winners"]) == 2
+    assert set(ended["winners"]).issubset({501, 502, 503})
+    # Giveaway yang sudah selesai tidak bisa diikuti & tidak bisa diakhiri dua kali
+    assert engagement.join_giveaway(555, 504, role_ids={42})[0] == "ended"
+    assert engagement.end_giveaway(555) is None
+
+    # Reroll hanya memilih peserta yang belum pernah menang
+    first_winners = list(ended["winners"])
+    status, rerolled = engagement.reroll_giveaway(555, rng=random.Random(3))
+    assert status == "ok"
+    assert set(rerolled["winners"]).isdisjoint(first_winners)
+
+    # Embed giveaway memuat hadiah, peserta, & pemenang
+    embed = engagement.build_giveaway_embed(rerolled, ended=True)
+    text = " ".join(f"{f.name} {f.value}" for f in embed.fields)
+    assert "Nitro" in embed.description
+    assert "Pemenang" in text
+
+    # Persistensi: simpan lalu muat ulang dari file yang sama
+    await engagement.save_engagement_to_disk()
+    assert engagement.ENGAGEMENT_FILE.exists()
+    engagement.giveaways.clear()
+    loaded = engagement.load_engagement_from_disk()
+    assert loaded[0] == 1
+    assert engagement.giveaways[555]["ended"] is True
+    assert engagement.giveaways[555]["winners"] == rerolled["winners"]
+
+    # Durasi giveaway memakai parser pengingat yang sudah ada
+    assert engagement.parse_giveaway_duration("2 jam") == 7200
+    assert engagement.parse_giveaway_duration("1j30m") == 5400
+    assert engagement.parse_giveaway_duration("ngawur") is None
+
+
+@pytest.mark.asyncio
+async def test_engagement_giveaway_check_closes_due_and_updates_message():
+    """Loop latar belakang menutup giveaway yang waktunya habis & mengedit pesannya."""
+    cfg = engagement.create_giveaway(
+        guild_id=10,
+        channel_id=700,
+        message_id=556,
+        prize="Saldo 50rb",
+        host_id=1,
+        seconds=30,
+    )
+    engagement.join_giveaway(556, 501)
+    cfg["ends_at"] = time.time() - 5  # sudah lewat
+
+    channel = _FakeAnnouncementChannel(700)
+    bot = _FakeBotForEngagement({700: channel})
+    assert await engagement.run_giveaway_check(bot) == 1
+    assert engagement.giveaways[556]["ended"] is True
+    assert engagement.giveaways[556]["winners"] == [501]
+    assert channel.edited, "pesan giveaway harus diedit saat selesai"
+    # Putaran kedua tidak lagi memproses giveaway yang sama
+    assert await engagement.run_giveaway_check(bot) == 0
+
+
+@pytest.mark.asyncio
+async def test_engagement_birthday_parsing_and_announcement():
+    """Ulang tahun: parser tanggal Indonesia, daftar per bulan, & ucapan otomatis sekali sehari."""
+    assert engagement.parse_birthday_date("12-08") == (12, 8, None)
+    assert engagement.parse_birthday_date("12/8/2000") == (12, 8, 2000)
+    assert engagement.parse_birthday_date("1 Januari 1999") == (1, 1, 1999)
+    assert engagement.parse_birthday_date("2000-08-12") == (12, 8, 2000)
+    assert engagement.parse_birthday_date("31-13") is None
+    assert engagement.parse_birthday_date("") is None
+
+    day, month, year = engagement.parse_birthday_date("12/8/2000")
+    engagement.set_birthday(10, 501, day, month, year)
+    engagement.set_birthday(10, 502, 1, 1, None)
+    assert engagement.get_birthday(10, 501)["month"] == 8
+    assert len(engagement.list_birthdays(10)) == 2
+    assert len(engagement.list_birthdays(10, month=1)) == 1
+    assert engagement.birthday_age(engagement.get_birthday(10, 501), 2026) == 26
+    assert engagement.remove_birthday(10, 502) is True
+    assert engagement.remove_birthday(10, 502) is False
+
+    # Channel & jam ucapan disimpan, lalu ucapan dikirim sekali per hari
+    engagement.set_birthday_channel(10, 700, 0, 0)
+    channel = _FakeAnnouncementChannel(700)
+    bot = _FakeBotForEngagement({700: channel})
+    engagement.set_birthday(10, 503, engagement.now_in(config.BOT_TIMEZONE).day, engagement.now_in(config.BOT_TIMEZONE).month)
+
+    sent = await engagement.run_birthday_check(bot)
+    assert sent == 1
+    embed = channel.sent[0]["embed"]
+    assert "Ulang Tahun" in embed.title
+    assert "503" in " ".join(f.value for f in embed.fields)
+    # Putaran berikutnya di hari yang sama tidak mengirim ulang
+    assert await engagement.run_birthday_check(bot) == 0
+    assert engagement.disable_birthday_channel(10) is True
+
+
+@pytest.mark.asyncio
+async def test_engagement_auto_reply_matching_and_cooldown():
+    """Auto-responder: pencocokan kata/persis, jeda aman, duplikat, & penghapusan."""
+    status, cfg = engagement.add_auto_reply(700, 10, "cara daftar", "Ketik /verifikasi ya!")
+    assert status == "ok" and len(cfg["rules"]) == 1
+    # Pemicu terlalu mirip ditolak
+    assert engagement.add_auto_reply(700, 10, "Cara Daftar", "duplikat")[0] == "duplikat"
+    # Aturan kedua: harus sama persis
+    assert engagement.add_auto_reply(700, 10, "ping", "pong", mode="persis")[0] == "ok"
+
+    # Cocok mengandung kata kunci
+    reply = engagement.match_auto_reply(700, "kak tolong jelaskan cara daftar dong", now=1000.0)
+    assert reply == "Ketik /verifikasi ya!"
+    # Jeda aman mencegah balasan beruntun
+    assert engagement.match_auto_reply(700, "cara daftar lagi", now=1005.0) is None
+    # Setelah jeda lewat boleh membalas lagi
+    assert engagement.match_auto_reply(700, "cara daftar lagi", now=1100.0) is not None
+
+    # Mode persis tidak menanggapi kalimat panjang
+    assert engagement.match_auto_reply(700, "ping", now=2000.0) == "pong"
+    assert engagement.match_auto_reply(700, "ping banget nih", now=2100.0) is None
+
+    # Channel yang dimatikan tidak pernah membalas
+    engagement.set_auto_reply_config(700, 10, enabled=False)
+    assert engagement.match_auto_reply(700, "cara daftar", now=3000.0) is None
+    engagement.set_auto_reply_config(700, 10, enabled=True, cooldown=0)
+
+    # Penghapusan aturan (tidak peka huruf besar/kecil)
+    assert engagement.remove_auto_reply(700, "CARA DAFTAR") is True
+    assert engagement.remove_auto_reply(700, "tidak-ada") is False
+    assert len(engagement.auto_reply_channels[700]["rules"]) == 1
+
+    # Batas jumlah aturan per channel dihormati
+    for idx in range(config.AUTO_REPLY_MAX_RULES + 5):
+        engagement.add_auto_reply(701, 10, f"kata{idx}", f"balasan {idx}")
+    assert len(engagement.auto_reply_channels[701]["rules"]) == config.AUTO_REPLY_MAX_RULES
+
+    await engagement.save_engagement_to_disk()
+    engagement.auto_reply_channels.clear()
+    loaded = engagement.load_engagement_from_disk()
+    assert loaded[2] == 2  # dua channel punya aturan
+    assert engagement.auto_reply_channels[700]["rules"][0]["trigger"] == "ping"
+
+
+@pytest.mark.asyncio
+async def test_engagement_announcement_schedule_and_sender():
+    """Pengumuman terjadwal: parser jadwal, hitung waktu berikutnya, & pengiriman."""
+    daily = engagement.parse_announcement_schedule("08:00")
+    assert daily == {"kind": "harian", "hour": 8, "minute": 0, "weekday": 0}
+    assert engagement.parse_announcement_schedule("harian 20:30")["minute"] == 30
+    weekly = engagement.parse_announcement_schedule("mingguan sabtu 19:00")
+    assert weekly["kind"] == "mingguan" and weekly["weekday"] == 5
+    assert engagement.parse_announcement_schedule("senin 7:15")["weekday"] == 0
+    once = engagement.parse_announcement_schedule("sekali 31-12-2026 23:59")
+    assert once["kind"] == "sekali" and once["once_at"].year == 2026
+    assert engagement.parse_announcement_schedule("ngawur") is None
+    assert engagement.parse_announcement_schedule("sekali 31-12-2026") is None
+
+    # Jadwal harian selalu menghasilkan waktu di masa depan
+    from datetime import datetime
+
+    ref = datetime(2026, 11, 4, 12, 0, tzinfo=engagement.get_timezone(config.BOT_TIMEZONE))
+    next_daily = engagement.compute_next_run(daily, tz_name=config.BOT_TIMEZONE, reference=ref)
+    assert next_daily > ref.timestamp()
+    next_weekly = engagement.compute_next_run(weekly, tz_name=config.BOT_TIMEZONE, reference=ref)
+    assert next_weekly > next_daily
+
+    status, cfg = engagement.add_announcement(
+        10, 700, "Mabar malam ini jam 8 ya!", daily, title="Info Mabar", tz_name=config.BOT_TIMEZONE
+    )
+    assert status == "ok" and cfg["title"] == "Info Mabar"
+    assert "setiap hari 08:00" in engagement.describe_announcement(cfg)
+    assert engagement.list_announcements(10)[0]["id"] == cfg["id"]
+    assert engagement.list_announcements(11) == []
+
+    # Pengiriman saat jadwal tiba
+    cfg["next_run_at"] = time.time() - 5
+    channel = _FakeAnnouncementChannel(700)
+    bot = _FakeBotForEngagement({700: channel})
+    assert await engagement.run_announcement_check(bot) == 1
+    assert "Mabar malam ini" in channel.sent[0]["embed"].description
+    assert cfg["next_run_at"] > time.time()  # dijadwalkan ulang otomatis
+    assert await engagement.run_announcement_check(bot) == 0
+
+    # Nonaktif sementara & hapus
+    assert engagement.set_announcement_enabled(cfg["id"], False) is True
+    assert engagement.remove_announcement(cfg["id"], guild_id=99) is False
+    assert engagement.remove_announcement(cfg["id"], guild_id=10) is True
+    assert engagement.list_announcements(10) == []
+
+
+@pytest.mark.asyncio
+async def test_engagement_command_structure_and_views():
+    """Struktur command engagement, tombol giveaway persisten, & panduan /bantuan."""
+    from cogs.engagement_cog import giveaway_group, jawab_group, pengumuman_group, ultah_group
+
+    assert giveaway_group.name == "giveaway"
+    assert {c.name for c in giveaway_group.commands} == {"mulai", "akhiri", "reroll", "daftar"}
+    assert {c.name for c in ultah_group.commands} == {"set", "hapus", "daftar", "atur"}
+    assert jawab_group.name == "jawab-otomatis"
+    assert {c.name for c in jawab_group.commands} == {"tambah", "hapus", "daftar", "atur"}
+    assert pengumuman_group.name == "pengumuman"
+    assert {c.name for c in pengumuman_group.commands} == {"tambah", "daftar", "hapus", "atur"}
+
+    # Batas keras Discord: deskripsi grup maksimal 100 karakter
+    for group in (giveaway_group, ultah_group, jawab_group, pengumuman_group):
+        assert len(group.description) <= 100
+        for cmd in group.commands:
+            assert len(cmd.description) <= 100
+
+    view = views.GiveawayJoinView()
+    assert view.is_persistent() is True
+    assert [c.custom_id for c in view.children] == [
+        "engagement:giveaway:join",
+        "engagement:giveaway:leave",
+    ]
+
+    help_embed = views.build_help_embed("engagement")
+    assert "Giveaway" in help_embed.title
+    assert len(help_embed.fields) == 4
+    menu = views.HelpMenuView(requester_id=1)
+    assert "engagement" in [opt.value for opt in menu.children[0].options]
+
+
+@pytest.mark.asyncio
+async def test_engagement_giveaway_buttons_and_command_smoke():
+    """Uji alur nyata: `/giveaway mulai` memasang pesan, lalu tombol 🎉 mencatat peserta."""
+    from cogs.engagement_cog import giveaway_mulai_cmd
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+            self.deferred = False
+
+        async def send_message(self, content=None, *, embed=None, ephemeral=False, view=None):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+        async def defer(self, *, ephemeral=False):
+            self.deferred = True
+
+    class _Followup:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, *, embed=None, ephemeral=False):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+    channel = _FakeAnnouncementChannel(700)
+    guild = type(
+        "G",
+        (),
+        {
+            "id": 10,
+            "name": "Server Uji",
+            "get_channel": lambda self, cid: channel if cid == 700 else None,
+        },
+    )()
+    admin = type(
+        "U",
+        (),
+        {
+            "id": 1,
+            "display_name": "Admin",
+            "guild_permissions": type(
+                "P", (), {"administrator": True, "manage_guild": True}
+            )(),
+        },
+    )()
+    member = type(
+        "U",
+        (),
+        {
+            "id": 501,
+            "display_name": "Warga",
+            "mention": "<@501>",
+            "roles": [type("R", (), {"id": 42})()],
+            "guild_permissions": type(
+                "P", (), {"administrator": False, "manage_guild": False}
+            )(),
+        },
+    )()
+
+    ix = type(
+        "Ix",
+        (),
+        {
+            "guild": guild,
+            "channel": channel,
+            "user": admin,
+            "client": _FakeBotForEngagement({700: channel}),
+            "response": _Resp(),
+            "followup": _Followup(),
+        },
+    )()
+    await giveaway_mulai_cmd.callback(ix, hadiah="Nitro 1 Bulan", durasi="10m", pemenang=1, channel=None, syarat_role=None)
+    assert ix.response.deferred is True
+    assert channel.sent, "pesan giveaway harus terkirim ke channel"
+    posted = channel.sent[0]["embed"]
+    assert "Nitro 1 Bulan" in posted.description
+    assert engagement.giveaways, "giveaway harus tersimpan"
+    message_id = next(iter(engagement.giveaways))
+    assert "Giveaway dimulai" in ix.followup.sent[0]["content"]
+
+    # Member non-admin tidak boleh membuat giveaway
+    ix_member = type(
+        "Ix",
+        (),
+        {
+            "guild": guild,
+            "channel": channel,
+            "user": member,
+            "client": _FakeBotForEngagement({700: channel}),
+            "response": _Resp(),
+            "followup": _Followup(),
+        },
+    )()
+    await giveaway_mulai_cmd.callback(ix_member, hadiah="Palsu", durasi="10m", pemenang=1, channel=None, syarat_role=None)
+    assert "Admin" in ix_member.response.sent[0]["content"]
+
+    # Tombol 🎉 pada pesan giveaway mencatat peserta + mengedit embed
+    class _FakeMessage:
+        def __init__(self, mid):
+            self.id = mid
+            self.edits = []
+
+        async def edit(self, *args, **kwargs):
+            self.edits.append(kwargs)
+
+    fake_message = _FakeMessage(message_id)
+    ix_join = type(
+        "Ix",
+        (),
+        {
+            "guild": guild,
+            "user": member,
+            "message": fake_message,
+            "response": _Resp(),
+            "client": _FakeBotForEngagement({700: channel}),
+        },
+    )()
+    view = views.GiveawayJoinView()
+    await view.join_btn.callback(ix_join)
+    assert "Berhasil ikut" in ix_join.response.sent[0]["content"]
+    assert engagement.giveaways[message_id]["entries"] == [501]
+    assert fake_message.edits, "embed giveaway harus diperbarui setelah peserta masuk"
+
+    # Klik kedua tidak menambah peluang
+    await view.join_btn.callback(ix_join)
+    assert "sudah terdaftar" in ix_join.response.sent[1]["content"]
+    assert engagement.giveaways[message_id]["entries"] == [501]
+
+    # Tombol batalkan mengeluarkan peserta
+    await view.leave_btn.callback(ix_join)
+    assert engagement.giveaways[message_id]["entries"] == []

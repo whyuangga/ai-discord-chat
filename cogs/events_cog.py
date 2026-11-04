@@ -36,6 +36,11 @@ from community_tools import (
     maybe_refresh_sticky,
     save_community_tools_to_disk,
 )
+from engagement import (
+    handle_channel_delete as handle_engagement_channel_delete,
+    match_auto_reply,
+    save_engagement_to_disk,
+)
 from config import BOT_VERSION
 from games import active_channel_games, cancel_channel_game, handle_active_game_guess
 from storage import remove_thread_data, save_sessions_to_disk
@@ -133,6 +138,8 @@ def register_events_cog(bot: commands.Bot) -> None:
                 await save_server_features_to_disk()
         if handle_community_channel_delete(channel):
             await save_community_tools_to_disk()
+        if handle_engagement_channel_delete(channel):
+            await save_engagement_to_disk()
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:
@@ -214,6 +221,25 @@ def register_events_cog(bot: commands.Bot) -> None:
                     return
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Anti-Phishing gagal memeriksa pesan: %s", exc)
+
+        # 1C. Balasan Otomatis berbasis kata kunci (khusus channel yang diaktifkan Admin).
+        #     Dijalankan sebelum AI & hanya bila benar-benar cocok, sehingga obrolan
+        #     antar-member tidak pernah terganggu (ada jeda aman per channel).
+        if message.guild is not None:
+            try:
+                auto_reply = match_auto_reply(message.channel.id, message.content or "")
+                if auto_reply:
+                    await message.reply(
+                        auto_reply[:1900],
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                    await save_engagement_to_disk()
+                    return
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Auto-responder gagal: %s", exc)
 
         # 2. Rute AI Agent Komunitas di Text Channel, Channel Forum/Media, & Thread Publik
         if isinstance(message.channel, (discord.TextChannel, discord.Thread)) and bot.user is not None:
