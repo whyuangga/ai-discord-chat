@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.9.0-beta"
+BOT_VERSION = "1.10.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -153,6 +153,8 @@ COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
 MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
 ANTISPAM_FILE = DATA_DIR / "antispam.json"
+LEVELS_FILE = DATA_DIR / "levels.json"
+TICKETS_FILE = DATA_DIR / "tickets.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -182,6 +184,26 @@ STARBOARD_DEFAULT_THRESHOLD: int = _env_int("STARBOARD_DEFAULT_THRESHOLD", 3, mi
 REMINDER_MAX_PER_USER: int = _env_int("REMINDER_MAX_PER_USER", 15, minimum=1)
 # Jeda minimum (detik) sebelum pesan sticky diturunkan ulang agar channel tidak dibanjiri bot
 STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
+# ==============================================================================
+# LEVELING & XP (Tier 2C) — default NONAKTIF
+# ==============================================================================
+# XP per pesan (acak antara min & max) + jeda per member agar tidak bisa dispam.
+LEVELS_XP_MIN: int = _env_int("LEVELS_XP_MIN", 15, minimum=1)
+LEVELS_XP_MAX: int = _env_int("LEVELS_XP_MAX", 25, minimum=1)
+LEVELS_COOLDOWN_SEC: int = _env_int("LEVELS_COOLDOWN_SEC", 60, minimum=0)
+# Batas atas level agar perhitungan tetap cepat & wajar
+LEVELS_MAX_LEVEL: int = _env_int("LEVELS_MAX_LEVEL", 100, minimum=5)
+# Jumlah member teratas yang disimpan per server (menjaga file JSON tetap kecil)
+LEVELS_MAX_MEMBERS: int = _env_int("LEVELS_MAX_MEMBERS", 500, minimum=25)
+
+# ==============================================================================
+# SISTEM TIKET DUKUNGAN (Tier 2C) — default NONAKTIF
+# ==============================================================================
+# Tiket dibuat sebagai Private Thread (tidak memakan slot channel server).
+TICKET_MAX_OPEN_PER_USER: int = _env_int("TICKET_MAX_OPEN_PER_USER", 2, minimum=1)
+TICKET_MAX_TRANSCRIPT_LINES: int = _env_int("TICKET_MAX_TRANSCRIPT_LINES", 400, minimum=50)
+TICKET_AUTO_CLOSE_HOURS: int = _env_int("TICKET_AUTO_CLOSE_HOURS", 0, minimum=0)
+
 # ==============================================================================
 # ANTI-SPAM & ANTI-RAID RINGAN (Tier 2B) — default LAPOR SAJA
 # ==============================================================================

@@ -19,6 +19,7 @@ from cogs.engagement_cog import (
     register_engagement_cog,
     ultah_group,
 )
+from cogs.growth_cog import level_group, register_growth_cog, tiket_group
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
 from cogs.music_cog import musik_group, register_music_cog
@@ -53,6 +54,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_server_cog(bot)
     register_community_cog(bot)
     register_engagement_cog(bot)
+    register_growth_cog(bot)
     register_music_cog(bot)
     register_events_cog(bot)
 
@@ -60,6 +62,8 @@ def register_all_cogs(bot: commands.Bot) -> None:
 __all__ = [
     "agent_group",
     "giveaway_group",
+    "level_group",
+    "tiket_group",
     "jawab_group",
     "pengumuman_group",
     "ultah_group",

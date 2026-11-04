@@ -42,6 +42,13 @@ from antispam import (
     handle_spam_guard,
     save_antispam_to_disk,
 )
+from cogs.growth_cog import handle_message_xp
+from levels import handle_channel_delete as handle_levels_channel_delete, save_levels_to_disk
+from tickets import (
+    handle_channel_delete as handle_tickets_channel_delete,
+    handle_thread_delete as handle_tickets_thread_delete,
+    save_tickets_to_disk,
+)
 from engagement import (
     handle_channel_delete as handle_engagement_channel_delete,
     match_auto_reply,
@@ -98,6 +105,9 @@ def register_events_cog(bot: commands.Bot) -> None:
         tid = payload.thread_id
         cancel_channel_game(tid)
         remove_agent_thread_runtime(tid)
+        if handle_tickets_thread_delete(tid):
+            await save_tickets_to_disk()
+            logger.info("Catatan tiket %s dibersihkan karena thread dihapus.", tid)
         if remove_thread_data(tid):
             await save_sessions_to_disk()
             logger.info("Data sesi privat dibersihkan karena thread %s dihapus.", tid)
@@ -148,6 +158,10 @@ def register_events_cog(bot: commands.Bot) -> None:
             await save_engagement_to_disk()
         if handle_antispam_channel_delete(channel):
             await save_antispam_to_disk()
+        if handle_levels_channel_delete(channel):
+            await save_levels_to_disk()
+        if handle_tickets_channel_delete(channel):
+            await save_tickets_to_disk()
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:
@@ -244,7 +258,14 @@ def register_events_cog(bot: commands.Bot) -> None:
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Anti-Spam gagal memeriksa pesan: %s", exc)
 
-        # 1C. Balasan Otomatis berbasis kata kunci (khusus channel yang diaktifkan Admin).
+        # 1C. XP Leveling (hanya channel/role yang diizinkan, ada jeda anti-farming)
+        if message.guild is not None:
+            try:
+                await handle_message_xp(bot, message)
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Pemberian XP level gagal: %s", exc)
+
+        # 1D. Balasan Otomatis berbasis kata kunci (khusus channel yang diaktifkan Admin).
         #     Dijalankan sebelum AI & hanya bila benar-benar cocok, sehingga obrolan
         #     antar-member tidak pernah terganggu (ada jeda aman per channel).
         if message.guild is not None:

@@ -37,6 +37,8 @@ from community_tools import (
     verification_guilds,
 )
 from engagement import announcements, auto_reply_channels, birthdays, giveaways
+from levels import level_guilds as _level_guilds, levels as _levels
+from tickets import tickets as _tickets
 from games import active_channel_games
 from music import get_player, music_status
 from storage import image_thread_settings, thread_chats
@@ -390,6 +392,14 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         value=(
             f"`{len(giveaways)}` giveaway | `{len(birthdays)}` ultah | "
             f"`{len(auto_reply_channels)}` auto-responder | `{len(announcements)}` pengumuman"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📈 Level & 🎟️ Tiket",
+        value=(
+            f"`{len(_level_guilds)}` server leveling | `{len(_levels)}` data XP | "
+            f"`{len(_tickets)}` tiket tercatat"
         ),
         inline=False,
     )

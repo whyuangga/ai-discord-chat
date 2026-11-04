@@ -14,8 +14,10 @@ import antispam
 import community_tools
 import engagement
 import games
+import levels
 import music
 import server_features
+import tickets
 import views
 import wavelink
 import main as bot_main
@@ -93,6 +95,10 @@ def clean_storage_state(tmp_path, monkeypatch):
     monkeypatch.setattr(engagement, "ENGAGEMENT_FILE", tmp_path / "engagement.json")
     monkeypatch.setattr(antispam, "DATA_DIR", tmp_path)
     monkeypatch.setattr(antispam, "ANTISPAM_FILE", tmp_path / "antispam.json")
+    monkeypatch.setattr(levels, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(levels, "LEVELS_FILE", tmp_path / "levels.json")
+    monkeypatch.setattr(tickets, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tickets, "TICKETS_FILE", tmp_path / "tickets.json")
     storage.thread_chats.clear()
     storage.image_thread_settings.clear()
     storage._closing_threads.clear()
@@ -128,6 +134,11 @@ def clean_storage_state(tmp_path, monkeypatch):
     engagement._last_auto_reply_at.clear()
     antispam.spam_guilds.clear()
     antispam.reset_runtime_state()
+    levels.level_guilds.clear()
+    levels.levels.clear()
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    tickets._ticket_seq.clear()
     community_agent._recent_channel_speakers.clear()
     community_agent._standalone_last_reply_at.clear()
     community_agent._post_runtime_state.clear()
@@ -164,6 +175,11 @@ def clean_storage_state(tmp_path, monkeypatch):
     engagement._last_auto_reply_at.clear()
     antispam.spam_guilds.clear()
     antispam.reset_runtime_state()
+    levels.level_guilds.clear()
+    levels.levels.clear()
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    tickets._ticket_seq.clear()
     utils.clear_user_cooldowns()
     ai_handler.clear_model_cooldowns()
 
@@ -2185,11 +2201,13 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "musik",
         # v1.8.0-beta (Tier 2A): fitur keramaian server tanpa kuota AI
         "giveaway", "ultah", "jawab-otomatis", "pengumuman",
+        # v1.10.0-beta (Tier 2C): leveling & tiket dukungan
+        "level", "tiket",
     }
     assert len(chat_cmds) <= 100
 
     # 2. Pastikan seluruh 5 kategori halaman /bantuan ter-render rapi & patuh batas karakter SelectOption Discord
-    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin", "engagement"):
+    for cat in ("overview", "sesi", "tools", "games", "server", "komunitas", "musik", "admin", "engagement", "growth"):
         emb = views.build_help_embed(cat)
         assert len(emb.title) <= 256
         assert len(emb.fields) >= 2
@@ -4208,3 +4226,393 @@ async def test_antispam_command_and_help_structure():
 
     help_embed = views.build_help_embed("server")
     assert any("Anti-Spam" in f.name for f in help_embed.fields)
+
+
+# ==============================================================================
+# LEVELING & XP + TIKET DUKUNGAN (Tier 2C)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_levels_formula_config_and_xp_flow():
+    """Rumus XP, jeda anti-farming, pengecualian channel/role, level-up, & persistensi."""
+    # 1. Rumus XP monoton naik
+    assert levels.xp_for_level(0) == 100
+    assert levels.xp_for_level(1) == 155
+    assert levels.xp_for_level(5) == 475
+    assert levels.total_xp_for_level(0) == 0
+    assert levels.total_xp_for_level(2) == 255
+    assert levels.level_from_total_xp(0) == 0
+    assert levels.level_from_total_xp(99) == 0
+    assert levels.level_from_total_xp(100) == 1
+    assert levels.level_from_total_xp(255) == 2
+    assert levels.level_from_total_xp(10**9) == config.LEVELS_MAX_LEVEL
+    current, needed = levels.progress_in_level(105, 1)
+    assert (current, needed) == (5, 155)
+    bar = levels.build_progress_bar(50, 100)
+    assert bar.count("▰") == 6 and bar.count("▱") == 6
+    assert levels.build_progress_bar(200, 100).count("▰") == 12
+
+    # 2. Leveling default NONAKTIF -> tidak ada XP
+    assert levels.add_message_xp(10, 501, now=1000.0) is None
+    assert levels.is_leveling_active(10) is False
+
+    # 3. Aktifkan & beri XP
+    cfg = levels.set_level_config(10, aktif=True, xp_min=20, xp_max=20, cooldown=60)
+    assert cfg is not None and levels.is_leveling_active(10) is True
+    import random
+
+    first = levels.add_message_xp(10, 501, now=2000.0, rng=random.Random(1))
+    assert first is not None and first["gained"] == 20 and first["level_up"] is False
+    # Jeda anti-farming: pesan berikutnya dalam 60 detik tidak dapat XP
+    assert levels.add_message_xp(10, 501, now=2030.0) is None
+    second = levels.add_message_xp(10, 501, now=2100.0)
+    assert second is not None and second["xp"] == 40
+
+    # 4. Naik level -> dapat role hadiah bila diatur
+    levels.set_level_role(10, 1, 777)
+    data = levels.levels["10:501"]
+    data["xp"] = 95
+    data["level"] = 0
+    up = levels.add_message_xp(10, 501, now=3000.0)
+    assert up is not None and up["level_up"] is True and up["level"] == 1
+    assert up["role_id"] == 777
+    assert levels.get_level_config(10)["leveled_up"] == 1
+    assert levels.reward_role_for_level(levels.get_level_config(10), 5) is None
+    levels.set_level_role(10, 1, None)
+    assert levels.reward_role_for_level(levels.get_level_config(10), 1) is None
+
+    # 5. Channel & role yang diabaikan tidak memberi XP
+    levels.set_level_config(10, ignore_channels=[900], ignore_roles=[55])
+    assert levels.add_message_xp(10, 502, channel_id=900, now=4000.0) is None
+    assert levels.add_message_xp(10, 502, channel_id=901, role_ids={55}, now=4001.0) is None
+    assert levels.add_message_xp(10, 502, channel_id=901, role_ids={1}, now=4002.0) is not None
+
+    # 6. Kartu level & papan peringkat
+    member = type("M", (), {"display_name": "Rina", "display_avatar": None})()
+    card = levels.build_level_embed(member, levels.get_member_level(10, 501), levels.get_level_config(10))
+    assert "Level 1" in card.title and "Rina" in card.title
+    assert "▰" in card.description or "▱" in card.description
+    empty_card = levels.build_level_embed(member, levels.get_member_level(10, 999))
+    assert empty_card.fields[0].value == "`0`"
+
+    for idx in range(12):
+        levels.levels[f"10:{600 + idx}"] = {"xp": 100 + idx * 50, "level": 1, "messages": 5, "last_at": 0}
+    rows, page, total_pages = levels.leaderboard(10, limit=10, page=0)
+    assert len(rows) == 10 and page == 0 and total_pages == 2
+    assert rows[0][0] == 611  # XP tertinggi
+    board = levels.build_leaderboard_embed(
+        "Server Uji", rows, page=page, total_pages=total_pages, total_members=13, page_size=10
+    )
+    assert "🥇" in board.fields[0].value and "Papan Peringkat" in board.title
+    assert "`1/2`" in board.description
+
+    # 7. Persistensi + reset member
+    await levels.save_levels_to_disk()
+    assert levels.LEVELS_FILE.exists()
+    levels.levels.clear()
+    levels.level_guilds.clear()
+    assert levels.load_levels_from_disk() == 1
+    assert "10:501" in levels.levels
+    assert levels.get_level_config(10)["cooldown"] == 60
+    assert levels.reset_member(10, 501) is True
+    assert levels.reset_member(10, 501) is False
+
+    # 8. Pemangkasan member agar JSON tetap kecil
+    monkeypatch_limit = 3
+    levels.levels.clear()
+    for idx in range(10):
+        levels.levels[f"10:{idx}"] = {"xp": (idx + 1) * 10, "level": 0, "messages": 1, "last_at": 0}
+    original = levels.LEVELS_MAX_MEMBERS
+    try:
+        levels.LEVELS_MAX_MEMBERS = monkeypatch_limit
+        await levels.save_levels_to_disk()
+        assert len(levels.levels) == monkeypatch_limit
+        assert "10:9" in levels.levels  # XP terbesar dipertahankan
+    finally:
+        levels.LEVELS_MAX_MEMBERS = original
+
+
+@pytest.mark.asyncio
+async def test_tickets_lifecycle_config_and_transcript():
+    """Siklus tiket: konfigurasi, batas per member, klaim, tutup, transkrip, & persistensi."""
+    # 1. Default NONAKTIF
+    assert tickets.is_ticket_enabled(10) is False
+
+    # 2. Konfigurasi panel
+    cfg = tickets.set_ticket_config(
+        10,
+        enabled=True,
+        panel_channel_id=700,
+        staff_role_id=42,
+        log_channel_id=900,
+        max_open=2,
+    )
+    assert tickets.is_ticket_enabled(10) is True
+    assert cfg["max_open"] == 2
+
+    # 3. Batas tiket aktif per member
+    assert tickets.can_open_ticket(10, 501) == (True, "")
+    first = tickets.register_ticket(1001, 10, 501, topic="Masalah verifikasi")
+    assert first["number"] == 1 and first["status"] == "terbuka"
+    tickets.register_ticket(1002, 10, 501)
+    allowed, reason = tickets.can_open_ticket(10, 501)
+    assert allowed is False and "2 tiket aktif" in reason
+    assert tickets.can_open_ticket(10, 502)[0] is True
+
+    # 4. Klaim tiket
+    status, claimed = tickets.claim_ticket(1001, 777)
+    assert status == "ok" and claimed["status"] == "diklaim" and claimed["claimed_by"] == 777
+    assert tickets.claim_ticket(1001, 777)[0] == "sudah"
+    assert tickets.claim_ticket(9999, 777)[0] == "tidak_ada"
+
+    # 5. Tambah member ke tiket + hak lihat
+    assert tickets.add_user_to_ticket(1001, 888) is True
+    assert tickets.add_user_to_ticket(1001, 888) is False
+    assert tickets.can_view_ticket(tickets.get_ticket(1001), 888) is True
+    assert tickets.can_view_ticket(tickets.get_ticket(1001), 999) is False
+
+    # 6. Tutup tiket + transkrip
+    status, closed = tickets.close_ticket(1001, 777, now=5000.0)
+    assert status == "ok" and closed["status"] == "selesai"
+    assert tickets.close_ticket(1001, 777)[0] == "selesai"
+    assert tickets.get_ticket_config(10)["closed"] == 1
+
+    class _Msg:
+        def __init__(self, name, content, atts=()):
+            self.author = type("A", (), {"display_name": name})()
+            self.content = content
+            self.created_at = 1_700_000_000
+            self.attachments = [type("At", (), {"url": url})() for url in atts]
+
+    messages = [_Msg("Warga", "Bot tidak bisa verifikasi"), _Msg("Staf", "Sudah dibantu ya", ["https://x/y.png"])]
+    text, filename = tickets.build_transcript(closed, messages)
+    assert filename == "tiket-0001.txt"
+    assert "TRANSKRIP TIKET #0001" in text
+    assert "Warga: Bot tidak bisa verifikasi" in text
+    assert "lampiran: https://x/y.png" in text
+
+    file_obj = tickets.transcript_file(text, filename)
+    assert file_obj.filename == filename
+
+    # 7. Daftar & statistik
+    active = tickets.list_tickets(10)
+    assert len(active) == 2
+    assert tickets.list_tickets(10, status="terbuka")[0]["thread_id"] == 1002
+    embed = tickets.build_ticket_status_embed(10)
+    body = " ".join(f"{f.name} {f.value}" for f in embed.fields)
+    assert "Sistem Tiket" in embed.title
+    assert "Total selesai: `1`" in body
+    assert "NONAKTIF" in tickets.build_ticket_status_embed(99).title
+
+    # 8. Tiket kedaluwarsa (auto-close opsional)
+    assert tickets.stale_tickets(hours=0) == []
+    stale = tickets.stale_tickets(hours=1, now=time.time() + 7200)
+    assert 1002 in stale
+
+    # 9. Persistensi
+    await tickets.save_tickets_to_disk()
+    assert tickets.TICKETS_FILE.exists()
+    tickets.tickets.clear()
+    tickets.ticket_guilds.clear()
+    tickets._ticket_seq.clear()
+    assert tickets.load_tickets_from_disk() == 1
+    assert tickets.get_ticket(1001)["status"] == "selesai"
+    assert tickets.next_ticket_number(10) == 3
+
+    # 10. Panel lama setelah restart tetap tidak membuat nomor ganda
+    assert tickets.register_ticket(1003, 10, 503)["number"] == 4
+
+    # 11. Matikan & bersihkan thread yang dihapus
+    assert tickets.disable_tickets(10) is True
+    assert tickets.is_ticket_enabled(10) is False
+    assert tickets.handle_thread_delete(1003) is True
+    assert tickets.get_ticket(1003) is None
+    assert tickets.cleanup_tickets_runtime(max_closed=0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_growth_commands_views_and_help():
+    """Struktur command /level & /tiket, tombol persisten, & panduan /bantuan kategori growth."""
+    from cogs.growth_cog import level_group, tiket_group
+
+    assert level_group.name == "level"
+    assert {c.name for c in level_group.commands} == {"lihat", "papan", "atur", "role", "status"}
+    assert tiket_group.name == "tiket"
+    assert {c.name for c in tiket_group.commands} == {
+        "panel", "status", "tutup", "tambah", "daftar", "matikan",
+    }
+    for group in (level_group, tiket_group):
+        assert len(group.description) <= 100
+        for cmd in group.commands:
+            assert len(cmd.description) <= 100
+
+    panel = views.TicketPanelView()
+    assert panel.is_persistent() is True
+    assert [c.custom_id for c in panel.children] == ["ticket:panel:open"]
+    actions = views.TicketActionsView()
+    assert actions.is_persistent() is True
+    assert [c.custom_id for c in actions.children] == ["ticket:panel:claim", "ticket:panel:close"]
+
+    panel_embed = tickets.build_panel_embed("Server Uji", staff_role_id=42)
+    assert "Pusat Bantuan" in panel_embed.title
+    assert "<@&42>" in " ".join(f.value for f in panel_embed.fields)
+
+    ticket_embed = tickets.build_ticket_embed(
+        {"number": 7, "user_id": 501, "status": "terbuka", "topic": "Bug", "claimed_by": None},
+        staff_role_id=42,
+    )
+    assert "#0007" in ticket_embed.title
+
+    growth_help = views.build_help_embed("growth")
+    assert len(growth_help.fields) == 2
+    menu = views.HelpMenuView(requester_id=1)
+    assert "growth" in [opt.value for opt in menu.children[0].options]
+
+
+@pytest.mark.asyncio
+async def test_growth_message_xp_hook_and_ticket_panel_smoke(monkeypatch):
+    """Hook XP dari pesan Discord + smoke test tombol panel tiket (tanpa Discord asli)."""
+    from cogs.growth_cog import handle_message_xp
+
+    # --- Hook XP: pesan member biasa -> XP bertambah & pengumuman dikirim saat naik level ---
+    levels.set_level_config(10, aktif=True, xp_min=100, xp_max=100, cooldown=0)
+    levels.levels["10:501"] = {"xp": 0, "level": 0, "messages": 0, "last_at": 0}
+
+    channel = _FakeAnnouncementChannel(700)
+    bot = _FakeBotForEngagement({700: channel})
+    message = type(
+        "Msg",
+        (),
+        {
+            "guild": type("G", (), {"id": 10})(),
+            "author": type("U", (), {"id": 501, "bot": False, "roles": []})(),
+            "channel": channel,
+            "content": "halo semua",
+        },
+    )()
+    await handle_message_xp(bot, message)
+    assert levels.levels["10:501"]["xp"] == 100
+    assert levels.levels["10:501"]["level"] == 1
+    assert channel.sent and "level 1" in channel.sent[-1]["args"][0]
+
+    # Pesan dari bot tidak diberi XP
+    bot_message = type(
+        "Msg",
+        (),
+        {
+            "guild": type("G", (), {"id": 10})(),
+            "author": type("U", (), {"id": 999, "bot": True, "roles": []})(),
+            "channel": channel,
+            "content": "pengumuman",
+        },
+    )()
+    await handle_message_xp(bot, bot_message)
+    assert "10:999" not in levels.levels
+
+    # --- Smoke test tombol "Buat Tiket" ---
+    tickets.set_ticket_config(10, enabled=True, panel_channel_id=700, staff_role_id=42, max_open=2)
+
+    class _FakeThread(_FakeAnnouncementChannel):
+        def __init__(self):
+            super().__init__(710)
+            self.added_users = []
+            self.name = "tiket-uji"
+
+        async def add_user(self, user):
+            self.added_users.append(getattr(user, "id", 0))
+
+        async def edit(self, **kwargs):
+            self.edited.append(kwargs)
+
+    thread = _FakeThread()
+
+    class _PanelChannel(_FakeAnnouncementChannel):
+        async def create_thread(self, **kwargs):
+            self.created_with = kwargs
+            return thread
+
+    panel_channel = _PanelChannel(700)
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+            self.deferred = False
+
+        async def send_message(self, content=None, *, embed=None, ephemeral=False, view=None):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+        async def defer(self, *, ephemeral=False):
+            self.deferred = True
+
+    class _Followup:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, content=None, *, embed=None, ephemeral=False):
+            self.sent.append({"content": content, "embed": embed, "ephemeral": ephemeral})
+
+    guild = type(
+        "G",
+        (),
+        {
+            "id": 10,
+            "name": "Server Uji",
+            "get_role": lambda self, rid: type("R", (), {"id": rid, "members": []})(),
+        },
+    )()
+    user = type(
+        "U",
+        (),
+        {
+            "id": 501,
+            "name": "warga",
+            "display_name": "Warga",
+            "roles": [],
+            "bot": False,
+            "guild_permissions": type(
+                "P", (), {"administrator": False, "manage_threads": False, "manage_channels": False, "manage_messages": False}
+            )(),
+        },
+    )()
+    ix = type(
+        "Ix",
+        (),
+        {
+            "guild": guild,
+            "guild_id": 10,
+            "user": user,
+            "channel": panel_channel,
+            "channel_id": 700,
+            "client": _FakeBotForEngagement({700: panel_channel}),
+            "response": _Resp(),
+            "followup": _Followup(),
+        },
+    )()
+
+    view = views.TicketPanelView()
+    await view.open_btn.callback(ix)
+    assert ix.response.deferred is True
+    assert thread.added_users == [501]
+    assert tickets.tickets, "tiket harus tercatat"
+    record = tickets.get_ticket(thread.id)
+    assert record["user_id"] == 501 and record["status"] == "terbuka"
+    assert "Tiket dibuat" in ix.followup.sent[0]["content"]
+    assert thread.sent and thread.sent[0]["view"] is not None
+
+    # Tiket kedua & ketiga ditolak karena batas max_open=2
+    ix2 = type(
+        "Ix",
+        (),
+        {
+            "guild": guild,
+            "guild_id": 10,
+            "user": user,
+            "channel": panel_channel,
+            "channel_id": 700,
+            "client": _FakeBotForEngagement({700: panel_channel}),
+            "response": _Resp(),
+            "followup": _Followup(),
+        },
+    )()
+    tickets.register_ticket(720, 10, 501)
+    await view.open_btn.callback(ix2)
+    assert "2 tiket aktif" in ix2.response.sent[0]["content"]

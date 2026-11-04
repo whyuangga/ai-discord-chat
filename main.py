@@ -47,6 +47,11 @@ from engagement import (
     save_engagement_to_disk,
 )
 from games import load_game_scores_from_disk, save_game_scores_to_disk
+from levels import (
+    cleanup_levels_runtime,
+    load_levels_from_disk,
+    save_levels_to_disk,
+)
 from music import (
     WAVELINK_AVAILABLE,
     cleanup_music_runtime,
@@ -62,6 +67,11 @@ from server_features import (
     run_serverstats_check,
     save_server_features_to_disk,
 )
+from tickets import (
+    cleanup_tickets_runtime,
+    load_tickets_from_disk,
+    save_tickets_to_disk,
+)
 from storage import (
     cleanup_expired_sessions,
     load_sessions_from_disk,
@@ -76,6 +86,8 @@ from views import (
     MainPanelControlView,
     GiveawayJoinView,
     MusicPlayerView,
+    TicketActionsView,
+    TicketPanelView,
     VerificationGateView,
 )
 
@@ -177,6 +189,8 @@ class GeminiDiscordBot(commands.Bot):
             load_engagement_from_disk()
         )
         loaded_antispam = load_antispam_from_disk()
+        loaded_levels = load_levels_from_disk()
+        loaded_tickets = load_tickets_from_disk()
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -208,6 +222,11 @@ class GeminiDiscordBot(commands.Bot):
         )
         logger.info("Anti-Spam & Anti-Raid dimuat: %d server aktif.", loaded_antispam)
         logger.info(
+            "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
+            loaded_levels,
+            loaded_tickets,
+        )
+        logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
             loaded_reminders_count,
@@ -225,6 +244,8 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(VerificationGateView())
         self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
         self.add_view(GiveawayJoinView())  # tombol 🎉 giveaway tetap aktif setelah restart
+        self.add_view(TicketPanelView())   # panel "Buat Tiket"
+        self.add_view(TicketActionsView())  # tombol klaim/tutup di dalam thread tiket
 
         # 3B. Hubungkan node musik Lavalink (dilewati otomatis bila belum dikonfigurasi)
         if WAVELINK_AVAILABLE:
@@ -271,6 +292,8 @@ class GeminiDiscordBot(commands.Bot):
         await save_music_settings_to_disk()
         await save_engagement_to_disk()
         await save_antispam_to_disk()
+        await save_levels_to_disk()
+        await save_tickets_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -305,6 +328,8 @@ async def idle_chat_watcher():
             cleanup_music_runtime()
             cleanup_engagement_runtime()
             cleanup_antispam_runtime()
+            cleanup_levels_runtime()
+            cleanup_tickets_runtime()
             prune_expired_user_cooldowns()
     except Exception as exc:
         logger.warning("Error pada idle_chat_watcher: %s", sanitize_error_message(exc))
