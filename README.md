@@ -1110,7 +1110,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 1. Masuk ke dashboard **[Wispbyte](https://wispbyte.com)**, lalu buat server baru dengan runtime **Python** (pilih Python 3.11 atau 3.12+).
 2. **Cara Paling Praktis (Git Auto-Update — Rekomendasi):**
    - Di tab **Startup** Wispbyte, isi **Git Repo Address** dengan URL repository GitHub Anda, isi **Git Branch** dengan `main` (huruf kecil), nyalakan **Auto Update = ON**, dan matikan **User Uploaded Files = OFF**. Setiap kali Anda klik **Restart**, Wispbyte otomatis menarik versi terbaru dari GitHub!
-   - *(Alternatif manual)* Buka menu **Files** di panel Wispbyte, lalu unggah `main.py`, `community_agent.py`, `games.py`, `ai_handler.py`, `views.py`, `storage.py`, `utils.py`, `config.py`, dan `requirements.txt`.
+   - *(Alternatif manual)* Buka menu **Files** di panel Wispbyte, lalu unggah `main.py`, `community_agent.py`, `games.py`, `ai_handler.py`, folder `views/`, folder `cogs/`, `storage.py`, `utils.py`, `config.py`, dan `requirements.txt`.
 3. Buka menu **Startup** di panel Wispbyte:
    - Pastikan **Startup File / App py file** diatur ke: `main.py`
    - Pastikan **Requirements file** diatur ke: `requirements.txt` *(atau isi `discord.py aiohttp python-dotenv` pada kolom Additional Python Packages)*.
@@ -1184,7 +1184,15 @@ ai-discord-chat/
 ├── insights.py         # Pencatat pemakaian AI, cache rekap berperiode, & mesin FAQ lokal (0 kuota)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
-├── views.py            # Komponen UI persisten, Panel Admin Interaktif, Pengelola FAQ, & Menu /bantuan
+├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)
+│   ├── __init__.py     # Re-export semua view: `from views import X` tetap bekerja
+│   ├── session.py      # Panel & tombol ruang AI privat (/sesi): panel utama, persona, gambar, model
+│   ├── agent.py        # /agent panel & /agent status (kartu V2, toggle berwarna), pengelola FAQ
+│   ├── music.py        # Panel pemutar ala Rythm, antrean berhalaman, panel musik V2
+│   ├── tickets.py      # Panel tiket persisten + tombol klaim/tutup di thread
+│   ├── community.py    # Gerbang verifikasi & tombol "Tandai Selesai" forum
+│   ├── engagement.py   # Tombol ikut/batalkan giveaway
+│   └── help.py         # Menu /bantuan klasik & panel panduan V2 (11 kategori)
 ├── storage.py          # Penyimpanan sesi privat JSON atomik & auto-recovery dari Discord Thread
 ├── utils.py            # Pemotong kode Markdown, Live Web/News Search gratis, SSRF guard, & jam lokal
 ├── config.py           # Konfigurasi variabel .env, daftar 5 kepribadian Gemini, gaya & rasio gambar
