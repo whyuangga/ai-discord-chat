@@ -20,3 +20,9 @@ env/
 .ruff_cache/
 *.log
 .DS_Store
+
+# Situs dokumentasi (Hugo) — hasil build tidak di-commit
+site/public/
+site/resources/
+site/.hugo_build.lock
+site/hugo_stats.json

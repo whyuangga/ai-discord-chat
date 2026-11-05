@@ -1,0 +1,44 @@
+# Konfigurasi situs dokumentasi (Hugo + tema Hextra).
+# Konten di `content/` dihasilkan dari `docs/*.md` lewat `python3 tools/sync_docs.py`.
+baseURL: "https://ai-discord-chat-docs.pages.dev/"
+title: "AI Discord Chat — Dokumentasi"
+enableRobotsTXT: true
+locale: id
+defaultContentLanguage: id
+
+theme: hextra
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true   # kartu V2 & tabel memakai HTML mentah
+  highlight:
+    noClasses: false
+
+params:
+  description: "Dokumentasi bot Discord modular berbasis Google Gemini — 52 command utama, JSON, Free Tier."
+  navbar:
+    displayTitle: true
+    displayLogo: false
+  theme:
+    default: system
+    displayToggle: true
+  footer:
+    displayCopyright: true
+    displayPoweredBy: true
+  search:
+    enable: true
+    # FlexSearch di-vendor di `assets/` supaya build tidak perlu jaringan.
+    flexsearch:
+      js: "flexsearch.bundle.min.js"
+
+menu:
+  main:
+    - name: Dokumentasi
+      pageRef: /docs
+      weight: 1
+    - name: GitHub
+      url: https://github.com/whyuangga/ai-discord-chat
+      weight: 2
+      params:
+        icon: github
