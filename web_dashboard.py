@@ -130,9 +130,15 @@ def collect_usage(guild_id: int = 0) -> dict:
     bucket = insights.ai_usage.get(insights.today_key()) or {}
     tokens_in, tokens_out = insights.token_totals()
 
-    def _top(counter: dict, limit: int = 5) -> list[list]:
+    def _label_kinds(counter: dict, limit: int = 8) -> list[list]:
+        """Jenis operasi dengan label ramah (mis. `🤖 Auto-Chat komunitas`)."""
         items = sorted((counter or {}).items(), key=lambda kv: int(kv[1]), reverse=True)
-        return [[str(k), int(v)] for k, v in items[:limit]]
+        labels = getattr(insights, "AI_KIND_LABELS", {}) or {}
+        return [[str(labels.get(k, k)), int(v)] for k, v in items[:limit]]
+
+    def _label_ids(counter: dict, prefix: str, limit: int = 5) -> list[list]:
+        items = sorted((counter or {}).items(), key=lambda kv: int(kv[1]), reverse=True)
+        return [[f"{prefix}{k}", int(v)] for k, v in items[:limit]]
 
     payload = {
         "date": insights.today_key(),
@@ -140,9 +146,9 @@ def collect_usage(guild_id: int = 0) -> dict:
         "cache_hits": int(bucket.get("cache_hits") or 0),
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
-        "kinds": _top(bucket.get("kinds") or {}, 8),
-        "users": _top(bucket.get("users") or {}, 5),
-        "channels": _top(bucket.get("channels") or {}, 5),
+        "kinds": _label_kinds(bucket.get("kinds") or {}, 8),
+        "users": _label_ids(bucket.get("users") or {}, "Member ", 5),
+        "channels": _label_ids(bucket.get("channels") or {}, "Channel ", 5),
         "cap_per_user": int(AI_DAILY_CAP_PER_USER or 0),
         "cap_per_guild": int(AI_DAILY_CAP_PER_GUILD or 0),
         "guild_used": 0,
