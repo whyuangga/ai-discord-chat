@@ -148,7 +148,13 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
         spam_on = bool(spam.get("enabled"))
         mode = str(spam.get("mode") or "lapor")
         lines = [
-            ui_kit.status_line("Voice Stats", "aktif" if stats_on else "nonaktif", state="on" if stats_on else "off"),
+            ui_kit.status_line(
+                "Counter Statistik",
+                f"aktif • `{server_features.STATS_CHANNEL_TYPES.get(server_features.stats_channel_type(gid), {}).get('label', 'voice')}`"
+                if stats_on
+                else "nonaktif",
+                state="on" if stats_on else "off",
+            ),
             ui_kit.status_line(
                 "Auto Role",
                 f"`{len(autorole.get('role_ids') or [])}` role",

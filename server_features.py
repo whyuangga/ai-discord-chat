@@ -77,6 +77,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
                 "enabled": True,
                 "category_id": _to_int(data.get("category_id")) or None,
                 "category_name": str(data.get("category_name") or STATS_CATEGORY_NAME)[:100],
+                "channel_type": str(data.get("channel_type") or "voice")
+                if str(data.get("channel_type") or "voice") in STATS_CHANNEL_TYPES
+                else "voice",
                 "channels": {str(k): _to_int(v) for k, v in (data.get("channels") or {}).items()},
                 "emojis": {
                     str(k): str(v)[:8]
@@ -205,6 +208,15 @@ STATS_CHANNEL_SPECS: tuple[tuple[str, str, str], ...] = (
 
 STATS_CATEGORY_NAME = "📊 Statistik Server"
 
+# Jenis channel untuk counter. Ikon di kiri nama channel ditentukan oleh TIPE ini
+# (bukan oleh bot): voice = 🔊, text = #, announcement = 📢, stage = 🎤.
+STATS_CHANNEL_TYPES: dict[str, dict] = {
+    "voice": {"label": "Voice channel (ikon 🔊)", "emoji": "🔊"},
+    "text": {"label": "Text channel (ikon #)", "emoji": "#️⃣"},
+    "news": {"label": "Announcement channel (ikon 📢)", "emoji": "📢"},
+    "stage": {"label": "Stage channel (ikon 🎤)", "emoji": "🎤"},
+}
+
 
 def set_serverstats_config(guild_id: int, *, enabled: bool) -> dict | None:
     """Mengaktifkan / menonaktifkan pembaruan otomatis Voice Channel statistik server."""
@@ -217,6 +229,7 @@ def set_serverstats_config(guild_id: int, *, enabled: bool) -> dict | None:
         "enabled": True,
         "category_id": existing.get("category_id"),
         "category_name": str(existing.get("category_name") or STATS_CATEGORY_NAME),
+        "channel_type": str(existing.get("channel_type") or "voice"),
         "channels": dict(existing.get("channels") or {}),
         "emojis": dict(existing.get("emojis") or {}),
         "last_update_at": float(existing.get("last_update_at") or 0.0),
@@ -274,6 +287,95 @@ def set_serverstats_category_name(guild_id: int, name: str | None) -> str:
         text = "Statistik Server"
     cfg["category_name"] = text
     return text
+
+
+def stats_channel_type(guild_id: int) -> str:
+    """Jenis channel counter milik server (`voice`/`text`/`news`/`stage`)."""
+    cfg = serverstats_guilds.get(int(guild_id)) or {}
+    kind = str(cfg.get("channel_type") or "voice")
+    return kind if kind in STATS_CHANNEL_TYPES else "voice"
+
+
+def set_serverstats_channel_type(guild_id: int, kind: str) -> str:
+    """Mengubah jenis channel counter (mengubah ikon di kiri nama channel)."""
+    chosen = str(kind or "voice").strip().lower()
+    if chosen not in STATS_CHANNEL_TYPES:
+        chosen = "voice"
+    cfg = serverstats_guilds.get(int(guild_id))
+    if cfg is None:
+        cfg = set_serverstats_config(int(guild_id), enabled=True)
+    # ID channel lama sengaja dipertahankan: saat update berikutnya channel bertipe
+    # berbeda itu dihapus lalu diganti channel baru (tidak menyisakan counter ganda).
+    cfg["channel_type"] = chosen
+    return chosen
+
+
+def _stats_channel_is_type(channel, kind: str) -> bool:
+    """True bila channel yang ada sudah memiliki tipe yang diinginkan."""
+    if channel is None:
+        return False
+    mapping = {
+        "voice": discord.VoiceChannel,
+        "text": discord.TextChannel,
+        "news": discord.TextChannel,     # announcement = TextChannel(news=True)
+        "stage": discord.StageChannel,
+    }
+    expected = mapping.get(kind)
+    if expected is None or not isinstance(channel, expected):
+        return False
+    if kind == "news":
+        return bool(getattr(channel, "is_news", lambda: False)())
+    if kind == "text":
+        return not bool(getattr(channel, "is_news", lambda: False)())
+    return True
+
+
+def _stats_overwrites(guild: discord.Guild, kind: str) -> dict:
+    """Izin aman per jenis channel: warga bisa melihat, tidak bisa mengganggu."""
+    if kind in ("voice", "stage"):
+        return {guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=True)}
+    return {
+        guild.default_role: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=False,
+            send_messages_in_threads=False,
+            create_public_threads=False,
+            create_private_threads=False,
+            add_reactions=False,
+        )
+    }
+
+
+async def _create_stats_channel(
+    guild: discord.Guild,
+    kind: str,
+    name: str,
+    category,
+    overwrites: dict,
+):
+    """Membuat satu channel counter sesuai tipe; announcement mundur ke teks bila ditolak."""
+    reason = "Server Stats otomatis"
+    if kind == "voice":
+        return await guild.create_voice_channel(name, category=category, overwrites=overwrites, reason=reason)
+    if kind == "stage":
+        try:
+            return await guild.create_stage_channel(
+                name, category=category, overwrites=overwrites, reason=reason
+            )
+        except (discord.Forbidden, discord.HTTPException, AttributeError):
+            return await guild.create_voice_channel(
+                name, category=category, overwrites=overwrites, reason=reason
+            )
+    if kind == "news":
+        try:
+            return await guild.create_news_channel(
+                name, category=category, overwrites=overwrites, reason=reason
+            )
+        except (discord.Forbidden, discord.HTTPException, AttributeError):
+            return await guild.create_text_channel(
+                name, category=category, overwrites=overwrites, reason=reason
+            )
+    return await guild.create_text_channel(name, category=category, overwrites=overwrites, reason=reason)
 
 
 def _count_channel_types(guild: discord.Guild) -> dict[str, int]:
@@ -454,9 +556,8 @@ async def update_serverstats_channels(
         except (discord.Forbidden, discord.HTTPException):
             pass
 
-    overwrites = {
-        guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=True)
-    }
+    kind = stats_channel_type(guild.id)
+    overwrites = _stats_overwrites(guild, kind)
 
     channels_cfg: dict = cfg.setdefault("channels", {})
     emojis = stats_emojis(guild.id)
@@ -465,23 +566,25 @@ async def update_serverstats_channels(
         desired = _stats_channel_name(emoji, label, values[key])
         existing = guild.get_channel(int(channels_cfg[key])) if channels_cfg.get(key) else None
 
-        if not isinstance(existing, discord.VoiceChannel):
+        if not _stats_channel_is_type(existing, kind):
+            # Tipe channel berubah (mis. voice → text): hapus counter lama milik bot,
+            # lalu cari channel sejenis yang sudah ada agar tidak duplikat saat restart.
+            if existing is not None:
+                try:
+                    await existing.delete(reason="Server Stats: ganti jenis channel")
+                    changed += 1
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
             existing = None
-            # Cari channel yang sudah ada dengan nama serupa agar tidak duplikat saat restart
-            for ch in getattr(guild, "voice_channels", []) or []:
-                # Cocokkan lewat label ("Total Member:") agar tidak duplikat saat ikon diganti
-                if f"{label}:" in str(getattr(ch, "name", "")):
+            for ch in getattr(guild, "channels", []) or []:
+                # Cocokkan lewat label ("Total Member:") + tipe yang sama
+                if f"{label}:" in str(getattr(ch, "name", "")) and _stats_channel_is_type(ch, kind):
                     existing = ch
                     break
 
         try:
             if existing is None:
-                created = await guild.create_voice_channel(
-                    desired,
-                    category=category,
-                    overwrites=overwrites,
-                    reason="Server Stats otomatis",
-                )
+                created = await _create_stats_channel(guild, kind, desired, category, overwrites)
                 channels_cfg[key] = created.id
                 changed += 1
                 continue

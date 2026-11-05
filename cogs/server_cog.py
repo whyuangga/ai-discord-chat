@@ -32,8 +32,11 @@ from server_features import (
     set_autorole_config,
     set_facts_config,
     set_security_config,
+    STATS_CHANNEL_TYPES,
     reset_serverstats_appearance,
     set_serverstats_category_name,
+    set_serverstats_channel_type,
+    stats_channel_type,
     set_serverstats_config,
     set_serverstats_emojis,
     stats_emojis,
@@ -133,9 +136,12 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
         )
         return
 
+    kind_meta = STATS_CHANNEL_TYPES[stats_channel_type(interaction.guild.id)]
     await interaction.followup.send(
         f"📊 **Server Stats Otomatis aktif!**\n"
-        f"• **{changed} Voice Channel** statistik dibuat/diperbarui di kategori `📊 Statistik Server`.\n"
+        f"• **{changed}** channel statistik dibuat/diperbarui di kategori `📊 Statistik Server`.\n"
+        f"• Jenis channel: {kind_meta['emoji']} **{kind_meta['label']}** "
+        f"*(ganti ikon channel lewat `/serverstats tipe`)*.\n"
         f"• Statistik akan **disinkronkan otomatis setiap ±10 menit** (aman dari rate limit Discord).\n"
         f"• Warga tidak bisa masuk ke channel penghitung tersebut.",
         ephemeral=True,
@@ -209,10 +215,9 @@ async def serverstats_ikon_cmd(
         + f"\n\n`{changed}` channel diperbarui."
     )
     note = (
-        "\n\n**Catatan:** ikon 🔊 di sisi kiri nama channel adalah ikon bawaan Discord untuk "
-        "*Voice Channel* dan **tidak bisa diganti** oleh bot mana pun. Yang bisa diatur adalah "
-        "emoji di dalam nama channel (di atas) dan nama kategorinya — misalnya `📊 Statistik Server` "
-        "atau tanpa emoji sama sekali."
+        "\n\n**Catatan:** ikon 🔊 di sisi kiri nama channel mengikuti **tipe channel**. "
+        "Kalau ingin ikon lain (`#`, 📢, 🎤), ganti tipenya lewat `/serverstats tipe`. "
+        "Yang diatur di sini adalah emoji di dalam nama channel dan nama kategorinya."
     )
     if not serverstats_guilds.get(guild_id, {}).get("enabled"):
         note = (
@@ -242,6 +247,94 @@ async def serverstats_ikon_cmd(
             ),
             guild_id,
             footer="Ikon voice channel tidak bisa diubah oleh bot",
+        ),
+        ephemeral=True,
+    )
+
+
+@serverstats_group.command(
+    name="tipe",
+    description="Pilih jenis channel counter (voice 🔊, text #, announcement 📢, stage 🎤)",
+)
+@app_commands.describe(
+    channel="Jenis channel yang dipakai untuk counter statistik",
+    aktif="True untuk langsung membuat/menerapkan (default), False hanya menyimpan pilihan",
+)
+@app_commands.choices(
+    channel=[
+        app_commands.Choice(name=f"{meta['emoji']} {meta['label']}", value=key)
+        for key, meta in STATS_CHANNEL_TYPES.items()
+    ]
+)
+async def serverstats_tipe_cmd(
+    interaction: discord.Interaction,
+    channel: app_commands.Choice[str],
+    aktif: bool = True,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    guild_id = interaction.guild.id
+    before = stats_channel_type(guild_id)
+    chosen = set_serverstats_channel_type(guild_id, channel.value)
+    await save_server_features_to_disk()
+
+    if not aktif:
+        await interaction.response.send_message(
+            f"💾 Jenis channel counter disimpan: **{STATS_CHANNEL_TYPES[chosen]['label']}**.\n"
+            "Jalankan `/serverstats otomatis aktif:True` untuk menerapkannya.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    enabled_now = bool(serverstats_guilds.get(guild_id, {}).get("enabled"))
+    if not enabled_now:
+        set_serverstats_config(guild_id, enabled=True)
+        set_serverstats_channel_type(guild_id, chosen)
+    changed = await update_serverstats_channels(
+        interaction.guild, force=True, bot=getattr(interaction, "client", None)
+    )
+
+    meta = STATS_CHANNEL_TYPES[chosen]
+    lines = [
+        f"### {meta['emoji']} Jenis Channel Counter",
+        f"• Sebelumnya: `{STATS_CHANNEL_TYPES.get(before, STATS_CHANNEL_TYPES['voice'])['label']}`",
+        f"• Sekarang: **{meta['label']}**",
+        f"• Channel dibuat/diperbarui: `{changed}`",
+    ]
+    if chosen == "voice":
+        lines.append("\nIkon 🔊 adalah ikon bawaan Discord untuk *Voice Channel*.")
+    else:
+        lines.append(
+            "\nCounter kini tampil sebagai channel bertipe "
+            f"**{meta['label']}**, sehingga ikonnya berubah mengikuti tipe tersebut "
+            "(bukan 🔊 lagi). Warga tetap bisa melihat angkanya, tapi **tidak bisa mengirim pesan**."
+        )
+    if changed == 0:
+        lines.append(
+            "\n⚠️ Tidak ada channel yang berubah. Pastikan bot punya izin **Manage Channels** "
+            "dan posisi role bot di atas kategori statistik."
+        )
+
+    import ui_kit
+    import ui_theme
+
+    body = "\n".join(lines)[:3900]
+    await ui_kit.follow_panel(
+        interaction,
+        ui_kit.build_view(guild_id, ui_kit.card(guild_id, ui_kit.text(body)), timeout=None),
+        embed=ui_theme.apply_embed_theme(
+            discord.Embed(
+                title=f"{meta['emoji']} Jenis Channel Counter",
+                description=body,
+                color=discord.Color.blurple(),
+            ),
+            guild_id,
+            footer="Ikon channel mengikuti TIPE channel, bukan isi nama",
         ),
         ephemeral=True,
     )

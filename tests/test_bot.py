@@ -5381,3 +5381,51 @@ async def test_greeting_payload_modes_boost_and_commands():
     assert ca.set_welcome_card_mode(gid, "ngawur") == "mati"
     ca.welcome_agent_guilds.pop(gid, None)
     wm.delete_banner(gid)
+
+
+def test_serverstats_channel_type_switch():
+    """`/serverstats tipe`: counter bisa jadi text/announcement/stage, bukan hanya voice."""
+    import discord as _discord
+
+    import server_features as sf
+    from cogs.server_cog import serverstats_group
+
+    gid = 515151
+    sf.serverstats_guilds.pop(gid, None)
+
+    # 1. default voice
+    sf.set_serverstats_config(gid, enabled=True)
+    assert sf.stats_channel_type(gid) == "voice"
+
+    # 2. ganti tipe tersimpan & nilai aneh ditolak
+    assert sf.set_serverstats_channel_type(gid, "text") == "text"
+    assert sf.stats_channel_type(gid) == "text"
+    assert sf.set_serverstats_channel_type(gid, "ngawur") == "voice"
+    sf.set_serverstats_channel_type(gid, "news")
+    assert sf.stats_channel_type(gid) == "news"
+
+    # 3. izin berbeda per jenis: voice tidak bisa di-connect, teks tidak bisa dikirimi pesan
+    class _Guild:
+        default_role = object()
+
+    voice_ow = sf._stats_overwrites(_Guild(), "voice")[_Guild.default_role]
+    assert voice_ow.connect is False and voice_ow.view_channel is True
+    text_ow = sf._stats_overwrites(_Guild(), "text")[_Guild.default_role]
+    assert text_ow.send_messages is False and text_ow.view_channel is True
+    assert text_ow.create_public_threads is False
+
+    # 4. deteksi tipe channel yang sudah ada
+    bare_voice = object.__new__(_discord.VoiceChannel)
+    assert sf._stats_channel_is_type(bare_voice, "voice") is True
+    assert sf._stats_channel_is_type(bare_voice, "text") is False
+    assert sf._stats_channel_is_type(None, "voice") is False
+
+    # 5. daftar tipe & command tersedia
+    assert set(sf.STATS_CHANNEL_TYPES) == {"voice", "text", "news", "stage"}
+    cmds = {c.name for c in serverstats_group.commands}
+    assert {"lihat", "otomatis", "ikon", "tipe"} <= cmds
+    tipe_cmd = next(c for c in serverstats_group.commands if c.name == "tipe")
+    choice_values = {ch.value for ch in tipe_cmd.parameters[0].choices}
+    assert choice_values == {"voice", "text", "news", "stage"}
+
+    sf.serverstats_guilds.pop(gid, None)

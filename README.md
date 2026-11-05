@@ -668,9 +668,19 @@ aksen, baris status, badge ON/OFF, dan navigasi tab — **tanpa kuota AI sama se
 | `/giveaway daftar` | Daftar giveaway aktif & riwayat sebagai kartu. |
 | `/pemakaian reset`, `/musik hentikan`, `/tampilan reset` | Dialog **konfirmasi bergaya kartu** sebelum aksi merusak (bisa dimatikan Admin lewat `/tampilan atur`). |
 
-> **Soal ikon 🔊 di channel statistik:** ikon pengeras suara itu adalah ikon bawaan Discord untuk
-> **Voice Channel** dan tidak bisa diganti bot mana pun. Yang bisa diatur adalah emoji di dalam
-> **nama** channel (lewat `/serverstats ikon`) dan nama kategorinya.
+> **Soal ikon 🔊 di channel statistik:** ikon pengeras suara itu **ikon bawaan Discord untuk Voice
+> Channel** — tidak bisa diganti lewat nama atau emoji. Ikon mengikuti **tipe channel**, jadi cara
+> satu-satunya menggantinya adalah memilih tipe lain lewat **`/serverstats tipe`**:
+>
+> | Tipe | Ikon | Catatan |
+> | :--- | :--- | :--- |
+> | `voice` (bawaan) | 🔊 | paling lazim dipakai bot statistik |
+> | `text` | #️⃣ | warga bisa melihat angka, **tidak bisa mengirim pesan** |
+> | `announcement` | 📢 | mundur ke `text` bila server menolak channel pengumuman |
+> | `stage` | 🎤 | mundur ke `voice` bila stage channel tidak diizinkan |
+>
+> Emoji di dalam **nama** channel (mis. `👥 Total Member: 12`) dan nama kategori tetap bisa diatur
+> lewat `/serverstats ikon`.
 
 #### Batas Keras Discord yang Tidak Bisa Dilanggar
 
@@ -918,6 +928,7 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/serverstats lihat` | — | Kartu statistik server: anggota, online, boost, channel, role, emoji, stiker, tanggal dibuat, & pemilik. |
 | `/serverstats otomatis` | `aktif` | *(Admin)* Membuat/mematikan Voice Channel penghitung statistik yang diperbarui ±10 menit. |
 | `/serverstats ikon` | `anggota`, `manusia`, `bot`, `online`, `boost`, `kategori`, `reset` | *(Admin)* Ganti atau hapus emoji ikon tiap channel statistik + nama kategori. Isi `-` untuk menghapus ikon. |
+| `/serverstats tipe` | `channel`, `aktif` | *(Admin)* Pilih **jenis channel** counter: `voice` 🔊, `text` #️⃣, `announcement` 📢, atau `stage` 🎤 — ikon di kiri nama channel ikut berubah. |
 | `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
 | `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |
 | `/autorole isi` | — | *(Admin)* Berikan Auto Role ke member lama yang belum memilikinya (maks. 150). |
