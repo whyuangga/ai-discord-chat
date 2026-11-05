@@ -2234,6 +2234,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "menu",
         # v1.27.0-beta: anti-nuke (deteksi audit log + tindakan + pemulihan)
         "nuke",
+        # v1.31.0-beta: raid guard (mode darurat otomatis saat server diserbu)
+        "raid",
     }
     assert len(chat_cmds) <= 100
 
@@ -7984,3 +7986,161 @@ async def test_backup_restore_parse_plan_and_apply(monkeypatch):
     assert result2["channels"] == 2            # channel tetap dibuat
 
     assert "Role dibuat" in br.describe_result(result)
+
+
+# ==============================================================================
+# RAID GUARD (v1.31.0-beta)
+# ==============================================================================
+class _RaidGuild:
+    def __init__(self, gid=64):
+        self.id = gid
+        self.name = "Server Raid"
+        self.owner_id = 1
+        self.owner = None
+        self.system_channel = _RaidChannel(900)
+        self.members = []
+
+    async def fetch_member(self, uid):
+        return None
+
+
+class _RaidChannel:
+    def __init__(self, cid=901):
+        self.id = cid
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append(kwargs)
+
+
+class _RaidMember:
+    def __init__(self, uid=501, name="Pendatang", mention=None):
+        self.id = uid
+        self.name = name
+        self.mention = mention or f"<@{uid}>"
+        self.bot = False
+        self.dm = []
+
+    async def send(self, content=None, **kwargs):
+        self.dm.append(content)
+
+
+@pytest.mark.asyncio
+async def test_raid_guard_detection_actions_and_auto_end(monkeypatch):
+    """Raid Guard: deteksi lonjakan join, tahan Auto Role, lockdown opsional, & berakhir otomatis."""
+    import raid_guard
+
+    raid_guard.raid_configs.clear()
+    raid_guard.raid_states.clear()
+    raid_guard.reset_runtime()
+
+    guild = _RaidGuild(64)
+    log_channel = _RaidChannel(901)
+    guild.system_channel = log_channel
+    member = _RaidMember(501)
+    member.guild = guild
+
+    class _Bot:
+        user = _RaidMember(999, "Bot")
+
+        def get_guild(self, gid):
+            return guild if int(gid) == 64 else None
+
+        def get_channel(self, cid):
+            return log_channel if int(cid) == 901 else None
+
+    bot = _Bot()
+
+    # 1. Default nonaktif → join tidak memicu apa pun
+    assert raid_guard.is_enabled(64) is False
+    for _ in range(10):
+        assert await raid_guard.handle_member_join(bot, member) is None
+    assert raid_guard.is_raid_active(64) is None
+
+    # 2. Setelah diaktifkan, lonjakan join memicu mode raid otomatis
+    raid_guard.reset_runtime()
+    raid_guard.set_config(64, enabled=True, join_threshold=3, window_sec=60, action="verifikasi", duration_min=5)
+    cfg = raid_guard.get_config(64)
+    cfg["log_channel_id"] = 901
+    cfg["verify_channel_id"] = 901
+
+    assert await raid_guard.handle_member_join(bot, member) is None      # join ke-1
+    assert await raid_guard.handle_member_join(bot, member) is None      # join ke-2
+    state = await raid_guard.handle_member_join(bot, member)             # join ke-3 → raid
+    assert state is not None and state["action"] == "verifikasi"
+    assert raid_guard.is_raid_active(64) is not None
+    assert raid_guard.should_skip_autorole(64) is True
+    titles = [kw["embed"].title for kw in log_channel.sent if kw.get("embed")]
+    assert any("Mode Raid" in title for title in titles)
+    assert member.dm                                                # DM pengingat verifikasi terkirim
+
+    # 3. Ambang & validasi konfigurasi
+    raid_guard.set_config(64, join_threshold=999, window_sec=1, duration_min=9999)
+    cfg = raid_guard.get_config(64)
+    assert cfg["join_threshold"] == 100 and cfg["window_sec"] == 10 and cfg["duration_min"] == 1440
+
+    # 4. Mode `lapor` tidak menahan Auto Role
+    raid_guard.raid_states.clear()
+    raid_guard.set_config(64, action="lapor")
+    await raid_guard.start(bot, guild, reason="uji lapor", action="lapor", duration_min=1)
+    assert raid_guard.should_skip_autorole(64) is False
+
+    # 5. Mode lockdown memakai server_tools & dibuka kembali saat berakhir
+    import server_tools as st
+
+    calls = {"start": 0, "stop": 0}
+
+    async def _fake_start(guild_arg, by_id=0, reason=""):
+        calls["start"] += 1
+        return 2, 0
+
+    async def _fake_stop(guild_arg):
+        calls["stop"] += 1
+        return 2
+
+    monkeypatch.setattr(st, "start_lockdown", _fake_start)
+    monkeypatch.setattr(st, "stop_lockdown", _fake_stop)
+    monkeypatch.setattr(st, "save_server_tools_to_disk", lambda: _noop())
+
+    async def _noop():
+        return None
+
+    raid_guard.raid_states.clear()
+    result = await raid_guard.start(bot, guild, reason="uji lockdown", action="verifikasi+lockdown", duration_min=1)
+    assert calls["start"] == 1 and result["state"]["locked"] is True
+    ended = await raid_guard.end(bot, guild)
+    assert ended["ended"] is True and calls["stop"] == 1
+
+    # 6. Akhiri saat tidak aktif
+    again = await raid_guard.end(bot, guild)
+    assert again["ended"] is False
+
+    # 7. Kedaluwarsa otomatis (tick) & sisa waktu
+    raid_guard.raid_states.clear()
+    await raid_guard.start(bot, guild, reason="uji tick", action="lapor", duration_min=1)
+    assert raid_guard.remaining_seconds(64) > 0
+    raid_guard.raid_states[64]["until"] = time.time() - 1
+    assert await raid_guard.tick(bot) == [64]
+    assert raid_guard.is_raid_active(64) is None
+
+    # 8. Anti-spam laporan: trigger kedua dalam 5 menit diabaikan
+    raid_guard.reset_runtime()
+    raid_guard.set_config(64, enabled=True, join_threshold=2, action="verifikasi")
+    assert await raid_guard.handle_member_join(bot, member) is None
+    first = await raid_guard.handle_member_join(bot, member)
+    assert first is not None
+    raid_guard.raid_states.clear()
+    raid_guard.reset_runtime()
+    raid_guard._alert_cooldown[64] = time.time()
+    assert await raid_guard.handle_member_join(bot, member) is None
+
+    # 9. Persistensi
+    raid_guard.raid_configs.clear()
+    raid_guard.raid_states.clear()
+    assert raid_guard.load_raid_from_disk() >= 0
+    assert isinstance(raid_guard.cleanup_raid_runtime(), int)
+    assert raid_guard.handle_channel_delete(901) in (0, 1)
+
+    raid_guard.raid_configs.clear()
+    raid_guard.raid_states.clear()
+    raid_guard.reset_runtime()

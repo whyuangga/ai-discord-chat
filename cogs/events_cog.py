@@ -237,6 +237,13 @@ def register_events_cog(bot: commands.Bot) -> None:
         if handle_tickets_channel_delete(channel):
             await save_tickets_to_disk()
         try:
+            import raid_guard
+
+            if raid_guard.handle_channel_delete(getattr(channel, "id", 0)):
+                await raid_guard.save_raid_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pembersihan Raid Guard dilewati: %s", exc)
+        try:
             import antinuke
 
             if antinuke.handle_channel_delete(getattr(channel, "id", 0)):
@@ -398,7 +405,30 @@ def register_events_cog(bot: commands.Bot) -> None:
     @bot.event
     async def on_member_join(member: discord.Member):
         """Menyambut member baru, memasang Auto Role, & mendeteksi lonjakan join (raid)."""
-        if not getattr(member, "bot", False) and member.guild.id in autorole_guilds:
+        # Raid Guard: deteksi lonjakan join & tahan Auto Role saat mode darurat
+        raid_state = None
+        try:
+            import raid_guard
+
+            raid_state = await raid_guard.handle_member_join(bot, member)
+            if raid_state is not None:
+                await raid_guard.save_raid_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Raid Guard join dilewati: %s", exc)
+
+        skip_autorole = False
+        try:
+            import raid_guard
+
+            skip_autorole = raid_guard.should_skip_autorole(member.guild.id)
+        except Exception:  # pragma: no cover
+            skip_autorole = False
+
+        if (
+            not skip_autorole
+            and not getattr(member, "bot", False)
+            and member.guild.id in autorole_guilds
+        ):
             await apply_autorole_to_member(member)
         try:
             await handle_member_join_guard(bot, member)  # hanya melapor, tidak menendang

@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.30.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.31.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -281,6 +281,28 @@ Pengaman bawaan:
 - **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
 - **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
+
+#### 6ac. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
+
+Anti-raid di `/keamanan` hanya **melapor**. **Raid Guard** bertindak: kalau server diserbu
+akun palsu (lonjakan join), bot menyalakan mode darurat sendiri selama beberapa menit.
+
+| Aksi | Efek saat mode raid aktif |
+| :--- | :--- |
+| `lapor` | Laporan ke channel log saja — tanpa mengubah server. |
+| `verifikasi` *(bawaan)* | **Auto Role ditahan**, member baru dapat pengingat verifikasi (DM + sebutan di channel verifikasi). |
+| `verifikasi+lockdown` | Semua di atas **+ lockdown** semua text channel sampai mode berakhir. |
+
+```text
+/raid atur aktif:True ambang:8 jendela_detik:60 aksi:verifikasi durasi_menit:15 log_channel:#mod-log
+/raid status
+/raid mulai alasan:"Diserbu akun baru" durasi_menit:30
+/raid akhiri
+```
+
+Pengaman: default **nonaktif**, hanya **Admin/Manage Server** yang bisa mengubah, laporan
+maksimal **sekali per 5 menit** (anti-spam), semua tindakan **reversible** (lockdown dibuka &
+Auto Role normal saat mode berakhir), dan setiap kejadian tercatat di Audit Log.
 
 #### 6ab. ♻️ Pemulihan Struktur Server (`/backup pratinjau`, `/backup pulihkan`)
 
@@ -1798,6 +1820,7 @@ ai-discord-chat/
 ├── growth_tracker.py   # Invite tracker + statistik pertumbuhan & retensi member (data/growth.json)
 ├── menu_builder.py     # Menu Builder: panel tombol/dropdown role, link, & command (data/menus.json)
 ├── antinuke.py         # Anti-Nuke: deteksi audit log, tindakan bertingkat, & pemulihan (data/antinuke.json)
+├── raid_guard.py       # Raid Guard: mode darurat otomatis saat lonjakan join (data/raid.json)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)

@@ -162,6 +162,18 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🚨 Raid Guard (`/raid` — 0 kuota AI)",
+            value=(
+                "• `/raid atur aktif:True ambang:8 aksi:verifikasi` *(Admin)* — saat server diserbu akun palsu, "
+                "bot **otomatis** menyalakan mode darurat.\n"
+                "• Aksi: `lapor` → `verifikasi` (bawaan: tahan Auto Role + minta verifikasi) → "
+                "`verifikasi+lockdown` (kunci text channel sementara).\n"
+                "• Berakhir sendiri sesuai `durasi_menit`; lockdown dibuka kembali otomatis.\n"
+                "• `/raid status`, `/raid mulai`, `/raid akhiri` *(Admin)*."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🧹 Perkakas Moderasi Harian (`/mod`)",
             value=(
                 "• `/mod slowmode detik:30 channel:#umum` — jeda antar-pesan (0 = matikan, maks 6 jam).\n"

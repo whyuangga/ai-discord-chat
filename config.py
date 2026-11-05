@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.30.0-beta"
+BOT_VERSION = "1.31.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -160,6 +160,7 @@ ECONOMY_FILE = DATA_DIR / "economy.json"
 GROWTH_FILE = DATA_DIR / "growth.json"
 MENU_FILE = DATA_DIR / "menus.json"
 ANTINUKE_FILE = DATA_DIR / "antinuke.json"
+RAID_FILE = DATA_DIR / "raid.json"
 AI_USAGE_FILE = DATA_DIR / "ai_usage.json"
 TICKETS_FILE = DATA_DIR / "tickets.json"
 # Gambar kustom (banner sambutan/perpisahan/boost) — file biner, bukan JSON
