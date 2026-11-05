@@ -162,6 +162,17 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🧹 Perkakas Moderasi Harian (`/mod`)",
+            value=(
+                "• `/mod slowmode detik:30 channel:#umum` — jeda antar-pesan (0 = matikan, maks 6 jam).\n"
+                "• `/mod role member:@x role:@Gamer aksi:beri|cabut` — satu member.\n"
+                "• `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` — banyak member sekaligus "
+                "dengan **konfirmasi** & ringkasan hasil.\n"
+                "• `/mod nickname member:@x nama:Sobat` — ubah/reset nickname."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🚨 Anti-Spam & Anti-Raid (`/keamanan spam`)",
             value=(
                 "• `/keamanan spam aktif:True` — **mode awalnya hanya *lapor*** ke channel log, "

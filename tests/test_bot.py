@@ -5687,7 +5687,11 @@ async def test_moderation_cases_auto_punish_and_persistence():
 
     # 7. Command /mod terdaftar lengkap
     names = {c.name for c in mod_group.commands}
-    assert {"warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur"} == names
+    assert {
+        "warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur",
+        # v1.28.0-beta: perkakas moderasi harian
+        "slowmode", "role", "role-massal", "nickname",
+    } == names
 
     md.mod_cases.pop(gid, None)
     md.mod_settings.pop(gid, None)
@@ -7564,3 +7568,199 @@ async def test_antinuke_disabled_and_permission_edges():
     antinuke.antinuke_guilds.clear()
     antinuke.violations.clear()
     antinuke.reset_events()
+
+
+# ==============================================================================
+# MODERASI HARIAN (v1.28.0-beta): slowmode, role, & nickname
+# ==============================================================================
+class _ModRole:
+    def __init__(self, rid=51, name="Member", position=5, *, default=False, managed=False):
+        self.id = rid
+        self.name = name
+        self.position = position
+        self.mention = f"<@&{rid}>"
+        self._default = default
+        self.managed = managed
+
+    def is_default(self):
+        return self._default
+
+    def __ge__(self, other):
+        return self.position >= getattr(other, "position", -1)
+
+    def __lt__(self, other):
+        return self.position < getattr(other, "position", 0)
+
+
+class _ModPerms:
+    def __init__(self, **flags):
+        self.administrator = flags.get("administrator", False)
+        self.moderate_members = flags.get("moderate_members", True)
+        self.manage_roles = flags.get("manage_roles", True)
+        self.manage_channels = flags.get("manage_channels", True)
+        self.manage_messages = flags.get("manage_messages", True)
+        self.ban_members = flags.get("ban_members", True)
+        self.kick_members = flags.get("kick_members", True)
+
+
+class _ModChannel:
+    def __init__(self, cid=700):
+        self.id = cid
+        self.name = "umum"
+        self.mention = f"<#{cid}>"
+        self.slowmode_delay = 0
+        self.edits = []
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        if "slowmode_delay" in kwargs:
+            self.slowmode_delay = kwargs["slowmode_delay"]
+
+
+class _ModMember:
+    def __init__(self, uid=601, name="Anggota", top_role=None):
+        self.id = uid
+        self.name = name
+        self.mention = f"<@{uid}>"
+        self.bot = False
+        self.roles = []
+        self.top_role = top_role or _ModRole(60, "Anggota", position=3)
+        self.nick = None
+        self.dm_sent = []
+
+    async def add_roles(self, *roles, reason=None):
+        self.roles.extend(r for r in roles if r not in self.roles)
+
+    async def remove_roles(self, *roles, reason=None):
+        self.roles = [r for r in self.roles if r.id not in {x.id for x in roles}]
+
+    async def edit(self, **kwargs):
+        if "nick" in kwargs:
+            self.nick = kwargs["nick"]
+
+    async def send(self, content=None, **kwargs):
+        self.dm_sent.append(content)
+
+
+class _ModGuild:
+    def __init__(self, gid=12):
+        self.id = gid
+        self.name = "Server Mod"
+        self.owner_id = 1
+        self.members = []
+        self.me = _ModMember(999, "Bot", _ModRole(900, "Bot", position=50))
+        self.me.guild_permissions = _ModPerms()
+        self._channels = {}
+
+    def get_channel(self, cid):
+        return self._channels.get(int(cid))
+
+
+class _ModResp:
+    def __init__(self):
+        self.sent = []
+        self._done = False
+
+    def is_done(self):
+        return self._done
+
+    async def send_message(self, *args, **kwargs):
+        self._done = True
+        self.sent.append((args, kwargs))
+
+    async def defer(self, *args, **kwargs):
+        self._done = True
+
+
+class _ModFollow:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append((args, kwargs))
+
+
+class _ModInteraction:
+    def __init__(self, guild, user):
+        self.guild = guild
+        self.user = user
+        self.channel = _ModChannel()
+        self.response = _ModResp()
+        self.followup = _ModFollow()
+        self.edits = []
+
+    async def edit_original_response(self, **kwargs):
+        self.edits.append(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_moderation_daily_tools_slowmode_role_nickname(monkeypatch):
+    """Slowmode, role massal, & nickname berjalan, tercatat sebagai kasus, & menghormati hierarki."""
+    import moderation as mod
+    from cogs.moderation_cog import (
+        _role_change_problem,
+        mod_nickname_cmd,
+        mod_role_cmd,
+        mod_role_massal_cmd,
+        mod_slowmode_cmd,
+    )
+
+    mod.mod_cases.clear()
+    mod.mod_settings.clear()
+    mod.get_settings(12)
+
+    guild = _ModGuild(12)
+    staff = _ModMember(601, "Staff")
+    staff.guild_permissions = _ModPerms(administrator=True)
+    target = _ModMember(602, "Anggota")
+    target.guild_permissions = _ModPerms(administrator=False)
+    bot_member = guild.me
+    bot_member.guild_permissions = _ModPerms()
+    guild.members = [bot_member, staff, target]
+    guild._channels[700] = guild.me and _ModChannel(700)
+
+    # 1. Slowmode dipasang & dimatikan
+    ix = _ModInteraction(guild, staff)
+    await mod_slowmode_cmd.callback(ix, 30)
+    assert ix.channel.slowmode_delay == 30
+    ix2 = _ModInteraction(guild, staff)
+    await mod_slowmode_cmd.callback(ix2, 0)
+    assert ix2.channel.slowmode_delay == 0
+    assert any(case["action"] == "note" for case in mod.list_cases(12))
+
+    # 2. Role diberikan & dicabut ke satu member
+    role = _ModRole(55, "Gamer", position=8)
+    ok, _reason = _role_change_problem(guild, target, role)
+    assert ok is True
+    ix3 = _ModInteraction(guild, staff)
+    await mod_role_cmd.callback(ix3, target, role, None, "hadiah event")
+    assert role in target.roles
+    ix4 = _ModInteraction(guild, staff)
+    await mod_role_cmd.callback(ix4, target, role, type("C", (), {"value": "cabut"})(), None)
+    assert role not in target.roles
+
+    # 3. Hierarki: role di atas bot & pemilik server ditolak
+    high_role = _ModRole(56, "Admin", position=99)
+    ok2, reason2 = _role_change_problem(guild, target, high_role)
+    assert ok2 is False and "di atas role bot" in reason2
+    owner = _ModMember(1, "Owner")
+    ok3, reason3 = _role_change_problem(guild, owner, role)
+    assert ok3 is False and "pemilik server" in reason3
+
+    # 4. Role massal: konfirmasi dimatikan tema → langsung dijalankan
+    monkeypatch.setattr("ui_theme.confirm_enabled", lambda _gid: False)
+    ix5 = _ModInteraction(guild, staff)
+    await mod_role_massal_cmd.callback(ix5, role, type("C", (), {"value": "beri"})())
+    assert role in target.roles
+    assert ix5.edits  # ringkasan hasil dikirim
+
+    # 5. Nickname diubah & direset
+    ix6 = _ModInteraction(guild, staff)
+    await mod_nickname_cmd.callback(ix6, target, "Sobat Baru", None)
+    assert target.nick == "Sobat Baru"
+    ix7 = _ModInteraction(guild, staff)
+    await mod_nickname_cmd.callback(ix7, target, None, "reset")
+    assert target.nick is None
+
+    mod.mod_cases.clear()
+    mod.mod_settings.clear()
