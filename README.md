@@ -1788,6 +1788,7 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
      | **Ruang privat & tiket** | `Create Public Threads`, `Create Private Threads`, `Manage Threads` | `/sesi`, `/tiket`, thread otomatis |
      | **Moderasi** | `Manage Messages`, `Moderate Members`, `Kick Members`, `Ban Members` | `/mod`, purge, anti-phishing, anti-spam mode `hapus`/`timeout`, `/lockdown` |
      | **Komunitas** | `Manage Roles`, `Manage Channels` | `/autorole`, role hadiah `/level`, reaction role, toko `/ekonomi`, `/serverstats`, `/tempvoice` |
+     | **Keamanan lanjutan** | `View Audit Log`, `Manage Webhooks` | `/nuke` (deteksi & pemulihan), `/raid` (mode darurat), pembersihan webhook pelaku |
      | **Analitik** | `Manage Server` *(Manage Guild)* | **`/tumbuh` invite tracker** (membaca daftar invite) |
      | **Musik** | `Connect`, `Speak`, `Move Members` | `/musik` (hanya bila `LAVALINK_URI` diisi) |
      | **Eksternal** | `Use External Emojis` | Emoji kustom di nama channel statistik |
@@ -1858,6 +1859,34 @@ tidak bocor ke server teman (dan sebaliknya).
      ```
    - **Cara 2 (Lewat tab Startup/Variables):** Jika template Wispbyte menyediakan kolom variabel, masukkan `DISCORD_BOT_TOKEN` dan `GEMINI_API_KEY` di sana.
 5. Buka tab **Console**, lalu klik tombol **Start**.
+
+### Berkas data yang dibuat otomatis (tidak perlu disiapkan)
+
+Setelah bot berjalan, folder `data/` terisi sendiri. Tidak ada database, tidak ada Redis —
+semuanya JSON kecil yang dipangkas otomatis oleh watcher bawaan.
+
+| Berkas | Dibuat saat | Isi |
+| :--- | :--- | :--- |
+| `data/settings.json` | bot pertama kali dipakai | channel/role/fitur per server |
+| `data/levels.json` | `/level atur aktif:True` | XP, musim level, & prestige |
+| `data/tickets.json` | `/tiket panel` | tiket, rating bintang, SLA, aktivitas terakhir |
+| `data/antinuke.json` | `/nuke atur` | ambang, whitelist, titik pulih identitas, **status mode beku** |
+| `data/raid.json` | `/raid atur` | ambang deteksi & mode raid aktif |
+| `data/music_playlists.json` | `/musik playlist simpan` | playlist pribadi member |
+| `data/i18n.json` | `/bahasa atur` | bahasa server (ID/EN) |
+| `data/prefixes.json` | `/prefix atur` | prefix command per server |
+| `data/analytics.json` | `/analitik webhook` | tujuan webhook ekspor CSV (disimpan lokal) |
+| `data/ai_usage.json` | otomatis | pemakaian AI harian (dipangkas `AI_USAGE_KEEP_DAYS`) |
+| `data/media/` | upload banner | gambar banner/kartu sambutan |
+
+> 🔐 **`data/` berisi pengaturan server** (termasuk URL webhook di `analytics.json`).
+> Jangan diunggah ke publik. `.env` dan `data/` memang tidak ikut `/backup struktur`,
+> jadi backup struktur aman dibagikan. Untuk **migrasi** server, salin seluruh folder `data/`
+> apa adanya lalu restart — semua pengaturan kembali seperti semula.
+
+**Tidak ada dependency baru** untuk fitur v1.28–v1.38 (raid, playlist, rating tiket, musim,
+anti-nuke lanjutan, i18n, prefix, ekspor CSV): `requirements.txt` tetap sama karena `aiohttp`
+dan `discord.py` sudah dipakai sejak awal. Cukup `git pull` + restart (Auto Update).
 6. Jika berhasil, dalam beberapa detik akan muncul log:
    ```text
    ✅ Bot v1.10.0-beta aktif sebagai NamaBot#0000 | Python 3.11+ | discord.py 2.7+ | RAM: ~52.0 MB
