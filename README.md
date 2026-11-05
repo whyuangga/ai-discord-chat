@@ -47,6 +47,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [O2. Bahasa Antarmuka (`/bahasa`)](#o2-bahasa-antarmuka-bahasa--i18n-inti-0-kuota-ai)
    - [O3. Prefix Command per Server (`/prefix`)](#o3-prefix-command-per-server-prefix--0-kuota-ai)
    - [O4. Ekspor Analitik CSV & Webhook (`/analitik`)](#o4-ekspor-analitik-csv--webhook-analitik--0-kuota-ai)
+   - [Catatan Parkir: Dashboard, BYOK & Isi Sendiri API Key (docs/)](docs/catatan-dashboard-dan-kunci-api.md)
    - [P. Anti-Nuke (`/nuke`)](#p-anti-nuke-nuke)
    - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
