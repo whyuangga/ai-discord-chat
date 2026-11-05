@@ -13,6 +13,7 @@ from cogs import (
 )
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
+from web_dashboard import start_dashboard, stop_dashboard
 from community_agent import (
     cleanup_stale_agent_runtime,
     load_agent_config_from_disk,
@@ -333,6 +334,9 @@ class GeminiDiscordBot(commands.Bot):
         # 3C. Laporkan error Slash Command ke channel log (bila Admin mengaturnya)
         self.tree.on_error = self._handle_app_command_error
 
+        # 3D. Nyalakan dashboard web read-only (hanya bila DASHBOARD_TOKEN & port tersedia)
+        await start_dashboard(self)
+
         # 4. Jalankan background watcher untuk Pemecah Sepi, Morning Digest, & Pembersih RAM
         if not idle_chat_watcher.is_running():
             idle_chat_watcher.start()
@@ -373,6 +377,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_antispam_to_disk()
         reset_voice_sessions()
         await save_levels_to_disk()
+        await stop_dashboard()
         await save_tickets_to_disk()
         await save_ai_usage_to_disk()
         await save_ui_themes_to_disk()

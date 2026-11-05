@@ -557,6 +557,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
                 "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
+                "• **Dashboard web** — pantau status & `/pemakaian` dari browser (read-only, 0 kuota).\n"
                 "• **`/agent keamanan`** — tingkat keamanan konten AI per server (longgar/normal/ketat).\n"
                 "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
                 "**🧩 Komunitas & Lain-lain**\n"

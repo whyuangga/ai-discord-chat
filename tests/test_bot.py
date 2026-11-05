@@ -6328,3 +6328,98 @@ def test_voice_xp_tracking_cap_and_level_card():
     assert asyncio.run(run_voice_xp_check(_DummyBot())) >= 0
     voice_activity.reset_voice_sessions()
     levels.level_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
+    """Dashboard web: opt-in via token, read-only, auth 3 jalur, & endpoint HTTP nyata."""
+    import socket
+
+    import aiohttp
+
+    import web_dashboard
+
+    # 1. Nonaktif tanpa token / tanpa port
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "")
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", 8080)
+    monkeypatch.delenv("SERVER_PORT", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
+    assert web_dashboard.dashboard_config()["enabled"] is False
+
+    # 2. Port bisa diambil dari environment panel hosting
+    monkeypatch.setenv("SERVER_PORT", "8123")
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", 0)
+    cfg = web_dashboard.dashboard_config()
+    assert cfg["port"] == 8123 and cfg["enabled"] is False
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "rahasia-uji")
+    assert web_dashboard.dashboard_config()["enabled"] is True
+
+    # 3. Auth: query, header, Bearer, & penolakan
+    assert web_dashboard.is_authorized(query_token="rahasia-uji", expected="rahasia-uji") is True
+    assert web_dashboard.is_authorized(header_token="rahasia-uji", expected="rahasia-uji") is True
+    assert web_dashboard.is_authorized(header_token="Bearer rahasia-uji", expected="rahasia-uji") is True
+    assert web_dashboard.is_authorized(query_token="salah", expected="rahasia-uji") is False
+    assert web_dashboard.is_authorized(query_token="", expected="") is False
+
+    # 4. Data & render (tanpa AI, aman untuk data kosong)
+    class _G:
+        id = 1234
+        name = "Server Uji <b>"
+        member_count = 42
+
+    class _Bot:
+        started_at = time.time() - 3661
+        latency = 0.042
+        guilds = [_G()]
+        user = type("U", (), {"name": "BotUji"})()
+
+        def get_guild(self, gid):
+            return self.guilds[0] if int(gid) == 1234 else None
+
+    status = web_dashboard.collect_status(_Bot())
+    assert status["version"] == config.BOT_VERSION
+    assert status["guilds"] == 1 and status["members"] == 42
+    assert status["uptime"].startswith("01:0") and status["ping_ms"] == 42
+    usage = web_dashboard.collect_usage(1234)
+    assert set(usage) >= {"total", "tokens_in", "tokens_out", "cache_hits", "faq_hits"}
+    page = web_dashboard.render_dashboard_html(
+        status=status, usage=usage, levels={"rows": []}, refresh=15, heading="<script>x</script>"
+    )
+    assert config.BOT_VERSION in page and "read-only" in page
+    assert "<script>x</script>" not in page      # di-escape
+    assert 'http-equiv="refresh"' in page
+
+    # 5. Server HTTP sungguhan: 401 tanpa token, 200 dengan token, /healthz bebas token
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free_port = sock.getsockname()[1]
+    sock.close()
+
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_HOST", "127.0.0.1")
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", free_port)
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "rahasia-uji")
+    assert await web_dashboard.start_dashboard(_Bot()) is True
+    try:
+        base = f"http://127.0.0.1:{free_port}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/") as resp:
+                assert resp.status == 401
+            async with session.get(f"{base}/?token=rahasia-uji&guild=1234") as resp:
+                body = await resp.text()
+                assert resp.status == 200 and config.BOT_VERSION in body
+            async with session.get(f"{base}/api/pemakaian", headers={"X-Dashboard-Token": "rahasia-uji"}) as resp:
+                data = await resp.json()
+                assert resp.status == 200 and "total" in data
+            async with session.get(f"{base}/healthz") as resp:
+                assert resp.status == 200 and (await resp.text()) == "ok"
+            # read-only: tidak ada endpoint POST
+            async with session.post(f"{base}/?token=rahasia-uji", json={"x": 1}) as resp:
+                assert resp.status in (404, 405)
+    finally:
+        await web_dashboard.stop_dashboard()
+
+    # 6. Tidak ada satu pun route tulis (POST/PUT/DELETE) di modul dashboard
+    src = open("web_dashboard.py", encoding="utf-8").read()
+    for needle in ("add_post(", "add_put(", "add_delete(", "add_patch("):
+        assert needle not in src, f"dashboard seharusnya read-only: {needle}"
+    assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()

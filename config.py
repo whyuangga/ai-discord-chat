@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.20.0-beta"
+BOT_VERSION = "1.21.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -230,6 +230,18 @@ LEVELS_MAX_MEMBERS: int = _env_int("LEVELS_MAX_MEMBERS", 500, minimum=25)
 LEVELS_VOICE_XP_PER_MIN: int = _env_int("LEVELS_VOICE_XP_PER_MIN", 2, minimum=1)
 # Batas menit voice yang dihitung per member per hari (0 = tanpa batas, tidak disarankan).
 LEVELS_VOICE_DAILY_CAP_MIN: int = _env_int("LEVELS_VOICE_DAILY_CAP_MIN", 240, minimum=0)
+
+# ==============================================================================
+# DASHBOARD WEB READ-ONLY (status & /pemakaian) — default NONAKTIF
+# ==============================================================================
+# Port HTTP dashboard. Kosong/0 = coba ambil dari SERVER_PORT/PORT panel hosting.
+# Dashboard hanya menyala bila DASHBOARD_TOKEN juga diisi.
+DASHBOARD_PORT: int = _env_int("DASHBOARD_PORT", 0, minimum=0)
+DASHBOARD_HOST: str = os.getenv("DASHBOARD_HOST") or "0.0.0.0"
+# Token rahasia di URL (?token=...) — WAJIB diisi untuk mengaktifkan dashboard.
+DASHBOARD_TOKEN: str = os.getenv("DASHBOARD_TOKEN") or ""
+# Interval auto-refresh halaman (detik).
+DASHBOARD_REFRESH_SEC: int = _env_int("DASHBOARD_REFRESH_SEC", 30, minimum=5)
 
 # ==============================================================================
 # SISTEM TIKET DUKUNGAN (Tier 2C) — default NONAKTIF
