@@ -20,8 +20,13 @@ import community_tools
 import engagement
 import insights
 import levels as levels_mod
+import moderation
+import server_tools
 import music
 import server_features
+import social_notify
+import suggestions
+import temp_voice
 import tickets as tickets_mod
 import ui_kit
 import ui_theme
@@ -163,6 +168,16 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
             ui_kit.status_line("Fakta Unik Dunia", "aktif" if facts_on else "nonaktif", state="on" if facts_on else "off"),
             ui_kit.status_line("Anti-Phishing", "aktif" if phising_on else "nonaktif", state="on" if phising_on else "off"),
             ui_kit.status_line("Anti-Spam", f"mode `{mode}`", state="on" if spam_on else "off"),
+            ui_kit.status_line(
+                "Moderasi (kasus)",
+                f"`{len(moderation.mod_cases.get(gid) or [])}` kasus • ambang `{moderation.get_settings(gid)['warn_threshold'] or '∞'}` warn",
+                state="on" if (moderation.mod_cases.get(gid) or []) else "idle",
+            ),
+            ui_kit.status_line(
+                "Lockdown",
+                "🔒 aktif" if server_tools.lockdown_active(gid) else "tidak aktif",
+                state="warn" if server_tools.lockdown_active(gid) else "off",
+            ),
             ui_kit.status_line("Anggota server", f"`{guild.member_count or 0}`"),
             "",
             "> Anti-spam bawaan **mode lapor** — tidak menghapus apa pun tanpa izin Admin.",
@@ -184,6 +199,22 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
         birthdays = _count_by_value(engagement.birthdays, gid)
         autoreply = _count_by_value(engagement.auto_reply_channels, gid, need_enabled=True)
         announce = _count_by_value(engagement.announcements, gid)
+        tv_cfg = temp_voice.get_config(gid)
+        tv_hub = f"<#{tv_cfg['hub_id']}>" if tv_cfg else None
+        tv_value = (
+            f"`{temp_voice.guild_room_count(gid)}` room • hub {tv_hub}"
+            if tv_hub
+            else "_belum diatur_"
+        )
+        social_n = sum(
+            1
+            for data in social_notify.social_guilds.values()
+            for sub in (data.get("subs") or [])
+            if sub.get("guild_id", gid) == gid
+        ) or sum(
+            1
+            for sub in (social_notify.social_guilds.get(gid, {}) or {}).get("subs", [])
+        )
         lines = [
             ui_kit.status_line("Panel Reaction Role", f"`{panels}` panel", state="on" if panels else "off"),
             ui_kit.status_line("Pengingat aktif", f"`{reminders}`", state="on" if reminders else "idle"),
@@ -194,6 +225,27 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
             ui_kit.status_line("Ulang tahun terdaftar", f"`{birthdays}` member", state="on" if birthdays else "idle"),
             ui_kit.status_line("Auto-Responder", f"`{autoreply}` channel", state="on" if autoreply else "off"),
             ui_kit.status_line("Pengumuman terjadwal", f"`{announce}`", state="on" if announce else "off"),
+            ui_kit.status_line("Temp Voice", tv_value, state="on" if tv_cfg else "off"),
+            ui_kit.status_line(
+                "Kotak saran",
+                f"`{len(suggestions.suggestion_items.get(gid) or [])}` saran",
+                state="on" if suggestions.get_channel(gid) else "off",
+            ),
+            ui_kit.status_line(
+                "Notifikasi sosial",
+                f"`{social_n}` langganan",
+                state="on" if social_n else "off",
+            ),
+            ui_kit.status_line(
+                "Status AFK",
+                f"`{len(server_tools.afk_users.get(gid) or {})}` member",
+                state="on" if server_tools.afk_users.get(gid) else "idle",
+            ),
+            ui_kit.status_line(
+                "Thread otomatis",
+                f"`{len(server_tools.auto_thread_channels.get(gid) or {})}` channel",
+                state="on" if server_tools.auto_thread_channels.get(gid) else "off",
+            ),
         ]
         return "🧩 Fitur Komunitas (0 kuota AI)", lines
 

@@ -75,7 +75,12 @@ async def saran_pasang_cmd(
     if nonaktifkan:
         sg.set_channel(interaction.guild.id, None)
         await sg.save_suggestions_to_disk()
-        await interaction.response.send_message("🛑 Kotak saran dimatikan.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=ui_theme.status_embed(
+                interaction.guild.id, "lock", "Kotak Saran Dimatikan", "Member tidak bisa lagi mengirim saran."
+            ),
+            ephemeral=True,
+        )
         return
 
     if channel is None:
@@ -87,8 +92,13 @@ async def saran_pasang_cmd(
     sg.set_channel(interaction.guild.id, channel.id)
     await sg.save_suggestions_to_disk()
     await interaction.response.send_message(
-        f"✅ Kotak saran aktif di {channel.mention}.\n"
-        "Member bisa memakai `/saran kirim teks:...`.",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Kotak Saran Aktif",
+            f"Channel: {channel.mention}\n\n"
+            "Member mengirim usulan dengan `/saran kirim teks:...`, lalu warga voting lewat tombol 👍/👎.",
+        ),
         ephemeral=True,
     )
 
@@ -135,7 +145,12 @@ async def saran_kirim_cmd(interaction: discord.Interaction, teks: str):
     sg.bind_message(interaction.guild.id, item["id"], message.id)
     await sg.save_suggestions_to_disk()
     await interaction.followup.send(
-        f"✅ Saranmu terkirim sebagai **#{item['id']}** di {channel.mention}. Terima kasih!",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            f"Saran #{item['id']} Terkirim",
+            f"Usulanmu sudah tampil di {channel.mention}. Terima kasih sudah ikut membangun server! 💜",
+        ),
         ephemeral=True,
     )
 
@@ -229,8 +244,16 @@ async def saran_status_cmd(
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
+    meta = sg.STATUSES[status.value]
     await interaction.response.send_message(
-        f"{sg.STATUSES[status.value]['emoji']} Saran **#{item['id']}** → **{sg.STATUSES[status.value]['label']}**",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            f"Saran #{item['id']} — {meta['label']}",
+            f"Status saran diperbarui menjadi **{meta['emoji']} {meta['label']}**.\n"
+            f"• Pengusul: {sg.mention_author(item)}\n"
+            f"• Skor voting: `{sg.score(item):+d}`",
+        ),
         ephemeral=True,
     )
 
@@ -261,7 +284,12 @@ async def saran_hapus_cmd(interaction: discord.Interaction, id: app_commands.Ran
 
     sg.delete_suggestion(interaction.guild.id, int(id))
     await sg.save_suggestions_to_disk()
-    await interaction.response.send_message(f"🗑️ Saran `#{id}` dihapus.", ephemeral=True)
+    await interaction.response.send_message(
+        embed=ui_theme.status_embed(
+            interaction.guild.id, "trash", "Saran Dihapus", f"Saran `#{id}` beserta pesannya sudah dihapus."
+        ),
+        ephemeral=True,
+    )
 
 
 # ==============================================================================

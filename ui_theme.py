@@ -296,6 +296,41 @@ def apply_embed_theme(embed: discord.Embed, guild_id: int | None, *, footer: str
     return embed
 
 
+STATUS_KINDS: dict[str, dict] = {
+    "ok": {"emoji": "✅", "color": 0x2ECC71},
+    "warn": {"emoji": "⚠️", "color": 0xF1C40F},
+    "error": {"emoji": "⛔", "color": 0xE74C3C},
+    "info": {"emoji": "ℹ️", "color": None},      # None = pakai warna aksen server
+    "lock": {"emoji": "🔒", "color": 0xE67E22},
+    "trash": {"emoji": "🗑️", "color": 0x95A5A6},
+}
+
+
+def status_embed(
+    guild_id: int | None,
+    kind: str,
+    title: str,
+    description: str = "",
+    *,
+    footer: str | None = None,
+) -> discord.Embed:
+    """Embed singkat ber-tema untuk pesan konfirmasi/status (selalu konsisten).
+
+    `kind`: ok | warn | error | info | lock | trash. Warna semantik dipakai agar
+    arti pesan langsung terbaca, namun footer & aksen tetap mengikuti tema server.
+    """
+    meta = STATUS_KINDS.get(str(kind or "info"), STATUS_KINDS["info"])
+    embed = discord.Embed(
+        title=f"{meta['emoji']} {str(title)[:250]}",
+        description=str(description or "")[:4000] or None,
+        colour=discord.Colour(meta["color"]) if meta["color"] is not None else accent_color(guild_id),
+    )
+    text = footer_text(guild_id, footer or "")
+    if text:
+        embed.set_footer(text=text[:2048])
+    return embed
+
+
 def theme_summary(guild_id: int | None) -> str:
     """Ringkasan satu baris tema aktif (untuk `/status` & dashboard)."""
     theme = get_theme(guild_id)

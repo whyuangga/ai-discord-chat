@@ -188,11 +188,20 @@ async def create_room(
 
     # Pesan sambutan singkat di room (auto-hapus agar tidak menumpuk)
     try:
+        import ui_theme
+
         await channel.send(
-            f"👋 Selamat datang di room **{member.display_name}**!\n"
-            "Kamu **pemilik** room ini: `/tempvoice kunci`, `/tempvoice nama`, "
-            "`/tempvoice limit`, atau `/tempvoice tendang`.\n"
-            "_Room otomatis terhapus saat kosong._",
+            embed=ui_theme.status_embed(
+                guild.id,
+                "info",
+                f"Room milik {member.display_name}",
+                "Kamu **pemilik** room ini. Atur lewat command berikut:\n"
+                "• `/tempvoice kunci` — kunci/buka room\n"
+                "• `/tempvoice nama` — ganti nama room\n"
+                "• `/tempvoice limit` — batasi jumlah orang\n"
+                "• `/tempvoice tendang` — keluarkan member\n\n"
+                "_Room ini terhapus otomatis saat kosong._",
+            ),
             delete_after=45,
         )
     except (discord.Forbidden, discord.HTTPException):

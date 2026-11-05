@@ -20,7 +20,13 @@ tempvoice_group = app_commands.Group(
 
 async def _reject_admin(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(
-        "⚠️ Pengaturan ini khusus **Admin / pengelola server**.", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id if interaction.guild else None,
+            "error",
+            "Butuh Izin Admin",
+            "Pengaturan Temp Voice khusus **Admin / pengelola server**.",
+        ),
+        ephemeral=True,
     )
 
 
@@ -65,7 +71,12 @@ async def tempvoice_atur_cmd(
         tv.set_hub(interaction.guild.id, 0, enabled=False)
         await tv.save_temp_voice_to_disk()
         await interaction.response.send_message(
-            "🛑 **Temp Voice dimatikan.** Room yang sudah ada akan dihapus otomatis saat kosong.",
+            embed=ui_theme.status_embed(
+                interaction.guild.id,
+                "lock",
+                "Temp Voice Dimatikan",
+                "Room yang sudah ada akan dihapus otomatis saat kosong.",
+            ),
             ephemeral=True,
         )
         return
@@ -159,7 +170,16 @@ async def tempvoice_kunci_cmd(interaction: discord.Interaction, aktif: bool = Tr
     tv.set_room_locked(channel_id, aktif)
     await tv.save_temp_voice_to_disk()
     await interaction.response.send_message(
-        f"{'🔒 Room dikunci.' if aktif else '🔓 Room dibuka kembali.'}", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "lock" if aktif else "ok",
+            "Room Dikunci" if aktif else "Room Dibuka",
+            f"{channel.mention} " + (
+                "hanya bisa dimasuki member yang diizinkan." if aktif
+                else "kembali terbuka untuk semua member."
+            ),
+        ),
+        ephemeral=True,
     )
 
 
@@ -193,7 +213,12 @@ async def tempvoice_nama_cmd(interaction: discord.Interaction, nama: str):
 
     tv.set_room_name(channel_id, new_name)
     await tv.save_temp_voice_to_disk()
-    await interaction.response.send_message(f"✅ Nama room: **{new_name}**", ephemeral=True)
+    await interaction.response.send_message(
+        embed=ui_theme.status_embed(
+            interaction.guild.id, "ok", "Nama Room Diubah", f"Sekarang: **{new_name}**"
+        ),
+        ephemeral=True,
+    )
 
 
 @tempvoice_group.command(name="limit", description="Batasi jumlah orang di room-mu")
@@ -222,7 +247,13 @@ async def tempvoice_limit_cmd(
         return
 
     await interaction.response.send_message(
-        f"✅ Batas room: **{jumlah or 'tanpa batas'}**", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Batas Slot Diubah",
+            f"Room ini sekarang menampung **{jumlah or 'tanpa batas'}** orang.",
+        ),
+        ephemeral=True,
     )
 
 
@@ -254,7 +285,12 @@ async def tempvoice_tendang_cmd(interaction: discord.Interaction, member: discor
         )
         return
 
-    await interaction.response.send_message(f"👋 {member.mention} dikeluarkan dari room.", ephemeral=True)
+    await interaction.response.send_message(
+        embed=ui_theme.status_embed(
+            interaction.guild.id, "ok", "Member Dikeluarkan", f"{member.mention} keluar dari room-mu."
+        ),
+        ephemeral=True,
+    )
 
 
 def register_tempvoice_cog(bot: commands.Bot) -> None:

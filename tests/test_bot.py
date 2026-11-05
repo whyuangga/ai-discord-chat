@@ -5938,3 +5938,53 @@ async def test_server_tools_afk_threads_lockdown_backup():
 
     st.afk_users.pop(gid, None)
     st.auto_thread_channels.pop(gid, None)
+
+def test_visual_polish_status_embeds_and_panel_tabs():
+    """Konsistensi visual: status_embed (warna semantik) & tab /panel memuat fitur baru."""
+    import ui_theme
+    from cogs.panel_cog import _gather
+
+    gid = 757575
+    # 1. status_embed: emoji judul + warna semantik per jenis
+    ok = ui_theme.status_embed(gid, "ok", "Selesai", "isi")
+    warn = ui_theme.status_embed(gid, "warn", "Hati-hati")
+    err = ui_theme.status_embed(gid, "error", "Gagal")
+    info = ui_theme.status_embed(gid, "info", "Info")
+    lock = ui_theme.status_embed(gid, "lock", "Terkunci")
+    assert ok.title.startswith("✅") and warn.title.startswith("⚠️")
+    assert err.title.startswith("⛔") and info.title.startswith("ℹ️")
+    assert lock.title.startswith("🔒")
+    assert {ok.colour.value, warn.colour.value, err.colour.value, lock.colour.value} == {
+        0x2ECC71, 0xF1C40F, 0xE74C3C, 0xE67E22
+    }
+    # "info" ikut warna aksen server (bisa diubah tema)
+    assert info.colour.value == ui_theme.accent_int(gid)
+    # judul/description dipotong aman & footer tema terpasang
+    long_embed = ui_theme.status_embed(gid, "ok", "x" * 400, "y" * 5000)
+    assert len(long_embed.title) <= 256 and len(long_embed.description) <= 4096
+    assert long_embed.footer.text
+
+    # 2. Semua tab /panel ter-render (tanpa error) & memuat fitur baru
+    class _Guild:
+        id = gid
+        name = "Server Uji"
+        member_count = 42
+        premium_subscription_count = 0
+        me = None
+
+        def get_channel(self, cid):
+            return None
+
+        def get_role(self, rid):
+            return None
+
+    rendered = {}
+    for tab in ("overview", "ai", "server", "community", "music", "insights"):
+        title, lines = _gather(_Guild(), tab)
+        assert title and lines
+        rendered[tab] = "\n".join(lines)
+
+    assert "Moderasi" in rendered["server"] and "Lockdown" in rendered["server"]
+    for keyword in ("Temp Voice", "Kotak saran", "Notifikasi sosial", "Status AFK", "Thread otomatis"):
+        assert keyword in rendered["community"], f"{keyword} belum tampil di tab Komunitas"
+

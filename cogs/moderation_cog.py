@@ -16,6 +16,17 @@ import ui_theme
 
 logger = logging.getLogger("gemini_bot.moderation_cog")
 
+# Warna embed log per jenis aksi (membantu staff memindai channel log)
+ACTION_COLORS: dict[str, int] = {
+    "warn": 0xF1C40F,
+    "timeout": 0xE67E22,
+    "kick": 0x95A5A6,
+    "ban": 0xE74C3C,
+    "unban": 0x2ECC71,
+    "unmute": 0x3498DB,
+    "note": 0x9B59B6,
+}
+
 mod_group = app_commands.Group(
     name="mod",
     description="Moderasi bercatatan: peringatan, timeout, kick, ban, purge, & riwayat kasus",
@@ -39,7 +50,12 @@ def _is_staff(interaction: discord.Interaction) -> bool:
 
 async def _reject(interaction: discord.Interaction) -> None:
     await interaction.response.send_message(
-        "⚠️ Command ini khusus **staff** (butuh izin *Moderate Members* / *Manage Messages*).",
+        embed=ui_theme.status_embed(
+            interaction.guild.id if interaction.guild else None,
+            "error",
+            "Butuh Izin Staff",
+            "Command ini khusus **staff** (butuh izin *Moderate Members* atau *Manage Messages*).",
+        ),
         ephemeral=True,
     )
 
@@ -67,7 +83,7 @@ def _log_embed(guild: discord.Guild, case: dict, target: discord.abc.User, moder
     meta = mod.ACTIONS.get(str(case.get("action")), {"emoji": "•", "label": "Aksi"})
     embed = discord.Embed(
         title=f"{meta['emoji']} {meta['label']} — kasus #{case['id']}",
-        colour=ui_theme.accent_color(guild.id),
+        colour=discord.Colour(ACTION_COLORS.get(str(case.get("action")), 0x9B59B6)),
         timestamp=discord.utils.utcnow(),
     )
     embed.add_field(name="Member", value=f"{target} (`{target.id}`)", inline=True)
@@ -219,7 +235,13 @@ async def mod_timeout_cmd(
     await mod.save_moderation_to_disk()
     await _announce(interaction, case, member)
     await interaction.response.send_message(
-        f"🔇 {member.mention} di-timeout **{mod.format_duration(seconds)}** • kasus `#{case['id']}`",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Timeout Diterapkan",
+            f"{member.mention} dibisukan selama **{mod.format_duration(seconds)}**\n"
+            f"• Alasan: {alasan}\n• Kasus: `#{case['id']}`",
+        ),
         ephemeral=True,
     )
 
@@ -247,7 +269,13 @@ async def mod_kick_cmd(interaction: discord.Interaction, member: discord.Member,
     await mod.save_moderation_to_disk()
     await _announce(interaction, case, member)
     await interaction.followup.send(
-        f"👢 **{member}** dikeluarkan • kasus `#{case['id']}`", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Member Dikeluarkan",
+            f"**{member}** (`{member.id}`) di-kick.\n• Alasan: {alasan}\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
     )
 
 
@@ -288,7 +316,14 @@ async def mod_ban_cmd(
     await mod.save_moderation_to_disk()
     await _announce(interaction, case, member)
     await interaction.followup.send(
-        f"🔨 **{member}** diban • kasus `#{case['id']}`", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Member Diban",
+            f"**{member}** (`{member.id}`) diban.\n• Alasan: {alasan}\n• Kasus: `#{case['id']}`"
+            + (f"\n• Pesan dihapus: {hapus_pesan_hari} hari terakhir" if hapus_pesan_hari else ""),
+        ),
+        ephemeral=True,
     )
 
 
@@ -320,7 +355,13 @@ async def mod_unban_cmd(interaction: discord.Interaction, user_id: str, alasan: 
     case = mod.add_case(interaction.guild.id, target_id, interaction.user.id, "unban", alasan)
     await mod.save_moderation_to_disk()
     await interaction.followup.send(
-        f"🔓 Ban **{user}** dicabut • kasus `#{case['id']}`", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Ban Dicabut",
+            f"**{user}** (`{user.id}`) sudah bisa bergabung lagi.\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
     )
 
 
@@ -385,7 +426,15 @@ async def mod_purge_cmd(
     )
     await mod.save_moderation_to_disk()
     await interaction.followup.send(
-        f"🗑️ **{len(deleted)}** pesan dihapus • kasus `#{case['id']}`", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "trash",
+            "Pesan Dibersihkan",
+            f"**{len(deleted)}** pesan dihapus dari {getattr(channel, 'mention', 'channel ini')}.\n"
+            f"• Filter: `{kind}`" + (f"\n• Member: {member.mention}" if member else "")
+            + f"\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
     )
 
 
@@ -443,7 +492,13 @@ async def mod_hapus_cmd(interaction: discord.Interaction, id: app_commands.Range
     removed = mod.delete_case(interaction.guild.id, int(id))
     await mod.save_moderation_to_disk()
     await interaction.response.send_message(
-        f"🗑️ Kasus `#{id}` dihapus." if removed else f"⚠️ Kasus `#{id}` tidak ditemukan.",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "trash" if removed else "warn",
+            "Kasus Dihapus" if removed else "Kasus Tidak Ditemukan",
+            f"Kasus `#{id}` sudah dihapus dari catatan." if removed
+            else f"Tidak ada kasus dengan nomor `#{id}`.",
+        ),
         ephemeral=True,
     )
 

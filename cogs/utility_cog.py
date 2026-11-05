@@ -56,8 +56,14 @@ async def afk_atur_cmd(interaction: discord.Interaction, alasan: str = "tanpa al
     entry = st.set_afk(interaction.guild.id, interaction.user.id, alasan)
     await st.save_server_tools_to_disk()
     await interaction.response.send_message(
-        f"😴 Status AFK aktif: **{entry['reason']}**.\n"
-        "Warga yang menyebut namamu akan diberi tahu, dan status ini hilang otomatis saat kamu bicara lagi.",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "info",
+            "Status AFK Aktif",
+            f"Alasan: **{entry['reason']}**\n\n"
+            "Warga yang menyebut namamu akan diberi tahu, dan status ini hilang otomatis "
+            "begitu kamu bicara lagi.",
+        ),
         ephemeral=True,
     )
 
@@ -92,7 +98,13 @@ async def afk_hapus_cmd(interaction: discord.Interaction):
     if removed:
         await st.save_server_tools_to_disk()
     await interaction.response.send_message(
-        "✅ Status AFK dihapus." if removed else "ℹ️ Kamu tidak sedang AFK.", ephemeral=True
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok" if removed else "info",
+            "Status AFK Dihapus" if removed else "Kamu Tidak AFK",
+            "Status AFK-mu sudah dilepas." if removed else "Tidak ada status AFK untuk dihapus.",
+        ),
+        ephemeral=True,
     )
 
 
@@ -122,8 +134,14 @@ async def thread_aktifkan_cmd(
     st.enable_auto_thread(interaction.guild.id, target.id, archive_minutes=int(arsip_menit))
     await st.save_server_tools_to_disk()
     await interaction.response.send_message(
-        f"🧵 **Auto-thread aktif** di {target.mention} (arsip otomatis setelah "
-        f"{arsip_menit // 60} jam). Setiap pesan baru akan dibuatkan thread.",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Auto-Thread Aktif",
+            f"Channel: {target.mention}\n"
+            f"• Arsip otomatis setelah **{arsip_menit // 60} jam** tidak aktif\n"
+            "• Setiap pesan baru akan dibuatkan thread",
+        ),
         ephemeral=True,
     )
 
@@ -149,7 +167,13 @@ async def thread_matikan_cmd(
     removed = st.disable_auto_thread(interaction.guild.id, target.id)
     await st.save_server_tools_to_disk()
     await interaction.response.send_message(
-        f"✅ Auto-thread di {target.mention} dimatikan." if removed else "ℹ️ Channel itu tidak auto-thread.",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok" if removed else "info",
+            "Auto-Thread Dimatikan" if removed else "Bukan Channel Auto-Thread",
+            f"{target.mention} tidak lagi membuat thread otomatis." if removed
+            else f"{target.mention} memang tidak diatur sebagai auto-thread.",
+        ),
         ephemeral=True,
     )
 
@@ -200,17 +224,28 @@ async def lockdown_aktif_cmd(
             )
             return
         await interaction.followup.send(
-            f"🔒 **Lockdown aktif** — `{locked}` channel dikunci"
-            + (f", `{failed}` gagal (cek izin bot)" if failed else "")
-            + ".\nBuka kembali dengan `/lockdown aktif aktif:False`.",
+            embed=ui_theme.status_embed(
+                interaction.guild.id,
+                "lock",
+                "Lockdown Aktif",
+                f"**{locked}** text channel dikunci"
+                + (f", **{failed}** gagal (cek izin bot)" if failed else "")
+                + ".\n\nBuka kembali dengan `/lockdown aktif aktif:False`.",
+                footer=f"Alasan: {alasan[:80]}",
+            ),
             ephemeral=True,
         )
         return
 
     restored = await st.stop_lockdown(interaction.guild)
     await interaction.followup.send(
-        f"🔓 **Lockdown dicabut** — `{restored}` channel dibuka kembali." if restored
-        else "ℹ️ Tidak ada lockdown aktif.",
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok" if restored else "info",
+            "Lockdown Dicabut" if restored else "Tidak Ada Lockdown",
+            f"**{restored}** channel dibuka kembali." if restored
+            else "Server ini tidak sedang dalam lockdown.",
+        ),
         ephemeral=True,
     )
 
