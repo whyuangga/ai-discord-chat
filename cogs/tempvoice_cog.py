@@ -7,6 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import temp_voice as tv
+import ui_kit
 import ui_theme
 
 logger = logging.getLogger("gemini_bot.tempvoice_cog")
@@ -19,7 +20,8 @@ tempvoice_group = app_commands.Group(
 
 
 async def _reject_admin(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id if interaction.guild else None,
             "error",
@@ -70,7 +72,8 @@ async def tempvoice_atur_cmd(
     if not aktif:
         tv.set_hub(interaction.guild.id, 0, enabled=False)
         await tv.save_temp_voice_to_disk()
-        await interaction.response.send_message(
+        await ui_kit.send_status(
+            interaction,
             embed=ui_theme.status_embed(
                 interaction.guild.id,
                 "lock",
@@ -169,7 +172,8 @@ async def tempvoice_kunci_cmd(interaction: discord.Interaction, aktif: bool = Tr
 
     tv.set_room_locked(channel_id, aktif)
     await tv.save_temp_voice_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "lock" if aktif else "ok",
@@ -213,7 +217,8 @@ async def tempvoice_nama_cmd(interaction: discord.Interaction, nama: str):
 
     tv.set_room_name(channel_id, new_name)
     await tv.save_temp_voice_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id, "ok", "Nama Room Diubah", f"Sekarang: **{new_name}**"
         ),
@@ -246,7 +251,8 @@ async def tempvoice_limit_cmd(
         await interaction.response.send_message(f"⚠️ Gagal mengubah batas: {exc}", ephemeral=True)
         return
 
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -285,7 +291,8 @@ async def tempvoice_tendang_cmd(interaction: discord.Interaction, member: discor
         )
         return
 
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id, "ok", "Member Dikeluarkan", f"{member.mention} keluar dari room-mu."
         ),

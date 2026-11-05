@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import suggestions as sg
+import ui_kit
 import ui_theme
 from views import SuggestionVoteView
 
@@ -75,7 +76,8 @@ async def saran_pasang_cmd(
     if nonaktifkan:
         sg.set_channel(interaction.guild.id, None)
         await sg.save_suggestions_to_disk()
-        await interaction.response.send_message(
+        await ui_kit.send_status(
+            interaction,
             embed=ui_theme.status_embed(
                 interaction.guild.id, "lock", "Kotak Saran Dimatikan", "Member tidak bisa lagi mengirim saran."
             ),
@@ -91,7 +93,8 @@ async def saran_pasang_cmd(
 
     sg.set_channel(interaction.guild.id, channel.id)
     await sg.save_suggestions_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -144,7 +147,9 @@ async def saran_kirim_cmd(interaction: discord.Interaction, teks: str):
 
     sg.bind_message(interaction.guild.id, item["id"], message.id)
     await sg.save_suggestions_to_disk()
-    await interaction.followup.send(
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -245,7 +250,8 @@ async def saran_status_cmd(
                 pass
 
     meta = sg.STATUSES[status.value]
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -284,7 +290,8 @@ async def saran_hapus_cmd(interaction: discord.Interaction, id: app_commands.Ran
 
     sg.delete_suggestion(interaction.guild.id, int(id))
     await sg.save_suggestions_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id, "trash", "Saran Dihapus", f"Saran `#{id}` beserta pesannya sudah dihapus."
         ),

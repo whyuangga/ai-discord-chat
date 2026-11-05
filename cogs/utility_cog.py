@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import server_tools as st
+import ui_kit
 import ui_theme
 
 logger = logging.getLogger("gemini_bot.utility_cog")
@@ -55,7 +56,8 @@ async def afk_atur_cmd(interaction: discord.Interaction, alasan: str = "tanpa al
         return
     entry = st.set_afk(interaction.guild.id, interaction.user.id, alasan)
     await st.save_server_tools_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "info",
@@ -97,7 +99,8 @@ async def afk_hapus_cmd(interaction: discord.Interaction):
     removed = st.pop_afk(interaction.guild.id, interaction.user.id)
     if removed:
         await st.save_server_tools_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok" if removed else "info",
@@ -133,7 +136,8 @@ async def thread_aktifkan_cmd(
 
     st.enable_auto_thread(interaction.guild.id, target.id, archive_minutes=int(arsip_menit))
     await st.save_server_tools_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -166,7 +170,8 @@ async def thread_matikan_cmd(
 
     removed = st.disable_auto_thread(interaction.guild.id, target.id)
     await st.save_server_tools_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok" if removed else "info",
@@ -223,7 +228,9 @@ async def lockdown_aktif_cmd(
                 "ℹ️ Lockdown sudah aktif (atau semua channel sudah terkunci sebelumnya).", ephemeral=True
             )
             return
-        await interaction.followup.send(
+        await ui_kit.send_status(
+            interaction,
+            follow=True,
             embed=ui_theme.status_embed(
                 interaction.guild.id,
                 "lock",
@@ -238,7 +245,9 @@ async def lockdown_aktif_cmd(
         return
 
     restored = await st.stop_lockdown(interaction.guild)
-    await interaction.followup.send(
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok" if restored else "info",

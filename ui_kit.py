@@ -331,6 +331,30 @@ async def edit_panel(
     return False
 
 
+async def send_status(
+    interaction: discord.Interaction,
+    embed: discord.Embed,
+    *,
+    follow: bool = False,
+    ephemeral: bool = True,
+    extra_children: list | None = None,
+) -> bool:
+    """Kirim embed status sebagai **kartu V2** bertema; embed tetap jadi jalur cadangan.
+
+    Dipakai untuk menyamakan seluruh balasan konfirmasi (moderasi, temp voice, saran,
+    AFK, lockdown) dengan bahasa visual panel V2 lainnya.
+    """
+    guild_id = interaction.guild.id if interaction.guild else None
+    view = build_view(
+        guild_id,
+        embed_to_container(guild_id, embed, extra_children=extra_children),
+        timeout=None,
+    )
+    if follow:
+        return await follow_panel(interaction, view, embed=embed, ephemeral=ephemeral)
+    return await send_panel(interaction, view, embed=embed, ephemeral=ephemeral)
+
+
 async def follow_panel(
     interaction: discord.Interaction,
     view: ui.LayoutView,

@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import moderation as mod
+import ui_kit
 import ui_theme
 
 logger = logging.getLogger("gemini_bot.moderation_cog")
@@ -49,7 +50,8 @@ def _is_staff(interaction: discord.Interaction) -> bool:
 
 
 async def _reject(interaction: discord.Interaction) -> None:
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id if interaction.guild else None,
             "error",
@@ -234,7 +236,8 @@ async def mod_timeout_cmd(
     case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "timeout", alasan, duration_sec=seconds)
     await mod.save_moderation_to_disk()
     await _announce(interaction, case, member)
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -268,7 +271,9 @@ async def mod_kick_cmd(interaction: discord.Interaction, member: discord.Member,
     case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "kick", alasan)
     await mod.save_moderation_to_disk()
     await _announce(interaction, case, member)
-    await interaction.followup.send(
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -315,7 +320,9 @@ async def mod_ban_cmd(
     case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "ban", alasan)
     await mod.save_moderation_to_disk()
     await _announce(interaction, case, member)
-    await interaction.followup.send(
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -354,7 +361,9 @@ async def mod_unban_cmd(interaction: discord.Interaction, user_id: str, alasan: 
 
     case = mod.add_case(interaction.guild.id, target_id, interaction.user.id, "unban", alasan)
     await mod.save_moderation_to_disk()
-    await interaction.followup.send(
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "ok",
@@ -425,7 +434,9 @@ async def mod_purge_cmd(
         f"Purge {len(deleted)} pesan di #{getattr(channel, 'name', channel.id)} (filter: {kind})",
     )
     await mod.save_moderation_to_disk()
-    await interaction.followup.send(
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "trash",
@@ -491,7 +502,8 @@ async def mod_hapus_cmd(interaction: discord.Interaction, id: app_commands.Range
 
     removed = mod.delete_case(interaction.guild.id, int(id))
     await mod.save_moderation_to_disk()
-    await interaction.response.send_message(
+    await ui_kit.send_status(
+        interaction,
         embed=ui_theme.status_embed(
             interaction.guild.id,
             "trash" if removed else "warn",

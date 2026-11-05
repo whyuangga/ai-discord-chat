@@ -5988,3 +5988,65 @@ def test_visual_polish_status_embeds_and_panel_tabs():
     for keyword in ("Temp Voice", "Kotak saran", "Notifikasi sosial", "Status AFK", "Thread otomatis"):
         assert keyword in rendered["community"], f"{keyword} belum tampil di tab Komunitas"
 
+
+
+@pytest.mark.asyncio
+async def test_send_status_uses_components_v2_with_embed_fallback():
+    """Semua balasan konfirmasi dikirim sebagai kartu V2, dengan embed tetap tersedia."""
+    import ui_kit
+    import ui_theme
+
+    calls: list[dict] = []
+
+    class _Response:
+        async def send_message(self, **kwargs):
+            if "view" in kwargs and FAIL_VIEW:
+                raise TypeError("V2 ditolak klien")
+            calls.append(kwargs)
+
+    class _Followup:
+        async def send(self, **kwargs):
+            if "view" in kwargs and FAIL_VIEW:
+                raise TypeError("V2 ditolak klien")
+            calls.append(kwargs)
+
+    class _Interaction:
+        guild = None
+
+        def __init__(self):
+            self.response = _Response()
+            self.followup = _Followup()
+
+    embed = ui_theme.status_embed(999, "ok", "Selesai", "Contoh isi")
+    interaction = _Interaction()
+
+    # 1. Jalur utama: kartu Components V2
+    FAIL_VIEW = False
+    assert await ui_kit.send_status(interaction, embed=embed) is True
+    sent = calls[-1]
+    assert isinstance(sent["view"], discord.ui.LayoutView)
+    container = sent["view"].children[0]
+    assert isinstance(container, discord.ui.Container)
+    joined = " ".join(getattr(child, "content", "") for child in container.children)
+    assert "Selesai" in joined and "Contoh isi" in joined
+
+    # 2. Jalur followup (setelah defer) juga memakai kartu V2
+    assert await ui_kit.send_status(interaction, embed=embed, follow=True) is True
+    assert isinstance(calls[-1]["view"], discord.ui.LayoutView)
+
+    # 3. Bila klien/server menolak V2 → otomatis kirim embed klasik
+    FAIL_VIEW = True
+    assert await ui_kit.send_status(interaction, embed=embed) is False
+    assert calls[-1]["embed"] is embed and "view" not in calls[-1]
+    assert await ui_kit.send_status(interaction, embed=embed, follow=True) is False
+    assert calls[-1]["embed"] is embed
+
+    # 4. Seluruh balasan konfirmasi cog baru memakai helper ini
+    for path in (
+        "cogs/moderation_cog.py",
+        "cogs/tempvoice_cog.py",
+        "cogs/suggestions_cog.py",
+        "cogs/utility_cog.py",
+    ):
+        source = open(path, encoding="utf-8").read()
+        assert "ui_kit.send_status(" in source, f"{path} belum memakai kartu V2"
