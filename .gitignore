@@ -3,8 +3,10 @@
 .env.*
 !.env.example
 
-# Data Sesi Runtime
-data/
+# Data Sesi Runtime (HANYA folder data/ di root repo — jangan pola "data/"
+# tanpa garis miring depan, karena itu ikut mengabaikan site/data/landing.yaml
+# dan site/themes/*/data/ sehingga build situs gagal di Vercel)
+/data/
 
 # Python Bytecode & Virtual Environment
 __pycache__/

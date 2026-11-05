@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -80,6 +82,49 @@ def test_vercel_json_siap_deploy():
     assert config["build"]["env"]["HUGO_VERSION"] == "0.169.0"
     assert "--minify" in config["buildCommand"]
     assert "$VERCEL_URL" in config["buildCommand"]
+
+
+# Berkas hasil build yang memang tidak perlu dilacak git.
+_ARTEFAK_BUILD = ("site/public/", "site/resources/", "site/.hugo_build.lock")
+
+
+def _git(*args: str) -> str:
+    hasil = subprocess.run(
+        ["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=True
+    )
+    return hasil.stdout
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="butuh git")
+def test_berkas_situs_dilacak_git():
+    """Regresi: `data/` di .gitignore pernah ikut membuang site/data/landing.yaml,
+    sehingga build di Vercel gagal ("sort: sequence must be provided")."""
+    dilacak = set(_git("ls-files", "site").splitlines())
+    assert "site/data/landing.yaml" in dilacak, (
+        "site/data/landing.yaml tidak dilacak git — cek pola .gitignore (harus '/data/', bukan 'data/')"
+    )
+    assert "site/hugo.toml" in dilacak
+    assert "site/vercel.json" in dilacak
+    assert "site/themes/lotusdocs/theme.toml" in dilacak
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="butuh git")
+def test_tidak_ada_berkas_situs_yang_terabaikan():
+    """Selain artefak build, tidak boleh ada berkas site/ yang diabaikan .gitignore."""
+    terabaikan = _git("ls-files", "--others", "--ignored", "--exclude-standard", "--", "site").splitlines()
+    tak_diharapkan = [p for p in terabaikan if not p.startswith(_ARTEFAK_BUILD)]
+    assert tak_diharapkan == [], "Berkas situs ini terabaikan .gitignore: " + ", ".join(tak_diharapkan)
+
+
+def test_landing_yaml_punya_bagian_wajib():
+    """layouts/index.html tema membaca .landing.{hero,featureGrid}; kalau kosong build gagal."""
+    isi = (ROOT / "site" / "data" / "landing.yaml").read_text(encoding="utf-8")
+    for kunci in ("hero:", "featureGrid:", "template: hero", "template: feature grid"):
+        assert kunci in isi, f"landing.yaml kehilangan '{kunci}'"
+    assert isi.count("    - title:") >= 6, "kartu fitur halaman depan berkurang"
+    # tema hanya merender tautan kartu dari kunci `ctaLink` (bukan `url`)
+    assert isi.count("      ctaLink:") >= 6, "kartu fitur tidak punya tautan (kunci harus ctaLink)"
+    assert "/docs/sesi/" in isi and "/docs/command/" not in isi.split("items:")[0]
 
 
 def test_konfigurasi_lotus_docs():

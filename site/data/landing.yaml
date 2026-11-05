@@ -1,0 +1,77 @@
+# Halaman depan situs dokumentasi (dipakai layouts/index.html milik tema Lotus Docs).
+# Catatan: file ini WAJIB ter-commit. Kalau hilang, build gagal dengan pesan
+# "error calling sort: sequence must be provided" karena data `.landing` kosong.
+
+# Hero
+hero:
+  enable: true
+  weight: 10
+  template: hero
+
+  badge:
+    text: v1.40.0-beta
+    color: primary
+    pill: false
+    soft: true
+
+  title: "AI Discord Chat"
+  subtitle: Bot Discord modular berbasis **Google Gemini** — 52 command utama, satu proses, JSON, Free Tier (±53 MB RAM).
+
+  ctaButton:
+    icon: menu_book
+    btnText: "Buka dokumentasi"
+    url: "/docs/"
+
+  cta2Button:
+    icon: code
+    btnText: "GitHub"
+    url: "https://github.com/whyuangga/ai-discord-chat"
+
+  info: "**Open Source** MIT Licensed · 149 tes otomatis"
+
+# Feature Grid
+featureGrid:
+  enable: true
+  weight: 20
+  template: feature grid
+
+  title: Apa saja isinya?
+  subtitle: 23 area fitur, semuanya jalan di Free Tier. Klik untuk membuka penjelasannya.
+
+  items:
+    - title: Ruang AI privat
+      icon: forum
+      description: Private thread, 5 kepribadian, PDF, voice note, vision, generate gambar.
+      ctaLink:
+        url: /docs/sesi/
+        text: Buka penjelasan
+    - title: AI Agent publik
+      icon: smart_toy
+      description: Auto-chat dengan etika anti-nimbrung, digest pagi, welcome & goodbye.
+      ctaLink:
+        url: /docs/agent/
+        text: Buka penjelasan
+    - title: Musik 24/7
+      icon: music_note
+      description: Lavalink v4, panel ala Rythm, filter audio, playlist per member.
+      ctaLink:
+        url: /docs/musik/
+        text: Buka penjelasan
+    - title: Keamanan
+      icon: shield
+      description: Moderasi bercatatan, anti-spam, anti-nuke, raid guard otomatis.
+      ctaLink:
+        url: /docs/keamanan/
+        text: Buka penjelasan
+    - title: Retensi & pelayanan
+      icon: military_tech
+      description: Level & XP, musim, prestige, tiket thread dengan SLA & rating bintang.
+      ctaLink:
+        url: /docs/level/
+        text: Buka penjelasan
+    - title: Hemat kuota
+      icon: savings
+      description: Statistik AI, cache jawaban, cap harian, 0 kuota untuk UI & panel.
+      ctaLink:
+        url: /docs/pemakaian/
+        text: Buka penjelasan
