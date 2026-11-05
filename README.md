@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.36.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.37.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -1111,6 +1111,22 @@ Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besa
 
 ---
 
+### O3. Prefix Command per Server (`/prefix`) — 0 Kuota AI
+
+Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama
+(`!setup_panel`). Setiap server boleh mengganti prefix itu:
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/prefix lihat`** | Prefix khusus server + daftar prefix yang diterima. |
+| **`/prefix atur prefix:?`** *(Admin)* | Ganti prefix (1–5 karakter). |
+| **`/prefix reset`** *(Admin)* | Kembalikan ke prefix bawaan `!`. |
+
+**Aturan:** prefix tidak boleh berspasi, tidak boleh memakai karakter `<> & @ # : ` / \ * _ ~ |`,
+dan **prefix bawaan `!` tetap diterima** sebagai cadangan agar member lama tidak bingung.
+Hanya server yang diubah yang disimpan di `data/prefixes.json` (hemat I/O & RAM).
+Command AI di channel tetap tidak terpengaruh: prefix hanya untuk command teks, bukan obrolan.
+
 ### O2. Bahasa Antarmuka (`/bahasa`) — i18n Inti, 0 Kuota AI
 
 Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English
@@ -1891,6 +1907,7 @@ ai-discord-chat/
 ├── raid_guard.py       # Raid Guard: mode darurat otomatis saat lonjakan join (data/raid.json)
 ├── music_playlists.py  # Playlist musik per member (data/music_playlists.json)
 ├── i18n.py             # Terjemahan teks kerangka ID/EN per server (data/i18n.json)
+├── prefixes.py         # Prefix command teks per server (data/prefixes.json)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)

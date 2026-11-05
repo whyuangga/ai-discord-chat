@@ -588,8 +588,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
 
                 "• `/agent digest` — Kirim **Koran & Sapaan Pagi** terjadwal setiap hari.\n"
                 "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI.\n"
-                "• `/bahasa lihat` & `/bahasa atur kode:en` *(Admin)* — ganti bahasa **teks kerangka** bot "
-                "(tombol konfirmasi, kata status, pesan izin) ke Indonesia/English. 0 kuota AI."
+                "• `/bahasa atur kode:en` *(Admin)* — bahasa **teks kerangka** (tombol, status, izin) ID/EN.\n"
+                "• `/prefix atur prefix:?` *(Admin)* — prefix command teks per server (`!setup_panel`); "
+                "bawaan `!` tetap diterima."
             ),
             inline=False,
         )

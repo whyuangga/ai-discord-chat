@@ -2238,6 +2238,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "raid",
         # v1.36.0-beta: i18n inti (/bahasa)
         "bahasa",
+        # v1.37.0-beta: prefix command per server
+        "prefix",
     }
     assert len(chat_cmds) <= 100
 
@@ -8658,3 +8660,64 @@ async def test_i18n_core_texts_and_language_command():
 
     i18n.guild_lang.clear()
     await i18n.save_lang_to_disk()
+
+
+# ==============================================================================
+# PREFIX COMMAND PER SERVER (v1.37.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_custom_prefix_per_guild():
+    """Prefix per server: validasi, pencocokan pesan, reset, & persistensi."""
+    import prefixes
+
+    prefixes.guild_prefixes.clear()
+
+    # 1. Default `!`
+    assert prefixes.DEFAULT_PREFIX == "!"
+    assert prefixes.get_prefix(1) == "!"
+    assert prefixes.prefixes_for(1) == ["!"]
+    assert prefixes.is_prefix_command("!setup_panel", 1) is True
+    assert prefixes.is_prefix_command("?setup_panel", 1) is False
+
+    # 2. Validasi prefix
+    for bad in ("", "   ", "a b", "toolong", "@everyone", "#kanal", "<@123>", "a"):
+        ok, _value, error = prefixes.set_prefix(1, bad)
+        assert ok is False and error, bad
+    assert prefixes.get_prefix(1) == "!"          # tidak berubah karena gagal
+
+    # 3. Prefix valid
+    ok, value, message = prefixes.set_prefix(1, " ? ")
+    assert ok and value == "?" and "?" in message
+    assert prefixes.get_prefix(1) == "?"
+    assert prefixes.prefixes_for(1) == ["?", "!"]      # bawaan tetap diterima
+    assert prefixes.match_prefix("?setup_panel", 1) == "?"
+    assert prefixes.match_prefix("!setup_panel", 1) == "!"
+    assert prefixes.is_prefix_command("halo ?bukan-command", 1) is False
+    # Server lain tidak terpengaruh
+    assert prefixes.is_prefix_command("?setup_panel", 2) is False
+
+    # 4. Prefix multi-karakter & huruf
+    ok, value, _ = prefixes.set_prefix(1, "..")
+    assert ok and value == ".." and prefixes.match_prefix("..setup_panel", 1) == ".."
+    ok, value, _ = prefixes.set_prefix(1, "bot!")
+    assert ok and prefixes.match_prefix("bot!setup_panel", 1) == "bot!"
+
+    # 5. Kembali ke bawaan lewat set & reset
+    ok, value, _ = prefixes.set_prefix(1, "!")
+    assert ok and value == "!" and prefixes.get_prefix(1) == "!"
+    assert prefixes.set_prefix(1, "?")[0] is True
+    assert prefixes.reset_prefix(1) is True
+    assert prefixes.reset_prefix(1) is False
+
+    # 6. Persistensi
+    prefixes.set_prefix(5, "?")
+    await prefixes.save_prefixes_to_disk()
+    prefixes.guild_prefixes.clear()
+    assert prefixes.load_prefixes_from_disk() >= 1
+    assert prefixes.get_prefix(5) == "?"
+    prefixes.guild_prefixes[6] = "!"
+    assert prefixes.cleanup_prefixes_runtime() == 1
+    assert prefixes.get_prefix(6) == "!"
+
+    prefixes.guild_prefixes.clear()
+    await prefixes.save_prefixes_to_disk()

@@ -15,6 +15,12 @@ from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
 from tickets import run_ticket_check
 from levels import run_level_season_check
+from prefixes import (
+    cleanup_prefixes_runtime,
+    load_prefixes_from_disk,
+    prefixes_for,
+    save_prefixes_to_disk,
+)
 from i18n import (
     cleanup_i18n_runtime,
     load_lang_from_disk,
@@ -186,12 +192,18 @@ class GeminiDiscordBot(commands.Bot):
         intents.message_content = True
         intents.members = True
         super().__init__(
-            command_prefix="!",
+            command_prefix=self._resolve_prefix,
             intents=intents,
             help_command=None,
         )
         self.http_session: aiohttp.ClientSession | None = None
         self.started_at: float = time.time()
+
+    @staticmethod
+    def _resolve_prefix(_bot, message) -> list[str]:
+        """Prefix bawaan `!` + prefix khusus server (`/prefix atur`)."""
+        guild = getattr(message, "guild", None)
+        return prefixes_for(getattr(guild, "id", None))
 
     async def start(self, token: str, *, reconnect: bool = True) -> None:
         await self.login(token)
@@ -280,6 +292,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_raid = load_raid_from_disk()
         loaded_playlists = load_playlists_from_disk()
         loaded_langs = load_lang_from_disk()
+        loaded_prefixes = load_prefixes_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -363,6 +376,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Raid Guard dimuat: %d server.", loaded_raid)
         logger.info("Playlist musik dimuat: %d member.", loaded_playlists)
         logger.info("Pengaturan bahasa dimuat: %d server.", loaded_langs)
+        logger.info("Prefix khusus dimuat: %d server.", loaded_prefixes)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -458,6 +472,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_raid_to_disk()
         await save_playlists_to_disk()
         await save_lang_to_disk()
+        await save_prefixes_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -522,6 +537,7 @@ async def idle_chat_watcher():
             cleanup_raid_runtime()       # buang catatan join raid yang kedaluwarsa
             cleanup_music_playlist_runtime()  # buang playlist kosong
             cleanup_i18n_runtime()            # buang bahasa default (hemat I/O)
+            cleanup_prefixes_runtime()        # buang prefix yang sama dengan bawaan
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

@@ -550,7 +550,15 @@ def register_events_cog(bot: commands.Bot) -> None:
             return
 
         # Jalankan command prefix (seperti !setup_panel) tanpa memicu AI
-        if message.content.strip().startswith(bot.command_prefix):
+        try:
+            import prefixes as prefix_store
+
+            is_prefix_cmd = prefix_store.is_prefix_command(
+                message.content, getattr(message.guild, "id", None)
+            )
+        except Exception:  # pragma: no cover - jaring aman
+            is_prefix_cmd = message.content.strip().startswith("!")
+        if is_prefix_cmd:
             await bot.process_commands(message)
             return
 
