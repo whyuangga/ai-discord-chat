@@ -149,6 +149,19 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🛡️ Anti-Nuke (`/nuke` — 0 kuota AI)",
+            value=(
+                "• `/nuke atur aktif:True aksi:cabut-role channel:#mod-log` *(Admin)* — hentikan "
+                "**penghancuran server** oleh staff jahat/akun hack: hapus channel/role massal, ban/kick massal, "
+                "banjir webhook, & pembajakan nama server.\n"
+                "• Aksi bertingkat: `lapor` (bawaan, tanpa tindakan) → `cabut-role` → `timeout` → `kick` → `ban`.\n"
+                "• Pemulihan otomatis: nama/ikon server dikembalikan & webhook pelaku dihapus. "
+                "Owner, bot, & whitelist tidak pernah ditindak.\n"
+                "• `/nuke status`, `/nuke uji`, `/nuke whitelist`, `/nuke pulihkan`, `/nuke matikan`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🚨 Anti-Spam & Anti-Raid (`/keamanan spam`)",
             value=(
                 "• `/keamanan spam aktif:True` — **mode awalnya hanya *lapor*** ke channel log, "

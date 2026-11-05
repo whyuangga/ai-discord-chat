@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.26.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.27.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -20,7 +20,8 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 12. **💰 Ekonomi Koin (`/ekonomi`)** — koin dari chat & voice, **hadiah harian ber-streak**, **toko role**, & transfer antar member (0 kuota AI).
 13. **🌱 Pertumbuhan & Invite Tracker (`/tumbuh`)** — siapa mengundang siapa, join/keluar harian, **retensi member**, & papan **Top Inviter** (0 kuota AI).
 14. **🧱 Menu Builder & Self Roles v2 (`/menu`, `/panel-role`)** — Admin bisa membuat panel tombol/dropdown sendiri: **role** (klik = ambil/lepas), **link** (Support/Undang Bot), dan **command** (klik = jalankan `/serverstats lihat`, `/level lihat`, dll.), lengkap dengan **banner** unggahan, panel persisten tahan restart, dan whitelist command aman (0 kuota AI).
-15. **📊 Hemat Kuota AI (Tier 3)** — **`/pemakaian`** melaporkan berapa operasi AI hari ini (per jenis, member teraktif, channel tersibuk) berikut trennya; **`/ringkas channel`** membuat rekap obrolan per periode yang **disimpan 30 menit** sehingga permintaan berulang **0 kuota**; dan **`/faq`** menjawab pertanyaan info server secara **lokal tanpa memanggil Gemini sama sekali**. Ada juga batas harian opsional **`AI_DAILY_CAP_PER_USER`** & **`AI_DAILY_CAP_PER_GUILD`**, cache jawaban pertanyaan identik, router model hemat, **token nyata** dari Gemini, `/agent keamanan` (longgar/normal/ketat), serta rotasi API key yang mengikuti `Retry-After`. Data di `data/ai_usage.json` (auto-dipangkas 7 hari).
+15. **🛡️ Anti-Nuke (`/nuke`)** — mendeteksi & menghentikan **penghancuran server** dari dalam: hapus channel/role massal, ban/kick massal, banjir webhook, sampai pembajakan nama server. Aksi **bisa diatur Admin** (`lapor` → `cabut-role` → `timeout` → `kick` → `ban`), plus **pemulihan nama/ikon server & hapus webhook pelaku**. Owner, bot, & whitelist tidak pernah ditindak (0 kuota AI).
+16. **📊 Hemat Kuota AI (Tier 3)** — **`/pemakaian`** melaporkan berapa operasi AI hari ini (per jenis, member teraktif, channel tersibuk) berikut trennya; **`/ringkas channel`** membuat rekap obrolan per periode yang **disimpan 30 menit** sehingga permintaan berulang **0 kuota**; dan **`/faq`** menjawab pertanyaan info server secara **lokal tanpa memanggil Gemini sama sekali**. Ada juga batas harian opsional **`AI_DAILY_CAP_PER_USER`** & **`AI_DAILY_CAP_PER_GUILD`**, cache jawaban pertanyaan identik, router model hemat, **token nyata** dari Gemini, `/agent keamanan` (longgar/normal/ketat), serta rotasi API key yang mengikuti `Retry-After`. Data di `data/ai_usage.json` (auto-dipangkas 7 hari).
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -43,6 +44,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [M. Ekonomi Koin (`/ekonomi`)](#m-ekonomi-koin-ekonomi)
    - [N. Pertumbuhan Server & Invite Tracker (`/tumbuh`)](#n-pertumbuhan-server--invite-tracker-tumbuh)
    - [O. Menu Builder & Self Roles v2 (`/menu`)](#o-menu-builder--self-roles-v2-menu)
+   - [P. Anti-Nuke (`/nuke`)](#p-anti-nuke-nuke)
    - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
@@ -1034,6 +1036,63 @@ Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besa
 
 ---
 
+### P. Anti-Nuke (`/nuke`)
+
+Melindungi server dari **penghancuran massal oleh staff jahat atau akun yang di-hack**.
+Bot membaca **Audit Log** Discord (siapa melakukan apa), menghitung aksi berisiko per pelaku,
+lalu bertindak sesuai pengaturan Admin. **0 kuota AI.**
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/nuke status`** | Status, aksi aktif, ambang tiap jenis, izin bot, whitelist, & pelanggaran terakhir |
+| **`/nuke atur`** *(Admin)* | Aktifkan, channel log, aksi, durasi timeout, DM owner, pemulihan, ambang & jendela waktu |
+| **`/nuke whitelist`** *(Admin)* | Lihat / tambah / hapus member & role yang dikecualikan |
+| **`/nuke uji`** *(Admin)* | Uji kering: lihat ambang & tindakan yang akan dijalankan (tidak menindak) |
+| **`/nuke pulihkan`** *(Admin)* | Pulihkan nama & ikon server dari titik pulih terakhir |
+| **`/nuke matikan`** *(Admin)* | Hentikan pemantauan |
+
+#### Yang dipantau (ambang bisa diubah Admin)
+| Aksi | Ambang bawaan | Kenapa berbahaya |
+| :--- | :--- | :--- |
+| 🧨 Hapus channel | 3× / 60 dtk | Riwayat chat hilang permanen |
+| 🎭 Hapus role | 3× / 60 dtk | Struktur izin hancur |
+| 🔨 Ban massal | 5× / 60 dtk | Server dikosongkan |
+| 👢 Kick massal | 5× / 60 dtk | Sama, tanpa jejak ban |
+| 🌊 Buat channel massal | 8× / 60 dtk | Server dibanjiri channel sampah |
+| 🪝 Buat webhook | 3× / 5 mnt | Saluran spam yang tetap hidup walau bot keluar |
+| 🏷️ Ubah identitas server | 2× / 5 mnt | Pembajakan nama/ikon |
+| 🧯 Cabut role massal | 12× / 60 dtk | Member kehilangan akses beramai-ramai |
+
+#### Aksi bertingkat (pilih di `/nuke atur aksi:`)
+| Mode | Efek |
+| :--- | :--- |
+| `lapor` *(bawaan)* | Hanya laporan ke channel log + DM owner — **tanpa tindakan otomatis** |
+| `cabut-role` | Laporan + cabut semua role berbahaya pelaku (administrator, manage server, ban, dll.) |
+| `timeout` | Laporan + timeout sementara (durasi diatur, maks 28 hari) |
+| `kick` | Laporan + keluarkan pelaku |
+| `ban` | Laporan + ban pelaku |
+
+#### Pemulihan ringan (opsional, aktif bawaan)
+- **Nama & ikon server** dikembalikan dari titik pulih yang disimpan saat bot start / saat Admin menyimpan pengaturan.
+- **Webhook buatan pelaku** dihapus otomatis.
+- Bisa dipulihkan manual kapan saja: `/nuke pulihkan`.
+
+#### Pengaman
+| Hal | Perilaku |
+| :--- | :--- |
+| Owner server | **Tidak pernah** ditindak (batasan Discord) |
+| Bot ini sendiri | Selalu dikecualikan |
+| Whitelist | Member/role terpercaya tidak pernah ditindak (`/nuke whitelist`) |
+| Izin bot | Butuh **View Audit Log**; tanpa itu `/nuke status` memberi peringatan jelas |
+| Salah tembak | Hanya pelaku (dari audit log) yang dihitung, bukan seluruh staff |
+| Pembatasan | Bot tidak bisa mengembalikan **isi pesan** yang sudah dihapus — hanya struktur & identitas |
+| Data | `data/antinuke.json` (konfigurasi + 20 pelanggaran terakhir) |
+
+> **Rekomendasi:** biarkan mode `lapor` selama 1–2 minggu untuk melihat apakah ada false positive
+> (mis. staff yang memang sedang merapikan channel), baru naikkan ke `cabut-role` atau `timeout`.
+
+---
+
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
 ### 1. Cara Memasang & Memakai Panel Ruang Privat AI
@@ -1450,6 +1509,19 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 
 ---
 
+### 13. Slash Commands Anti-Nuke (`/nuke`)
+
+| Command | Parameter | Fungsi |
+| :--- | :--- | :--- |
+| `/nuke status` | — | Status, ambang, izin bot, whitelist, & pelanggaran terakhir. |
+| `/nuke atur` | `aktif`, `channel`, `aksi`, `timeout_detik`, `dm_owner`, `pulihkan`, `jenis_ambang`, `ambang`, `jendela_detik` | *(Admin)* Konfigurasi anti-nuke. |
+| `/nuke whitelist` | `aksi`, `member`, `role` | *(Admin)* Kecualikan member/role dari tindakan. |
+| `/nuke uji` | `jenis` | *(Admin)* Uji kering ambang & tindakan. |
+| `/nuke pulihkan` | — | *(Admin)* Pulihkan nama/ikon server. |
+| `/nuke matikan` | — | *(Admin)* Hentikan pemantauan. |
+
+---
+
 ## ⚙️ Penjelasan Variabel `.env`
 
 Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sudah memiliki nilai default terbaik:
@@ -1674,6 +1746,7 @@ ai-discord-chat/
 │   ├── economy_cog.py  # Grup /ekonomi (saldo, harian, toko, transfer, atur)
 │   ├── analytics_cog.py# Grup /tumbuh (ringkasan pertumbuhan, Top Inviter, atur)
 │   ├── menu_cog.py     # Grup /menu (buat panel, tombol role/link/command, dropdown, kelola)
+│   ├── antinuke_cog.py # Grup /nuke (status, atur, whitelist, uji, pulihkan, matikan)
 │   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, audit & growth hooks, cleanup)
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── welcome_media.py    # Penyimpanan banner (data/media/) + perender kartu sambutan dengan Pillow
@@ -1697,6 +1770,7 @@ ai-discord-chat/
 ├── economy.py          # Ekonomi koin: pesan, voice, hadiah harian ber-streak, toko role (data/economy.json)
 ├── growth_tracker.py   # Invite tracker + statistik pertumbuhan & retensi member (data/growth.json)
 ├── menu_builder.py     # Menu Builder: panel tombol/dropdown role, link, & command (data/menus.json)
+├── antinuke.py         # Anti-Nuke: deteksi audit log, tindakan bertingkat, & pemulihan (data/antinuke.json)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)

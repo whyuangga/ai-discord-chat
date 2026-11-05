@@ -1,6 +1,7 @@
 from discord.ext import commands
 
 from cogs.agent_cog import agent_group, register_agent_cog, trigger_member_welcome
+from cogs.antinuke_cog import nuke_group, register_antinuke_cog
 from cogs.audit_cog import log_group, register_audit_cog
 from cogs.analytics_cog import register_analytics_cog, tumbuh_group
 from cogs.economy_cog import ekonomi_group, register_economy_cog
@@ -87,6 +88,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_economy_cog(bot)
     register_analytics_cog(bot)
     register_menu_cog(bot)
+    register_antinuke_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
     register_tempvoice_cog(bot)

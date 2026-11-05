@@ -2232,6 +2232,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "tumbuh",
         # v1.26.0-beta: menu builder (tombol role/link/command + dropdown)
         "menu",
+        # v1.27.0-beta: anti-nuke (deteksi audit log + tindakan + pemulihan)
+        "nuke",
     }
     assert len(chat_cmds) <= 100
 
@@ -7263,3 +7265,302 @@ async def test_menu_builder_command_buttons_and_visibility(monkeypatch):
     assert "Pusat Info" in (embed.title or "")
 
     menu_builder.menus.clear()
+
+
+# ==============================================================================
+# ANTI-NUKE (v1.27.0-beta)
+# ==============================================================================
+class _ANRole:
+    def __init__(self, rid, name="Role", *, dangerous=True):
+        self.id = rid
+        self.name = name
+        self.mention = f"<@&{rid}>"
+        self.permissions = type(
+            "P",
+            (),
+            {
+                "administrator": dangerous,
+                "manage_guild": False,
+                "manage_roles": False,
+                "manage_channels": False,
+                "manage_webhooks": False,
+                "ban_members": False,
+                "kick_members": False,
+                "manage_messages": False,
+            },
+        )()
+
+    def is_default(self):
+        return False
+
+
+class _ANMember:
+    def __init__(self, uid=801, name="Nuker", roles=None, *, owner=False):
+        self.id = uid
+        self.name = name
+        self.mention = f"<@{uid}>"
+        self.roles = list(roles or [])
+        self.bot = False
+        self._owner = owner
+        self.kicked = False
+        self.banned = False
+        self.timed_out_until = None
+        self.removed_roles = []
+
+    async def remove_roles(self, *roles, reason=None):
+        self.removed_roles.extend(roles)
+        self.roles = [r for r in self.roles if r.id not in {x.id for x in roles}]
+
+    async def timeout(self, until, reason=None):
+        self.timed_out_until = until
+
+    async def kick(self, reason=None):
+        self.kicked = True
+
+
+class _ANChannel:
+    def __init__(self, cid=901):
+        self.id = cid
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append(kwargs)
+
+
+class _ANHook:
+    def __init__(self, uid):
+        self.user = type("U", (), {"id": uid})()
+        self.deleted = False
+
+    async def delete(self, reason=None):
+        self.deleted = True
+
+
+class _ANGuild:
+    def __init__(self, gid=99, *, name="Server Asli", owner_id=700):
+        self.id = gid
+        self.name = name
+        self.owner_id = owner_id
+        self.owner = None
+        self.icon = None
+        self.system_channel = _ANChannel(902)
+        self.me = _ANMember(999, "Bot", owner=False)
+        self._members = {}
+        self._hooks = []
+        self.edits = []
+        self.banned = None
+
+    def get_member(self, uid):
+        return self._members.get(int(uid))
+
+    def get_role(self, rid):
+        return None
+
+    async def webhooks(self):
+        return self._hooks
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        if "name" in kwargs:
+            self.name = kwargs["name"]
+
+    async def ban(self, member, reason=None, delete_message_seconds=0):
+        self.banned = member
+        if hasattr(member, "banned"):
+            member.banned = True
+
+    async def fetch_member(self, uid):
+        return None
+
+
+class _ANEntry:
+    def __init__(self, guild, user, action_name):
+        self.guild = guild
+        self.user = user
+        self.action = type("A", (), {"name": action_name})()
+
+
+@pytest.mark.asyncio
+async def test_antinuke_detection_actions_and_whitelist():
+    """Anti-Nuke: deteksi ambang, tindakan bertingkat, whitelist, & pemulihan identitas."""
+    import antinuke
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+    guild = _ANGuild(99)
+    nuker = _ANMember(801, "Nuker", [_ANRole(11)])
+    guild._members[801] = nuker
+
+    # 1. Konfigurasi bawaan aman
+    cfg = antinuke.get_config(99)
+    assert cfg["enabled"] is True and cfg["action"] == "lapor"
+    assert cfg["restore"] is True and cfg["dm_owner"] is True
+    assert antinuke.is_enabled(99) is True
+
+    # 2. Klasifikasi aksi audit log
+    assert antinuke.classify("channel_delete") == "channel_delete"
+    assert antinuke.classify("ban") == "ban"
+    assert antinuke.classify("kick") == "kick"
+    assert antinuke.classify("webhook_create") == "webhook_create"
+    assert antinuke.classify("role_delete") == "role_delete"
+    assert antinuke.classify("bukan_aksi") is None
+
+    # 3. Di bawah ambang: tidak ada pelanggaran & tidak ada laporan
+    antinuke.set_config(99, thresholds={"channel_delete": 3}, window=60)
+    log_channel = _ANChannel(901)
+    cfg = antinuke.get_config(99)
+    cfg["log_channel_id"] = 901
+    cfg["dm_owner"] = False
+    bot = type("B", (), {"get_channel": lambda self, cid: log_channel if int(cid) == 901 else None,
+                         "user": _ANMember(999, "Bot")})()
+
+    base = 1000.0
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base) is None
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base + 1) is None
+    assert log_channel.sent == []
+
+    # 4. Melewati ambang & mode `lapor` → laporan dikirim, tanpa tindakan
+    violation = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base + 2)
+    assert violation is not None
+    assert violation["action"] == "channel_delete" and violation["count"] >= 3
+    assert "lapor" in violation["taken"]
+    assert log_channel.sent and "Anti-Nuke" in log_channel.sent[-1]["embed"].title
+    assert nuker.removed_roles == [] and nuker.kicked is False
+    assert antinuke.recent_violations(99, 5)
+
+    # 5. Mode `cabut-role`: role berbahaya pelaku dicabut otomatis
+    antinuke.reset_events()
+    antinuke.set_config(99, action="cabut-role")
+    for offset in range(3):
+        last = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "role_delete"), now=base + 100 + offset)
+    assert last is not None and "cabut-role" in last["taken"]
+    assert nuker.removed_roles and nuker.removed_roles[0].id == 11
+
+    # 6. Mode `timeout` & `kick`
+    antinuke.reset_events()
+    antinuke.set_config(99, action="timeout", timeout_sec=600)
+    for offset in range(5):
+        last = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "ban"), now=base + 200 + offset)
+    assert nuker.timed_out_until is not None
+    assert "timeout" in last["taken"]
+
+    antinuke.reset_events()
+    antinuke.set_config(99, action="kick")
+    for offset in range(5):
+        last = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "kick"), now=base + 300 + offset)
+    assert nuker.kicked is True and "kick" in last["taken"]
+
+    # 7. Whitelist: member, role, owner, & bot sendiri tidak pernah ditindak
+    antinuke.reset_events()
+    antinuke.set_config(99, action="ban")
+    assert antinuke.add_whitelist(99, user_id=801) is True
+    assert antinuke.add_whitelist(99, user_id=801) is False            # duplikat
+    assert antinuke.is_whitelisted(guild, nuker) is True
+    for offset in range(6):
+        assert await antinuke.handle_audit_entry(
+            bot, _ANEntry(guild, nuker, "ban"), now=base + 400 + offset
+        ) is None
+
+    owner_member = _ANMember(700, "Owner", owner=True)
+    guild._members[700] = owner_member
+    assert antinuke.is_whitelisted(guild, owner_member) is True
+    assert antinuke.is_whitelisted(guild, guild.me) is True
+
+    role_member = _ANMember(802, "Mod", [_ANRole(22)])
+    assert antinuke.is_whitelisted(guild, role_member) is False
+    assert antinuke.add_whitelist(99, role_id=22) is True
+    assert antinuke.is_whitelisted(guild, role_member) is True
+    assert antinuke.remove_whitelist(99, role_id=22) is True
+    assert antinuke.remove_whitelist(99, user_id=801) is True
+    assert antinuke.is_whitelisted(guild, role_member) is False
+
+    # 8. Pemulihan identitas server saat `guild_update`
+    antinuke.snapshot_identity(guild)
+    guild.name = "Server Dibajak"
+    antinuke.reset_events()
+    antinuke.set_config(99, action="lapor", restore=True)
+    for offset in range(2):
+        await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "guild_update"), now=base + 500 + offset)
+    assert guild.edits and guild.edits[-1].get("name") == "Server Asli"
+    assert guild.name == "Server Asli"
+
+    # 9. Pemulihan webhook buatan pelaku
+    hook = _ANHook(801)
+    other = _ANHook(12345)
+    guild._hooks = [hook, other]
+    removed = await antinuke.cleanup_offender_webhooks(guild, nuker)
+    assert removed == 1 and hook.deleted is True and other.deleted is False
+
+    # 10. Simulasi (uji kering)
+    data = antinuke.simulate(99, "channel_delete")
+    assert data["limit"] >= 1 and data["window"] >= 1
+
+    # 11. Persistensi & pembersihan
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    assert antinuke.load_antinuke_from_disk() >= 0
+    assert isinstance(antinuke.cleanup_antinuke_runtime(), int)
+    assert antinuke.handle_channel_delete(901) in (0, 1)
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+
+@pytest.mark.asyncio
+async def test_antinuke_disabled_and_permission_edges():
+    """Anti-Nuke: fungsi mati, aksi tak dikenal, & kegagalan izin tidak membuat bot error."""
+    import antinuke
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+    guild = _ANGuild(50)
+    nuker = _ANMember(803, "Nuker2", [_ANRole(31)])
+    guild._members[803] = nuker
+
+    class _Bot:
+        def get_channel(self, cid):
+            return None
+
+        user = _ANMember(999, "Bot")
+
+    bot = _Bot()
+
+    # 1. Dinonaktifkan → tidak ada deteksi
+    antinuke.set_config(50, enabled=False)
+    assert antinuke.is_enabled(50) is False
+    for offset in range(10):
+        assert await antinuke.handle_audit_entry(
+            bot, _ANEntry(guild, nuker, "channel_delete"), now=2000.0 + offset
+        ) is None
+
+    # 2. Aksi tidak dikenal / tanpa user / tanpa guild → diabaikan
+    antinuke.set_config(50, enabled=True)
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "pesan_diedit"), now=2100.0) is None
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, None, "channel_delete"), now=2100.0) is None
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(None, nuker, "channel_delete"), now=2100.0) is None
+
+    # 3. Gagal mencabut role (Forbidden) tidak melempar error
+    class _ForbiddenMember(_ANMember):
+        async def remove_roles(self, *roles, reason=None):
+            raise discord.Forbidden(type("R", (), {"status": 403, "reason": "x"})(), "nope")
+
+    denied = _ForbiddenMember(804, "Denied", [_ANRole(41)])
+    result = await antinuke.apply_action(guild, denied, "cabut-role")
+    assert "gagal" in result
+
+    # 4. Aksi `lapor` tidak mengubah apa pun
+    assert "lapor" in await antinuke.apply_action(guild, nuker, "lapor")
+
+    # 5. Pemulihan identitas tanpa titik pulih → pesan jelas
+    antinuke.antinuke_guilds.clear()
+    fresh = _ANGuild(51, name="Baru")
+    ok, message = await antinuke.restore_identity(bot, fresh)
+    assert ok is False and "titik pulih" in message
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()

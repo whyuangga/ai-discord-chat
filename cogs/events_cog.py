@@ -100,6 +100,19 @@ def register_events_cog(bot: commands.Bot) -> None:
         if not ai_handler.is_gemini_key_configured():
             logger.warning("⚠️ GEMINI_API_KEY belum diisi! Isi di .env atau panel Variables Wispbyte.")
 
+        # Simpan titik pulih identitas server untuk pemulihan Anti-Nuke
+        try:
+            import antinuke
+
+            saved = 0
+            for guild in getattr(bot, "guilds", []) or []:
+                antinuke.snapshot_identity(guild)
+                saved += 1
+            if saved:
+                await antinuke.save_antinuke_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Titik pulih identitas dilewati: %s", exc)
+
         # Pasang kembali panel menu persisten (tombol/dropdown buatan Admin)
         try:
             import menu_builder
@@ -224,6 +237,13 @@ def register_events_cog(bot: commands.Bot) -> None:
         if handle_tickets_channel_delete(channel):
             await save_tickets_to_disk()
         try:
+            import antinuke
+
+            if antinuke.handle_channel_delete(getattr(channel, "id", 0)):
+                await antinuke.save_antinuke_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pembersihan anti-nuke dilewati: %s", exc)
+        try:
             import menu_builder
 
             if menu_builder.handle_channel_delete(getattr(channel, "id", 0)):
@@ -296,6 +316,16 @@ def register_events_cog(bot: commands.Bot) -> None:
             await audit_log.log_message_edit(bot, before, after)
         except Exception as exc:  # pragma: no cover
             logger.debug("Audit log pesan edit dilewati: %s", exc)
+
+    @bot.event
+    async def on_audit_log_entry_create(entry):
+        """Anti-Nuke: membaca Audit Log Discord untuk mendeteksi penghancuran server."""
+        try:
+            import antinuke
+
+            await antinuke.handle_audit_entry(bot, entry)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Anti-Nuke melewati entri audit: %s", exc)
 
     @bot.event
     async def on_guild_join(guild):
