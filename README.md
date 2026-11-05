@@ -44,6 +44,9 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [M. Ekonomi Koin (`/ekonomi`)](#m-ekonomi-koin-ekonomi)
    - [N. Pertumbuhan Server & Invite Tracker (`/tumbuh`)](#n-pertumbuhan-server--invite-tracker-tumbuh)
    - [O. Menu Builder & Self Roles v2 (`/menu`)](#o-menu-builder--self-roles-v2-menu)
+   - [O2. Bahasa Antarmuka (`/bahasa`)](#o2-bahasa-antarmuka-bahasa--i18n-inti-0-kuota-ai)
+   - [O3. Prefix Command per Server (`/prefix`)](#o3-prefix-command-per-server-prefix--0-kuota-ai)
+   - [O4. Ekspor Analitik CSV & Webhook (`/analitik`)](#o4-ekspor-analitik-csv--webhook-analitik--0-kuota-ai)
    - [P. Anti-Nuke (`/nuke`)](#p-anti-nuke-nuke)
    - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
@@ -1111,6 +1114,40 @@ Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besa
 
 ---
 
+### O2. Bahasa Antarmuka (`/bahasa`) — i18n Inti, 0 Kuota AI
+
+Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English
+per server. Semua terjemahan lokal — tidak memanggil AI sama sekali.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/bahasa lihat`** | Bahasa aktif, pilihan yang tersedia, & contoh teks yang ikut berubah. |
+| **`/bahasa atur kode:id\|en`** *(Admin)* | Ganti bahasa server (per server, bukan per member). |
+
+**Yang diterjemahkan (inti):** tombol & kartu **dialog konfirmasi** (`Ya, lanjutkan` / `Batal`,
+`Dikonfirmasi` / `Dibatalkan`), kata **status umum** (`aktif` / `nonaktif`, `tersimpan`),
+**pesan izin** (`Butuh izin Admin`), dan command `/bahasa` itu sendiri.
+
+**Yang tetap Bahasa Indonesia:** seluruh penjelasan panjang fitur (`/bantuan`, README, pesan
+panduan). Alasannya sederhana: menjaga konsistensi dokumentasi & menghemat RAM/berkas.
+Bahasa disimpan di `data/i18n.json` (bahasa default tidak ditulis agar berkas tetap kecil).
+
+### O3. Prefix Command per Server (`/prefix`) — 0 Kuota AI
+
+Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama
+(`!setup_panel`). Setiap server boleh mengganti prefix itu:
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/prefix lihat`** | Prefix khusus server + daftar prefix yang diterima. |
+| **`/prefix atur prefix:?`** *(Admin)* | Ganti prefix (1–5 karakter). |
+| **`/prefix reset`** *(Admin)* | Kembalikan ke prefix bawaan `!`. |
+
+**Aturan:** prefix tidak boleh berspasi, tidak boleh memakai karakter `<> & @ # : ` / \ * _ ~ |`,
+dan **prefix bawaan `!` tetap diterima** sebagai cadangan agar member lama tidak bingung.
+Hanya server yang diubah yang disimpan di `data/prefixes.json` (hemat I/O & RAM).
+Command AI di channel tetap tidak terpengaruh: prefix hanya untuk command teks, bukan obrolan.
+
 ### O4. Ekspor Analitik CSV & Webhook (`/analitik`) — 0 Kuota AI
 
 Data yang bot sudah punya bisa **diunduh** atau **dikirim otomatis** ke webhook Discord
@@ -1136,40 +1173,6 @@ lampiran multipart dengan **BOM UTF-8** agar rapi di Excel; pengiriman otomatis 
 `aiohttp` yang sudah dipakai bot (tanpa dependency baru). URL webhook hanya disimpan lokal di
 `data/analytics.json` dan **disamarkan** di Discord. Jadwal diperiksa tiap 5 menit di watcher
 yang sudah ada; default **nonaktif** sampai Admin mengaturnya.
-
-### O3. Prefix Command per Server (`/prefix`) — 0 Kuota AI
-
-Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama
-(`!setup_panel`). Setiap server boleh mengganti prefix itu:
-
-| Command | Fungsi |
-| :--- | :--- |
-| **`/prefix lihat`** | Prefix khusus server + daftar prefix yang diterima. |
-| **`/prefix atur prefix:?`** *(Admin)* | Ganti prefix (1–5 karakter). |
-| **`/prefix reset`** *(Admin)* | Kembalikan ke prefix bawaan `!`. |
-
-**Aturan:** prefix tidak boleh berspasi, tidak boleh memakai karakter `<> & @ # : ` / \ * _ ~ |`,
-dan **prefix bawaan `!` tetap diterima** sebagai cadangan agar member lama tidak bingung.
-Hanya server yang diubah yang disimpan di `data/prefixes.json` (hemat I/O & RAM).
-Command AI di channel tetap tidak terpengaruh: prefix hanya untuk command teks, bukan obrolan.
-
-### O2. Bahasa Antarmuka (`/bahasa`) — i18n Inti, 0 Kuota AI
-
-Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English
-per server. Semua terjemahan lokal — tidak memanggil AI sama sekali.
-
-| Command | Fungsi |
-| :--- | :--- |
-| **`/bahasa lihat`** | Bahasa aktif, pilihan yang tersedia, & contoh teks yang ikut berubah. |
-| **`/bahasa atur kode:id\|en`** *(Admin)* | Ganti bahasa server (per server, bukan per member). |
-
-**Yang diterjemahkan (inti):** tombol & kartu **dialog konfirmasi** (`Ya, lanjutkan` / `Batal`,
-`Dikonfirmasi` / `Dibatalkan`), kata **status umum** (`aktif` / `nonaktif`, `tersimpan`),
-**pesan izin** (`Butuh izin Admin`), dan command `/bahasa` itu sendiri.
-
-**Yang tetap Bahasa Indonesia:** seluruh penjelasan panjang fitur (`/bantuan`, README, pesan
-panduan). Alasannya sederhana: menjaga konsistensi dokumentasi & menghemat RAM/berkas.
-Bahasa disimpan di `data/i18n.json` (bahasa default tidak ditulis agar berkas tetap kecil).
 
 ### P. Anti-Nuke (`/nuke`)
 
