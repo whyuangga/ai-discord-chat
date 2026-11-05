@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.28.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.29.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -38,7 +38,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman](#g-fitur-keramaian-server--giveaway-ultah-auto-responder--pengumuman)
    - [H. Anti-Spam & Anti-Raid Ringan (`/keamanan spam`)](#h-anti-spam--anti-raid-ringan-keamanan-spam)
    - [I. Level & XP serta Tiket Dukungan (`/level`, `/tiket`)](#i-level--xp-serta-tiket-dukungan-level-tiket)
-   - [J. Dashboard Web Read-only (status & `/pemakaian`)](#j-dashboard-web-read-only-status--pemakaian)
+   - [J. Dashboard Web — pantau & kontrol ringan](#j-dashboard-web--pantau--kontrol-ringan)
    - [K. Penerjemah Hemat Kuota (`/terjemah` + reaksi bendera)](#k-penerjemah-hemat-kuota-terjemah--reaksi-bendera)
    - [L. Audit Log Server (`/log`)](#l-audit-log-server-log)
    - [M. Ekonomi Koin (`/ekonomi`)](#m-ekonomi-koin-ekonomi)
@@ -730,7 +730,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 ---
 
-### J. Dashboard Web Read-only (`DASHBOARD_TOKEN`) — 0 kuota AI
+### J. Dashboard Web — Pantau & Kontrol Ringan (`DASHBOARD_TOKEN`) — 0 kuota AI
 
 Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lewat Discord
 (uptime, RAM, latensi, operasi AI, token, cache hit, kuota server, papan level).
@@ -739,8 +739,10 @@ Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lew
 | :--- | :--- |
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer`. |
-| **Endpoint** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/healthz` (tanpa token). |
-| **Read-only** | Hanya `GET`; tidak ada tombol/aksi yang bisa mengubah setelan server. Sudah diuji: `POST` ditolak 405. |
+| **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/healthz` (tanpa token). |
+| **Endpoint tulis** | `POST /api/aksi` (JSON atau form) — **wajib token**. Aksi yang didukung: `level`, `ekonomi`, `tumbuh`, `antispam` (`off`/`lapor`/`hapus`/`timeout`), `antinuke` (`lapor`/`cabut-role`/`timeout`/`kick`/`ban`). |
+| **Kontrol Cepat** | Halaman dashboard punya panel **⚙️ Kontrol Cepat** berisi dropdown + tombol Simpan untuk menyalakan/mematikan fitur per server. Tidak ada tombol yang menghapus data. |
+| **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` = 405); satu-satunya jalur tulis adalah `/api/aksi` yang selalu memeriksa token. Semua aksi dicatat di log bot. |
 | **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
 | **Tanpa JS** | HTML dirender di server + `meta refresh` (`DASHBOARD_REFRESH_SEC`, default 30 detik) → ringan dibuka dari HP. |
 

@@ -6396,10 +6396,20 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     assert status["uptime"].startswith("01:0") and status["ping_ms"] == 42
     usage = web_dashboard.collect_usage(1234)
     assert set(usage) >= {"total", "tokens_in", "tokens_out", "cache_hits", "faq_hits"}
+    kontrol = web_dashboard.render_controls_block(1234, "rahasia-uji")
     page = web_dashboard.render_dashboard_html(
-        status=status, usage=usage, levels={"rows": []}, refresh=15, heading="<script>x</script>"
+        status=status,
+        usage=usage,
+        levels={"rows": []},
+        refresh=15,
+        heading="<script>x</script>",
+        kontrol_block=kontrol,
     )
-    assert config.BOT_VERSION in page and "read-only" in page
+    assert config.BOT_VERSION in page and "Kontrol Cepat" in page
+    # Setiap form tulis membawa token tersembunyi & mengarah ke /api/aksi
+    assert page.count('action="/api/aksi"') == 5
+    assert 'name="token" value="rahasia-uji"' in page
+    assert "Simpan" in page
     assert "<script>x</script>" not in page      # di-escape
     assert 'http-equiv="refresh"' in page
 
@@ -6426,17 +6436,57 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
                 assert resp.status == 200 and "total" in data
             async with session.get(f"{base}/healthz") as resp:
                 assert resp.status == 200 and (await resp.text()) == "ok"
-            # read-only: tidak ada endpoint POST
+            # Halaman tetap GET-only
             async with session.post(f"{base}/?token=rahasia-uji", json={"x": 1}) as resp:
                 assert resp.status in (404, 405)
+
+            # v1.29.0-beta: endpoint tulis /api/aksi — wajib token
+            async with session.post(
+                f"{base}/api/aksi",
+                json={"guild": 1234, "action": "level", "value": "on"},
+                headers={"X-Dashboard-Token": "salah"},
+            ) as resp:
+                assert resp.status == 401
+            async with session.post(
+                f"{base}/api/aksi",
+                json={"guild": 1234, "action": "level", "value": "on"},
+                headers={"X-Dashboard-Token": "rahasia-uji"},
+            ) as resp:
+                data = await resp.json()
+                assert resp.status == 200 and data["ok"] is True
+            async with session.get(
+                f"{base}/api/kontrol?token=rahasia-uji&guild=1234"
+            ) as resp:
+                data = await resp.json()
+                assert resp.status == 200 and data["controls"]["level"] == "on"
+            # Aksi tak dikenal ditolak dengan pesan jelas
+            async with session.post(
+                f"{base}/api/aksi",
+                json={"guild": 1234, "action": "hapus-semua", "value": "on"},
+                headers={"X-Dashboard-Token": "rahasia-uji"},
+            ) as resp:
+                assert resp.status == 400
     finally:
         await web_dashboard.stop_dashboard()
 
-    # 6. Tidak ada satu pun route tulis (POST/PUT/DELETE) di modul dashboard
+    # 6. Satu-satunya jalur tulis hanya `/api/aksi` (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    for needle in ("add_post(", "add_put(", "add_delete(", "add_patch("):
-        assert needle not in src, f"dashboard seharusnya read-only: {needle}"
+    assert src.count("add_post(") == 1 and 'add_post("/api/aksi"' in src
+    for needle in ("add_put(", "add_delete(", "add_patch("):
+        assert needle not in src, f"dashboard tidak boleh punya {needle}"
     assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()
+
+    # 7. Kegagalan/aksi tak dikenal tidak pernah melempar exception
+    import levels as _levels
+    ok, message = await web_dashboard.apply_dashboard_action(1234, "level", "off")
+    assert ok is True and "nonaktif" in message
+    ok2, message2 = await web_dashboard.apply_dashboard_action(1234, "bukan-aksi", "on")
+    assert ok2 is False and "tidak didukung" in message2
+    ok3, _ = await web_dashboard.apply_dashboard_action(0, "level", "on")
+    assert ok3 is False
+    ok4, message4 = await web_dashboard.apply_dashboard_action(1234, "antispam", "mode-ngawur")
+    assert ok4 is False and "tidak dikenal" in message4
+    _levels.disable_leveling(1234)
 
 
 @pytest.mark.asyncio
