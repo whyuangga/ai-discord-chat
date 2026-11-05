@@ -7,6 +7,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Status node dibaca langsung dari kondisi nyata** (`✅ Tersambung` / `⏳ Menyambung` / `⚠️ Belum tersambung`) lengkap dengan diagnosa, plus **`/musik node`** untuk menyambung ulang tanpa restart. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
+6a. **🛡️ Moderasi Bercatatan (ala Dyno/Carl-bot)** — **`/mod`** menyediakan **warn, timeout, kick, ban, unban, purge berfilter, & riwayat kasus** (`/mod catatan`). Setiap aksi tercatat di `data/moderation.json` dan bisa dilaporkan ke channel log. **Auto-punish**: 3 peringatan dalam 30 hari → timeout otomatis 1 jam (bisa diatur). Default aman: hanya staff, bot menolak menindak Admin/pemilik server.
 6b. **🔔 Notifikasi Sosial Tanpa Kuota AI** — **`/sosial`** memantau **YouTube**, **Twitch**, dan **feed RSS (TikTok lewat RSSHub)** lalu mengirim notifikasi otomatis ke channel pilihan, lengkap dengan opsi ping role & template kustom. YouTube memakai RSS publik (tanpa API key), Twitch memakai aplikasi developer gratis, semua pesan dari template → **0 request Gemini**.
 7. **🎉 Fitur Keramaian Server Tanpa Kuota AI (Tier 2A)** — **`/giveaway`** undian berhadiah bertombol yang tahan restart, **`/ultah`** daftar & ucapan ulang tahun otomatis tiap hari, **`/jawab-otomatis`** balasan kata kunci per channel dengan jeda aman, dan **`/pengumuman`** pengumuman terjadwal (harian / mingguan / sekali). Semua **0 request Gemini**, data lokal di `data/engagement.json`, dan **default NONAKTIF** sampai Admin menyalakannya.
 8. **🚨 Anti-Spam & Anti-Raid Ringan (Tier 2B)** — `/keamanan spam` mendeteksi **banjir pesan**, **pesan berulang**, **mention massal**, **link beruntun**, dan **HURUF KAPITAL** (opsional). Mode bawaan **`lapor`** (hanya mencatat ke channel log, **tidak menghapus apa pun**), bisa dinaikkan ke `hapus` atau `timeout`. **Admin, pengurus, bot, & role pengecualian tidak pernah diperiksa**, dan lonjakan member join (raid) hanya **diperingatkan** — bot tidak pernah menendang/ban otomatis. 0 kuota Gemini, data di `data/antispam.json`.
@@ -174,6 +175,24 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 >
 > Mode **dinamis** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang,
 > bot otomatis mundur ke mode banner statis — tidak ada error.
+
+#### 6aa. 🛡️ Moderasi Bercatatan (`/mod`) — Warn, Timeout, Kick, Ban, Purge
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/mod warn member @x alasan:...` | Peringatan resmi + tercatat. Setelah ambang tercapai → **timeout otomatis**. |
+| `/mod timeout member @x durasi:1h30m alasan:...` | Bisukan sementara (timeout native Discord, maks 28 hari). |
+| `/mod kick` / `/mod ban` / `/mod unban` | Kick, ban (opsional hapus pesan 0–7 hari), cabut ban via ID. |
+| `/mod purge jumlah:50 member:@x tipe:link` | Hapus massal dengan filter **semua / bot / link / gambar**. |
+| `/mod catatan member:@x` | Riwayat kasus + jumlah peringatan aktif. |
+| `/mod hapus id:12` | Hapus kasus salah catat (khusus Admin). |
+| `/mod atur log_channel:#mod-log ambang_warn:3 durasi_auto:1h jendela_hari:30 dm:True` | Semua pengaturan moderasi. |
+
+Pengaman bawaan:
+- **Hierarki dihormati** — bot menolak menindak pemilik server, Administrator, atau role yang lebih tinggi darinya (pesan errornya menjelaskan cara memperbaikinya).
+- **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
+- **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
+- **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
 
 #### 6d. 🔔 Notifikasi Sosial: YouTube, Twitch & TikTok/RSS (`/sosial`)
 
@@ -968,6 +987,13 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/sosial hapus` | `id` | Hentikan pemantauan satu langganan. |
 | `/sosial tes` | `id` | Kirim contoh notifikasi sekarang untuk memastikan konfigurasi benar. |
 | `/sosial status` | — | Cek kesiapan: kredensial Twitch & token, plus jumlah langganan per platform + langkah pengisiannya. |
+| `/mod warn` | `member`, `alasan` | *(Staff)* Peringatan tercatat + auto-timeout saat ambang tercapai. |
+| `/mod timeout` | `member`, `durasi`, `alasan` | *(Staff)* Timeout native Discord. |
+| `/mod kick` / `/mod ban` / `/mod unban` | `member`/`user_id`, `alasan` | *(Staff)* Tindakan disipliner, tercatat sebagai kasus. |
+| `/mod purge` | `jumlah`, `member`, `tipe` | *(Staff)* Hapus pesan massal dengan filter. |
+| `/mod catatan` | `member`, `jumlah` | *(Staff)* Riwayat kasus + jumlah peringatan aktif. |
+| `/mod hapus` | `id` | *(Admin)* Hapus satu kasus dari catatan. |
+| `/mod atur` | `log_channel`, `ambang_warn`, `durasi_auto`, `jendela_hari`, `dm` | *(Admin)* Pengaturan moderasi. |
 | `/agent goodbye` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan kartu perpisahan AI + masa kebersamaan untuk member yang keluar. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di Text Channel maupun **Forum/Media Showcase**. |
 | `/agent youtube` | `channel`, `aktif`, `auto_di_channel` | Mengaktifkan/mematikan rangkum YouTube/Web (`/ringkas link` & baca link) pada satu/beberapa Text Channel atau **Channel Forum**. |
@@ -1271,6 +1297,7 @@ ai-discord-chat/
 │   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
 ├── welcome_media.py    # Penyimpanan banner (data/media/) + perender kartu sambutan dengan Pillow
 ├── social_notify.py    # Notifikasi YouTube/Twitch/TikTok-RSS (parser feed, template, data/social.json)
+├── moderation.py       # Kasus moderasi, peringatan bertingkat, auto-punish (data/moderation.json)
 ├── ui_theme.py         # Tema tampilan per server (aksen, emoji, kepadatan, footer) → data/ui_theme.json
 ├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol, konfirmasi)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM

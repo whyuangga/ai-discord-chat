@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.14.1-beta"
+BOT_VERSION = "1.15.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -159,6 +159,9 @@ TICKETS_FILE = DATA_DIR / "tickets.json"
 # Gambar kustom (banner sambutan/perpisahan/boost) — file biner, bukan JSON
 MEDIA_DIR = DATA_DIR / "media"
 SOCIAL_FILE = DATA_DIR / "social.json"
+MODERATION_FILE = DATA_DIR / "moderation.json"
+TEMP_VOICE_FILE = DATA_DIR / "temp_voice.json"
+AFK_FILE = DATA_DIR / "afk.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)

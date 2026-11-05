@@ -62,6 +62,10 @@ from music import (
     run_music_panel_check,
     save_music_settings_to_disk,
 )
+from moderation import (
+    cleanup_moderation_runtime,
+    load_moderation_from_disk,
+)
 from social_notify import (
     cleanup_social_runtime,
     load_social_from_disk,
@@ -201,6 +205,10 @@ class GeminiDiscordBot(commands.Bot):
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_themes = load_ui_themes_from_disk()
+        loaded_mod_guilds, loaded_mod_cases = load_moderation_from_disk()
+        logger.info(
+            "Moderasi dimuat: %d server, %d kasus tercatat.", loaded_mod_guilds, loaded_mod_cases
+        )
         loaded_social_guilds = load_social_from_disk()
         logger.info(
             "Notifikasi sosial dimuat: %d server | Twitch: %s.",
@@ -380,6 +388,7 @@ async def idle_chat_watcher():
             cleanup_insights_runtime()
             cleanup_ui_runtime()
             cleanup_social_runtime()
+            cleanup_moderation_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:

@@ -27,6 +27,7 @@ from cogs.insights_cog import (
 )
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
+from cogs.moderation_cog import mod_group, register_moderation_cog
 from cogs.music_cog import musik_group, register_music_cog
 from cogs.panel_cog import panel_group, register_panel_cog, tampilan_group
 from cogs.server_cog import (
@@ -64,6 +65,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_growth_cog(bot)
     register_insights_cog(bot)
     register_music_cog(bot)
+    register_moderation_cog(bot)
     register_panel_cog(bot)
     register_social_cog(bot)
     register_events_cog(bot)
@@ -71,6 +73,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
 
 __all__ = [
     "agent_group",
+    "mod_group",
     "sosial_group",
     "giveaway_group",
     "faq_group",

@@ -443,6 +443,19 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🛡️ Moderasi Bercatatan (`/mod`)",
+            value=(
+                "• `/mod warn member:@x alasan:...` — peringatan tercatat; 3 warn dalam 30 hari → "
+                "**timeout otomatis 1 jam** (bisa diatur).\n"
+                "• `/mod timeout member:@x durasi:1h30m` • `/mod kick` • `/mod ban hapus_pesan_hari:1` • "
+                "`/mod unban user_id:...`\n"
+                "• `/mod purge jumlah:50 tipe:link` — hapus massal (semua/bot/link/gambar).\n"
+                "• `/mod catatan member:@x` — riwayat kasus & jumlah peringatan aktif.\n"
+                "• `/mod atur log_channel:#mod-log ambang_warn:3 durasi_auto:1h dm:True` — pengaturan."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🖼️ Sambutan Bergambar & Boost (`/agent banner`)",
             value=(
                 "• `/agent banner gambar:<file> jenis:...` — unggah banner sambutan / perpisahan / boost "

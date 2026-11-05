@@ -2214,6 +2214,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "faq", "pemakaian",
         # v1.14.0-beta: notifikasi YouTube/Twitch/TikTok/RSS (0 kuota AI)
         "sosial",
+        # v1.15.0-beta: moderasi bercatatan (warn/timeout/kick/ban/purge + kasus)
+        "mod",
     }
     assert len(chat_cmds) <= 100
 
@@ -5593,3 +5595,79 @@ async def test_social_notify_seeding_and_dispatch(monkeypatch):
     assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok"}
 
     sn.social_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_moderation_cases_auto_punish_and_persistence():
+    """Moderasi: kasus bernomor, hitung warn dalam jendela, auto-punish, & simpan-muat."""
+    import moderation as md
+    from cogs.moderation_cog import mod_group
+
+    gid = 717171
+    md.mod_cases.pop(gid, None)
+    md.mod_settings.pop(gid, None)
+
+    # 1. Parsing & format durasi
+    assert md.parse_duration("10m") == 600
+    assert md.parse_duration("1h30m") == 5400
+    assert md.parse_duration("2d") == 172800
+    assert md.parse_duration("45") == 45
+    assert md.parse_duration("") == 600
+    assert md.parse_duration("ngawur", default_sec=90) == 90
+    assert md.format_duration(5400) == "1 jam 30 menit"
+    assert md.format_duration(None) == "permanen"
+
+    # 2. Kasus bernomor berurutan + urutan tampilan terbaru dulu
+    first = md.add_case(gid, 900, 1, "warn", "spam link")
+    second = md.add_case(gid, 900, 1, "timeout", "melanjutkan spam", duration_sec=600)
+    assert (first["id"], second["id"]) == (1, 2)
+    assert md.list_cases(gid)[0]["id"] == 2
+    assert md.get_case(gid, 1)["reason"] == "spam link"
+    assert "spam link" in md.summarize_case(first)
+
+    # 3. Hitung warn & ambang auto-punish (default 3)
+    md.add_case(gid, 900, 1, "warn", "warn kedua")
+    assert md.count_warns(gid, 900) == 2
+    assert md.should_auto_punish(gid, 900) == (False, 0)
+    md.add_case(gid, 900, 1, "warn", "warn ketiga")
+    assert md.should_auto_punish(gid, 900) == (True, 60)
+
+    # ambang 0 → auto-punish mati
+    md.set_settings(gid, warn_threshold=0)
+    assert md.should_auto_punish(gid, 900) == (False, 0)
+    md.set_settings(gid, warn_threshold=3, auto_timeout_min=120)
+    assert md.should_auto_punish(gid, 900) == (True, 120)
+
+    # warn di luar jendela waktu tidak dihitung
+    old_case = md.add_case(gid, 901, 1, "warn", "warn lama")
+    old_case["created_at"] -= 40 * 86400
+    assert md.count_warns(gid, 901) == 0
+    assert md.count_warns(gid, 901, days=365) == 1
+
+    # 4. Pengaturan: nilai dibatasi & kunci asing diabaikan
+    settings = md.set_settings(gid, log_channel=123, dm_user=False, warn_threshold=99, ngawur=1)
+    assert settings["log_channel"] == 123
+    assert settings["dm_user"] is False
+    assert settings["warn_threshold"] == 10          # clamp maksimum
+    assert "ngawur" not in settings
+
+    # 5. Hapus kasus (tidak menghapus lainnya)
+    assert md.delete_case(gid, 1) is True
+    assert md.delete_case(gid, 999) is False
+    assert md.get_case(gid, 1) is None and md.get_case(gid, 2) is not None
+
+    # 6. Simpan → muat ulang dari disk
+    await md.save_moderation_to_disk()
+    md.mod_cases.clear()
+    md.mod_settings.clear()
+    loaded_guilds, loaded_cases = md.load_moderation_from_disk()
+    assert loaded_guilds >= 1 and loaded_cases >= 2
+    assert md.get_case(gid, 2) is not None
+    assert md.get_settings(gid)["log_channel"] == 123
+
+    # 7. Command /mod terdaftar lengkap
+    names = {c.name for c in mod_group.commands}
+    assert {"warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur"} == names
+
+    md.mod_cases.pop(gid, None)
+    md.mod_settings.pop(gid, None)
