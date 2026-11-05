@@ -589,8 +589,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/agent digest` — Kirim **Koran & Sapaan Pagi** terjadwal setiap hari.\n"
                 "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI.\n"
                 "• `/bahasa atur kode:en` *(Admin)* — bahasa **teks kerangka** (tombol, status, izin) ID/EN.\n"
-                "• `/prefix atur prefix:?` *(Admin)* — prefix command teks per server (`!setup_panel`); "
-                "bawaan `!` tetap diterima."
+                "• `/prefix atur` *(Admin)* — prefix command teks per server; bawaan `!` tetap sah.\n"
+                "• `/analitik ekspor` / `webhook` *(Admin)* — CSV level/moderasi/tiket/pemakaian, "
+                "bisa dikirim otomatis ke webhook."
             ),
             inline=False,
         )

@@ -36,6 +36,7 @@ from cogs.moderation_cog import mod_group, register_moderation_cog
 from cogs.raid_cog import raid_group, register_raid_cog
 from cogs.language_cog import bahasa_group, register_language_cog
 from cogs.prefix_cog import prefix_group, register_prefix_cog
+from cogs.export_cog import analitik_group, register_export_cog
 from cogs.music_cog import musik_group, register_music_cog
 from cogs.panel_cog import panel_group, register_panel_cog, tampilan_group
 from cogs.server_cog import (
@@ -95,6 +96,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_raid_cog(bot)
     register_language_cog(bot)
     register_prefix_cog(bot)
+    register_export_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
     register_tempvoice_cog(bot)

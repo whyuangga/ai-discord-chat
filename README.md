@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.37.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.38.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -1111,6 +1111,32 @@ Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besa
 
 ---
 
+### O4. Ekspor Analitik CSV & Webhook (`/analitik`) — 0 Kuota AI
+
+Data yang bot sudah punya bisa **diunduh** atau **dikirim otomatis** ke webhook Discord
+(bukan langganan analytics pihak ketiga) — berguna untuk laporan bulanan atau arsip staf.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/analitik ekspor jenis:level`** *(Admin)* | Unduh CSV (lampiran file) — `level`, `moderasi`, `tiket`, `pemakaian`. |
+| **`/analitik webhook url:https://discord.com/api/webhooks/... [jadwal:harian]`** *(Admin)* | Kirim CSV otomatis ke webhook (uji kirim langsung dijalankan). |
+| **`/analitik status`** | Status, jadwal, jumlah baris tiap jenis, & kapan terakhir dikirim. |
+| **`/analitik matikan`** *(Admin)* | Hentikan ekspor otomatis & hapus URL webhook dari penyimpanan. |
+
+**Isi tiap CSV**
+| Jenis | Kolom |
+| :--- | :--- |
+| `level` | `user_id, level, xp, messages, voice_xp, prestige, last_activity` |
+| `moderasi` | `case_id, user_id, moderator_id, action, reason, duration_sec, created_at` |
+| `tiket` | `ticket_number, user_id, status, topic, claimed_by, created_at, first_response_at, first_response_minutes, duration_minutes, rating, closed_reason` |
+| `pemakaian` | `day, total_calls, cache_hits, chat, ringkas, gambar, cari` |
+
+**Detail teknis:** CSV dibuat di memori (maks **2000 baris** per berkas), dikirim sebagai
+lampiran multipart dengan **BOM UTF-8** agar rapi di Excel; pengiriman otomatis memakai
+`aiohttp` yang sudah dipakai bot (tanpa dependency baru). URL webhook hanya disimpan lokal di
+`data/analytics.json` dan **disamarkan** di Discord. Jadwal diperiksa tiap 5 menit di watcher
+yang sudah ada; default **nonaktif** sampai Admin mengaturnya.
+
 ### O3. Prefix Command per Server (`/prefix`) — 0 Kuota AI
 
 Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama
@@ -1908,6 +1934,7 @@ ai-discord-chat/
 ├── music_playlists.py  # Playlist musik per member (data/music_playlists.json)
 ├── i18n.py             # Terjemahan teks kerangka ID/EN per server (data/i18n.json)
 ├── prefixes.py         # Prefix command teks per server (data/prefixes.json)
+├── analytics_export.py # Ekspor CSV (level/moderasi/tiket/pemakaian) & kirim webhook (data/analytics.json)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)

@@ -2240,6 +2240,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "bahasa",
         # v1.37.0-beta: prefix command per server
         "prefix",
+        # v1.38.0-beta: ekspor analitik CSV & webhook
+        "analitik",
     }
     assert len(chat_cmds) <= 100
 
@@ -8721,3 +8723,167 @@ async def test_custom_prefix_per_guild():
 
     prefixes.guild_prefixes.clear()
     await prefixes.save_prefixes_to_disk()
+
+
+# ==============================================================================
+# EKSPOR ANALITIK CSV & WEBHOOK (v1.38.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_analytics_export_csv_webhook_and_schedule(monkeypatch):
+    """Ekspor analitik: CSV per jenis, validasi webhook, jadwal, & pengiriman."""
+    import analytics_export as ax
+    import insights
+    import levels
+    import moderation
+    import tickets
+
+    ax.analytics_guilds.clear()
+    gid = 3131
+    now = time.time()
+
+    # 1. Data contoh dari modul yang sudah ada
+    levels.levels.clear()
+    levels.levels[f"{gid}:1"] = {"xp": 120, "level": 2, "messages": 9, "voice_xp": 4, "prestige": 1}
+    levels.levels[f"{gid}:2"] = {"xp": 300, "level": 3, "messages": 20}
+    levels.levels["999:1"] = {"xp": 999, "level": 9, "messages": 99}       # server lain
+
+    moderation.mod_cases.clear()
+    moderation.mod_cases[gid] = [
+        {
+            "id": 1,
+            "user_id": 11,
+            "moderator_id": 22,
+            "action": "warn",
+            "reason": "spam, link berlebih",
+            "duration_sec": None,
+            "created_at": now,
+        }
+    ]
+
+    tickets.tickets.clear()
+    tickets.tickets[7001] = {
+        "thread_id": 7001,
+        "guild_id": gid,
+        "user_id": 33,
+        "number": 1,
+        "status": "selesai",
+        "topic": "bantuan akun",
+        "created_at": now - 3600,
+        "first_response_at": now - 3000,
+        "closed_at": now,
+        "claimed_by": 22,
+        "rating": 5,
+        "closed_reason": "staf",
+    }
+
+    insights.ai_usage.clear()
+    insights.ai_usage["2026-11-05"] = {
+        "total": 10,
+        "cache_hits": 4,
+        "kinds": {"chat": 6, "ringkas": 2, "gambar": 1, "cari": 1},
+    }
+
+    # 2. CSV level: hanya server ini, urut XP tertinggi
+    body, filename, error = ax.build_csv("level", gid)
+    assert error == "" and filename.startswith("analitik-level-3131-") and filename.endswith(".csv")
+    lines = body.strip().splitlines()
+    assert lines[0] == "user_id,level,xp,messages,voice_xp,prestige,last_activity"
+    assert len(lines) == 3
+    assert lines[1].startswith("2,3,300")
+    assert lines[2].startswith("1,2,120")
+
+    # 3. CSV moderasi & tiket (alasan berkoma tetap aman)
+    mod_body = ax.build_csv("moderasi", gid)[0]
+    assert "warn" in mod_body and '"spam, link berlebih"' in mod_body
+    tiket_body = ax.build_csv("tiket", gid)[0]
+    assert tiket_body.splitlines()[1].startswith("1,33,selesai")
+    assert ",5," in tiket_body or tiket_body.rstrip().endswith("staf")
+
+    # 4. CSV pemakaian AI & jenis tidak dikenal
+    usage_body = ax.build_csv("pemakaian", gid)[0]
+    assert "2026-11-05" in usage_body and usage_body.splitlines()[0].startswith("day,total_calls")
+    assert ax.build_csv("entah", gid)[1] == ""
+    assert "tidak dikenal" in ax.build_csv("entah", gid)[2]
+
+    # 5. Server tanpa data → pesan jelas
+    empty_body, _fn, empty_error = ax.build_csv("level", 5555)
+    assert empty_body is None and "Belum ada data" in empty_error
+
+    # 6. BOM UTF-8 untuk Excel
+    assert ax.csv_bytes("a,b\n1,2\n").startswith(b"\xef\xbb\xbf")
+
+    # 7. build_all mengembalikan hanya yang berisi data
+    kinds = [kind for kind, _name, _body in ax.build_all(gid)]
+    assert "level" in kinds and "tiket" in kinds
+
+    # 8. Validasi webhook
+    assert ax.validate_webhook("https://discord.com/api/webhooks/1/abc") == (True, "")
+    assert ax.validate_webhook("")[0] is False
+    assert "https://" in ax.validate_webhook("discord.com/api/webhooks/1/abc")[1]
+    assert ax.validate_webhook("https://example.com/hook")[0] is False
+    masked = ax.mask_webhook("https://discord.com/api/webhooks/1/abcdef123456")
+    assert "abcdef123456" not in masked and masked.startswith("`...")
+
+    # 9. Konfigurasi & jadwal
+    cfg = ax.set_config(gid, aktif=True, webhook_url="https://discord.com/api/webhooks/1/tok", jadwal="harian")
+    assert cfg["aktif"] is True and cfg["jadwal"] == "harian"
+    assert ax.is_due(gid, now=now) is True                      # belum pernah dikirim
+    cfg["last_sent"] = now
+    assert ax.is_due(gid, now=now + 3600) is False
+    assert ax.is_due(gid, now=now + 25 * 3600) is True
+    ax.set_config(gid, jadwal="mati")
+    assert ax.is_due(gid, now=now + 365 * 86400) is False
+    ax.set_config(gid, jadwal="harian", jenis=["level", "entah"])
+    assert ax.get_config(gid)["jenis"] == ["level"]
+
+    # 10. Pengiriman ke webhook (HTTP tiruan) & pencatatan
+    sent_files = []
+
+    class _Resp:
+        status = 204
+
+        async def text(self):
+            return ""
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class _Session:
+        def post(self, url, data=None, timeout=None):
+            sent_files.append(url)
+            return _Resp()   # aiohttp: post() mengembalikan context manager, bukan coroutine
+
+    ok, message = await ax.post_csv_to_webhook(
+        "https://discord.com/api/webhooks/1/tok", mod_body, "uji.csv", session=_Session()
+    )
+    assert ok and message == "terkirim" and sent_files
+
+    class _Bot:
+        http_session = _Session()
+
+        def get_guild(self, gid_arg):
+            return None
+
+    cfg["last_sent"] = 0
+    delivered = await ax.run_analytics_check(_Bot(), now=now + 86400 * 2)
+    assert delivered >= 1
+    assert ax.get_config(gid)["sent_count"] >= 1
+    assert ax.get_config(gid)["last_sent"] > 0
+
+    # 11. Persistensi & pembersihan
+    ax.set_config(7000, aktif=False, webhook_url="", jadwal="mati")
+    await ax.save_analytics_to_disk()
+    ax.analytics_guilds.clear()
+    assert ax.load_analytics_from_disk() >= 1
+    assert ax.get_config(gid)["webhook_url"].endswith("/tok")
+    assert ax.cleanup_analytics_runtime() >= 0
+
+    ax.analytics_guilds.clear()
+    levels.levels.clear()
+    moderation.mod_cases.clear()
+    tickets.tickets.clear()
+    insights.ai_usage.clear()
+    await ax.save_analytics_to_disk()

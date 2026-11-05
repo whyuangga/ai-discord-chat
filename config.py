@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.37.0-beta"
+BOT_VERSION = "1.38.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -164,6 +164,7 @@ RAID_FILE = DATA_DIR / "raid.json"
 MUSIC_PLAYLISTS_FILE = DATA_DIR / "music_playlists.json"
 I18N_FILE = DATA_DIR / "i18n.json"
 PREFIX_FILE = DATA_DIR / "prefixes.json"
+ANALYTICS_FILE = DATA_DIR / "analytics.json"
 COMMAND_PREFIX = "!"
 AI_USAGE_FILE = DATA_DIR / "ai_usage.json"
 TICKETS_FILE = DATA_DIR / "tickets.json"

@@ -15,6 +15,12 @@ from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
 from tickets import run_ticket_check
 from levels import run_level_season_check
+from analytics_export import (
+    cleanup_analytics_runtime,
+    load_analytics_from_disk,
+    run_analytics_check,
+    save_analytics_to_disk,
+)
 from prefixes import (
     cleanup_prefixes_runtime,
     load_prefixes_from_disk,
@@ -293,6 +299,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_playlists = load_playlists_from_disk()
         loaded_langs = load_lang_from_disk()
         loaded_prefixes = load_prefixes_from_disk()
+        loaded_analytics = load_analytics_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -377,6 +384,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Playlist musik dimuat: %d member.", loaded_playlists)
         logger.info("Pengaturan bahasa dimuat: %d server.", loaded_langs)
         logger.info("Prefix khusus dimuat: %d server.", loaded_prefixes)
+        logger.info("Ekspor analitik dimuat: %d server.", loaded_analytics)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -473,6 +481,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_playlists_to_disk()
         await save_lang_to_disk()
         await save_prefixes_to_disk()
+        await save_analytics_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -511,6 +520,7 @@ async def idle_chat_watcher():
             await run_voice_xp_check(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 20 == 0:
             await run_serverstats_check(bot)
+            await run_analytics_check(bot, session=bot.http_session)  # ekspor CSV ke webhook
             try:
                 await sweep_empty_rooms(bot)  # bersihkan room Temp Voice yang kosong
             except Exception as exc:  # pragma: no cover - jaring aman
@@ -538,6 +548,7 @@ async def idle_chat_watcher():
             cleanup_music_playlist_runtime()  # buang playlist kosong
             cleanup_i18n_runtime()            # buang bahasa default (hemat I/O)
             cleanup_prefixes_runtime()        # buang prefix yang sama dengan bawaan
+            cleanup_analytics_runtime()       # buang konfigurasi ekspor kosong
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()
