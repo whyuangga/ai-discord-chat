@@ -47,10 +47,11 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
 4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
 5. [Penjelasan Variabel `.env`](#-penjelasan-variabel-env)
 6. [Persiapan Discord Developer Portal](#-persiapan-di-discord-developer-portal)
-7. [Panduan Deploy di Wispbyte (Step-by-Step)](#-panduan-deploy-di-wispbyte-step-by-step)
-8. [Menjalankan Secara Lokal / VPS](#-menjalankan-secara-lokal--vps)
-9. [Struktur File Proyek](#-struktur-file-proyek)
-10. [FAQ & Solusi Masalah Umum](#-faq--solusi-masalah-umum)
+7. [Checklist Uji Coba di Server Orang Lain](#-checklist-uji-coba-di-server-orang-lain)
+8. [Panduan Deploy di Wispbyte (Step-by-Step)](#-panduan-deploy-di-wispbyte-step-by-step)
+9. [Menjalankan Secara Lokal / VPS](#-menjalankan-secara-lokal--vps)
+10. [Struktur File Proyek](#-struktur-file-proyek)
+11. [FAQ & Solusi Masalah Umum](#-faq--solusi-masalah-umum)
 
 ---
 
@@ -1466,16 +1467,62 @@ Sebelum menyalakan bot di Wispbyte, pastikan pengaturan berikut sudah aktif:
 3. Buka tab **OAuth2 → URL Generator**:
    - Centang **Scopes**: `bot` dan `applications.commands`.
    - Centang **Bot Permissions**:
-     - `View Channels`
-     - `Send Messages`
-     - `Send Messages in Threads`
-     - `Create Private Threads`
-     - `Manage Threads`
-     - `Embed Links`
-     - `Attach Files`
-     - `Add Reactions`
-     - `Read Message History`
+
+     | Kelompok | Izin | Dibutuhkan untuk |
+     | :--- | :--- | :--- |
+     | **Wajib (dasar)** | `View Channels`, `Send Messages`, `Send Messages in Threads`, `Embed Links`, `Attach Files`, `Add Reactions`, `Read Message History` | Chat AI, panel, embed, lampiran |
+     | **Ruang privat & tiket** | `Create Public Threads`, `Create Private Threads`, `Manage Threads` | `/sesi`, `/tiket`, thread otomatis |
+     | **Moderasi** | `Manage Messages`, `Moderate Members`, `Kick Members`, `Ban Members` | `/mod`, purge, anti-phishing, anti-spam mode `hapus`/`timeout`, `/lockdown` |
+     | **Komunitas** | `Manage Roles`, `Manage Channels` | `/autorole`, role hadiah `/level`, reaction role, toko `/ekonomi`, `/serverstats`, `/tempvoice` |
+     | **Analitik** | `Manage Server` *(Manage Guild)* | **`/tumbuh` invite tracker** (membaca daftar invite) |
+     | **Musik** | `Connect`, `Speak`, `Move Members` | `/musik` (hanya bila `LAVALINK_URI` diisi) |
+     | **Eksternal** | `Use External Emojis` | Emoji kustom di nama channel statistik |
+
+   - **Cara tercepat untuk uji coba di server teman:** centang **`Administrator`** saja dulu
+     (bot ini hanya dipakai sendiri/jadi milikmu), lalu persempit izin belakangan setelah
+     semua fitur terbukti jalan. Tanpa `Administrator`, pastikan **posisi role bot paling atas**
+     agar bisa memberi/mencabut role (`/autorole`, `/level role`, `/ekonomi beli`).
    - Salin URL paling bawah lalu buka di browser untuk mengundang bot ke server Discord Anda.
+
+---
+
+## 🤝 Checklist Uji Coba di Server Orang Lain
+
+Bot ini **multi-server**: satu proses (satu token) bisa dipakai di server kamu **dan** server
+temanmu tanpa salinan kedua. Semua data disimpan **per `guild_id`**, jadi pengaturan di servermu
+tidak bocor ke server teman (dan sebaliknya).
+
+### Sebelum teman mencoba
+| # | Cek | Kenapa penting |
+| :---: | :--- | :--- |
+| 1 | Versi terbaru sudah **di-merge ke `main`** lalu hosting **di-restart** | Wispbyte menarik kode dari branch `main`; fitur `/log`, `/ekonomi`, `/tumbuh` ada di PR, bukan di `main` lama |
+| 2 | **Message Content Intent** & **Server Members Intent** aktif di Developer Portal | Tanpa ini bot tidak bisa membaca chat / menyambut member |
+| 3 | Bot diundang dengan scope `bot` + `applications.commands` | Tanpa `applications.commands`, slash command tidak muncul |
+| 4 | `DISCORD_GUILD_ID` **dikosongkan** | Kalau diisi, command hanya disinkronkan ke 1 server (servermu saja) |
+| 5 | Kuota AI diamankan: `AI_DAILY_CAP_PER_GUILD=300`, `AI_DAILY_CAP_PER_USER=30` | 1 API key Gemini dipakai bersama semua server — jatah Free Tier tetap aman |
+| 6 | `DASHBOARD_TOKEN` dikosongkan bila teman tidak perlu akses web | Token dashboard berlaku untuk seluruh bot, bukan per server |
+
+### Yang otomatis terjadi saat bot masuk server baru
+- Bot **menyinkronkan Slash Command khusus server itu** (muncul detik itu juga, tidak perlu menunggu ±1 jam propagasi global).
+- Bot mengirim **checklist setup 5 langkah** ke channel sistem server tersebut (0 kuota AI).
+- Fitur "berat" tetap **NONAKTIF** sampai Admin server itu menyalakannya: `/ekonomi` (mati),
+  `anti-spam` (lapor saja), `/level`, `/tiket`, `/starboard`, `/giveaway`, dll.
+- Audit Log (`/log`) & `/tumbuh` diam sampai Admin memasang channel-nya (kecuali statistik join/keluar yang ringan).
+
+### Batas yang wajar untuk uji coba bersama
+| Sumber daya | Batas realistis |
+| :--- | :--- |
+| RAM | ±35–55 MB untuk **semua** server sekaligus (bukan per server) |
+| Gemini Free Tier | ±250–500 permintaan/hari **total** semua server → pakai cap di atas |
+| Voice channel statistik | 2 rename / 10 menit per channel (batas Discord) |
+| Musik | 1 node Lavalink dipakai bersama; 1–2 server memutar lagu berbarengan masih aman, lebih dari itu bisa macet |
+| Data JSON | Tumbuh per member aktif: `/level` 500 saldo/server, `/ekonomi` 500 saldo/server, `/tumbuh` maks 2000 member/server |
+
+### Kalau ada yang aneh di server teman
+1. `/status` → cek latensi, RAM, status AI, & musik.
+2. `/tumbuh status` → apakah bot punya izin *Manage Server* (penyebab invite tracker kosong).
+3. `/perawatan atur log_channel:#bot-log` → error command otomatis dilaporkan ke channel itu.
+4. Command tidak muncul sama sekali → cek scope `applications.commands` saat mengundang; kalau baru saja diundang, tunggu ±1 menit atau restart bot.
 
 ---
 

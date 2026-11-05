@@ -281,6 +281,55 @@ def register_events_cog(bot: commands.Bot) -> None:
             logger.debug("Audit log pesan edit dilewati: %s", exc)
 
     @bot.event
+    async def on_guild_join(guild):
+        """Server baru: Slash Command langsung muncul & kirim checklist setup (0 kuota AI)."""
+        fixed_commands = 0
+        try:
+            await bot.tree.sync(guild=discord.Object(id=guild.id))
+            fixed_commands = len(getattr(bot.tree, "get_commands", lambda: [])())
+        except Exception as exc:  # pragma: no cover - rate limit / izin
+            logger.debug("Sinkronisasi command server baru dilewati: %s", exc)
+
+        try:
+            import ui_theme
+
+            total = getattr(guild, "member_count", None) or len(getattr(guild, "members", []) or [])
+            embed = ui_theme.status_embed(
+                guild.id,
+                "info",
+                "👋 Terima kasih sudah mengundang bot ini!",
+                "**Langkah cepat 5 menit** (semua opsional, bot sudah jalan tanpa ini):\n"
+                "1. `/agent panel` — pilih channel AI Agent, welcome, & FAQ lewat tombol.\n"
+                "2. `/level atur aktif:True` — XP chat & voice + role hadiah.\n"
+                "3. `/tiket panel channel:#bantuan` — tiket bantuan berbasis thread.\n"
+                "4. `/log channel channel:#bot-log` — audit log server (hapus/edit pesan, dll).\n"
+                "5. `/tumbuh atur channel:#log-member` — statistik tumbuh & invite tracker "
+                "(butuh izin *Manage Server*).\n\n"
+                f"Server ini: **{guild.name}** (`{guild.id}`) • {total} member\n"
+                "Bantuan lengkap: `/bantuan` • Cek kesehatan: `/status`",
+                footer="0 kuota AI untuk semua fitur di atas • dashboard web opsional",
+            )
+            target = getattr(guild, "system_channel", None)
+            if target is None:
+                for channel in getattr(guild, "text_channels", []) or []:
+                    perms = getattr(channel, "permissions_for", lambda _m: None)(guild.me)
+                    if perms is not None and getattr(perms, "send_messages", False):
+                        target = channel
+                        break
+            if target is not None:
+                await target.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Checklist server baru dilewati: %s", exc)
+
+        logger.info(
+            "Bergabung ke server baru: %s (%s) • %s member • %d command disinkronkan.",
+            getattr(guild, "name", "?"),
+            getattr(guild, "id", "?"),
+            getattr(guild, "member_count", "?"),
+            fixed_commands,
+        )
+
+    @bot.event
     async def on_invite_create(invite):
         """Memperbarui cache invite agar pelacakan pengundang tetap akurat."""
         try:

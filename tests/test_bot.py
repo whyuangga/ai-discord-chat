@@ -6299,7 +6299,7 @@ def test_voice_xp_tracking_cap_and_level_card():
 
     # 6. Batas harian 10 menit: menit ke-11 tidak menambah XP
     for idx in range(12):
-        result = levels.add_voice_minutes(gid, 501, 1, channel_id=700, now=2000.0 + idx)
+        levels.add_voice_minutes(gid, 501, 1, channel_id=700, now=2000.0 + idx)
     final = levels.get_member_level(gid, 501)
     assert final["voice_min_today"] == 10
     assert final["voice_xp"] == 20          # 10 menit × 2 XP
@@ -6903,3 +6903,59 @@ async def test_growth_tracker_invites_stats_and_persistence(monkeypatch, tmp_pat
     growth_tracker.join_records.clear()
     growth_tracker.inviter_stats.clear()
     growth_tracker.daily.clear()
+
+
+@pytest.mark.asyncio
+async def test_new_guild_gets_instant_commands_and_checklist():
+    """Bot masuk server baru: Slash Command disinkronkan + checklist setup dikirim (0 kuota AI)."""
+    from cogs.events_cog import register_events_cog
+
+    sent: list[dict] = []
+
+    class _Tree:
+        def __init__(self):
+            self.synced_guilds: list[int] = []
+
+        async def sync(self, *, guild=None):
+            if guild is not None:
+                self.synced_guilds.append(guild.id)
+            return [object()] * 3
+
+        def get_commands(self):
+            return [object()] * 3
+
+    class _Channel:
+        def __init__(self):
+            self.id = 42
+
+        async def send(self, **kwargs):
+            sent.append(kwargs)
+
+    class _Guild:
+        id = 987
+        name = "Server Teman"
+        member_count = 12
+        system_channel = _Channel()
+
+    class _FakeBot:
+        def __init__(self):
+            self.tree = _Tree()
+            self.handlers: dict[str, object] = {}
+
+        def event(self, coro):
+            self.handlers[coro.__name__] = coro
+            return coro
+
+    bot = _FakeBot()
+    register_events_cog(bot)
+
+    assert "on_guild_join" in bot.handlers
+    await bot.handlers["on_guild_join"](_Guild())
+
+    # Command langsung disinkronkan ke server baru itu saja
+    assert bot.tree.synced_guilds == [987]
+    # Checklist setup terkirim tanpa mention massal
+    assert sent and sent[-1]["embed"].title
+    assert "/log" in sent[-1]["embed"].description
+    assert "/tumbuh" in sent[-1]["embed"].description
+    assert sent[-1]["allowed_mentions"].everyone is False
