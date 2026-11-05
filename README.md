@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **52 command utama** · **147 tes otomatis** · tanpa dependency baru
+> **Versi `v1.40.0-beta`** · **52 command utama** · **149 tes otomatis** · tanpa dependency baru
 > sejak v1.20 · detail tiap fitur ada di [daftar isi](#-daftar-isi) atau situs dokumentasi
 > (`site/`, cara deploy di [`site/README.md`](site/README.md)).
 
@@ -566,14 +566,15 @@ ai-discord-chat/
 │   ├── fitur.md        # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
 │   ├── command.md      # Referensi 52 command utama, subcommand, & tombol panel
 │   └── catatan-dashboard-dan-kunci-api.md  # Rencana dashboard/BYOK yang masih diparkir
-├── site/               # Situs dokumentasi statis (Hugo + tema Lotus Docs)
+├── site/               # Situs dokumentasi statis (Hugo + tema Lotus Docs, deploy Vercel)
 │   ├── hugo.toml       # Konfigurasi situs: params.docs, pencarian, warna tema
+│   ├── vercel.json     # Setelan build Vercel (Hugo 0.169.0, output public)
 │   ├── data/landing.yaml  # Halaman depan: hero + 6 kartu fitur
 │   └── content/        # HASIL GENERATE dari docs/ — jangan diedit manual
 ├── tools/
 │   └── sync_docs.py    # docs/*.md → site/content/ (juga dipakai tes sinkronisasi)
 ├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 147 test) untuk memastikan seluruh modul bebas bug
+└── tests/              # Pengujian otomatis (pytest — 149 test) untuk memastikan seluruh modul bebas bug
 ```
 
 ---

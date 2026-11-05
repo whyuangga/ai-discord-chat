@@ -32,31 +32,46 @@ cd site && hugo server -D
 
 Buka <http://localhost:1313>. Build produksi: `cd site && hugo --minify` → hasil di `site/public/`.
 
-## Deploy ke Cloudflare Pages (gratis, repo tetap privat)
+## Deploy ke Vercel (gratis, repo tetap privat)
 
-1. Cloudflare Dashboard → **Workers & Pages** → **Create** → tab **Pages** → **Connect to Git**.
-2. Pilih repo `whyuangga/ai-discord-chat` (boleh privat).
-3. Isi build setting:
+Konfigurasi build sudah disimpan di [`site/vercel.json`](vercel.json), jadi di dashboard
+cukup menunjuk root directory ke `site/`.
+
+1. Vercel Dashboard → **Add New… → Project** → **Import Git Repository** → pilih
+   `whyuangga/ai-discord-chat` (repo privat boleh).
+2. Pada layar konfigurasi, isi **Root Directory** = `site` lalu **klik Edit** di bagian
+   *Build and Output Settings*, dan pastikan:
 
 | Setelan | Nilai |
 | :--- | :--- |
-| Framework preset | Hugo |
-| Root directory | `site` |
-| Build command | `hugo --gc --minify -b $CF_PAGES_URL` |
-| Build output directory | `public` |
+| Framework Preset | **Hugo** |
+| Build Command | `hugo --gc --minify --baseURL "https://$VERCEL_URL"` |
+| Output Directory | `public` |
+| Install Command | *(kosongkan)* |
 
-4. **Environment variable** (wajib — Hugo harus versi *extended* karena tema memakai SCSS):
+3. **Environment Variables** (wajib — Hugo di Vercel versinya lama dan tema butuh *extended*):
 
 | Variabel | Nilai |
 | :--- | :--- |
 | `HUGO_VERSION` | `0.169.0` |
 
-5. Save & Deploy → situs terbit di `https://<project>.pages.dev` dan **dibangun ulang otomatis**
-   setiap push ke `main`.
+4. **Deploy** → situs terbit di `https://<project>.vercel.app`. Setiap push ke `main`
+   otomatis memicu deploy baru; pull request mendapat **Preview Deployment** sendiri.
+
+`vercel.json` sudah memuat `framework`, `buildCommand`, `outputDirectory`, dan
+`build.env.HUGO_VERSION`, jadi langkah 2–3 sebenarnya hanya perlu bila kamu ingin
+mengubahnya — kalau file itu terbaca, build langsung benar.
+
+**Kalau memakai domain sendiri:** tambahkan di *Settings → Domains*; `--baseURL "$VERCEL_URL"`
+membuat tautan mengikuti domain yang sedang dipakai, jadi tidak perlu mengubah `hugo.toml`.
 
 > **Catatan versi:** Lotus Docs (rilis v0.3.0) masih memakai `css.Sass` (libsass) yang sudah
 > *deprecated* di Hugo, sehingga build mengeluarkan peringatan — bukan error. Karena itu versi
-> Hugo **dipin** di `0.169.0`. Kalau nanti tema ini pindah ke Dart Sass, pin boleh dilepas.
+> Hugo **dipin** di `0.169.0` (`site/vercel.json`). Kalau tema sudah pindah ke Dart Sass, pin
+> boleh dilepas.
+
+> Alternatif lain tetap bisa: Cloudflare Pages atau Netlify dengan setelan yang sama
+> (build `hugo --gc --minify`, output `public`, `HUGO_VERSION=0.169.0`).
 
 ## Isi tema & asal-usulnya (untuk update manual)
 

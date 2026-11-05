@@ -70,6 +70,18 @@ def test_konfigurasi_tema_dan_landing_ada():
     assert (ROOT / "site" / "themes" / "lotusdocs" / "assets" / "js" / "popper" / "index.js").is_file()
 
 
+def test_vercel_json_siap_deploy():
+    """Konfigurasi Vercel harus memin versi Hugo dan menunjuk output yang benar."""
+    import json
+
+    config = json.loads((ROOT / "site" / "vercel.json").read_text())
+    assert config["framework"] == "hugo"
+    assert config["outputDirectory"] == "public"
+    assert config["build"]["env"]["HUGO_VERSION"] == "0.169.0"
+    assert "--minify" in config["buildCommand"]
+    assert "$VERCEL_URL" in config["buildCommand"]
+
+
 def test_konfigurasi_lotus_docs():
     config = (ROOT / "site" / "hugo.toml").read_text()
     assert 'theme = "lotusdocs"' in config
