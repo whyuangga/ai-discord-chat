@@ -495,6 +495,7 @@ async def get_ai_response(
                     async with session.post(s_url, headers=s_headers, json=s_payload, timeout=CHAT_TIMEOUT) as resp:
                         data = await resp.json(content_type=None)
                         if resp.status == 200 and isinstance(data, dict):
+                            _record_token_usage(data)
                             reply_text, _, _ = _extract_text_from_gemini_response(data)
                             if reply_text:
                                 sources = _extract_grounding_sources(data)
@@ -892,6 +893,7 @@ async def search_web_with_gemini(
                     async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
                         data = await resp.json(content_type=None)
                         if resp.status == 200 and isinstance(data, dict):
+                            _record_token_usage(data)
                             reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                             if reply_text:
                                 if include_sources_footer:
@@ -958,6 +960,7 @@ async def search_web_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             if include_sources_footer and live_sources:
@@ -1067,6 +1070,7 @@ async def analyze_link_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=req_link_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text, None
@@ -1157,6 +1161,7 @@ async def transform_message_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text, None
@@ -1254,6 +1259,7 @@ async def fact_check_message_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             if live_sources:

@@ -6196,6 +6196,16 @@ def test_ai_guard_routing_safety_resilience_and_tokens(monkeypatch):
     ):
         assert needle in agent_src, f"community_agent.py belum memakai {needle}"
     handler_src = open("ai_handler.py", encoding="utf-8").read()
-    for needle in ("ai_guard.apply_safety(", "ai_guard.with_accuracy_rules(", "_record_token_usage(data)"):
+    for needle in ("ai_guard.apply_safety(", "ai_guard.with_accuracy_rules("):
         assert needle in handler_src, f"ai_handler.py belum memakai {needle}"
+    # token dicatat di seluruh jalur teks (chat, rekap, cari, link, transformasi, fakta)
+    assert handler_src.count("_record_token_usage(data)") >= 5
     assert "history_summary" in open("storage.py", encoding="utf-8").read()
+
+    # 8. System prompt agent ikut membawa aturan anti-halusinasi
+    prompt = community_agent._build_community_system_prompt(
+        {"nickname": "Teman", "style_preset": "akrab", "knowledge_entries": []},
+        "Teman",
+        {"summary": "Senin siang", "clock": "12.00"},
+    )
+    assert "[ATURAN AKURASI]" in prompt

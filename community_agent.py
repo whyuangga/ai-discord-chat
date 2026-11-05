@@ -1492,7 +1492,11 @@ def _build_community_system_prompt(
                 "(Jawab akurat sesuai data ini bila warga bertanya rules, link, IP, atau info komunitas):\n"
                 + "\n".join(faq_lines)
             )
-    return prompt
+
+    # Aturan anti-halusinasi berlaku untuk semua jalur agent (Auto-Chat, sambutan, galeri, digest)
+    import ai_guard
+
+    return ai_guard.with_accuracy_rules(prompt)
 
 
 async def _call_gemini_agent(
