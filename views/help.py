@@ -194,7 +194,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/thread-otomatis aktifkan arsip_menit:1440` *(Admin)* — tiap pesan baru dibuatkan thread.\n"
                 "• `/lockdown aktif:True alasan:raid` *(Admin)* — kunci semua text channel; "
                 "`aktif:False` membuka hanya channel yang dikunci bot.\n"
-                "• `/backup struktur` *(Admin)* — unduh JSON role/kategori/channel/izin (baca-saja, tanpa isi pesan)."
+                "• `/backup struktur` *(Admin)* — unduh JSON role/kategori/channel/izin (tanpa isi pesan).\n"
+                "• `/backup pratinjau` → `/backup pulihkan` *(Admin)* — **bangun ulang** role/kategori/channel dari "
+                "berkas itu setelah kecelakaan: dry-run dulu, hanya menambah, tidak pernah menghapus."
             ),
             inline=False,
         )

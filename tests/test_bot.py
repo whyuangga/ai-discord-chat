@@ -5952,7 +5952,7 @@ async def test_server_tools_afk_threads_lockdown_backup():
     assert {"atur", "daftar", "hapus"} == {c.name for c in afk_group.commands}
     assert {"aktifkan", "matikan", "status"} == {c.name for c in thread_group.commands}
     assert {"aktif", "status"} == {c.name for c in lockdown_group.commands}
-    assert {"struktur"} == {c.name for c in backup_group.commands}
+    assert {"struktur", "pratinjau", "pulihkan"} == {c.name for c in backup_group.commands}
 
     st.afk_users.pop(gid, None)
     st.auto_thread_channels.pop(gid, None)
@@ -7814,3 +7814,173 @@ async def test_moderation_daily_tools_slowmode_role_nickname(monkeypatch):
 
     mod.mod_cases.clear()
     mod.mod_settings.clear()
+
+
+# ==============================================================================
+# PEMULIHAN STRUKTUR BACKUP (v1.30.0-beta)
+# ==============================================================================
+class _BRRole:
+    def __init__(self, rid, name):
+        self.id = rid
+        self.name = name
+
+
+class _BRCategory:
+    def __init__(self, cid, name):
+        self.id = cid
+        self.name = name
+        self.perms = []
+
+    async def set_permissions(self, target, allow=None, deny=None, reason=None):
+        self.perms.append((target.name, allow.value if allow else 0))
+
+
+class _BRChannel:
+    def __init__(self, name, kind="text"):
+        self.name = name
+        self.type = kind
+        self.perms = []
+
+    async def set_permissions(self, target, allow=None, deny=None, reason=None):
+        self.perms.append((target.name, allow.value if allow else 0))
+
+
+class _BRGuild:
+    def __init__(self, gid=88):
+        self.id = gid
+        self.roles = [_BRRole(1, "@everyone"), _BRRole(2, "Moderator")]
+        self.categories = [_BRCategory(10, "INFO")]
+        self.channels = [_BRChannel("umum"), _BRChannel("voice-lounge", "voice")]
+        self.created = {"roles": [], "categories": [], "channels": []}
+
+    async def create_role(self, name, permissions=None, colour=None, hoist=False, mentionable=False, reason=None):
+        role = _BRRole(900 + len(self.created["roles"]), name)
+        self.created["roles"].append(name)
+        self.roles.append(role)
+        return role
+
+    async def create_category(self, name, reason=None):
+        cat = _BRCategory(800 + len(self.created["categories"]), name)
+        self.created["categories"].append(name)
+        self.categories.append(cat)
+        return cat
+
+    async def create_text_channel(self, name, **kwargs):
+        self.created["channels"].append(("text", name, kwargs))
+        return _BRChannel(name, "text")
+
+    async def create_voice_channel(self, name, **kwargs):
+        self.created["channels"].append(("voice", name, kwargs))
+        return _BRChannel(name, "voice")
+
+
+def _sample_backup() -> dict:
+    return {
+        "meta": {"generated_at": "2026-11-05T00:00:00", "version": 1, "guild_id": 88, "guild_name": "Server Lama"},
+        "roles": [
+            {"name": "Moderator", "permissions": 8, "colour": 0},
+            {"name": "Event", "permissions": 0, "colour": 0x5865F2, "hoist": True, "mentionable": True},
+        ],
+        "categories": [
+            {"id": 10, "name": "INFO", "position": 0,
+             "overwrites": [{"target_type": "role", "target_id": 2, "target_name": "Moderator", "allow": 2048, "deny": 0}]},
+            {"id": 11, "name": "EVENT", "position": 1, "overwrites": []},
+        ],
+        "channels": [
+            {"id": 100, "name": "umum", "type": "text", "category_id": 10},
+            {"id": 101, "name": "pengumuman", "type": "news", "category_id": 10,
+             "overwrites": [{"target_type": "role", "target_name": "Moderator", "allow": 2048, "deny": 0},
+                            {"target_type": "member", "target_name": "Budi", "allow": 1, "deny": 0}]},
+            {"id": 102, "name": "voice-lounge", "type": "voice", "category_id": 11},
+            {"id": 103, "name": "lounge-2", "type": "voice", "category_id": 11, "bitrate": 64000, "user_limit": 5},
+            {"id": 104, "name": "forum-diskusi", "type": "forum", "category_id": 11},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_backup_restore_parse_plan_and_apply(monkeypatch):
+    """Pemulihan struktur: parsing, dry-run, pembuatan role/kategori/channel, & pengaman."""
+    import json as _json
+
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+
+    # 1. Parsing & validasi
+    snapshot = _sample_backup()
+    raw = _json.dumps(snapshot)
+    parsed, error = br.parse_backup(raw)
+    assert parsed is not None and error == ""
+    assert br.parse_backup("")[1] == "Berkas kosong."
+    assert "JSON" in br.parse_backup("{bukan json")[1]
+    assert "bukan backup struktur" in br.parse_backup('{"foo": 1}')[1]
+    bad_version = dict(snapshot, meta={"version": 99})
+    assert "lebih baru" in br.parse_backup(_json.dumps(bad_version))[1]
+
+    info = br.summarize(snapshot)
+    assert info["guild_name"] == "Server Lama"
+    assert info["roles"] == 2 and info["categories"] == 2 and info["channels"] == 5
+
+    # 2. Rencana (dry-run) tidak mengubah server sama sekali
+    guild = _BRGuild()
+    plan = br.build_plan(guild, snapshot)
+    assert guild.created == {"roles": [], "categories": [], "channels": []}
+    assert [r["name"] for r in plan["roles"]] == ["Event"]           # Moderator sudah ada
+    assert [c["name"] for c in plan["categories"]] == ["EVENT"]      # INFO sudah ada
+    names = [c["name"] for c in plan["channels"]]
+    assert "pengumuman" in names and "lounge-2" in names
+    assert "umum" not in names and "voice-lounge" not in names       # sudah ada
+    assert any("forum" in item and "belum didukung" in item for item in plan["skipped"])
+    assert plan["already"] == {"roles": 1, "categories": 1, "channels": 2}
+    assert "Event" in br.describe_plan(plan) and "Dilewati" in br.describe_plan(plan)
+
+    # 3. Opsi nonaktif → tidak ada yang dibuat untuk jenis itu
+    plan_no_role = br.build_plan(guild, snapshot, buat_role=False)
+    assert plan_no_role["roles"] == []
+
+    # 4. Eksekusi: role → kategori → channel, izin role diterapkan
+    result = await br.apply_plan(guild, plan, actor_id=42)
+    assert result["roles"] == 1 and guild.created["roles"] == ["Event"]
+    assert result["categories"] == 1 and guild.created["categories"] == ["EVENT"]
+    assert {c[1] for c in guild.created["channels"]} == {"pengumuman", "lounge-2"}
+    assert result["channels"] == 2
+    assert result["overwrites"] >= 1          # izin role Moderator diterapkan
+    assert result["errors"] == []
+
+    # Channel announcement dibuat sebagai text, voice memakai bitrate & limit
+    kinds = {c[1]: c for c in guild.created["channels"]}
+    assert kinds["pengumuman"][0] == "text"
+    assert kinds["lounge-2"][0] == "voice"
+    assert kinds["lounge-2"][2].get("user_limit") == 5
+    assert kinds["pengumuman"][2].get("category").name == "INFO"
+    # Overwrite per-member dilewati (ID member beda di server lain)
+    applied = [p[0] for p in kinds["pengumuman"][2].get("category").perms]
+    assert isinstance(applied, list)
+
+    # 5. Batas jumlah item per pemulihan
+    big = {
+        "meta": {"version": 1},
+        "roles": [{"name": f"R{i}", "permissions": 0} for i in range(40)],
+        "categories": [],
+        "channels": [],
+    }
+    plan_big = br.build_plan(_BRGuild(99), big)
+    assert plan_big["total"] <= br.MAX_CREATE_TOTAL
+    assert any("batas" in item for item in plan_big["skipped"])
+
+    # 6. Kegagalan izin tidak menghentikan item lain
+    class _Forbidden(Exception):
+        pass
+
+    forbidden_guild = _BRGuild(77)
+
+    async def _deny(**kwargs):
+        raise discord.Forbidden(type("R", (), {"status": 403, "reason": "x"})(), "nope")
+
+    forbidden_guild.create_role = _deny
+    result2 = await br.apply_plan(forbidden_guild, br.build_plan(forbidden_guild, snapshot))
+    assert result2["roles"] == 0 and result2["errors"]
+    assert result2["channels"] == 2            # channel tetap dibuat
+
+    assert "Role dibuat" in br.describe_result(result)

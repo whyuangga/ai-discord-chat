@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.29.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.30.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -7,7 +7,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Status node dibaca langsung dari kondisi nyata** (`✅ Tersambung` / `⏳ Menyambung` / `⚠️ Belum tersambung`) lengkap dengan diagnosa, plus **`/musik node`** untuk menyambung ulang tanpa restart. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
-4c. **🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown, & Backup Struktur** — **`/afk`** menandai member sedang pergi (mention-nya dijawab otomatis), **`/thread-otomatis`** membuat thread untuk setiap pesan baru, **`/lockdown`** mengunci semua text channel saat darurat lalu mengembalikannya, dan **`/backup struktur`** mengekspor role/kategori/channel/izin ke JSON (baca-saja, tanpa isi pesan). Semua **0 kuota AI**.
+4c. **🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown, & Backup Struktur** — **`/afk`** menandai member sedang pergi (mention-nya dijawab otomatis), **`/thread-otomatis`** membuat thread untuk setiap pesan baru, **`/lockdown`** mengunci semua text channel saat darurat lalu mengembalikannya, **`/backup struktur`** mengekspor role/kategori/channel/izin ke JSON, dan **`/backup pratinjau` / `/backup pulihkan`** membuat ulang struktur itu setelah kecelakaan (dry-run dulu, hanya menambah, tidak pernah menghapus). Semua **0 kuota AI**.
 5a. **💡 Kotak Saran + 📝 Pembuat Embed** — **`/saran`** memberi member wadah mengusulkan ide dengan **voting 👍/👎** bertombol (status: baru → dikerjakan → diterima/ditolak, penulis otomatis diberi tahu), sedangkan **`/embed`** membuat pengumuman berformat rapi lewat formulir (judul, isi, warna, banner, footer) tanpa dashboard. Keduanya **0 kuota AI**.
 5b. **🔊 Temp Voice (Join-to-Create)** — **`/tempvoice`** mengubah satu voice channel menjadi pintu masuk: member yang masuk otomatis mendapat room sendiri, jadi **pemilik** room, bisa **kunci / rename / batasi slot / tendang**, dan room **terhapus sendiri saat kosong**. Ada pembersihan room yatim tiap 5 menit dan batas 30 room per server.
 6a. **🛡️ Moderasi Bercatatan (ala Dyno/Carl-bot)** — **`/mod`** menyediakan **warn, timeout, kick, ban, unban, purge berfilter, & riwayat kasus** (`/mod catatan`). Setiap aksi tercatat di `data/moderation.json` dan bisa dilaporkan ke channel log. **Auto-punish**: 3 peringatan dalam 30 hari → timeout otomatis 1 jam (bisa diatur). Plus perkakas harian: **`/mod slowmode`**, **`/mod role`**, **`/mod role-massal`** (dengan konfirmasi), & **`/mod nickname`**. Default aman: hanya staff, bot menolak menindak Admin/pemilik server.
@@ -281,6 +281,26 @@ Pengaman bawaan:
 - **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
 - **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
+
+#### 6ab. ♻️ Pemulihan Struktur Server (`/backup pratinjau`, `/backup pulihkan`)
+
+Kalau server kena *nuke* / salah hapus channel, backup JSON yang pernah kamu unduh bisa
+dipakai untuk **membangun ulang** role, kategori, dan channel — lengkap dengan izin per role.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/backup struktur` | Unduh snapshot role/kategori/channel/izin (tanpa isi pesan). |
+| `/backup pratinjau berkas:<file.json>` | **Dry-run**: lihat apa yang akan dibuat, apa yang sudah ada, apa yang dilewati. **Tidak mengubah server.** |
+| `/backup pulihkan berkas:<file.json> buat_role:True buat_kategori:True buat_channel:True` | Buat ulang struktur setelah konfirmasi. |
+
+Pengaman:
+- **Hanya menambah.** Bot tidak pernah menghapus, memindahkan, atau menimpa channel/role yang sudah ada.
+- Item dicocokkan dari **nama & tipe**; yang sudah ada otomatis dilewati (tidak dobel).
+- **Maksimal 30 item per pemulihan** (agar aman dari rate limit Discord) — jalankan ulang untuk sisanya.
+- **Overwrite per-member dilewati** (ID member berbeda di server lain); izin **per-role** tetap diterapkan berdasarkan nama role.
+- Tipe yang belum didukung (`forum`, `media`) dilaporkan sebagai "dilewati", bukan error.
+- Setiap pemulihan tercatat di **Audit Log** (`/log`) dan bisa dibatalkan manual bila hasilnya tidak sesuai.
+- Berkas divalidasi: harus JSON hasil `/backup struktur`, versi ≤ 1, maksimal 4 MB.
 
 #### 6d. 🔔 Notifikasi Sosial: YouTube, Twitch & TikTok/RSS (`/sosial`)
 
@@ -1761,6 +1781,7 @@ ai-discord-chat/
 ├── temp_voice.py       # Voice room sementara join-to-create (data/temp_voice.json)
 ├── suggestions.py      # Kotak saran + voting & status (data/suggestions.json)
 ├── server_tools.py     # AFK, auto-thread, lockdown, & snapshot backup struktur (data/afk.json)
+├── backup_restore.py   # Pemulihan struktur dari JSON: validasi, dry-run (plan), & eksekusi aman
 ├── ui_theme.py         # Tema tampilan per server (aksen, emoji, kepadatan, footer) → data/ui_theme.json
 ├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol, konfirmasi)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
