@@ -2216,6 +2216,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "sosial",
         # v1.15.0-beta: moderasi bercatatan (warn/timeout/kick/ban/purge + kasus)
         "mod",
+        # v1.16.0-beta: voice room sementara (join-to-create)
+        "tempvoice",
     }
     assert len(chat_cmds) <= 100
 
@@ -5671,3 +5673,71 @@ async def test_moderation_cases_auto_punish_and_persistence():
 
     md.mod_cases.pop(gid, None)
     md.mod_settings.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_temp_voice_config_rooms_and_persistence():
+    """Temp Voice: template nama, pendaftaran room, kepemilikan, batas, & simpan-muat."""
+    import temp_voice as tv
+    from cogs.tempvoice_cog import tempvoice_group
+
+    gid = 727272
+    tv.temp_voice_guilds.pop(gid, None)
+    for cid in list(tv.temp_rooms):
+        if tv.temp_rooms[cid].get("guild_id") == gid:
+            tv.temp_rooms.pop(cid, None)
+
+    # 1. Sebelum diatur: tidak ada konfigurasi
+    assert tv.get_config(gid) is None
+
+    # 2. Aktifkan hub + template nama
+    config = tv.set_hub(gid, 500, name_template="🔊 Room {user}", user_limit=5)
+    assert config["hub_id"] == 500 and config["user_limit"] == 5
+    assert tv.get_config(gid)["name_template"] == "🔊 Room {user}"
+
+    class _Member:
+        display_name = "Whas"
+        name = "whas"
+
+    assert tv.room_name_for(config, _Member()) == "🔊 Room Whas"
+    # template kosong → kembali ke bawaan
+    tv.set_hub(gid, 500, name_template="")
+    assert tv.get_config(gid)["name_template"] == tv.DEFAULT_NAME_TEMPLATE
+    assert tv.room_name_for(tv.get_config(gid), _Member()) == "🔊 Whas"
+
+    # 3. Room: daftar, kepemilikan, kunci, nama
+    tv.register_room(9001, gid, 1111, "Room Whas")
+    assert tv.get_room(9001)["owner_id"] == 1111
+    assert tv.is_owner(9001, 1111) is True
+    assert tv.is_owner(9001, 2222) is False
+    assert tv.guild_room_count(gid) == 1
+    assert tv.set_room_locked(9001, True) is True
+    assert tv.get_room(9001)["locked"] is True
+    assert tv.set_room_name(9001, "Room Baru") is True
+    assert tv.get_room(9001)["name"] == "Room Baru"
+    assert tv.set_room_locked(12345, True) is False
+
+    # 4. Sanitasi nama
+    assert tv.sanitize_room_name("  Room   Anime  ") == "Room Anime"
+    assert tv.sanitize_room_name("x" * 300) == "x" * 100
+
+    # 5. Simpan → muat ulang
+    await tv.save_temp_voice_to_disk()
+    tv.temp_voice_guilds.clear()
+    tv.temp_rooms.clear()
+    loaded_guilds, loaded_rooms = tv.load_temp_voice_from_disk()
+    assert loaded_guilds >= 1 and loaded_rooms >= 1
+    assert tv.get_config(gid)["hub_id"] == 500
+    assert tv.get_room(9001)["name"] == "Room Baru"
+
+    # 6. Nonaktifkan → konfigurasi hilang, room tetap terdaftar (dihapus saat kosong)
+    assert tv.set_hub(gid, 0, enabled=False) is None
+    assert tv.get_config(gid) is None
+
+    # 7. Command /tempvoice terdaftar
+    assert {c.name for c in tempvoice_group.commands} == {
+        "atur", "status", "kunci", "nama", "limit", "tendang"
+    }
+
+    tv.unregister_room(9001)
+    tv.temp_voice_guilds.pop(gid, None)

@@ -62,6 +62,11 @@ from music import (
     run_music_panel_check,
     save_music_settings_to_disk,
 )
+from temp_voice import (
+    cleanup_temp_voice_runtime,
+    load_temp_voice_from_disk,
+    sweep_empty_rooms,
+)
 from moderation import (
     cleanup_moderation_runtime,
     load_moderation_from_disk,
@@ -205,6 +210,10 @@ class GeminiDiscordBot(commands.Bot):
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_themes = load_ui_themes_from_disk()
+        loaded_hub_guilds, loaded_rooms = load_temp_voice_from_disk()
+        logger.info(
+            "Temp Voice dimuat: %d server, %d room tersimpan.", loaded_hub_guilds, loaded_rooms
+        )
         loaded_mod_guilds, loaded_mod_cases = load_moderation_from_disk()
         logger.info(
             "Moderasi dimuat: %d server, %d kasus tercatat.", loaded_mod_guilds, loaded_mod_cases
@@ -375,6 +384,10 @@ async def idle_chat_watcher():
             await ensure_nodes_alive(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 20 == 0:
             await run_serverstats_check(bot)
+            try:
+                await sweep_empty_rooms(bot)  # bersihkan room Temp Voice yang kosong
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Pembersihan Temp Voice gagal: %s", exc)
             await run_backup_check(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 240 == 0:
             if cleanup_expired_sessions() > 0:
@@ -389,6 +402,7 @@ async def idle_chat_watcher():
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()
+            cleanup_temp_voice_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:

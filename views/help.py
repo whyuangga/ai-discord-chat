@@ -426,6 +426,16 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+        embed.add_field(
+            name="🔊 Voice Room Sementara (`/tempvoice`)",
+            value=(
+                "• Admin: buat voice channel **➕ Buat Voice**, lalu `/tempvoice atur hub:#➕ Buat Voice`.\n"
+                "• Member masuk hub → langsung dapat room sendiri & jadi pemiliknya.\n"
+                "• Pemilik room: `/tempvoice kunci`, `/tempvoice nama`, `/tempvoice limit`, `/tempvoice tendang`.\n"
+                "• Room terhapus otomatis saat kosong (maks 30 room/server, aman restart)."
+            ),
+            inline=False,
+        )
     elif category == "admin":
         embed = discord.Embed(
             title="⚙️ Panduan Admin & AI Komunitas (`/agent`)",
