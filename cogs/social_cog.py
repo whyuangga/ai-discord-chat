@@ -152,6 +152,55 @@ async def sosial_daftar_cmd(interaction: discord.Interaction):
     )
 
 
+@sosial_group.command(
+    name="status",
+    description="Cek kesiapan notifikasi: kredensial Twitch, token, & jumlah langganan per platform",
+)
+async def sosial_status_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        info = await sn.diagnose(interaction.client.http_session)
+    except Exception as exc:  # pragma: no cover - jaring aman
+        await interaction.followup.send(f"⚠️ Gagal memeriksa status: {exc}", ephemeral=True)
+        return
+
+    if info["twitch_token_ok"]:
+        twitch_line = "✅ Siap — kredensial valid & token berhasil diambil"
+    elif info["twitch_configured"]:
+        twitch_line = f"⚠️ Kredensial terisi, tetapi token gagal: {info['twitch_error']}"
+    else:
+        twitch_line = f"➖ Belum aktif — {info['twitch_error']}"
+
+    counts = info["counts"]
+    body = (
+        "### 🔔 Status Notifikasi Sosial\n"
+        f"• 🎬 **YouTube** — ✅ siap (RSS publik, tanpa kredensial) • langganan: `{counts.get('youtube', 0)}`\n"
+        f"• 🟣 **Twitch** — {twitch_line} • langganan: `{counts.get('twitch', 0)}`\n"
+        f"• 🎵 **TikTok/RSS** — ✅ siap (URL feed) • langganan: `{counts.get('tiktok', 0)}`\n"
+        f"\n**Cara mengisi kredensial Twitch (sekali saja):**\n"
+        "1. Buka https://dev.twitch.tv/console/apps → **Register Your Application**\n"
+        "2. Nama bebas, *OAuth Redirect URLs*: `http://localhost`, *Category*: `Bot` → **Create**\n"
+        "3. Salin **Client ID** → **New Secret** lalu salin **Client Secret**\n"
+        "4. Wispbyte → tab **Variables/Startup** → tambahkan `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET` → **Restart**\n"
+        "5. Jalankan `/sosial status` lagi sampai muncul ✅, lalu uji `/sosial tes id:...`"
+    )
+    if info["total"] == 0:
+        body += "\n\n_Belum ada langganan. Tambahkan dengan `/sosial tambah`._"
+
+    await ui_kit.follow_panel(
+        interaction,
+        ui_kit.build_view(interaction.guild.id, ui_kit.card(interaction.guild.id, ui_kit.text(body)), timeout=None),
+        embed=ui_theme.apply_embed_theme(
+            discord.Embed(title="🔔 Status Notifikasi Sosial", description=body[:4000]),
+            interaction.guild.id,
+        ),
+        ephemeral=True,
+    )
+
+
 @sosial_group.command(name="hapus", description="Hentikan pemantauan salah satu langganan")
 @app_commands.describe(id="ID langganan (lihat di /sosial daftar)")
 async def sosial_hapus_cmd(interaction: discord.Interaction, id: str):

@@ -214,6 +214,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/sosial tambah platform:🎵 TikTok target:<URL feed RSS>` — TikTok tidak punya API feed "
                 "gratis resmi, jadi dipakai jalur RSS.\n"
                 "• `/sosial daftar`, `/sosial hapus id:...`, `/sosial tes id:...` — kelola & uji langganan.\n"
+                "• `/sosial status` — cek kredensial Twitch & token (sekalian panduan mengisinya).\n"
                 "• Semua pesan memakai template → **0 kuota AI**."
             ),
             inline=False,

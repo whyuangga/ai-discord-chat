@@ -202,6 +202,26 @@ Cara kerja & pengaman:
 - **Batas:** maksimal 12 langganan per server; `seen` disimpan 25 ID terakhir per langganan agar `data/social.json` tetap kecil.
 - **Template kustom:** `{source}` `{title}` `{url}` `{game}` — mis. `pesan:"Video baru dari {source}: {title} {url}"`.
 
+#### Cara mendapatkan `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET` (sekali saja, gratis)
+
+1. Buka **https://dev.twitch.tv/console/apps** → login dengan akun Twitch kamu.
+2. Klik **Register Your Application**:
+   - **Name:** bebas (mis. `BotKomunitas`)
+   - **OAuth Redirect URLs:** `http://localhost`
+   - **Category:** `Bot`
+   - Klik **Create**.
+3. Di halaman aplikasi, salin **Client ID** → klik **New Secret** lalu salin **Client Secret**.
+   *(Secret hanya muncul sekali; kalau hilang, buat yang baru.)*
+4. Wispbyte → panel server → **Startup / Variables** → tambahkan dua variabel:
+   ```
+   TWITCH_CLIENT_ID=isi_client_id_kamu
+   TWITCH_CLIENT_SECRET=isi_client_secret_kamu
+   ```
+5. **Restart** server, lalu jalankan **`/sosial status`** sampai baris Twitch bertanda ✅.
+
+> 🔒 Jangan pernah menempelkan Client Secret ke chat Discord, README, atau commit git. Simpan hanya di tab
+> Variables Wispbyte. Kalau secret sempat bocor, klik **New Secret** untuk membatalkan yang lama.
+
 > **Catatan jujur soal TikTok:** TikTok **tidak menyediakan API feed gratis resmi** untuk bot. Karena itu opsi TikTok memakai jalur **feed RSS** (RSSHub publik/self-host). Kalau feed-nya diblokir atau mati, bot hanya mencatat di log dan tidak error. YouTube & Twitch tidak punya masalah ini.
 
 #### 7. 📝 Perangkum Obrolan Channel Tertinggal (`/ringkas`)
@@ -947,6 +967,7 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/sosial daftar` | — | Lihat semua langganan notifikasi + ID-nya. |
 | `/sosial hapus` | `id` | Hentikan pemantauan satu langganan. |
 | `/sosial tes` | `id` | Kirim contoh notifikasi sekarang untuk memastikan konfigurasi benar. |
+| `/sosial status` | — | Cek kesiapan: kredensial Twitch & token, plus jumlah langganan per platform + langkah pengisiannya. |
 | `/agent goodbye` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan kartu perpisahan AI + masa kebersamaan untuk member yang keluar. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di Text Channel maupun **Forum/Media Showcase**. |
 | `/agent youtube` | `channel`, `aktif`, `auto_di_channel` | Mengaktifkan/mematikan rangkum YouTube/Web (`/ringkas link` & baca link) pada satu/beberapa Text Channel atau **Channel Forum**. |

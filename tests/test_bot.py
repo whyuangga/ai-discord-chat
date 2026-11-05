@@ -5580,7 +5580,14 @@ async def test_social_notify_seeding_and_dispatch(monkeypatch):
     assert await sn.check_subscription(None, _Guild(), sub, None, force=True) == 1
 
     # command /sosial terdaftar lengkap
-    assert {c.name for c in sosial_group.commands} == {"tambah", "daftar", "hapus", "tes"}
+    assert {c.name for c in sosial_group.commands} == {"tambah", "daftar", "hapus", "tes", "status"}
+
+    # diagnosa kesiapan: tanpa kredensial Twitch → fitur Twitch ditandai belum aktif
+    info = await sn.diagnose(None)
+    assert info["twitch_configured"] is False
+    assert info["twitch_token_ok"] is False
+    assert set(info["counts"]) == {"youtube", "twitch", "tiktok"}
+    assert info["total"] == len(sn.get_subscriptions(gid))
     tambah = next(c for c in sosial_group.commands if c.name == "tambah")
     platform_choices = tambah.parameters[0].choices
     assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok"}

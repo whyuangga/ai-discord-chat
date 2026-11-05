@@ -66,6 +66,7 @@ from social_notify import (
     cleanup_social_runtime,
     load_social_from_disk,
     run_social_check,
+    social_guilds,
     twitch_configured,
 )
 from server_features import (
@@ -206,6 +207,19 @@ class GeminiDiscordBot(commands.Bot):
             loaded_social_guilds,
             "siap (kredensial terisi)" if twitch_configured() else "belum dikonfigurasi (YouTube/RSS tetap jalan)",
         )
+        if not twitch_configured():
+            twitch_subs = sum(
+                1
+                for gid_data in social_guilds.values()
+                for sub in (gid_data.get("subs") or [])
+                if sub.get("platform") == "twitch"
+            )
+            if twitch_subs:
+                logger.warning(
+                    "⚠️ Ada %d langganan Twitch, tetapi TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET kosong. "
+                    "Isi di tab Variables Wispbyte lalu restart, atau uji dengan /sosial status.",
+                    twitch_subs,
+                )
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,

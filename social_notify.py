@@ -608,6 +608,44 @@ async def check_subscription(bot, guild, sub: dict, session: aiohttp.ClientSessi
     return sent
 
 
+async def diagnose(session: aiohttp.ClientSession | None = None) -> dict:
+    """Pemeriksaan kesiapan: kredensial Twitch, token, & jumlah langganan per platform."""
+    counts: dict[str, int] = {key: 0 for key in PLATFORMS}
+    for data in social_guilds.values():
+        for sub in data.get("subs") or []:
+            platform = str(sub.get("platform") or "")
+            if platform in counts:
+                counts[platform] += 1
+
+    result = {
+        "twitch_configured": twitch_configured(),
+        "twitch_token_ok": False,
+        "twitch_error": "",
+        "counts": counts,
+        "total": sum(counts.values()),
+    }
+    if not twitch_configured():
+        if counts.get("twitch"):
+            result["twitch_error"] = (
+                "Langganan Twitch ada, tetapi `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` belum diisi."
+            )
+        else:
+            result["twitch_error"] = "Belum diisi (opsional selama tidak memakai Twitch)."
+        return result
+
+    own = session is None
+    http = session or aiohttp.ClientSession()
+    try:
+        token = await _twitch_app_token(http)
+        result["twitch_token_ok"] = bool(token)
+        if not token:
+            result["twitch_error"] = "Kredensial terisi tetapi token ditolak — periksa ulang Client ID/Secret."
+    finally:
+        if own:
+            await http.close()
+    return result
+
+
 async def run_social_check(bot, http_session: aiohttp.ClientSession | None = None) -> int:
     """Loop latar belakang: memeriksa seluruh langganan dengan pembatas frekuensi."""
     if not social_guilds:
