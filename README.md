@@ -7,6 +7,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Status node dibaca langsung dari kondisi nyata** (`✅ Tersambung` / `⏳ Menyambung` / `⚠️ Belum tersambung`) lengkap dengan diagnosa, plus **`/musik node`** untuk menyambung ulang tanpa restart. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
+4c. **🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown, & Backup Struktur** — **`/afk`** menandai member sedang pergi (mention-nya dijawab otomatis), **`/thread-otomatis`** membuat thread untuk setiap pesan baru, **`/lockdown`** mengunci semua text channel saat darurat lalu mengembalikannya, dan **`/backup struktur`** mengekspor role/kategori/channel/izin ke JSON (baca-saja, tanpa isi pesan). Semua **0 kuota AI**.
 5a. **💡 Kotak Saran + 📝 Pembuat Embed** — **`/saran`** memberi member wadah mengusulkan ide dengan **voting 👍/👎** bertombol (status: baru → dikerjakan → diterima/ditolak, penulis otomatis diberi tahu), sedangkan **`/embed`** membuat pengumuman berformat rapi lewat formulir (judul, isi, warna, banner, footer) tanpa dashboard. Keduanya **0 kuota AI**.
 5b. **🔊 Temp Voice (Join-to-Create)** — **`/tempvoice`** mengubah satu voice channel menjadi pintu masuk: member yang masuk otomatis mendapat room sendiri, jadi **pemilik** room, bisa **kunci / rename / batasi slot / tendang**, dan room **terhapus sendiri saat kosong**. Ada pembersihan room yatim tiap 5 menit dan batas 30 room per server.
 6a. **🛡️ Moderasi Bercatatan (ala Dyno/Carl-bot)** — **`/mod`** menyediakan **warn, timeout, kick, ban, unban, purge berfilter, & riwayat kasus** (`/mod catatan`). Setiap aksi tercatat di `data/moderation.json` dan bisa dilaporkan ke channel log. **Auto-punish**: 3 peringatan dalam 30 hari → timeout otomatis 1 jam (bisa diatur). Default aman: hanya staff, bot menolak menindak Admin/pemilik server.
@@ -177,6 +178,24 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 >
 > Mode **dinamis** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang,
 > bot otomatis mundur ke mode banner statis — tidak ada error.
+
+#### 4c. 🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown & Backup Struktur
+
+| Command | Siapa | Fungsi |
+| :--- | :--- | :--- |
+| `/afk atur alasan:sekolah` | Semua | Tandai AFK. Kalau ada yang me-mention kamu, bot menjawab dengan alasan & durasinya. Status hilang otomatis begitu kamu bicara lagi. |
+| `/afk daftar` / `/afk hapus` | Semua | Lihat member AFK / hapus statusmu lebih awal. |
+| `/thread-otomatis aktifkan arsip_menit:1440` | Admin | Setiap pesan baru di channel itu dibuatkan thread (judul dari awal pesan). |
+| `/thread-otomatis status` / `matikan` | Admin | Kelola daftar channel auto-thread. |
+| `/lockdown aktif:True alasan:raid` | Admin | **Darurat**: cabut izin kirim `@everyone` di semua text channel. |
+| `/lockdown aktif:False` | Admin | Buka kembali **hanya** channel yang dikunci bot (tidak mengubah channel yang sudah terkunci sebelumnya). |
+| `/lockdown status` | Admin | Cek durasi, channel terkunci, & alasannya. |
+| `/backup struktur` | Admin | Unduh JSON berisi role, kategori, channel, & permission overwrite. |
+
+Catatan penting:
+- **Lockdown tidak tersimpan di disk** — kalau bot restart saat lockdown, jalankan `/lockdown aktif aktif:False` lalu periksa manual. Ini disengaja agar tidak ada "kunci hantu".
+- **Backup bersifat baca-saja**: bot **tidak** akan membuat/menghapus channel dari berkas itu, jadi tidak ada risiko server rusak karena salah klik.
+- Auto-thread otomatis berhenti membuat thread bila bot kehilangan izin *Create Public Threads* (hanya dicatat di log).
 
 #### 5a. 💡 Kotak Saran (`/saran`) & 📝 Pembuat Embed (`/embed`)
 
@@ -1055,6 +1074,10 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/saran hapus` | `id` | *(Admin)* Hapus saran beserta pesannya. |
 | `/embed buat` | `channel`, `warna` | *(Staff)* Buat pengumuman embed lewat formulir. |
 | `/embed cepat` | `channel`, `judul`, `isi`, `warna`, `gambar` | *(Staff)* Kirim embed tanpa formulir. |
+| `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
+| `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
+| `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |
+| `/backup struktur` | — | *(Admin)* Ekspor role/kategori/channel/izin ke berkas JSON. |
 | `/agent goodbye` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan kartu perpisahan AI + masa kebersamaan untuk member yang keluar. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di Text Channel maupun **Forum/Media Showcase**. |
 | `/agent youtube` | `channel`, `aktif`, `auto_di_channel` | Mengaktifkan/mematikan rangkum YouTube/Web (`/ringkas link` & baca link) pada satu/beberapa Text Channel atau **Channel Forum**. |
@@ -1361,6 +1384,7 @@ ai-discord-chat/
 ├── moderation.py       # Kasus moderasi, peringatan bertingkat, auto-punish (data/moderation.json)
 ├── temp_voice.py       # Voice room sementara join-to-create (data/temp_voice.json)
 ├── suggestions.py      # Kotak saran + voting & status (data/suggestions.json)
+├── server_tools.py     # AFK, auto-thread, lockdown, & snapshot backup struktur (data/afk.json)
 ├── ui_theme.py         # Tema tampilan per server (aksen, emoji, kepadatan, footer) → data/ui_theme.json
 ├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol, konfirmasi)
 ├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM

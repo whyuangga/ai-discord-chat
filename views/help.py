@@ -161,6 +161,17 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+        embed.add_field(
+            name="🧰 Perkakas Server (`/afk`, `/thread-otomatis`, `/lockdown`, `/backup`)",
+            value=(
+                "• `/afk atur alasan:sekolah` — mention kepadamu dijawab otomatis; status lepas saat kamu bicara.\n"
+                "• `/thread-otomatis aktifkan arsip_menit:1440` *(Admin)* — tiap pesan baru dibuatkan thread.\n"
+                "• `/lockdown aktif:True alasan:raid` *(Admin)* — kunci semua text channel; "
+                "`aktif:False` membuka hanya channel yang dikunci bot.\n"
+                "• `/backup struktur` *(Admin)* — unduh JSON role/kategori/channel/izin (baca-saja, tanpa isi pesan)."
+            ),
+            inline=False,
+        )
     elif category == "komunitas":
         embed = discord.Embed(
             title="🧩 Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)",

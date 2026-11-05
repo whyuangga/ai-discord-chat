@@ -2220,6 +2220,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "tempvoice",
         # v1.17.0-beta: kotak saran + pembuat embed
         "saran", "embed",
+        # v1.18.0-beta: perkakas server (AFK, auto-thread, lockdown, backup struktur)
+        "afk", "thread-otomatis", "lockdown", "backup",
     }
     assert len(chat_cmds) <= 100
 
@@ -5824,3 +5826,115 @@ async def test_suggestions_voting_status_and_persistence():
 
     sg.suggestion_settings.pop(gid, None)
     sg.suggestion_items.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_server_tools_afk_threads_lockdown_backup():
+    """Perkakas server: AFK, auto-thread, lockdown state, & snapshot backup struktur."""
+    import server_tools as st
+    from cogs.utility_cog import afk_group, backup_group, build_server_backup, lockdown_group, thread_group
+
+    gid = 747474
+    st.afk_users.pop(gid, None)
+    st.auto_thread_channels.pop(gid, None)
+    st.lockdown_state.pop(gid, None)
+
+    # 1. AFK: set, deteksi mention (format <@id> & <@!id>), lalu dilepas
+    entry = st.set_afk(gid, 1234, "tidur dulu")
+    assert entry["reason"] == "tidur dulu"
+    assert st.get_afk(gid, 1234) is not None
+    found = st.afk_mentions(gid, "halo <@1234> dan <@!1234> apa kabar <@9999>")
+    assert len(found) == 1 and found[0][0] == 1234
+    assert "detik" in st.afk_since_text(entry) or "menit" in st.afk_since_text(entry)
+    assert st.pop_afk(gid, 1234) is not None
+    assert st.pop_afk(gid, 1234) is None
+    st.set_afk(gid, 1234, "")
+
+    # 2. Auto-thread config
+    config = st.enable_auto_thread(gid, 800, archive_minutes=120)
+    assert config["archive"] == 120
+    assert st.auto_thread_config(gid, 800)["archive"] == 120
+    assert 800 in st.list_auto_threads(gid)
+    assert st.disable_auto_thread(gid, 800) is True
+    assert st.disable_auto_thread(gid, 800) is False
+
+    # 3. Nama thread dari isi pesan
+    class _Msg:
+        content = "  Ini   judul   diskusi panjang " + "x" * 200
+        attachments = []
+
+    name = st.thread_name_for(_Msg())
+    assert name.startswith("Ini judul diskusi") and len(name) <= 100
+
+    # 4. Lockdown: status awal kosong
+    assert st.lockdown_active(gid) is None
+
+    # 5. Simpan → muat ulang AFK & thread
+    st.enable_auto_thread(gid, 801, archive_minutes=1440)
+    await st.save_server_tools_to_disk()
+    st.afk_users.clear()
+    st.auto_thread_channels.clear()
+    loaded_afk, loaded_threads = st.load_server_tools_from_disk()
+    assert loaded_afk >= 1 and loaded_threads >= 1
+    assert st.get_afk(gid, 1234)["reason"] == "tanpa alasan"
+    assert st.auto_thread_config(gid, 801)["archive"] == 1440
+
+    # 6. Backup struktur server (snapshot baca-saja)
+    class _Perms:
+        def __init__(self, value=0):
+            self.value = value
+
+    class _Role:
+        def __init__(self, rid, name):
+            self.id = rid
+            self.name = name
+            self.permissions = _Perms(8)
+            self.colour = type("C", (), {"value": 0x9B59B6})()
+            self.hoist = True
+            self.mentionable = False
+            self.position = 2
+
+        def is_default(self):
+            return False
+
+    class _Category:
+        id = 1
+        name = "Umum"
+        position = 0
+        overwrites = {}
+        text_channels = []
+
+    class _TextChannel:
+        id = 10
+        name = "umum"
+        type = discord.ChannelType.text
+        position = 1
+        category = _Category()
+        overwrites = {}
+        topic = "ngobrol"
+        nsfw = False
+        slowmode_delay = 0
+
+    class _Guild:
+        id = gid
+        name = "Server Uji"
+        member_count = 42
+        roles = [type("R", (), {"is_default": lambda self: True})()] + [_Role(2, "Staff")]
+        categories = [_Category()]
+        channels = [_TextChannel()]
+
+    snapshot = build_server_backup(_Guild())
+    assert snapshot["meta"]["guild_id"] == gid
+    assert len(snapshot["roles"]) == 1                      # role @everyone tidak ikut
+    assert snapshot["channels"][0]["topic"] == "ngobrol"
+    assert snapshot["channels"][0]["category_id"] == 1
+    assert "messages" not in snapshot                       # baca-saja, tanpa isi pesan
+
+    # 7. Command terdaftar
+    assert {"atur", "daftar", "hapus"} == {c.name for c in afk_group.commands}
+    assert {"aktifkan", "matikan", "status"} == {c.name for c in thread_group.commands}
+    assert {"aktif", "status"} == {c.name for c in lockdown_group.commands}
+    assert {"struktur"} == {c.name for c in backup_group.commands}
+
+    st.afk_users.pop(gid, None)
+    st.auto_thread_channels.pop(gid, None)

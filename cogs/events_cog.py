@@ -60,6 +60,7 @@ from storage import remove_thread_data, save_sessions_to_disk
 from utils import select_best_forum_tags, split_discord_message
 from views import ForumPostSolvedView
 from cogs.agent_cog import trigger_member_boost, trigger_member_goodbye, trigger_member_welcome
+from cogs.utility_cog import handle_message_tools
 from cogs.helpers import get_memory_usage_mb
 from cogs.session_cog import handle_private_session_message
 from server_features import (
@@ -234,6 +235,13 @@ def register_events_cog(bot: commands.Bot) -> None:
                 await maybe_refresh_sticky(bot, message)
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Sticky message gagal diperbarui: %s", exc)
+
+        # AFK (lepas status + beri tahu mentioner) & thread otomatis (0 kuota AI)
+        if message.guild is not None:
+            try:
+                await handle_message_tools(message)
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Perkakas pesan (AFK/thread) gagal: %s", exc)
 
         # Cadangan Auto-Welcome lewat pesan System Join Discord (bekerja walau Server Members Intent belum aktif)
         if message.type == discord.MessageType.new_member and message.guild is not None:

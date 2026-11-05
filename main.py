@@ -62,6 +62,10 @@ from music import (
     run_music_panel_check,
     save_music_settings_to_disk,
 )
+from server_tools import (
+    cleanup_server_tools_runtime,
+    load_server_tools_from_disk,
+)
 from suggestions import (
     cleanup_suggestions_runtime,
     load_suggestions_from_disk,
@@ -215,6 +219,10 @@ class GeminiDiscordBot(commands.Bot):
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_themes = load_ui_themes_from_disk()
+        loaded_afk, loaded_threads = load_server_tools_from_disk()
+        logger.info(
+            "Perkakas server dimuat: %d status AFK, %d channel auto-thread.", loaded_afk, loaded_threads
+        )
         loaded_saran_guilds, loaded_saran_items = load_suggestions_from_disk()
         logger.info(
             "Kotak saran dimuat: %d saran di %d server.", loaded_saran_items, loaded_saran_guilds
@@ -414,6 +422,7 @@ async def idle_chat_watcher():
             cleanup_moderation_runtime()
             cleanup_temp_voice_runtime()
             cleanup_suggestions_runtime()
+            cleanup_server_tools_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:
