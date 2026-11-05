@@ -7,6 +7,8 @@ Isi:
 - `/nuke whitelist` *(Admin)* — daftar/tambah/hapus member & role yang tidak pernah ditindak.
 - `/nuke uji` *(Admin)* — uji kering: lihat ambang & aksi yang akan dijalankan (tanpa menindak).
 - `/nuke pulihkan` *(Admin)* — pulihkan nama/ikon server dari titik pulih terakhir.
+- `/nuke beku` *(Admin)* — mode **beku**: setiap aksi destruktif langsung ditindak selama N menit.
+- `/nuke cairkan` *(Admin)* — akhiri mode beku lebih awal.
 - `/nuke matikan` *(Admin)* — hentikan pemantauan anti-nuke di server ini.
 """
 
@@ -134,6 +136,7 @@ async def nuke_status_cmd(interaction: discord.Interaction):
     jenis_ambang="Jenis aksi yang ambangnya ingin diubah",
     ambang="Jumlah aksi dalam jendela waktu sebelum dianggap nuke",
     jendela_detik="Panjang jendela waktu (detik) untuk semua jenis aksi",
+    keluarkan_bot="Keluarkan otomatis bot asing yang ditambahkan orang lain",
 )
 @app_commands.choices(aksi=_AKSI_CHOICES, jenis_ambang=_THRESHOLD_CHOICES)
 async def nuke_atur_cmd(
@@ -147,6 +150,7 @@ async def nuke_atur_cmd(
     jenis_ambang: app_commands.Choice[str] | None = None,
     ambang: app_commands.Range[int, 1, 100] | None = None,
     jendela_detik: app_commands.Range[int, 10, 86400] | None = None,
+    keluarkan_bot: bool | None = None,
 ):
     if interaction.guild is None:
         return
@@ -168,6 +172,7 @@ async def nuke_atur_cmd(
         restore=pulihkan,
         thresholds=thresholds,
         window=int(jendela_detik) if jendela_detik else None,
+        auto_kick_bot=keluarkan_bot,
     )
     # Perbarui titik pulih identitas setiap kali Admin menyimpan pengaturan
     if interaction.guild is not None:
@@ -313,6 +318,81 @@ async def nuke_pulihkan_cmd(interaction: discord.Interaction):
             gid, "ok" if ok else "warn", "Pemulihan identitas server", message
         ),
         follow=True,
+        ephemeral=True,
+    )
+
+
+@nuke_group.command(
+    name="beku",
+    description="Mode beku: setiap aksi destruktif langsung ditindak tanpa menunggu ambang (Admin)",
+)
+@app_commands.describe(
+    durasi_menit="Berapa lama server dibekukan (1–1440 menit)",
+    paksa_aksi="Abaikan pengaturan aksi & pakai tindakan paling ringan ini (opsional)",
+)
+@app_commands.choices(paksa_aksi=_AKSI_CHOICES)
+async def nuke_beku_cmd(
+    interaction: discord.Interaction,
+    durasi_menit: app_commands.Range[int, 1, 1440] = 30,
+    paksa_aksi: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    if paksa_aksi is not None:
+        antinuke.set_config(gid, action=paksa_aksi.value)
+    cfg = antinuke.start_freeze(gid, minutes=int(durasi_menit), by_id=interaction.user.id)
+    await antinuke.save_antinuke_to_disk()
+
+    action = str(cfg.get("action") or "lapor")
+    note = ""
+    if action == "lapor":
+        note = (
+            "\n\n⚠️ Aksi server masih **lapor saja** — mode beku akan melaporkan setiap aksi "
+            "destruktif secara instan, tetapi belum menindak. Ubah dengan "
+            "`/nuke atur aksi:cabut-role` bila ingin tindakan otomatis."
+        )
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "warn",
+            "🧊 Mode Beku Aktif",
+            f"Server dibekukan sampai <t:{int(cfg['freeze_until'])}:t> "
+            f"(<t:{int(cfg['freeze_until'])}:R>).\n"
+            f"• Setiap aksi destruktif **langsung** ditindak (ambang = 1 aksi).\n"
+            f"• Aksi: **{action}** — {antinuke.PUNISH_CHOICES.get(action, '?')}\n"
+            f"• Bot asing yang ditambahkan: "
+            f"{'dikeluarkan otomatis' if cfg.get('auto_kick_bot', True) else 'tidak dikeluarkan otomatis'}.\n"
+            f"• Akhiri lebih awal: `/nuke cairkan`." + note,
+        ),
+        ephemeral=True,
+    )
+
+
+@nuke_group.command(name="cairkan", description="Akhiri mode beku lebih awal & kembalikan ambang normal (Admin)")
+async def nuke_cairkan_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    ended = antinuke.end_freeze(gid)
+    await antinuke.save_antinuke_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok" if ended else "info",
+            "Mode beku berakhir" if ended else "Tidak ada mode beku",
+            "Ambang normal berlaku kembali. Cek riwayat dengan `/nuke status`."
+            if ended
+            else "Server ini memang tidak sedang dalam mode beku.",
+        ),
         ephemeral=True,
     )
 

@@ -8484,3 +8484,97 @@ async def test_level_season_reset_and_prestige():
     lv.level_guilds.clear()
     lv.levels.clear()
     await lv.save_levels_to_disk()
+
+
+# ==============================================================================
+# ANTI-NUKE LANJUTAN: BOT JAHAT & MODE BEKU (v1.35.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_antinuke_freeze_and_foreign_bot():
+    """Anti-Nuke: mode beku (ambang 1 aksi) & perlindungan bot asing ber-Administrator."""
+    import antinuke
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+    gid = 999
+    guild = _ANGuild(gid)
+    nuker = _ANMember(801, "Nuker", [_ANRole(11)])
+    guild._members[801] = nuker
+    channel = _ANChannel(902)
+    guild.system_channel = channel
+
+    class _Bot:
+        def get_channel(self, cid):
+            return channel if int(cid) == 902 else None
+
+        def get_guild(self, gid_arg):
+            return guild if int(gid_arg) == gid else None
+
+    bot = _Bot()
+    antinuke.set_config(gid, enabled=True, action="timeout", restore=True)
+
+    # 1. Sebelum beku: satu aksi belum melewati ambang (3x)
+    base = time.time()
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base) is None
+
+    # 2. Mulai beku → setiap aksi destruktif langsung ditindak
+    cfg = antinuke.start_freeze(gid, minutes=30, by_id=555, now=base)
+    assert cfg["freeze_aktif"] is True
+    assert antinuke.is_frozen(gid, now=base + 10) is True
+    assert antinuke.freeze_remaining(gid, now=base + 60) == 29 * 60
+    violation = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base + 20)
+    assert violation is not None and violation["limit"] == 1
+    assert nuker.timed_out_until is not None
+    assert any("beku" in f.value.lower() for f in channel.sent[-1]["embed"].fields)
+
+    # 3. Beku berakhir otomatis sesuai durasi
+    assert antinuke.is_frozen(gid, now=base + 31 * 60) is False
+    assert antinuke.get_config(gid)["freeze_aktif"] is False
+
+    # 4. Bot asing yang ditambahkan langsung dikeluarkan
+    evil_bot = _ANMember(950, "EvilBot")
+    evil_bot.bot = True
+    entry = _ANEntry(guild, nuker, "bot_add")
+    entry.target = evil_bot
+    violation2 = await antinuke.handle_audit_entry(bot, entry, now=base + 5000)
+    assert violation2 is not None and violation2["action"] == "bot_add"
+    assert evil_bot.kicked is True
+    assert any("dikeluarkan" in f.value for f in channel.sent[-1]["embed"].fields)
+
+    # 5. auto_kick_bot bisa dimatikan Admin
+    antinuke.set_config(gid, auto_kick_bot=False)
+    evil_bot2 = _ANMember(951, "EvilBot2")
+    evil_bot2.bot = True
+    entry2 = _ANEntry(guild, nuker, "bot_add")
+    entry2.target = evil_bot2
+    antinuke.reset_events()
+    assert await antinuke.handle_audit_entry(bot, entry2, now=base + 6000) is not None
+    assert evil_bot2.kicked is False
+
+    # 6. Pembuatan role massal ikut terdeteksi
+    assert antinuke.classify("role_create") == "role_create"
+    assert antinuke.classify("bot_add") == "bot_add"
+    assert antinuke.classify("message_delete") is None
+
+    # 7. Cairkan manual & watcher beku kedaluwarsa
+    antinuke.start_freeze(gid, minutes=5, by_id=1)
+    assert antinuke.end_freeze(gid) is True
+    assert antinuke.end_freeze(gid) is False
+    antinuke.start_freeze(gid, minutes=5, by_id=1)
+    antinuke.get_config(gid)["freeze_until"] = time.time() - 1
+    assert antinuke.expired_freezes() == [gid]
+    assert await antinuke.refresh_freezes(bot) == 1
+    assert antinuke.is_frozen(gid) is False
+
+    # 8. Persistensi status beku
+    antinuke.start_freeze(gid, minutes=10, by_id=77)
+    await antinuke.save_antinuke_to_disk()
+    antinuke.antinuke_guilds.clear()
+    assert antinuke.load_antinuke_from_disk() >= 1
+    assert antinuke.is_frozen(gid) is True
+    assert antinuke.get_config(gid)["auto_kick_bot"] is False
+
+    antinuke.end_freeze(gid)
+    await antinuke.save_antinuke_to_disk()

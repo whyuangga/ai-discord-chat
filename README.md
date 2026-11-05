@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.34.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.35.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -1124,6 +1124,8 @@ lalu bertindak sesuai pengaturan Admin. **0 kuota AI.**
 | **`/nuke whitelist`** *(Admin)* | Lihat / tambah / hapus member & role yang dikecualikan |
 | **`/nuke uji`** *(Admin)* | Uji kering: lihat ambang & tindakan yang akan dijalankan (tidak menindak) |
 | **`/nuke pulihkan`** *(Admin)* | Pulihkan nama & ikon server dari titik pulih terakhir |
+| **`/nuke beku durasi_menit:30`** *(Admin)* | **Mode beku**: setiap aksi destruktif langsung ditindak (ambang = 1) selama N menit |
+| **`/nuke cairkan`** *(Admin)* | Akhiri mode beku lebih awal |
 | **`/nuke matikan`** *(Admin)* | Hentikan pemantauan |
 
 #### Yang dipantau (ambang bisa diubah Admin)
@@ -1137,6 +1139,20 @@ lalu bertindak sesuai pengaturan Admin. **0 kuota AI.**
 | 🪝 Buat webhook | 3× / 5 mnt | Saluran spam yang tetap hidup walau bot keluar |
 | 🏷️ Ubah identitas server | 2× / 5 mnt | Pembajakan nama/ikon |
 | 🧯 Cabut role massal | 12× / 60 dtk | Member kehilangan akses beramai-ramai |
+| 🤖 **Bot asing ditambahkan** | **1×** | Bot jahat bisa jadi Administrator & menghancurkan server |
+| 🎨 Buat role massal | 4× / 60 dtk | Role admin palsu / izin kacau |
+
+#### Perlindungan bot jahat & mode beku (v1.35.0-beta, 0 kuota AI)
+- **Bot asing langsung dikeluarkan.** Saat ada yang menambahkan bot lewat OAuth, bot ini menangkap
+  `bot_add` di Audit Log dan **menendang bot itu** seketika (bisa dimatikan: `/nuke atur keluarkan_bot:False`).
+  Tambahan bot juga dicatat sebagai pelanggaran pelaku, jadi aksi berikutnya ikut ditindak.
+- **Mode beku (`/nuke beku`)** dipakai saat server sedang diserang: **ambang menjadi 1 aksi** untuk semua
+  jenis (hapus channel, ban massal, webhook, dll.), berlaku 1–1440 menit, dan otomatis cair saat waktunya
+  habis (watcher memeriksa tiap 1 jam) atau lewat `/nuke cairkan`.
+- Kalau aksi server masih `lapor`, mode beku tetap **melapor instan** tetapi tidak menindak — ubah dulu ke
+  `cabut-role`/`timeout`/`kick`/`ban` lewat `/nuke atur aksi:` atau `/nuke beku paksa_aksi:`.
+- **Peran bot yang disarankan:** beri bot **View Audit Log + Manage Roles + Kick Members + Manage Channels**
+  (jangan Administrator). Dengan cara itu bot bisa menindak tanpa menjadi sasaran serangan balik.
 
 #### Aksi bertingkat (pilih di `/nuke atur aksi:`)
 | Mode | Efek |
@@ -1594,10 +1610,12 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | Command | Parameter | Fungsi |
 | :--- | :--- | :--- |
 | `/nuke status` | — | Status, ambang, izin bot, whitelist, & pelanggaran terakhir. |
-| `/nuke atur` | `aktif`, `channel`, `aksi`, `timeout_detik`, `dm_owner`, `pulihkan`, `jenis_ambang`, `ambang`, `jendela_detik` | *(Admin)* Konfigurasi anti-nuke. |
+| `/nuke atur` | `aktif`, `channel`, `aksi`, `timeout_detik`, `dm_owner`, `pulihkan`, `jenis_ambang`, `ambang`, `jendela_detik`, `keluarkan_bot` | *(Admin)* Konfigurasi anti-nuke. |
 | `/nuke whitelist` | `aksi`, `member`, `role` | *(Admin)* Kecualikan member/role dari tindakan. |
 | `/nuke uji` | `jenis` | *(Admin)* Uji kering ambang & tindakan. |
 | `/nuke pulihkan` | — | *(Admin)* Pulihkan nama/ikon server. |
+| `/nuke beku` | `durasi_menit`, `paksa_aksi` | *(Admin)* Mode beku: ambang 1 aksi selama N menit. |
+| `/nuke cairkan` | — | *(Admin)* Akhiri mode beku lebih awal. |
 | `/nuke matikan` | — | *(Admin)* Hentikan pemantauan. |
 
 ---

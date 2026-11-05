@@ -20,6 +20,7 @@ from music_playlists import (
     load_playlists_from_disk,
     save_playlists_to_disk,
 )
+from antinuke import refresh_freezes
 from raid_guard import (
     cleanup_raid_runtime,
     load_raid_from_disk,
@@ -509,6 +510,7 @@ async def idle_chat_watcher():
             cleanup_growth_runtime()     # pangkas data pertumbuhan lama
             cleanup_menu_runtime()       # bersihkan cooldown self role menu
             cleanup_antinuke_runtime()   # pangkas catatan kejadian anti-nuke
+            await refresh_freezes(bot)   # cairkan mode beku anti-nuke yang kedaluwarsa
             cleanup_raid_runtime()       # buang catatan join raid yang kedaluwarsa
             cleanup_music_playlist_runtime()  # buang playlist kosong
             cleanup_ui_runtime()

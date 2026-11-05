@@ -53,6 +53,11 @@ ACTIONS: dict[str, dict] = {
                      "audit": ("guild_update",)},
     "member_role_update": {"label": "Cabut role massal", "emoji": "🧯", "count": 12, "window": 60,
                            "audit": ("member_role_update",)},
+    # v1.35.0-beta: bot asing & role admin massal
+    "bot_add": {"label": "Bot asing ditambahkan", "emoji": "🤖", "count": 1, "window": 60,
+                "audit": ("bot_add",)},
+    "role_create": {"label": "Buat role massal", "emoji": "🎨", "count": 4, "window": 60,
+                    "audit": ("role_create",)},
 }
 
 PUNISH_CHOICES: dict[str, str] = {
@@ -103,6 +108,12 @@ def default_config() -> dict:
         "whitelist_roles": [],
         "thresholds": {key: {"count": spec["count"], "window": spec["window"]} for key, spec in ACTIONS.items()},
         "identity": {},          # {"name": str, "icon_url": str | None}
+        # v1.35.0-beta: proteksi bot jahat & mode beku
+        "freeze_aktif": False,
+        "freeze_until": 0.0,
+        "freeze_by": None,
+        "auto_kick_bot": True,   # bot asing yang ditambahkan langsung dikeluarkan
+        "freeze_count": 0,
     }
 
 
@@ -132,7 +143,7 @@ def set_config(guild_id: int, **changes) -> dict:
     for key in ("log_channel_id", "timeout_sec"):
         if key in changes and changes[key] is not None:
             cfg[key] = _to_int(changes[key])
-    for key in ("enabled", "dm_owner", "restore"):
+    for key in ("enabled", "dm_owner", "restore", "auto_kick_bot"):
         if key in changes and changes[key] is not None:
             cfg[key] = bool(changes[key])
     if changes.get("action") in PUNISH_CHOICES:
@@ -250,9 +261,86 @@ def register_event(guild_id: int, user_id: int, action_key: str, *, now: float |
 
 
 def should_punish(guild_id: int, user_id: int, action_key: str, *, now: float | None = None) -> tuple[bool, int, int]:
-    """`(melewati_ambang, jumlah, ambang)`."""
+    """`(melewati_ambang, jumlah, ambang)`. Saat mode beku, ambang menjadi **1 aksi**."""
     count, limit = register_event(guild_id, user_id, action_key, now=now)
+    if is_frozen(guild_id, now=now):
+        return True, count, 1
     return count >= limit, count, limit
+
+
+# ==============================================================================
+# MODE BEKU (FREEZE) — v1.35.0-beta
+# ==============================================================================
+FREEZE_MAX_MINUTES = 1440
+
+
+def is_frozen(guild_id: int, *, now: float | None = None) -> bool:
+    """Apakah server sedang dalam mode beku (setiap aksi destruktif langsung ditindak)."""
+    cfg = antinuke_guilds.get(int(guild_id))
+    if not cfg or not cfg.get("freeze_aktif"):
+        return False
+    current = time.time() if now is None else float(now)
+    until = float(cfg.get("freeze_until") or 0)
+    if until and current >= until:
+        cfg["freeze_aktif"] = False
+        cfg["freeze_until"] = 0.0
+        return False
+    return True
+
+
+def freeze_remaining(guild_id: int, *, now: float | None = None) -> int:
+    """Sisa detik mode beku (0 bila tidak aktif)."""
+    cfg = antinuke_guilds.get(int(guild_id))
+    if not cfg or not is_frozen(guild_id, now=now):
+        return 0
+    current = time.time() if now is None else float(now)
+    return max(0, int(float(cfg.get("freeze_until") or 0) - current))
+
+
+def start_freeze(guild_id: int, *, minutes: int = 30, by_id: int = 0, now: float | None = None) -> dict:
+    """Membekukan server: SEMUA aksi destruktif langsung ditindak selama N menit."""
+    cfg = get_config(guild_id)
+    minutes = max(1, min(FREEZE_MAX_MINUTES, int(minutes)))
+    current = time.time() if now is None else float(now)
+    cfg["freeze_aktif"] = True
+    cfg["freeze_until"] = current + minutes * 60
+    cfg["freeze_by"] = int(by_id) or None
+    cfg["freeze_count"] = _to_int(cfg.get("freeze_count")) + 1
+    return cfg
+
+
+def end_freeze(guild_id: int) -> bool:
+    """Mencairkan server (mode normal kembali)."""
+    cfg = antinuke_guilds.get(int(guild_id))
+    if not cfg or not cfg.get("freeze_aktif"):
+        return False
+    cfg["freeze_aktif"] = False
+    cfg["freeze_until"] = 0.0
+    return True
+
+
+def expired_freezes(*, now: float | None = None) -> list[int]:
+    """Server yang mode bekunya sudah habis (untuk dipulihkan watcher)."""
+    current = time.time() if now is None else float(now)
+    done = []
+    for gid, cfg in antinuke_guilds.items():
+        if not cfg.get("freeze_aktif"):
+            continue
+        until = float(cfg.get("freeze_until") or 0)
+        if until and current >= until:
+            done.append(gid)
+    return done
+
+
+async def kick_foreign_bot(guild, target) -> str:
+    """Mengeluarkan bot asing yang baru ditambahkan (bila masih ada di server)."""
+    if target is None or not getattr(target, "bot", False):
+        return "target bukan bot"
+    try:
+        await target.kick(reason="Anti-Nuke: bot asing ditambahkan tanpa izin")
+    except (discord.Forbidden, discord.HTTPException, AttributeError) as exc:
+        return f"gagal mengeluarkan bot (`{type(exc).__name__}`)"
+    return f"bot `{getattr(target, 'name', '?')}` dikeluarkan dari server"
 
 
 def record_violation(guild, member, action_key: str, count: int, limit: int, action_taken: str) -> dict:
@@ -494,6 +582,17 @@ async def handle_audit_entry(bot, entry, *, now: float | None = None) -> dict | 
     )
 
     extras: list[str] = []
+    frozen = is_frozen(gid, now=now)
+    if frozen:
+        extras.append("🧊 Mode **beku** aktif — tindakan langsung dijalankan tanpa menunggu ambang")
+    if action_key == "bot_add":
+        target = getattr(entry, "target", None)
+        if cfg.get("auto_kick_bot", True):
+            result = await kick_foreign_bot(guild, target)
+            prefix = "⚠️ " if ("gagal" in result or "bukan bot" in result) else "✅ "
+            extras.append(prefix + result)
+        else:
+            extras.append("⚠️ `auto_kick_bot` nonaktif — keluarkan bot itu manual bila tidak dikenal")
     if cfg.get("restore", True):
         if action_key == "guild_update":
             ok, message = await restore_identity(bot, guild)
@@ -569,6 +668,11 @@ def load_antinuke_from_disk() -> int:
                     "count": max(1, _to_int(value.get("count"), ACTIONS[key]["count"])),
                     "window": max(1, _to_int(value.get("window"), ACTIONS[key]["window"])),
                 }
+        cfg["freeze_aktif"] = bool(data.get("freeze_aktif", False))
+        cfg["freeze_until"] = float(data.get("freeze_until") or 0)
+        cfg["freeze_by"] = _to_int(data.get("freeze_by")) or None
+        cfg["auto_kick_bot"] = bool(data.get("auto_kick_bot", True))
+        cfg["freeze_count"] = max(0, _to_int(data.get("freeze_count")))
         identity = data.get("identity") or {}
         if isinstance(identity, dict):
             cfg["identity"] = {
@@ -599,6 +703,30 @@ async def save_antinuke_to_disk() -> None:
             await asyncio.to_thread(os.replace, tmp_file, ANTINUKE_FILE)
         except Exception as exc:  # pragma: no cover - I/O gagal
             logger.warning("Gagal menyimpan antinuke.json: %s", exc)
+
+
+async def refresh_freezes(bot=None) -> int:
+    """Mencairkan otomatis mode beku yang durasinya habis (& lapor bila mungkin)."""
+    done = expired_freezes()
+    for gid in done:
+        cfg = antinuke_guilds.get(gid) or {}
+        cfg["freeze_aktif"] = False
+        cfg["freeze_until"] = 0.0
+        guild = bot.get_guild(gid) if bot is not None and callable(getattr(bot, "get_guild", None)) else None
+        if guild is None:
+            continue
+        embed = discord.Embed(
+            title="🧊 Mode Beku Anti-Nuke Berakhir",
+            description=(
+                "Durasi beku selesai — server kembali ke ambang normal.\n"
+                "Periksa riwayat pelanggaran lewat `/nuke status`."
+            ),
+            color=discord.Color.green(),
+        )
+        await _notify(bot, guild, cfg, embed)
+    if done:
+        await save_antinuke_to_disk()
+    return len(done)
 
 
 def cleanup_antinuke_runtime() -> int:
