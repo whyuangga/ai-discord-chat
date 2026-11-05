@@ -15,6 +15,11 @@ from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
 from tickets import run_ticket_check
 from levels import run_level_season_check
+from i18n import (
+    cleanup_i18n_runtime,
+    load_lang_from_disk,
+    save_lang_to_disk,
+)
 from music_playlists import (
     cleanup_music_playlist_runtime,
     load_playlists_from_disk,
@@ -274,6 +279,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_antinuke = load_antinuke_from_disk()
         loaded_raid = load_raid_from_disk()
         loaded_playlists = load_playlists_from_disk()
+        loaded_langs = load_lang_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -356,6 +362,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Anti-Nuke dimuat: %d server.", loaded_antinuke)
         logger.info("Raid Guard dimuat: %d server.", loaded_raid)
         logger.info("Playlist musik dimuat: %d member.", loaded_playlists)
+        logger.info("Pengaturan bahasa dimuat: %d server.", loaded_langs)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -450,6 +457,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_antinuke_to_disk()
         await save_raid_to_disk()
         await save_playlists_to_disk()
+        await save_lang_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -513,6 +521,7 @@ async def idle_chat_watcher():
             await refresh_freezes(bot)   # cairkan mode beku anti-nuke yang kedaluwarsa
             cleanup_raid_runtime()       # buang catatan join raid yang kedaluwarsa
             cleanup_music_playlist_runtime()  # buang playlist kosong
+            cleanup_i18n_runtime()            # buang bahasa default (hemat I/O)
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

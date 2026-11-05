@@ -2236,6 +2236,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "nuke",
         # v1.31.0-beta: raid guard (mode darurat otomatis saat server diserbu)
         "raid",
+        # v1.36.0-beta: i18n inti (/bahasa)
+        "bahasa",
     }
     assert len(chat_cmds) <= 100
 
@@ -8578,3 +8580,81 @@ async def test_antinuke_freeze_and_foreign_bot():
 
     antinuke.end_freeze(gid)
     await antinuke.save_antinuke_to_disk()
+
+
+# ==============================================================================
+# i18n INTI & /bahasa (v1.36.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_i18n_core_texts_and_language_command():
+    """Bahasa per server: normalisasi kode, terjemahan kerangka, & persistensi."""
+    import i18n
+    import ui_kit
+
+    i18n.guild_lang.clear()
+
+    # 1. Default Bahasa Indonesia
+    assert i18n.get_lang(1) == "id"
+    assert i18n.t("confirm.yes", 1) == "Ya, lanjutkan"
+    assert i18n.t("status.on", 1) == "aktif"
+
+    # 2. Normalisasi kode & alias
+    for raw, expected in [
+        ("en", "en"),
+        ("EN", "en"),
+        ("en-US", "en"),
+        ("english", "en"),
+        ("id-ID", "id"),
+        ("indonesia", "id"),
+    ]:
+        assert i18n.normalize_lang(raw) == expected
+    assert i18n.normalize_lang("klingon") is None
+    assert i18n.normalize_lang("") is None
+
+    # 3. Ganti bahasa server
+    ok, code = i18n.set_lang(1, "en")
+    assert ok and code == "en"
+    assert i18n.t("confirm.yes", 1) == "Yes, continue"
+    assert i18n.t("status.off", 1) == "disabled"
+    assert i18n.t("perm.admin", 1) == "Admin permission required"
+    assert "Server language" in i18n.t("lang.current", 1, lang=i18n.lang_label("en"))
+    assert i18n.t("confirm.cancelled_detail", 1) == "No changes were made."
+
+    # Server lain tidak terpengaruh
+    assert i18n.get_lang(2) == "id"
+
+    # 4. Kode tidak dikenal ditolak tanpa mengubah bahasa
+    assert i18n.set_lang(1, "xx") == (False, "en")
+    assert i18n.get_lang(1) == "en"
+
+    # 5. Semua kunci punya versi Indonesia & English
+    for key, entry in i18n.TEXTS.items():
+        assert entry.get("id"), key
+        assert entry.get("en"), key
+
+    # 6. Dialog konfirmasi ikut berbahasa server
+    view = ui_kit.ConfirmView(1, title="Uji", detail="Detail")
+    labels = []
+    for container in view.children:
+        for child in getattr(container, "children", []):
+            for item in getattr(child, "children", []) or []:
+                label = getattr(item, "label", None)
+                if label:
+                    labels.append(label)
+    assert "Yes, continue" in labels and "Cancel" in labels
+    assert "Ya, lanjutkan" in str(ui_kit.ConfirmView(2, title="Uji", detail="Detail").to_components())
+
+    # 7. Persistensi (bahasa default tidak ditulis)
+    await i18n.save_lang_to_disk()
+    i18n.guild_lang.clear()
+    assert i18n.load_lang_from_disk() >= 1
+    assert i18n.get_lang(1) == "en"
+    i18n.guild_lang[3] = "id"
+    assert i18n.cleanup_i18n_runtime() == 1
+
+    # 8. Pilihan bahasa tersedia untuk command
+    assert set(i18n.available_langs()) == {"id", "en"}
+    assert i18n.describe_lang(1) == "🇬🇧 English"
+
+    i18n.guild_lang.clear()
+    await i18n.save_lang_to_disk()

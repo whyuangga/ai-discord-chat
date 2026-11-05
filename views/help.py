@@ -587,7 +587,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/agent goodbye` — Kartu perpisahan hangat saat member keluar, plus masa kebersamaan.\n"
 
                 "• `/agent digest` — Kirim **Koran & Sapaan Pagi** terjadwal setiap hari.\n"
-                "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI."
+                "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI.\n"
+                "• `/bahasa lihat` & `/bahasa atur kode:en` *(Admin)* — ganti bahasa **teks kerangka** bot "
+                "(tombol konfirmasi, kata status, pesan izin) ke Indonesia/English. 0 kuota AI."
             ),
             inline=False,
         )

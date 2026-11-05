@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.35.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.36.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -1111,6 +1111,24 @@ Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besa
 
 ---
 
+### O2. Bahasa Antarmuka (`/bahasa`) — i18n Inti, 0 Kuota AI
+
+Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English
+per server. Semua terjemahan lokal — tidak memanggil AI sama sekali.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/bahasa lihat`** | Bahasa aktif, pilihan yang tersedia, & contoh teks yang ikut berubah. |
+| **`/bahasa atur kode:id\|en`** *(Admin)* | Ganti bahasa server (per server, bukan per member). |
+
+**Yang diterjemahkan (inti):** tombol & kartu **dialog konfirmasi** (`Ya, lanjutkan` / `Batal`,
+`Dikonfirmasi` / `Dibatalkan`), kata **status umum** (`aktif` / `nonaktif`, `tersimpan`),
+**pesan izin** (`Butuh izin Admin`), dan command `/bahasa` itu sendiri.
+
+**Yang tetap Bahasa Indonesia:** seluruh penjelasan panjang fitur (`/bantuan`, README, pesan
+panduan). Alasannya sederhana: menjaga konsistensi dokumentasi & menghemat RAM/berkas.
+Bahasa disimpan di `data/i18n.json` (bahasa default tidak ditulis agar berkas tetap kecil).
+
 ### P. Anti-Nuke (`/nuke`)
 
 Melindungi server dari **penghancuran massal oleh staff jahat atau akun yang di-hack**.
@@ -1872,6 +1890,7 @@ ai-discord-chat/
 ├── antinuke.py         # Anti-Nuke: deteksi audit log, tindakan bertingkat, & pemulihan (data/antinuke.json)
 ├── raid_guard.py       # Raid Guard: mode darurat otomatis saat lonjakan join (data/raid.json)
 ├── music_playlists.py  # Playlist musik per member (data/music_playlists.json)
+├── i18n.py             # Terjemahan teks kerangka ID/EN per server (data/i18n.json)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)
