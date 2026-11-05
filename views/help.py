@@ -524,7 +524,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n"
                 "• **Role DJ bukan syarat memutar lagu** — cukup masuk voice channel. DJ hanya mengunci "
                 "tombol kontrol untuk member di luar VC.\n"
-                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di README bagian F."
+                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di `docs/fitur.md` bagian F."
             ),
             inline=False,
         )

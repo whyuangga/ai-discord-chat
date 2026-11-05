@@ -62,7 +62,7 @@ MUSIC_SETUP_HINT = (
     "• `LAVALINK_URI` menerima `host:port`, `http(s)://…`, atau `ws(s)://…`\n"
     "• Butuh **Lavalink v4** (gratis). Wispbyte tidak menyediakan node musik, "
     "jadi pakai node publik gratis atau host Lavalink sendiri (Docker 1 baris).\n"
-    "Setelah variabel diisi, restart bot. Panduan lengkap ada di **README bagian F**."
+    "Setelah variabel diisi, restart bot. Panduan lengkap ada di **`docs/fitur.md` bagian F**."
 )
 
 SOURCE_LABELS: dict[str, str] = {
