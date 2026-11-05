@@ -1,72 +1,106 @@
 # 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.40.0-beta`)
 
-Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
-1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
-2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum* — `/agent`)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Panel Kontrol Admin Interaktif (`/agent panel`)** dengan *Spotlight Channel* & pengelola FAQ 1-klik, **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
-3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/terjemah`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server! Tambahan **`/terjemah`** + **reaksi bendera 🇮🇩/🇬🇧** di channel pilihan: terjemahan dibuat **hanya saat diminta**, dikirim via DM, dan di-cache (0 kuota untuk kalimat berulang).
-4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
-5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
-6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Status node dibaca langsung dari kondisi nyata** (`✅ Tersambung` / `⏳ Menyambung` / `⚠️ Belum tersambung`) lengkap dengan diagnosa, plus **`/musik node`** untuk menyambung ulang tanpa restart. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
-4c. **🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown, & Backup Struktur** — **`/afk`** menandai member sedang pergi (mention-nya dijawab otomatis), **`/thread-otomatis`** membuat thread untuk setiap pesan baru, **`/lockdown`** mengunci semua text channel saat darurat lalu mengembalikannya, **`/backup struktur`** mengekspor role/kategori/channel/izin ke JSON, dan **`/backup pratinjau` / `/backup pulihkan`** membuat ulang struktur itu setelah kecelakaan (dry-run dulu, hanya menambah, tidak pernah menghapus). Semua **0 kuota AI**.
-5a. **💡 Kotak Saran + 📝 Pembuat Embed** — **`/saran`** memberi member wadah mengusulkan ide dengan **voting 👍/👎** bertombol (status: baru → dikerjakan → diterima/ditolak, penulis otomatis diberi tahu), sedangkan **`/embed`** membuat pengumuman berformat rapi lewat formulir (judul, isi, warna, banner, footer) tanpa dashboard. Keduanya **0 kuota AI**.
-5b. **🔊 Temp Voice (Join-to-Create)** — **`/tempvoice`** mengubah satu voice channel menjadi pintu masuk: member yang masuk otomatis mendapat room sendiri, jadi **pemilik** room, bisa **kunci / rename / batasi slot / tendang**, dan room **terhapus sendiri saat kosong**. Ada pembersihan room yatim tiap 5 menit dan batas 30 room per server.
-6a. **🛡️ Moderasi Bercatatan (ala Dyno/Carl-bot)** — **`/mod`** menyediakan **warn, timeout, kick, ban, unban, purge berfilter, & riwayat kasus** (`/mod catatan`). Setiap aksi tercatat di `data/moderation.json` dan bisa dilaporkan ke channel log. **Auto-punish**: 3 peringatan dalam 30 hari → timeout otomatis 1 jam (bisa diatur). Plus perkakas harian: **`/mod slowmode`**, **`/mod role`**, **`/mod role-massal`** (dengan konfirmasi), & **`/mod nickname`**. Default aman: hanya staff, bot menolak menindak Admin/pemilik server.
-6b. **🔔 Notifikasi Sosial Tanpa Kuota AI** — **`/sosial`** memantau **YouTube**, **Twitch**, dan **feed RSS (TikTok lewat RSSHub)** lalu mengirim notifikasi otomatis ke channel pilihan, lengkap dengan opsi ping role & template kustom. YouTube memakai RSS publik (tanpa API key), Twitch memakai aplikasi developer gratis, semua pesan dari template → **0 request Gemini**.
-7. **🎉 Fitur Keramaian Server Tanpa Kuota AI (Tier 2A)** — **`/giveaway`** undian berhadiah bertombol yang tahan restart, **`/ultah`** daftar & ucapan ulang tahun otomatis tiap hari, **`/jawab-otomatis`** balasan kata kunci per channel dengan jeda aman, dan **`/pengumuman`** pengumuman terjadwal (harian / mingguan / sekali). Semua **0 request Gemini**, data lokal di `data/engagement.json`, dan **default NONAKTIF** sampai Admin menyalakannya.
-8. **🚨 Anti-Spam & Anti-Raid Ringan (Tier 2B)** — `/keamanan spam` mendeteksi **banjir pesan**, **pesan berulang**, **mention massal**, **link beruntun**, dan **HURUF KAPITAL** (opsional). Mode bawaan **`lapor`** (hanya mencatat ke channel log, **tidak menghapus apa pun**), bisa dinaikkan ke `hapus` atau `timeout`. **Admin, pengurus, bot, & role pengecualian tidak pernah diperiksa**, dan lonjakan member join (raid) hanya **diperingatkan** — bot tidak pernah menendang/ban otomatis. 0 kuota Gemini, data di `data/antispam.json`.
-9. **📈 Level & 🎟️ Tiket Dukungan (Tier 2C)** — **`/level`** memberi XP tiap pesan dengan **jeda anti-farming** (default 60 dtk) **dan XP dari aktivitas voice channel** (`/level voice`, anti self-mute/AFK + batas menit harian), **kartu level + progress bar**, **papan peringkat**, dan **role hadiah otomatis** per level. **`/tiket`** membuat **private thread** bantuan (tidak memakai slot channel) lengkap dengan tombol **🙋 Klaim** & **🔒 Tutup**, batas tiket per member, dan **transkrip `.txt` otomatis** ke channel log. Keduanya **0 kuota Gemini**, default NONAKTIF, data di `data/levels.json` & `data/tickets.json`.
-10. **🛰️ Dashboard Web Read-only** — halaman web ringan (proses yang sama, ±2–4 MB RAM, **0 kuota AI**) berisi status bot (uptime, RAM, latensi, jumlah server/member), rekap `/pemakaian` (operasi, token, cache hit, kuota server), dan papan peringkat `/level`. Hanya **GET** (tanpa tombol aksi), aktif bila `DASHBOARD_TOKEN` diisi & port tersedia. Detail di [bagian dashboard](#j-dashboard-web-read-only-status--pemakaian).
-11. **📋 Audit Log Server (`/log`)** — catatan otomatis pesan dihapus/diedit, member join/keluar, perubahan role, & channel baru ke satu channel (0 kuota AI).
-12. **💰 Ekonomi Koin (`/ekonomi`)** — koin dari chat & voice, **hadiah harian ber-streak**, **toko role**, & transfer antar member (0 kuota AI).
-13. **🌱 Pertumbuhan & Invite Tracker (`/tumbuh`)** — siapa mengundang siapa, join/keluar harian, **retensi member**, & papan **Top Inviter** (0 kuota AI).
-14. **🧱 Menu Builder & Self Roles v2 (`/menu`, `/panel-role`)** — Admin bisa membuat panel tombol/dropdown sendiri: **role** (klik = ambil/lepas), **link** (Support/Undang Bot), dan **command** (klik = jalankan `/serverstats lihat`, `/level lihat`, dll.), lengkap dengan **banner** unggahan, panel persisten tahan restart, dan whitelist command aman (0 kuota AI).
-15. **🛡️ Anti-Nuke (`/nuke`)** — mendeteksi & menghentikan **penghancuran server** dari dalam: hapus channel/role massal, ban/kick massal, banjir webhook, sampai pembajakan nama server. Aksi **bisa diatur Admin** (`lapor` → `cabut-role` → `timeout` → `kick` → `ban`), plus **pemulihan nama/ikon server & hapus webhook pelaku**. Owner, bot, & whitelist tidak pernah ditindak (0 kuota AI).
-16. **📊 Hemat Kuota AI (Tier 3)** — **`/pemakaian`** melaporkan berapa operasi AI hari ini (per jenis, member teraktif, channel tersibuk) berikut trennya; **`/ringkas channel`** membuat rekap obrolan per periode yang **disimpan 30 menit** sehingga permintaan berulang **0 kuota**; dan **`/faq`** menjawab pertanyaan info server secara **lokal tanpa memanggil Gemini sama sekali**. Ada juga batas harian opsional **`AI_DAILY_CAP_PER_USER`** & **`AI_DAILY_CAP_PER_GUILD`**, cache jawaban pertanyaan identik, router model hemat, **token nyata** dari Gemini, `/agent keamanan` (longgar/normal/ketat), serta rotasi API key yang mengikuti `Retry-After`. Data di `data/ai_usage.json` (auto-dipangkas 7 hari).
+Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yang rapi:
+**satu proses**, penyimpanan **JSON** (tanpa database/Redis), dan dirancang untuk
+**Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
+sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
+> **Versi `v1.40.0-beta`** · **52 command utama** · **116 tes otomatis** · tanpa dependency baru
+> sejak v1.20 · detail tiap fitur ada di [daftar isi](#-daftar-isi).
+
+## 🗺️ Peta Fitur
+
+Pintasan cepat sebelum masuk penjelasan lengkap. Kolom **Kuota** menandakan apakah fitur itu
+memanggil Gemini (`AI`) atau berjalan lokal (`0`).
+
+| Area | Command utama | Isi singkat | Kuota |
+| :--- | :--- | :--- | :---: |
+| 🔒 **Ruang AI privat** | `/sesi` | Private thread, 5 kepribadian, PDF, voice note, vision, generate/edit gambar | AI |
+| 🌐 **AI Agent publik** | `/agent` | Auto-chat dengan **etika anti-nimbrung**, forum auto-tag + `✅ Tandai Selesai`, digest pagi, welcome & goodbye | AI |
+| 🔎 **Pintasan pintar** | `/ringkas`, `/cari`, `/terjemah`, `/faq` | Rekap chat/link/YouTube, info terkini, terjemahan ter-cache, FAQ lokal | AI / 0 |
+| 🎮 **Hiburan** | `/game` | 6 mini-game tongkrongan + papan skor server | AI |
+| 🎵 **Musik 24/7** | `/musik` | Lavalink v4, panel ala Rythm, filter audio, **playlist pribadi** per member | 0 |
+| 🛠️ **Server otomatis** | `/serverstats`, `/autorole`, `/fakta`, `/keamanan` | Channel statistik, auto role, fakta 4× sehari, anti-phishing | 0 |
+| 🧩 **Komunitas** | `/panel-role`, `/menu`, `/poll`, `/saran`, `/embed`, `/tempvoice`, `/starboard`, `/sticky`, `/verifikasi`, `/ingatkan`, `/info` | Reaction role, menu builder, polling, kotak saran, temp voice, sorotan pesan | 0 |
+| 📈 **Retensi & pelayanan** | `/level`, `/tiket` | XP pesan + voice, **musim** & **prestige**; tiket thread + **SLA**, **auto-close**, **rating bintang** | 0 |
+| 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
+| 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
+| 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, kontrol fitur dari browser | 0 |
+
+## ⚡ Kenapa ringan (angka terukur, bukan perkiraan)
+
+| Aspek | Angka | Bukti |
+| :--- | :--- | :--- |
+| RAM saat diam | **±53 MB** — `discord.py` sendiri ±43 MB | `/perawatan memori`, `/status` |
+| Tambahan data ekstrem¹ | **+3–4 MB** | diukur di sandbox, lihat [Audit RAM](#w-audit-ram--cache-perawatan-memori) |
+| Proses & penyimpanan | **1 proses**, JSON, tanpa DB/Redis | `/perawatan memori` |
+| Kuota untuk UI, panel, & alert | **0** | semua tombol/panel dibuat lokal |
+| Dependency baru sejak v1.20 | **tidak ada** | `requirements.txt` tidak berubah |
+
+> ¹ 5 server × 500 member level + 1.000 tiket + 1.000 kasus moderasi + playlist penuh.
+> Biaya terbesar bot ini adalah pustaka Discord, **bukan** fitur-fiturnya.
+
+## 🚀 Mulai cepat
+
+1. **Isi `.env`** — minimal `DISCORD_BOT_TOKEN` & `GEMINI_API_KEY`
+   (lihat [Penjelasan Variabel `.env`](#-penjelasan-variabel-env)).
+2. **Undang bot** dengan scope `bot` + `applications.commands`
+   (lihat [Persiapan Developer Portal](#-persiapan-di-discord-developer-portal)).
+3. **Pasang panel** di server: `/sesi panel`, `/agent panel`, lalu `/panel` sebagai pusat kontrol.
+   Untuk server ramai, lanjut ke `/tiket panel`, `/menu buat`, `/level atur aktif:True`, `/nuke atur`.
+
+> 🔐 Fitur keamanan (`/nuke`, `/raid`) butuh izin **View Audit Log**. Saran izin lengkap ada di
+> [Persiapan Developer Portal](#-persiapan-di-discord-developer-portal).
 
 ---
 
 ## 📚 Daftar Isi
-1. [Penjelasan Lengkap Semua Fitur](#-penjelasan-lengkap-semua-fitur)
-   - [A. Fitur Ruang Sesi Privat (Panel AI)](#a-fitur-ruang-sesi-privat-panel-ai)
-   - [B. Fitur AI Agent & Otomasi Komunitas](#b-fitur-ai-agent--otomasi-komunitas)
+
+1. [Peta Fitur (ringkasan semua area)](#-peta-fitur)
+2. [Kenapa ringan (angka RAM terukur)](#-kenapa-ringan-angka-terukur-bukan-perkiraan)
+3. [Mulai cepat (3 langkah)](#-mulai-cepat)
+4. [Penjelasan Lengkap Semua Fitur](#-penjelasan-lengkap-semua-fitur)
+   - [A. Fitur Ruang Sesi Privat (`/sesi`)](#a-fitur-ruang-sesi-privat-sesi)
+   - [B. Fitur AI Agent & Otomasi Komunitas (`/agent`)](#b-fitur-ai-agent--otomasi-komunitas-agent)
    - [C. Fitur Keamanan, Ketahanan & Performa](#c-fitur-keamanan-ketahanan--performa)
-   - [D. Fitur Server Otomatis (Statistik, Auto Role, Fakta & Anti-Phishing)](#d-fitur-server-otomatis-statistik-auto-role-fakta--anti-phishing)
-   - [E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI](#e-fitur-komunitas-ringan--gratis-tanpa-kuota-ai)
+   - [D. Fitur Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)](#d-fitur-server-otomatis-serverstats-autorole-fakta-keamanan)
+   - [E. Fitur Komunitas Ringan (`/panel-role`, `/poll`, `/saran`, `/embed`, `/tempvoice`)](#e-fitur-komunitas-ringan-panel-role-poll-saran-embed-tempvoice)
    - [F. Streaming Musik 24/7 (`/musik` + Lavalink)](#f-streaming-musik-247-musik--lavalink)
-   - [G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman](#g-fitur-keramaian-server--giveaway-ultah-auto-responder--pengumuman)
+   - [G. Fitur Keramaian Server (`/giveaway`, `/ultah`, `/jawab-otomatis`, `/pengumuman`)](#g-fitur-keramaian-server-giveaway-ultah-jawab-otomatis-pengumuman)
    - [H. Anti-Spam & Anti-Raid Ringan (`/keamanan spam`)](#h-anti-spam--anti-raid-ringan-keamanan-spam)
    - [I. Level & XP serta Tiket Dukungan (`/level`, `/tiket`)](#i-level--xp-serta-tiket-dukungan-level-tiket)
-   - [J. Dashboard Web — pantau & kontrol ringan](#j-dashboard-web--pantau--kontrol-ringan)
-   - [K. Penerjemah Hemat Kuota (`/terjemah` + reaksi bendera)](#k-penerjemah-hemat-kuota-terjemah--reaksi-bendera)
-   - [L. Audit Log Server (`/log`)](#l-audit-log-server-log)
-   - [M. Ekonomi Koin (`/ekonomi`)](#m-ekonomi-koin-ekonomi)
-   - [N. Pertumbuhan Server & Invite Tracker (`/tumbuh`)](#n-pertumbuhan-server--invite-tracker-tumbuh)
-   - [O. Menu Builder & Self Roles v2 (`/menu`)](#o-menu-builder--self-roles-v2-menu)
-   - [O2. Bahasa Antarmuka (`/bahasa`)](#o2-bahasa-antarmuka-bahasa--i18n-inti-0-kuota-ai)
-   - [O3. Prefix Command per Server (`/prefix`)](#o3-prefix-command-per-server-prefix--0-kuota-ai)
-   - [O4. Ekspor Analitik CSV & Webhook (`/analitik`)](#o4-ekspor-analitik-csv--webhook-analitik--0-kuota-ai)
-   - [O5. Audit RAM & Cache (`/perawatan memori`)](#o5-audit-ram--cache-perawatan-memori--0-kuota-ai)
-   - [Catatan Parkir: Dashboard, BYOK & Isi Sendiri API Key (docs/)](docs/catatan-dashboard-dan-kunci-api.md)
-   - [P. Anti-Nuke (`/nuke`)](#p-anti-nuke-nuke)
-   - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
-2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
-3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
-4. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
-5. [Penjelasan Variabel `.env`](#-penjelasan-variabel-env)
-6. [Persiapan Discord Developer Portal](#-persiapan-di-discord-developer-portal)
-7. [Checklist Uji Coba di Server Orang Lain](#-checklist-uji-coba-di-server-orang-lain)
-8. [Panduan Deploy di Wispbyte (Step-by-Step)](#-panduan-deploy-di-wispbyte-step-by-step)
-9. [Menjalankan Secara Lokal / VPS](#-menjalankan-secara-lokal--vps)
-10. [Struktur File Proyek](#-struktur-file-proyek)
-11. [FAQ & Solusi Masalah Umum](#-faq--solusi-masalah-umum)
+   - [J. Dashboard Web (`DASHBOARD_TOKEN`)](#j-dashboard-web-dashboard_token)
+   - [K. Penerjemah Hemat Kuota (`/terjemah`)](#k-penerjemah-hemat-kuota-terjemah)
+   - [L. Hemat Kuota AI (`/pemakaian`, `/ringkas channel`, `/faq`)](#l-hemat-kuota-ai-pemakaian-ringkas-channel-faq)
+   - [M. Tampilan Panel Components V2 (`/panel`, `/tampilan`)](#m-tampilan-panel-components-v2-panel-tampilan)
+   - [N. Audit Log Server (`/log`)](#n-audit-log-server-log)
+   - [O. Ekonomi Koin (`/ekonomi`)](#o-ekonomi-koin-ekonomi)
+   - [P. Pertumbuhan Server & Invite Tracker (`/tumbuh`)](#p-pertumbuhan-server--invite-tracker-tumbuh)
+   - [Q. Menu Builder & Self Roles v2 (`/menu`)](#q-menu-builder--self-roles-v2-menu)
+   - [R. Anti-Nuke (`/nuke`)](#r-anti-nuke-nuke)
+   - [S. Raid Guard (`/raid`)](#s-raid-guard-raid)
+   - [T. Bahasa Antarmuka (`/bahasa`)](#t-bahasa-antarmuka-bahasa)
+   - [U. Prefix Command per Server (`/prefix`)](#u-prefix-command-per-server-prefix)
+   - [V. Ekspor Analitik CSV & Webhook (`/analitik`)](#v-ekspor-analitik-csv--webhook-analitik)
+   - [W. Audit RAM & Cache (`/perawatan memori`)](#w-audit-ram--cache-perawatan-memori)
+5. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
+6. [Cara Mematikan (**Disable**) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
+7. [Daftar Lengkap Command & Tombol](#-daftar-lengkap-command--tombol)
+8. [Penjelasan Variabel `.env`](#-penjelasan-variabel-env)
+9. [Persiapan di Discord Developer Portal](#-persiapan-di-discord-developer-portal)
+10. [Checklist Uji Coba di Server Orang Lain](#-checklist-uji-coba-di-server-orang-lain)
+11. [Panduan Deploy di Wispbyte (Step-by-Step)](#-panduan-deploy-di-wispbyte-step-by-step)
+12. [Menjalankan Secara Lokal / VPS](#-menjalankan-secara-lokal--vps)
+13. [Struktur File Proyek (Modular `cogs/`)](#-struktur-file-proyek-modular-cogs)
+14. [FAQ & Solusi Masalah Umum](#-faq--solusi-masalah-umum)
+15. [Lisensi](#-lisensi)
 
----
+> 📌 **Catatan terpisah:** [rencana dashboard web, BYOK, & “isi sendiri API key” yang masih diparkir](docs/catatan-dashboard-dan-kunci-api.md).
 
 ## ✨ Penjelasan Lengkap Semua Fitur
 
-### A. Fitur Ruang Sesi Privat (Panel AI)
+### A. Fitur Ruang Sesi Privat (`/sesi`)
 
 Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assistant`) menggunakan `/sesi panel` (atau `!setup_panel`). Dari panel tersebut, setiap member dapat membuka ruang privat (*Private Thread*) yang hanya bisa dilihat oleh member itu sendiri.
 
@@ -117,7 +151,7 @@ Saat menekan tombol **🎨 Generate Gambar AI**, bot membuatkan studio gambar pr
 
 ---
 
-### B. Fitur AI Agent & Otomasi Komunitas (Text Channel & Channel Forum!)
+### B. Fitur AI Agent & Otomasi Komunitas (`/agent`)
 
 Fitur ini membuat bot berbaur di channel publik server — baik di **Text Channel biasa (`#general`)** maupun di dalam **Channel Forum & Media (`#tanya-jawab`, `#showcase-karya`, `#forum-berita`)** — layaknya **warga/teman nongkrong asli** (bukan gaya kaku robot asisten). Seluruh fiturnya dikendalikan per-channel oleh Admin melalui command `/agent`:
 - **Dukungan Penuh & Fitur Pintar Channel Forum (`ForumChannel` & `MediaChannel`):**
@@ -168,12 +202,12 @@ Fitur ini membuat bot berbaur di channel publik server — baik di **Text Channe
 - Bisa memilih **satu bahasa** tertentu (`bahasa_sapaan:jepang`) atau **acak semua bahasa** (default) agar setiap member baru mendapat sapaan yang berbeda.
 - Bisa ditambahkan `pesan_tambahan` (contoh: *"Jangan lupa ambil role di #roles ya"*) yang akan dirangkai secara luwes oleh AI, serta `tes_sekarang:True` untuk langsung melihat contoh sambutannya.
 
-#### 6b. 👣 AI Auto-Goodbye: Kartu Perpisahan Member Keluar (`/agent goodbye`)
+#### 7. 👣 AI Auto-Goodbye: Kartu Perpisahan Member Keluar (`/agent goodbye`)
 - Saat ada member keluar dari server, bot otomatis mengirim **kartu perpisahan** berisi pesan hangat + foto profil + **lama masa kebersamaan** (jumlah hari sejak bergabung).
 - Punya **persona perpisahan sendiri** (Hangat / Lucu / Santai / Normal) dan **kata perpisahan bahasa Asia** seperti `またね` (Jepang), `안녕히 가세요` (Korea), `再见` (Mandarin), `ลาก่อน` (Thailand), `Tạm biệt` (Vietnam), `Paalam` (Filipina), `Selamat jalan` (Melayu), dan lainnya — sisa kalimat tetap Bahasa Indonesia.
 - Anti-dobel: tetap ramah kuota karena hanya 1 pesan per member keluar dan ada deduplikasi otomatis.
 
-#### 6c. 🖼️ Banner Gambar & Kartu Sambutan Dinamis (`/agent banner`, `/agent kartu`)
+#### 8. 🖼️ Banner Gambar & Kartu Sambutan Dinamis (`/agent banner`, `/agent kartu`)
 
 Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboard, cukup lewat Discord.
 
@@ -198,138 +232,7 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 > Mode **dinamis** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang,
 > bot otomatis mundur ke mode banner statis — tidak ada error.
 
-#### 4c. 🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown & Backup Struktur
-
-| Command | Siapa | Fungsi |
-| :--- | :--- | :--- |
-| `/afk atur alasan:sekolah` | Semua | Tandai AFK. Kalau ada yang me-mention kamu, bot menjawab dengan alasan & durasinya. Status hilang otomatis begitu kamu bicara lagi. |
-| `/afk daftar` / `/afk hapus` | Semua | Lihat member AFK / hapus statusmu lebih awal. |
-| `/thread-otomatis aktifkan arsip_menit:1440` | Admin | Setiap pesan baru di channel itu dibuatkan thread (judul dari awal pesan). |
-| `/thread-otomatis status` / `matikan` | Admin | Kelola daftar channel auto-thread. |
-| `/lockdown aktif:True alasan:raid` | Admin | **Darurat**: cabut izin kirim `@everyone` di semua text channel. |
-| `/lockdown aktif:False` | Admin | Buka kembali **hanya** channel yang dikunci bot (tidak mengubah channel yang sudah terkunci sebelumnya). |
-| `/lockdown status` | Admin | Cek durasi, channel terkunci, & alasannya. |
-| `/backup struktur` | Admin | Unduh JSON berisi role, kategori, channel, & permission overwrite. |
-
-Catatan penting:
-- **Lockdown tidak tersimpan di disk** — kalau bot restart saat lockdown, jalankan `/lockdown aktif aktif:False` lalu periksa manual. Ini disengaja agar tidak ada "kunci hantu".
-- **Backup bersifat baca-saja**: bot **tidak** akan membuat/menghapus channel dari berkas itu, jadi tidak ada risiko server rusak karena salah klik.
-- Auto-thread otomatis berhenti membuat thread bila bot kehilangan izin *Create Public Threads* (hanya dicatat di log).
-
-#### 5a. 💡 Kotak Saran (`/saran`) & 📝 Pembuat Embed (`/embed`)
-
-**Kotak saran** — ala Carl-bot, tapi tanpa dashboard:
-
-| Command | Siapa | Fungsi |
-| :--- | :--- | :--- |
-| `/saran pasang channel:#saran` | Admin | Tentukan channel kotak saran (`nonaktifkan:True` untuk mematikan) |
-| `/saran kirim teks:...` | Semua | Kirim usulan → muncul sebagai embed dengan tombol **👍 / 👎** |
-| `/saran daftar status:baru` | Semua | Lihat saran terbaru + skor voting |
-| `/saran status id:3 status:diterima` | Staff | Ubah status (pesan asli ikut berubah) + memberi tahu pengusul |
-| `/saran hapus id:3` | Admin | Hapus saran beserta pesannya |
-
-- **Satu member satu suara**; memilih sisi lain akan **memindahkan** suara, bukan menambah.
-- Tombol **tahan restart** (persistent view) — voting tetap jalan setelah bot restart.
-- Status: 🆕 baru · 🛠️ dikerjakan · ✅ diterima · ❌ ditolak. Maks 20 saran tersimpan per server.
-
-**Pembuat embed** — pengumuman cantik tanpa perlu tahu format:
-
-| Command | Fungsi |
-| :--- | :--- |
-| `/embed buat channel:#pengumuman warna:ungu` | Buka **formulir** (judul, isi, URL banner, footer) → langsung terkirim |
-| `/embed cepat channel:#x judul:"..." isi:"..."` | Kirim cepat tanpa formulir |
-
-Warna menerima `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. Hanya **staff** (Manage Messages/Server) yang bisa mengirim.
-
-#### 5b. 🔊 Temp Voice: Voice Room Sementara (`/tempvoice`)
-
-Cukup satu voice channel sebagai "tombol" pembuat room — konsep sama dengan ProBot/YAGPDB.
-
-**Pemasangan (1 menit):**
-1. Buat voice channel baru, misal **➕ Buat Voice**, di kategori yang kamu mau.
-2. Jalankan `/tempvoice atur hub:#➕ Buat Voice`.
-3. Selesai — member yang masuk ke channel itu langsung dipindahkan ke room pribadinya.
-
-| Command | Siapa | Fungsi |
-| :--- | :--- | :--- |
-| `/tempvoice atur hub:#x nama:"🔊 Room {user}" limit:5` | Admin | Aktifkan hub & atur template nama/batas |
-| `/tempvoice status` | Semua | Lihat hub & room yang sedang aktif |
-| `/tempvoice kunci aktif:True` | Pemilik room | Kunci/buka room |
-| `/tempvoice nama nama:Ngobrol Santai` | Pemilik room | Ganti nama room |
-| `/tempvoice limit jumlah:4` | Pemilik room | Batasi jumlah orang (0 = bebas) |
-| `/tempvoice tendang member:@x` | Pemilik room | Keluarkan orang dari room |
-
-Detail penting:
-- **Hemat kuota channel:** maksimal **30 room** per server, dihapus otomatis saat kosong (Discord membatasi 500 channel/server).
-- **Aman restart:** daftar room di `data/temp_voice.json`; room yatim dibersihkan lewat penyapuan tiap 5 menit.
-- **Tidak mengganggu musik:** listener hanya menyentuh channel hub & room yang dibuatnya sendiri.
-- **0 kuota AI.**
-
-#### 6aa. 🛡️ Moderasi Bercatatan (`/mod`) — Warn, Timeout, Kick, Ban, Purge
-
-| Command | Fungsi |
-| :--- | :--- |
-| `/mod warn member @x alasan:...` | Peringatan resmi + tercatat. Setelah ambang tercapai → **timeout otomatis**. |
-| `/mod timeout member @x durasi:1h30m alasan:...` | Bisukan sementara (timeout native Discord, maks 28 hari). |
-| `/mod kick` / `/mod ban` / `/mod unban` | Kick, ban (opsional hapus pesan 0–7 hari), cabut ban via ID. |
-| `/mod purge jumlah:50 member:@x tipe:link` | Hapus massal dengan filter **semua / bot / link / gambar**. |
-| `/mod catatan member:@x` | Riwayat kasus + jumlah peringatan aktif. |
-| `/mod hapus id:12` | Hapus kasus salah catat (khusus Admin). |
-| `/mod atur log_channel:#mod-log ambang_warn:3 durasi_auto:1h jendela_hari:30 dm:True` | Semua pengaturan moderasi. |
-| `/mod slowmode detik:30 channel:#umum` | **Mode lambat** per channel (0 = matikan, maks 6 jam) — anti-banjir tanpa hapus pesan. |
-| `/mod role member:@x role:@Gamer aksi:beri` | Beri/cabut satu role (hierarki & role terkelola dijaga). |
-| `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` | **Beri/cabut role ke banyak member** sekaligus, dengan dialog konfirmasi & ringkasan hasil. |
-| `/mod nickname member:@x nama:Sobat` | Ubah/reset nickname member (kosongkan `nama` untuk reset). |
-
-Pengaman bawaan:
-- **Hierarki dihormati** — bot menolak menindak pemilik server, Administrator, atau role yang lebih tinggi darinya (pesan errornya menjelaskan cara memperbaikinya).
-- **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
-- **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
-- **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
-
-#### 6ac. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
-
-Anti-raid di `/keamanan` hanya **melapor**. **Raid Guard** bertindak: kalau server diserbu
-akun palsu (lonjakan join), bot menyalakan mode darurat sendiri selama beberapa menit.
-
-| Aksi | Efek saat mode raid aktif |
-| :--- | :--- |
-| `lapor` | Laporan ke channel log saja — tanpa mengubah server. |
-| `verifikasi` *(bawaan)* | **Auto Role ditahan**, member baru dapat pengingat verifikasi (DM + sebutan di channel verifikasi). |
-| `verifikasi+lockdown` | Semua di atas **+ lockdown** semua text channel sampai mode berakhir. |
-
-```text
-/raid atur aktif:True ambang:8 jendela_detik:60 aksi:verifikasi durasi_menit:15 log_channel:#mod-log
-/raid status
-/raid mulai alasan:"Diserbu akun baru" durasi_menit:30
-/raid akhiri
-```
-
-Pengaman: default **nonaktif**, hanya **Admin/Manage Server** yang bisa mengubah, laporan
-maksimal **sekali per 5 menit** (anti-spam), semua tindakan **reversible** (lockdown dibuka &
-Auto Role normal saat mode berakhir), dan setiap kejadian tercatat di Audit Log.
-
-#### 6ab. ♻️ Pemulihan Struktur Server (`/backup pratinjau`, `/backup pulihkan`)
-
-Kalau server kena *nuke* / salah hapus channel, backup JSON yang pernah kamu unduh bisa
-dipakai untuk **membangun ulang** role, kategori, dan channel — lengkap dengan izin per role.
-
-| Command | Fungsi |
-| :--- | :--- |
-| `/backup struktur` | Unduh snapshot role/kategori/channel/izin (tanpa isi pesan). |
-| `/backup pratinjau berkas:<file.json>` | **Dry-run**: lihat apa yang akan dibuat, apa yang sudah ada, apa yang dilewati. **Tidak mengubah server.** |
-| `/backup pulihkan berkas:<file.json> buat_role:True buat_kategori:True buat_channel:True` | Buat ulang struktur setelah konfirmasi. |
-
-Pengaman:
-- **Hanya menambah.** Bot tidak pernah menghapus, memindahkan, atau menimpa channel/role yang sudah ada.
-- Item dicocokkan dari **nama & tipe**; yang sudah ada otomatis dilewati (tidak dobel).
-- **Maksimal 30 item per pemulihan** (agar aman dari rate limit Discord) — jalankan ulang untuk sisanya.
-- **Overwrite per-member dilewati** (ID member berbeda di server lain); izin **per-role** tetap diterapkan berdasarkan nama role.
-- Tipe yang belum didukung (`forum`, `media`) dilaporkan sebagai "dilewati", bukan error.
-- Setiap pemulihan tercatat di **Audit Log** (`/log`) dan bisa dibatalkan manual bila hasilnya tidak sesuai.
-- Berkas divalidasi: harus JSON hasil `/backup struktur`, versi ≤ 1, maksimal 4 MB.
-
-#### 6d. 🔔 Notifikasi Sosial: YouTube, Twitch & TikTok/RSS (`/sosial`)
+#### 9. 🔔 Notifikasi Sosial: YouTube, Twitch & TikTok/RSS (`/sosial`)
 
 Tidak perlu dashboard web seperti Sapphire — semua dari Discord, **0 kuota AI** (pesan memakai template).
 
@@ -378,11 +281,11 @@ Cara kerja & pengaman:
 
 > **Catatan jujur soal TikTok:** TikTok **tidak menyediakan API feed gratis resmi** untuk bot. Karena itu opsi TikTok memakai jalur **feed RSS** (RSSHub publik/self-host). Kalau feed-nya diblokir atau mati, bot hanya mencatat di log dan tidak error. YouTube & Twitch tidak punya masalah ini.
 
-#### 7. 📝 Perangkum Obrolan Channel Tertinggal (`/ringkas`)
+#### 10. 📝 Perangkum Obrolan Channel Tertinggal (`/ringkas`)
 - Ketinggalan **99+ notifikasi chat** di grup? Siapa pun member bisa mengetik **`/ringkas`** (pilih `25`, `50`, `100`, atau `150` pesan terakhir).
 - Bot akan merangkum poin-poin inti obrolan warga beserta info/momen penting ke dalam Embed rapi berbahasa Indonesia (secara default hanya terlihat oleh Anda sendiri agar tidak mengganggu chat).
 
-#### 8. 📲 Menu Tekan-Tahan Pesan / Klik Kanan (*Discord Context Menu Apps*) — Tanpa Ketik Command!
+#### 11. 📲 Menu Tekan-Tahan Pesan / Klik Kanan (*Discord Context Menu Apps*) — Tanpa Ketik Command!
 Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pesan asing/rumit:
 - **Cara pakai di HP (Android/iOS):** Tekan & tahan (*long-press*) pesan siapa saja di channel mana pun ➔ pilih **Apps** ➔ klik:
   - **`🌐 Terjemahkan ke Indonesia`** — Menerjemahkan pesan bahasa Inggris, Jepang, Korea, Arab, Mandarin, bahasa gaul/slang, maupun teks di dalam gambar/Voice Note ke Bahasa Indonesia yang luwes.
@@ -390,7 +293,7 @@ Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pe
   - **`🔍 Cek Fakta / Hoaks`** — Memeriksa kebenaran klaim berita heboh, rumor, atau tangkapan layar secara objektif menggunakan pencarian berita & web live gratis lengkap dengan tautan sumber buktinya!
 - **Cara pakai di PC/Laptop:** Klik kanan pesan ➔ sorot **Apps** ➔ pilih menu di atas. Hasilnya tampil privat (*ephemeral*) hanya untuk Anda!
 
-#### 9. 🎬 Perangkum Video YouTube & Pembaca Link Web Per-Channel (`/ringkas link` & `/agent youtube`)
+#### 12. 🎬 Perangkum Video YouTube & Pembaca Link Web Per-Channel (`/ringkas link` & `/agent youtube`)
 - **Diatur Per-Channel (Bisa Aktif di Beberapa Channel Sekaligus!):** Persis seperti `/agent chat` dan `/agent gallery`, Admin bebas memilih channel mana saja yang mengaktifkan fitur rangkum YouTube & link web lewat **`/agent youtube channel:#nama-channel aktif:True`** (bahkan tetap bekerja walaupun channel tersebut tidak menyalakan Auto-Chat!).
 - **Command `/ringkas link` & Ruang Privat `ai-...`:** Tempel link YouTube (`youtube.com/watch`, `youtu.be`, `shorts`, `live`) atau artikel web untuk mendapatkan rangkuman poin penting dalam hitungan detik (100% gratis memakai fitur *YouTube Video Understanding* Gemini)!
 - **Panggil Nama Bot + Kirim / Reply Link di Channel Aktif:** Di channel yang sudah diaktifkan `/agent youtube`, member cukup memanggil **nama panggilan bot** / `@mention` / *reply* ke bot sambil menyertakan link YouTube/web — **atau me-*reply* pesan teman yang berisi link YouTube sambil memanggil bot** (contoh: *"Whas rangkumin video YouTube ini dong"*).
@@ -398,14 +301,14 @@ Member tidak perlu mengetik command apa pun untuk menerjemahkan atau memahami pe
   - `auto_di_channel: False` (**Default & Rekomendasi**): Diam saat warga sekadar share link biasa di channel tersebut, namun langsung merangkum saat nama bot dipanggil atau memakai `/ringkas link`.
   - `auto_di_channel: True` (**Mode Channel Khusus Video**): Setiap link YouTube/Web yang dikirim warga di channel tersebut otomatis dirangkum tanpa perlu memanggil nama bot!
 
-#### 10. 🌍 Live Web & News Search Gratis Per-Channel (`/cari` & `/agent cari`)
+#### 13. 🌍 Live Web & News Search Gratis Per-Channel (`/cari` & `/agent cari`)
 - **100% Gratis di *Free Tier* (Bebas Error `You exceeded your current quota`):** Menggunakan mesin pencari web & berita *real-time* mandiri (**Google News RSS Indonesia + DuckDuckGo Web** + pembaca isi artikel berita) yang dirangkum oleh model Gemini gratis lengkap dengan daftar tautan **🌐 Sumber Web**! *(Juga mendukung opsi Google Search Grounding Paid Tier via `GEMINI_PAID_SEARCH_ENABLED=true`).*
 - **Diatur Per-Channel (Bisa Aktif di Beberapa Channel Sekaligus!):** Admin bebas mengaktifkan fitur pencarian di satu atau beberapa channel pilihan lewat **`/agent cari channel:#nama-channel aktif:True`** (bekerja baik di channel Auto-Chat maupun channel mandiri khusus berita!).
 - **Bisa Lewat `/cari` ATAU Panggil Nama Bot Langsung di Channel Aktif:**
   - Ketik **`/cari pertanyaan:berita timnas indonesia hari ini`** di channel yang aktif (atau ruang privat `ai-...`), **ATAU**
   - Langsung panggil nama panggilan bot di channel yang mengaktifkan `auto_di_chat:True` (contoh: *"Whas coba cari berita hari ini tentang harga emas Antam"*) — nama panggilan bot otomatis dibersihkan dari kata kunci pencarian sehingga hasil berita akurat!
 
-#### 11. 🎮 6 Mode Mini-Game Tongkrongan AI (`/game`) + Papan Skor Server (*Leaderboard*)
+#### 14. 🎮 6 Mode Mini-Game Tongkrongan AI (`/game`) + Papan Skor Server (*Leaderboard*)
 Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bosan & hemat kuota *Free Tier*!):
 - **`🎭 Tebak dari Emoji` (+20 Poin):** Tebak judul film, game, anime, atau makanan populer dari 4–5 petunjuk emoji di chat!
 - **`🖼️ Tebak Gambar AI` (+25 Poin):** AI melukis gambar misteri secara langsung lewat Flux *Free Tier* dan warga berlomba menebak objek/karakter di dalamnya!
@@ -415,7 +318,7 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 - **`🔀 Susun Huruf Acak` (+15 Poin):** Adu cepat menyusun kata Bahasa Indonesia yang hurufnya diacak.
 - Seluruh skor kemenangan tersimpan permanen per server di `data/game_scores.json` dan dapat dilihat kapan saja lewat **`/game papan_skor`**!
 
-#### 12. 📌 Memori Info & FAQ Resmi Server (`/agent info`), ☀️ Koran Pagi (`/agent digest`), & 🎛️ Panel Admin (`/agent panel`)
+#### 15. 📌 Memori Info & FAQ Resmi Server (`/agent info`), ☀️ Koran Pagi (`/agent digest`), & 🎛️ Panel Admin (`/agent panel`)
 - **Memori Info & FAQ Server (`/agent info`):** Admin dapat menyimpan hingga **25 entri pengetahuan resmi server** (seperti *Rules*, IP Server Minecraft/FiveM, jadwal mabar, cara *open ticket*, atau link sosial media). AI otomatis menghafal dan menjawab akurat berdasarkan data ini baik di channel publik, Forum, maupun ruang konsultasi privat!
 - **Koran & Sapaan Pagi Otomatis (`/agent digest`):** Setiap pagi sesuai jam pilihan (default **`07:00`** waktu lokal), bot otomatis merangkum berita terhangat hari ini + fakta unik pembuka hari ke channel pilihan (dilengkapi proteksi anti-dobel kirim di tanggal yang sama).
 - **Panel Kontrol Admin Interaktif (`/agent panel`):** Atur semua fitur channel (Auto-Chat, Galeri, YouTube, Cari, **Welcome, Goodbye, Digest, Fakta Harian**), ubah Persona, hingga tambah FAQ Server langsung lewat menu *dropdown* & *popup form (Modal)* tanpa perlu menghafal banyak parameter command!
@@ -424,6 +327,89 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 
 ### C. Fitur Keamanan, Ketahanan & Performa
 
+#### 1. 🛡️ Moderasi Bercatatan (`/mod`) — Warn, Timeout, Kick, Ban, Purge
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/mod warn member @x alasan:...` | Peringatan resmi + tercatat. Setelah ambang tercapai → **timeout otomatis**. |
+| `/mod timeout member @x durasi:1h30m alasan:...` | Bisukan sementara (timeout native Discord, maks 28 hari). |
+| `/mod kick` / `/mod ban` / `/mod unban` | Kick, ban (opsional hapus pesan 0–7 hari), cabut ban via ID. |
+| `/mod purge jumlah:50 member:@x tipe:link` | Hapus massal dengan filter **semua / bot / link / gambar**. |
+| `/mod catatan member:@x` | Riwayat kasus + jumlah peringatan aktif. |
+| `/mod hapus id:12` | Hapus kasus salah catat (khusus Admin). |
+| `/mod atur log_channel:#mod-log ambang_warn:3 durasi_auto:1h jendela_hari:30 dm:True` | Semua pengaturan moderasi. |
+| `/mod slowmode detik:30 channel:#umum` | **Mode lambat** per channel (0 = matikan, maks 6 jam) — anti-banjir tanpa hapus pesan. |
+| `/mod role member:@x role:@Gamer aksi:beri` | Beri/cabut satu role (hierarki & role terkelola dijaga). |
+| `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` | **Beri/cabut role ke banyak member** sekaligus, dengan dialog konfirmasi & ringkasan hasil. |
+| `/mod nickname member:@x nama:Sobat` | Ubah/reset nickname member (kosongkan `nama` untuk reset). |
+
+Pengaman bawaan:
+- **Hierarki dihormati** — bot menolak menindak pemilik server, Administrator, atau role yang lebih tinggi darinya (pesan errornya menjelaskan cara memperbaikinya).
+- **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
+- **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
+- **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
+
+#### 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
+
+Anti-raid di `/keamanan` hanya **melapor**. **Raid Guard** bertindak: kalau server diserbu
+akun palsu (lonjakan join), bot menyalakan mode darurat sendiri selama beberapa menit.
+
+| Aksi | Efek saat mode raid aktif |
+| :--- | :--- |
+| `lapor` | Laporan ke channel log saja — tanpa mengubah server. |
+| `verifikasi` *(bawaan)* | **Auto Role ditahan**, member baru dapat pengingat verifikasi (DM + sebutan di channel verifikasi). |
+| `verifikasi+lockdown` | Semua di atas **+ lockdown** semua text channel sampai mode berakhir. |
+
+```text
+/raid atur aktif:True ambang:8 jendela_detik:60 aksi:verifikasi durasi_menit:15 log_channel:#mod-log
+/raid status
+/raid mulai alasan:"Diserbu akun baru" durasi_menit:30
+/raid akhiri
+```
+
+Pengaman: default **nonaktif**, hanya **Admin/Manage Server** yang bisa mengubah, laporan
+maksimal **sekali per 5 menit** (anti-spam), semua tindakan **reversible** (lockdown dibuka &
+Auto Role normal saat mode berakhir), dan setiap kejadian tercatat di Audit Log.
+
+#### 3. 🧰 Perkakas Server: AFK, Thread Otomatis, Lockdown & Backup Struktur
+
+| Command | Siapa | Fungsi |
+| :--- | :--- | :--- |
+| `/afk atur alasan:sekolah` | Semua | Tandai AFK. Kalau ada yang me-mention kamu, bot menjawab dengan alasan & durasinya. Status hilang otomatis begitu kamu bicara lagi. |
+| `/afk daftar` / `/afk hapus` | Semua | Lihat member AFK / hapus statusmu lebih awal. |
+| `/thread-otomatis aktifkan arsip_menit:1440` | Admin | Setiap pesan baru di channel itu dibuatkan thread (judul dari awal pesan). |
+| `/thread-otomatis status` / `matikan` | Admin | Kelola daftar channel auto-thread. |
+| `/lockdown aktif:True alasan:raid` | Admin | **Darurat**: cabut izin kirim `@everyone` di semua text channel. |
+| `/lockdown aktif:False` | Admin | Buka kembali **hanya** channel yang dikunci bot (tidak mengubah channel yang sudah terkunci sebelumnya). |
+| `/lockdown status` | Admin | Cek durasi, channel terkunci, & alasannya. |
+| `/backup struktur` | Admin | Unduh JSON berisi role, kategori, channel, & permission overwrite. |
+
+Catatan penting:
+- **Lockdown tidak tersimpan di disk** — kalau bot restart saat lockdown, jalankan `/lockdown aktif aktif:False` lalu periksa manual. Ini disengaja agar tidak ada "kunci hantu".
+- **Backup bersifat baca-saja**: bot **tidak** akan membuat/menghapus channel dari berkas itu, jadi tidak ada risiko server rusak karena salah klik.
+- Auto-thread otomatis berhenti membuat thread bila bot kehilangan izin *Create Public Threads* (hanya dicatat di log).
+
+#### 4. ♻️ Pemulihan Struktur Server (`/backup pratinjau`, `/backup pulihkan`)
+
+Kalau server kena *nuke* / salah hapus channel, backup JSON yang pernah kamu unduh bisa
+dipakai untuk **membangun ulang** role, kategori, dan channel — lengkap dengan izin per role.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/backup struktur` | Unduh snapshot role/kategori/channel/izin (tanpa isi pesan). |
+| `/backup pratinjau berkas:<file.json>` | **Dry-run**: lihat apa yang akan dibuat, apa yang sudah ada, apa yang dilewati. **Tidak mengubah server.** |
+| `/backup pulihkan berkas:<file.json> buat_role:True buat_kategori:True buat_channel:True` | Buat ulang struktur setelah konfirmasi. |
+
+Pengaman:
+- **Hanya menambah.** Bot tidak pernah menghapus, memindahkan, atau menimpa channel/role yang sudah ada.
+- Item dicocokkan dari **nama & tipe**; yang sudah ada otomatis dilewati (tidak dobel).
+- **Maksimal 30 item per pemulihan** (agar aman dari rate limit Discord) — jalankan ulang untuk sisanya.
+- **Overwrite per-member dilewati** (ID member berbeda di server lain); izin **per-role** tetap diterapkan berdasarkan nama role.
+- Tipe yang belum didukung (`forum`, `media`) dilaporkan sebagai "dilewati", bukan error.
+- Setiap pemulihan tercatat di **Audit Log** (`/log`) dan bisa dibatalkan manual bila hasilnya tidak sesuai.
+- Berkas divalidasi: harus JSON hasil `/backup struktur`, versi ≤ 1, maksimal 4 MB.
+
+#### 5. Ketahanan & Performa Bawaan
 1. **💾 Memori Tahan Restart Ganda (*Dual-Layer Persistence*):**
    - Semua sesi privat tersimpan otomatis ke `data/sessions.json` dan pengaturan AI Agent tersimpan di `data/agent_config.json` secara atomik.
    - Bahkan jika container Wispbyte di-*rebuild* bersih sekalipun, ketika member lanjut chat di thread `ai-...` lama, bot mampu membaca ulang riwayat thread Discord untuk memulihkan konteks percakapan secara otomatis!
@@ -438,7 +424,7 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 
 ---
 
-### D. Fitur Server Otomatis (Statistik, Auto Role, Fakta, & Anti-Phishing)
+### D. Fitur Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)
 
 #### 1. 📊 Statistik Server seperti Bot Serverstats (`/serverstats`)
 - **`/serverstats lihat`** — kartu statistik lengkap: total anggota, manusia vs bot, perkiraan member online, boost & level, jumlah channel teks/suara/forum, role, emoji, stiker, tanggal server dibuat, pemilik, dan level verifikasi.
@@ -476,7 +462,7 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 
 ---
 
-### E. Fitur Komunitas Ringan — Gratis Tanpa Kuota AI
+### E. Fitur Komunitas Ringan (`/panel-role`, `/poll`, `/saran`, `/embed`, `/tempvoice`)
 
 > 💡 Semua fitur di bagian ini **tidak memanggil Gemini sama sekali** (0 kuota, 0 biaya) dan **default NONAKTIF**.
 > Server yang belum memakai fitur ini tidak mendapat beban tambahan apa pun (tanpa event listener berat, tanpa RAM ekstra).
@@ -527,7 +513,55 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 - **`/perawatan status`** — channel backup/log, waktu backup terakhir, ukuran arsip, & RAM bot.
 - Error Slash Command maupun error event otomatis diringkas ke channel log (tanpa membocorkan API key — sudah disanitasi) dan jejaknya tampil di **`/status`**.
 
----
+
+#### 9. 💡 Kotak Saran (`/saran`) & 📝 Pembuat Embed (`/embed`)
+
+**Kotak saran** — ala Carl-bot, tapi tanpa dashboard:
+
+| Command | Siapa | Fungsi |
+| :--- | :--- | :--- |
+| `/saran pasang channel:#saran` | Admin | Tentukan channel kotak saran (`nonaktifkan:True` untuk mematikan) |
+| `/saran kirim teks:...` | Semua | Kirim usulan → muncul sebagai embed dengan tombol **👍 / 👎** |
+| `/saran daftar status:baru` | Semua | Lihat saran terbaru + skor voting |
+| `/saran status id:3 status:diterima` | Staff | Ubah status (pesan asli ikut berubah) + memberi tahu pengusul |
+| `/saran hapus id:3` | Admin | Hapus saran beserta pesannya |
+
+- **Satu member satu suara**; memilih sisi lain akan **memindahkan** suara, bukan menambah.
+- Tombol **tahan restart** (persistent view) — voting tetap jalan setelah bot restart.
+- Status: 🆕 baru · 🛠️ dikerjakan · ✅ diterima · ❌ ditolak. Maks 20 saran tersimpan per server.
+
+**Pembuat embed** — pengumuman cantik tanpa perlu tahu format:
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/embed buat channel:#pengumuman warna:ungu` | Buka **formulir** (judul, isi, URL banner, footer) → langsung terkirim |
+| `/embed cepat channel:#x judul:"..." isi:"..."` | Kirim cepat tanpa formulir |
+
+Warna menerima `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. Hanya **staff** (Manage Messages/Server) yang bisa mengirim.
+
+#### 10. 🔊 Temp Voice: Voice Room Sementara (`/tempvoice`)
+
+Cukup satu voice channel sebagai "tombol" pembuat room — konsep sama dengan ProBot/YAGPDB.
+
+**Pemasangan (1 menit):**
+1. Buat voice channel baru, misal **➕ Buat Voice**, di kategori yang kamu mau.
+2. Jalankan `/tempvoice atur hub:#➕ Buat Voice`.
+3. Selesai — member yang masuk ke channel itu langsung dipindahkan ke room pribadinya.
+
+| Command | Siapa | Fungsi |
+| :--- | :--- | :--- |
+| `/tempvoice atur hub:#x nama:"🔊 Room {user}" limit:5` | Admin | Aktifkan hub & atur template nama/batas |
+| `/tempvoice status` | Semua | Lihat hub & room yang sedang aktif |
+| `/tempvoice kunci aktif:True` | Pemilik room | Kunci/buka room |
+| `/tempvoice nama nama:Ngobrol Santai` | Pemilik room | Ganti nama room |
+| `/tempvoice limit jumlah:4` | Pemilik room | Batasi jumlah orang (0 = bebas) |
+| `/tempvoice tendang member:@x` | Pemilik room | Keluarkan orang dari room |
+
+Detail penting:
+- **Hemat kuota channel:** maksimal **30 room** per server, dihapus otomatis saat kosong (Discord membatasi 500 channel/server).
+- **Aman restart:** daftar room di `data/temp_voice.json`; room yatim dibersihkan lewat penyapuan tiap 5 menit.
+- **Tidak mengganggu musik:** listener hanya menyentuh channel hub & room yang dibuatnya sendiri.
+- **0 kuota AI.**
 
 ### F. Streaming Musik 24/7 (`/musik` + Lavalink)
 
@@ -552,7 +586,7 @@ LAVALINK_NODE_NAME=utama
 Lalu **restart bot**. Cek dengan `/musik status` atau `/musik node` — baris *Node Lavalink* harus berbunyi
 **✅ Tersambung — node `utama` (N player)**. Bila belum diisi, bot **tetap jalan normal** dan `/musik` hanya menampilkan panduan setup.
 
-#### 1b. Kalau node tidak tersambung (troubleshooting)
+#### 2. Kalau node tidak tersambung (troubleshooting)
 
 Status node **dibaca langsung** dari Pool wavelink, jadi tidak lagi menampilkan "Siap" palsu:
 
@@ -584,7 +618,7 @@ curl -s -m 15 -H "Authorization: password-node" https://lavalink.jirayu.net:443/
 **menyambung ulang sendiri** (maks. sekali per 60 detik, menumpang watcher 15 detik yang sudah ada — **tanpa loop baru**).
 Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bot.
 
-#### 2. Daftar Command (`/musik`)
+#### 3. Daftar Command (`/musik`)
 
 | Command | Fungsi |
 | :--- | :--- |
@@ -612,7 +646,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/musik playlist putar nama:Favorit`** | Mainkan playlist pribadi ke voice channel (`berikutnya:True` untuk menambah tanpa memotong). |
 | **`/musik playlist hapus-lagu` / `ganti-nama` / `hapus`** | Kelola isi playlist (hapus pakai dialog konfirmasi). |
 
-#### 3. Perilaku & Pengamanan
+#### 4. Perilaku & Pengamanan
 - **Anti-nimbrung voice:** bot hanya bisa dikontrol member yang **berada di voice channel yang sama**, punya **role DJ**, atau Admin. Bot juga menolak berpindah channel kalau sedang memutar di channel lain.
 - **Role DJ bukan syarat memutar lagu.** `/musik putar` cukup dijalankan sambil **berada di voice channel** (bot ikut masuk otomatis). Role DJ hanya mengunci **tombol kontrol** (⏯️ ⏭️ ⏹️) untuk member yang tidak berada di VC yang sama — atur dengan `/musik pengaturan role_dj:@DJ`.
 - **Keluar otomatis** setelah `MUSIC_IDLE_DISCONNECT_SEC` (default 5 menit) tanpa lagu — hemat RAM & tidak "nangkring" di voice selamanya.
@@ -626,7 +660,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 ---
 
-### G. Fitur Keramaian Server — Giveaway, Ultah, Auto-Responder & Pengumuman
+### G. Fitur Keramaian Server (`/giveaway`, `/ultah`, `/jawab-otomatis`, `/pengumuman`)
 
 > 💡 **Empat fitur ini benar-benar 0 kuota Gemini.** Tidak ada satu pun permintaan AI, semuanya
 > berjalan lokal memakai `data/engagement.json`. Cocok untuk server yang kuota AI-nya ingin
@@ -804,7 +838,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 ---
 
-### J. Dashboard Web — Pantau & Kontrol Ringan (`DASHBOARD_TOKEN`) — 0 kuota AI
+### J. Dashboard Web (`DASHBOARD_TOKEN`)
 
 Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lewat Discord
 (uptime, RAM, latensi, operasi AI, token, cache hit, kuota server, papan level).
@@ -823,7 +857,7 @@ Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lew
 > ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
 > Di Wispbyte cek tab **Network / Allocations**; bila tidak ada alokasi, dashboard otomatis
 > tidak menyala dan bot tetap berjalan normal (tidak ada error).
-### K. Penerjemah Hemat Kuota (`/terjemah` + reaksi bendera)
+### K. Penerjemah Hemat Kuota (`/terjemah`)
 
 Tiga tingkat pemakaian kuota, dari paling hemat:
 
@@ -839,7 +873,7 @@ Tiga tingkat pemakaian kuota, dari paling hemat:
 - **Tercatat di `/pemakaian`** sebagai jenis operasi `Terjemah` (termasuk hitungan cache hit).
 - Perintah pendukung: `/terjemah status` (channel terpilih, ukuran cache, sisa kuota server) dan `/terjemah channel aktif:False` untuk melepas channel.
 
-### J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal
+### L. Hemat Kuota AI (`/pemakaian`, `/ringkas channel`, `/faq`)
 
 > 💡 Free Tier Gemini punya batas harian. Tiga fitur ini membuat bot **tetap pintar tanpa boros kuota**:
 > rekap yang **di-cache**, FAQ yang dijawab **tanpa AI**, dan laporan pemakaian agar Admin tahu siapa/apa yang paling banyak memakai.
@@ -894,7 +928,7 @@ saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info s
   member & staf biasa tetap dibatasi.
 - Data disimpan di `data/ai_usage.json` dan otomatis **dipangkas** menyisakan `AI_USAGE_KEEP_DAYS` (default **7 hari**).
 
-#### 4b. Batas Harian AI per Server & Keamanan Konten (opsional)
+#### 5. Batas Harian AI per Server & Keamanan Konten (opsional)
 
 - `AI_DAILY_CAP_PER_GUILD=0` → **tanpa batas** (bawaan). Isi misalnya `300` agar satu server tidak menghabiskan
   kuota gratis bersama; setelah batas tercapai, AI berhenti menjawab sementara **semua fitur non-AI tetap jalan**
@@ -912,7 +946,7 @@ saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info s
   - **Rotasi API key sehat** — key yang kena `429` diistirahatkan mengikuti header `Retry-After` (1–120 detik)
     dan key sehat dipakai lebih dulu; ada juga aturan anti-halusinasi di setiap system prompt.
 
-#### 5. Urutan Paling Hemat Kuota
+#### 6. Urutan Paling Hemat Kuota
 
 1. **`/faq tanya`** → 0 kuota (info server, aturan, jam event, dsb).
 2. **`/ringkas channel`** berulang → 0 kuota (cache 30 menit).
@@ -921,7 +955,7 @@ saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info s
 
 ---
 
-### K. Tampilan Panel Bergaya Web Hosting — `/panel` & `/tampilan` (Components V2)
+### M. Tampilan Panel Components V2 (`/panel`, `/tampilan`)
 
 Discord kini mendukung **Components V2** (`Container`, `Section`, `TextDisplay`, `Separator`,
 `Thumbnail`, `Label`), jadi panel bot bisa tampil seperti dashboard web hosting: kartu berwarna
@@ -994,7 +1028,7 @@ gagal hanya karena tampilan V2 ditolak klien. Data tema disimpan di **`data/ui_t
 
 ---
 
-### L. Audit Log Server (`/log`)
+### N. Audit Log Server (`/log`)
 
 Mencatat aktivitas penting server ke **satu channel** — bukti saat moderasi, tanpa AI.
 
@@ -1018,7 +1052,7 @@ Mencatat aktivitas penting server ke **satu channel** — bukti saat moderasi, t
 - Isi pesan dipotong otomatis agar tetap di bawah batas embed Discord.
 - Konfigurasi channel yang sudah dihapus dibersihkan otomatis.
 
-### M. Ekonomi Koin (`/ekonomi`)
+### O. Ekonomi Koin (`/ekonomi`)
 
 Gamifikasi ringan supaya member betah — **0 kuota AI**, semua hitungan lokal.
 
@@ -1037,7 +1071,7 @@ Gamifikasi ringan supaya member betah — **0 kuota AI**, semua hitungan lokal.
 - Koin otomatis didapat dari pesan (dengan jeda) & menit di voice channel — memakai pelacakan voice yang sama dengan XP Voice.
 - Data di `data/economy.json`, maksimal **500 saldo teratas per server** agar file tetap kecil.
 
-### N. Pertumbuhan Server & Invite Tracker (`/tumbuh`)
+### P. Pertumbuhan Server & Invite Tracker (`/tumbuh`)
 
 Menjawab pertanyaan "server ini tumbuh atau mati?" — **0 kuota AI**.
 
@@ -1054,7 +1088,7 @@ Menjawab pertanyaan "server ini tumbuh atau mati?" — **0 kuota AI**.
 - Data di `data/growth.json`: statistik harian **30 hari**, data member **90 hari**, maksimal 2000 member terlacak per server.
 - **Tidak menyimpan isi pesan** sama sekali.
 
-### O. Menu Builder & Self Roles v2 (`/menu`)
+### Q. Menu Builder & Self Roles v2 (`/menu`)
 
 Bikin panel sendiri — mirip *Self Roles* milik bot Discohook, tapi isinya tidak harus role:
 satu panel bisa memuat **tombol role, tombol link, dan tombol command** sekaligus. 0 kuota AI.
@@ -1116,103 +1150,7 @@ Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besa
 
 ---
 
-### O2. Bahasa Antarmuka (`/bahasa`) — i18n Inti, 0 Kuota AI
-
-Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English
-per server. Semua terjemahan lokal — tidak memanggil AI sama sekali.
-
-| Command | Fungsi |
-| :--- | :--- |
-| **`/bahasa lihat`** | Bahasa aktif, pilihan yang tersedia, & contoh teks yang ikut berubah. |
-| **`/bahasa atur kode:id\|en`** *(Admin)* | Ganti bahasa server (per server, bukan per member). |
-
-**Yang diterjemahkan (inti):** tombol & kartu **dialog konfirmasi** (`Ya, lanjutkan` / `Batal`,
-`Dikonfirmasi` / `Dibatalkan`), kata **status umum** (`aktif` / `nonaktif`, `tersimpan`),
-**pesan izin** (`Butuh izin Admin`), dan command `/bahasa` itu sendiri.
-
-**Yang tetap Bahasa Indonesia:** seluruh penjelasan panjang fitur (`/bantuan`, README, pesan
-panduan). Alasannya sederhana: menjaga konsistensi dokumentasi & menghemat RAM/berkas.
-Bahasa disimpan di `data/i18n.json` (bahasa default tidak ditulis agar berkas tetap kecil).
-
-### O3. Prefix Command per Server (`/prefix`) — 0 Kuota AI
-
-Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama
-(`!setup_panel`). Setiap server boleh mengganti prefix itu:
-
-| Command | Fungsi |
-| :--- | :--- |
-| **`/prefix lihat`** | Prefix khusus server + daftar prefix yang diterima. |
-| **`/prefix atur prefix:?`** *(Admin)* | Ganti prefix (1–5 karakter). |
-| **`/prefix reset`** *(Admin)* | Kembalikan ke prefix bawaan `!`. |
-
-**Aturan:** prefix tidak boleh berspasi, tidak boleh memakai karakter `<> & @ # : ` / \ * _ ~ |`,
-dan **prefix bawaan `!` tetap diterima** sebagai cadangan agar member lama tidak bingung.
-Hanya server yang diubah yang disimpan di `data/prefixes.json` (hemat I/O & RAM).
-Command AI di channel tetap tidak terpengaruh: prefix hanya untuk command teks, bukan obrolan.
-
-### O5. Audit RAM & Cache (`/perawatan memori`) — 0 Kuota AI
-
-Free Tier itu soal **RAM**, jadi bot bisa melaporkan angka nyata dari hosting yang sedang
-dipakainya sendiri: `/perawatan memori` *(semua member boleh, jawabannya ephemeral).*
-
-Hasil pengukuran di mesin uji (Python 3.11, tanpa guild aktif):
-
-| Komponen | RAM |
-| :--- | :--- |
-| Python kosong | ±8.9 MB |
-| `discord.py` + `aiohttp` (impor wajib) | ±43.3 MB |
-| `wavelink` (klien musik) | ±+0.9 MB |
-| `Pillow` (dimuat hanya saat kartu gambar dipakai) | ±+1.7 MB |
-| **Bot ini saat diam (import `main`)** | **±53 MB** |
-| Beban data ekstrem (5 server × 500 member level + 1000 tiket + 1000 kasus + playlist) | ±+3–4 MB |
-
-**Artinya:** biaya terbesarnya adalah pustaka Discord itu sendiri (±43 MB), bukan fitur kita.
-Fitur-fitur baru (raid, playlist, rating tiket, musim, i18n, prefix, ekspor) menambah
-**hitungan byte**, bukan megabyte.
-
-**Batas per cache** (semua dipangkas otomatis oleh watcher yang sudah ada):
-
-| Cache | Batas |
-| :--- | :--- |
-| XP & level | 500 member / server (yang XP-nya tertinggi) |
-| Tiket | 200 tiket selesai total |
-| Kasus moderasi | 200 kasus / server |
-| Riwayat anti-nuke | 20 kejadian / server |
-| Playlist musik | 500 lagu / server • 5 playlist × 50 lagu per member |
-| Sesi chat/gambar | kedaluwarsa `SESSION_EXPIRE_DAYS` |
-| Cache bahasa/prefix/ekspor | 1 entri kecil per server, entri kosong dibuang |
-
-Laporan `/perawatan memori` menampilkan: RAM proses, ukuran `data/`, 6 cache terbesar beserta
-batasnya, 5 berkas `data/` terbesar, dan **saran otomatis** (mis. matikan gambar dinamis bila
-RAM sudah >200 MB, atau minta member merapikan playlist bila >2000 lagu).
-
-### O4. Ekspor Analitik CSV & Webhook (`/analitik`) — 0 Kuota AI
-
-Data yang bot sudah punya bisa **diunduh** atau **dikirim otomatis** ke webhook Discord
-(bukan langganan analytics pihak ketiga) — berguna untuk laporan bulanan atau arsip staf.
-
-| Command | Fungsi |
-| :--- | :--- |
-| **`/analitik ekspor jenis:level`** *(Admin)* | Unduh CSV (lampiran file) — `level`, `moderasi`, `tiket`, `pemakaian`. |
-| **`/analitik webhook url:https://discord.com/api/webhooks/... [jadwal:harian]`** *(Admin)* | Kirim CSV otomatis ke webhook (uji kirim langsung dijalankan). |
-| **`/analitik status`** | Status, jadwal, jumlah baris tiap jenis, & kapan terakhir dikirim. |
-| **`/analitik matikan`** *(Admin)* | Hentikan ekspor otomatis & hapus URL webhook dari penyimpanan. |
-
-**Isi tiap CSV**
-| Jenis | Kolom |
-| :--- | :--- |
-| `level` | `user_id, level, xp, messages, voice_xp, prestige, last_activity` |
-| `moderasi` | `case_id, user_id, moderator_id, action, reason, duration_sec, created_at` |
-| `tiket` | `ticket_number, user_id, status, topic, claimed_by, created_at, first_response_at, first_response_minutes, duration_minutes, rating, closed_reason` |
-| `pemakaian` | `day, total_calls, cache_hits, chat, ringkas, gambar, cari` |
-
-**Detail teknis:** CSV dibuat di memori (maks **2000 baris** per berkas), dikirim sebagai
-lampiran multipart dengan **BOM UTF-8** agar rapi di Excel; pengiriman otomatis memakai
-`aiohttp` yang sudah dipakai bot (tanpa dependency baru). URL webhook hanya disimpan lokal di
-`data/analytics.json` dan **disamarkan** di Discord. Jadwal diperiksa tiap 5 menit di watcher
-yang sudah ada; default **nonaktif** sampai Admin mengaturnya.
-
-### P. Anti-Nuke (`/nuke`)
+### R. Anti-Nuke (`/nuke`)
 
 Melindungi server dari **penghancuran massal oleh staff jahat atau akun yang di-hack**.
 Bot membaca **Audit Log** Discord (siapa melakukan apa), menghitung aksi berisiko per pelaku,
@@ -1284,6 +1222,124 @@ lalu bertindak sesuai pengaturan Admin. **0 kuota AI.**
 > (mis. staff yang memang sedang merapikan channel), baru naikkan ke `cabut-role` atau `timeout`.
 
 ---
+
+### S. Raid Guard (`/raid`)
+
+Melengkapi anti-raid yang hanya **melapor**: bila server diserbu akun palsu, bot menyalakan
+**mode darurat otomatis** selama beberapa menit lalu mengembalikan keadaan semula. **0 kuota AI.**
+
+| Aksi | Efek saat mode raid aktif |
+| :--- | :--- |
+| `lapor` | Laporan ke channel log saja — tanpa mengubah server. |
+| `verifikasi` *(bawaan)* | **Auto Role ditahan** + member baru diminta verifikasi (DM & sebutan di channel verifikasi). |
+| `verifikasi+lockdown` | Semua di atas **+ lockdown** text channel sampai mode berakhir. |
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/raid atur`** *(Admin)* | Aktifkan deteksi, ambang join, jendela waktu, aksi, durasi, channel log & verifikasi. |
+| **`/raid status`** | Mode aktif?, sisa waktu, ambang, aksi, & channel yang dipakai. |
+| **`/raid mulai`** *(Admin)* | Nyalakan mode darurat sekarang (tanpa menunggu ambang). |
+| **`/raid akhiri`** *(Admin)* | Akhiri lebih awal & buka kembali lockdown. |
+
+**Pengaman:** default **nonaktif**, hanya **Admin/Manage Server** yang bisa mengubah, laporan
+maksimal **sekali per 5 menit** (anti-spam), semua tindakan **reversible** (lockdown dibuka &
+Auto Role normal saat mode berakhir), dan setiap kejadian tercatat di **Audit Log**.
+
+### T. Bahasa Antarmuka (`/bahasa`)
+
+Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English
+per server. Semua terjemahan lokal — tidak memanggil AI sama sekali.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/bahasa lihat`** | Bahasa aktif, pilihan yang tersedia, & contoh teks yang ikut berubah. |
+| **`/bahasa atur kode:id\|en`** *(Admin)* | Ganti bahasa server (per server, bukan per member). |
+
+**Yang diterjemahkan (inti):** tombol & kartu **dialog konfirmasi** (`Ya, lanjutkan` / `Batal`,
+`Dikonfirmasi` / `Dibatalkan`), kata **status umum** (`aktif` / `nonaktif`, `tersimpan`),
+**pesan izin** (`Butuh izin Admin`), dan command `/bahasa` itu sendiri.
+
+**Yang tetap Bahasa Indonesia:** seluruh penjelasan panjang fitur (`/bantuan`, README, pesan
+panduan). Alasannya sederhana: menjaga konsistensi dokumentasi & menghemat RAM/berkas.
+Bahasa disimpan di `data/i18n.json` (bahasa default tidak ditulis agar berkas tetap kecil).
+
+### U. Prefix Command per Server (`/prefix`)
+
+Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama
+(`!setup_panel`). Setiap server boleh mengganti prefix itu:
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/prefix lihat`** | Prefix khusus server + daftar prefix yang diterima. |
+| **`/prefix atur prefix:?`** *(Admin)* | Ganti prefix (1–5 karakter). |
+| **`/prefix reset`** *(Admin)* | Kembalikan ke prefix bawaan `!`. |
+
+**Aturan:** prefix tidak boleh berspasi, tidak boleh memakai karakter `<> & @ # : ` / \ * _ ~ |`,
+dan **prefix bawaan `!` tetap diterima** sebagai cadangan agar member lama tidak bingung.
+Hanya server yang diubah yang disimpan di `data/prefixes.json` (hemat I/O & RAM).
+Command AI di channel tetap tidak terpengaruh: prefix hanya untuk command teks, bukan obrolan.
+
+### V. Ekspor Analitik CSV & Webhook (`/analitik`)
+
+Data yang bot sudah punya bisa **diunduh** atau **dikirim otomatis** ke webhook Discord
+(bukan langganan analytics pihak ketiga) — berguna untuk laporan bulanan atau arsip staf.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/analitik ekspor jenis:level`** *(Admin)* | Unduh CSV (lampiran file) — `level`, `moderasi`, `tiket`, `pemakaian`. |
+| **`/analitik webhook url:https://discord.com/api/webhooks/... [jadwal:harian]`** *(Admin)* | Kirim CSV otomatis ke webhook (uji kirim langsung dijalankan). |
+| **`/analitik status`** | Status, jadwal, jumlah baris tiap jenis, & kapan terakhir dikirim. |
+| **`/analitik matikan`** *(Admin)* | Hentikan ekspor otomatis & hapus URL webhook dari penyimpanan. |
+
+**Isi tiap CSV**
+| Jenis | Kolom |
+| :--- | :--- |
+| `level` | `user_id, level, xp, messages, voice_xp, prestige, last_activity` |
+| `moderasi` | `case_id, user_id, moderator_id, action, reason, duration_sec, created_at` |
+| `tiket` | `ticket_number, user_id, status, topic, claimed_by, created_at, first_response_at, first_response_minutes, duration_minutes, rating, closed_reason` |
+| `pemakaian` | `day, total_calls, cache_hits, chat, ringkas, gambar, cari` |
+
+**Detail teknis:** CSV dibuat di memori (maks **2000 baris** per berkas), dikirim sebagai
+lampiran multipart dengan **BOM UTF-8** agar rapi di Excel; pengiriman otomatis memakai
+`aiohttp` yang sudah dipakai bot (tanpa dependency baru). URL webhook hanya disimpan lokal di
+`data/analytics.json` dan **disamarkan** di Discord. Jadwal diperiksa tiap 5 menit di watcher
+yang sudah ada; default **nonaktif** sampai Admin mengaturnya.
+
+### W. Audit RAM & Cache (`/perawatan memori`)
+
+Free Tier itu soal **RAM**, jadi bot bisa melaporkan angka nyata dari hosting yang sedang
+dipakainya sendiri: `/perawatan memori` *(semua member boleh, jawabannya ephemeral).*
+
+Hasil pengukuran di mesin uji (Python 3.11, tanpa guild aktif):
+
+| Komponen | RAM |
+| :--- | :--- |
+| Python kosong | ±8.9 MB |
+| `discord.py` + `aiohttp` (impor wajib) | ±43.3 MB |
+| `wavelink` (klien musik) | ±+0.9 MB |
+| `Pillow` (dimuat hanya saat kartu gambar dipakai) | ±+1.7 MB |
+| **Bot ini saat diam (import `main`)** | **±53 MB** |
+| Beban data ekstrem (5 server × 500 member level + 1000 tiket + 1000 kasus + playlist) | ±+3–4 MB |
+
+**Artinya:** biaya terbesarnya adalah pustaka Discord itu sendiri (±43 MB), bukan fitur kita.
+Fitur-fitur baru (raid, playlist, rating tiket, musim, i18n, prefix, ekspor) menambah
+**hitungan byte**, bukan megabyte.
+
+**Batas per cache** (semua dipangkas otomatis oleh watcher yang sudah ada):
+
+| Cache | Batas |
+| :--- | :--- |
+| XP & level | 500 member / server (yang XP-nya tertinggi) |
+| Tiket | 200 tiket selesai total |
+| Kasus moderasi | 200 kasus / server |
+| Riwayat anti-nuke | 20 kejadian / server |
+| Playlist musik | 500 lagu / server • 5 playlist × 50 lagu per member |
+| Sesi chat/gambar | kedaluwarsa `SESSION_EXPIRE_DAYS` |
+| Cache bahasa/prefix/ekspor | 1 entri kecil per server, entri kosong dibuang |
+
+Laporan `/perawatan memori` menampilkan: RAM proses, ukuran `data/`, 6 cache terbesar beserta
+batasnya, 5 berkas `data/` terbesar, dan **saran otomatis** (mis. matikan gambar dinamis bila
+RAM sudah >200 MB, atau minta member merapikan playlist bila >2000 lagu).
 
 ## 🎮 Panduan Cara Pakai Semua Fitur (Step-by-Step)
 
