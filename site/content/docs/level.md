@@ -1,7 +1,9 @@
 ---
 title: "I. Level & XP serta Tiket Dukungan (/level, /tiket)"
-linkTitle: "I. Level & XP serta Tiket Dukungan"
+description: "XP pesan & voice, role hadiah, musim dan prestige; tiket thread dengan SLA & rating bintang."
+icon: "military_tech"
 weight: 9
+toc: true
 ---
 
 > 🧩 Kedua fitur ini **retensi + pelayanan**: membuat warga betah (level & papan peringkat) dan

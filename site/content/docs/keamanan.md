@@ -1,7 +1,9 @@
 ---
 title: "C. Fitur Keamanan, Ketahanan & Performa"
-linkTitle: "C. Keamanan, Ketahanan & Performa"
+description: "Moderasi bercatatan, raid guard, perkakas server, pemulihan struktur, sampai anti-503."
+icon: "shield"
 weight: 3
+toc: true
 ---
 
 ## 1. 🛡️ Moderasi Bercatatan (`/mod`) — Warn, Timeout, Kick, Ban, Purge

@@ -1,7 +1,9 @@
 ---
 title: "W. Audit RAM & Cache (/perawatan memori)"
-linkTitle: "W. Audit RAM & Cache"
+description: "Audit RAM, ukuran folder data, cache terbesar beserta batasnya, dan saran otomatis."
+icon: "memory"
 weight: 23
+toc: true
 ---
 
 Free Tier itu soal **RAM**, jadi bot bisa melaporkan angka nyata dari hosting yang sedang

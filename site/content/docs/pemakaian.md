@@ -1,7 +1,9 @@
 ---
 title: "L. Hemat Kuota AI (/pemakaian, /ringkas channel, /faq)"
-linkTitle: "L. Hemat Kuota AI"
+description: "Statistik pemakaian AI, cache rekap channel, FAQ lokal, dan cap harian per member/server."
+icon: "savings"
 weight: 12
+toc: true
 ---
 
 > 💡 Free Tier Gemini punya batas harian. Tiga fitur ini membuat bot **tetap pintar tanpa boros kuota**:

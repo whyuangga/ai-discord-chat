@@ -2,7 +2,7 @@
 
 Sumber kebenaran tetap **`docs/fitur.md`** dan **`docs/command.md`** — supaya
 tautan di README dan tampilan GitHub tidak berubah. Skrip ini menurunkannya
-menjadi halaman-halaman kecil ber-*front matter* untuk tema Hextra.
+menjadi halaman-halaman kecil ber-*front matter* untuk tema **Lotus Docs**.
 
 Pakai:
 
@@ -22,7 +22,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 SITE = ROOT / "site"
-CONTENT = SITE / "content"
 
 # Slug URL per bagian fitur (dipakai sebagai nama berkas & alamat halaman).
 SLUGS = {
@@ -51,11 +50,59 @@ SLUGS = {
     "W": "perawatan",
 }
 
-SITE_TITLE = "AI Discord Chat — Dokumentasi"
-SITE_DESC = (
-    "Dokumentasi bot Discord modular berbasis Google Gemini: 52 command utama, "
-    "satu proses, penyimpanan JSON, jalan di Free Tier."
-)
+# Ikon sidebar Lotus Docs (Material Symbols).
+ICONS = {
+    "A": "forum",
+    "B": "smart_toy",
+    "C": "shield",
+    "D": "dns",
+    "E": "groups",
+    "F": "music_note",
+    "G": "celebration",
+    "H": "gpp_maybe",
+    "I": "military_tech",
+    "J": "dashboard",
+    "K": "translate",
+    "L": "savings",
+    "M": "palette",
+    "N": "receipt_long",
+    "O": "paid",
+    "P": "trending_up",
+    "Q": "widgets",
+    "R": "security",
+    "S": "crisis_alert",
+    "T": "language",
+    "U": "terminal",
+    "V": "analytics",
+    "W": "memory",
+}
+
+# Ringkasan satu baris per bagian (tampil di bawah judul & di kartu navigasi).
+DESCRIPTIONS = {
+    "A": "Private thread AI per member: 5 kepribadian, PDF, voice note, vision, dan generate gambar.",
+    "B": "Auto-chat dengan etika anti-nimbrung, pemecah sepi, galeri, welcome/goodbye, digest & FAQ.",
+    "C": "Moderasi bercatatan, raid guard, perkakas server, pemulihan struktur, sampai anti-503.",
+    "D": "Channel statistik otomatis, auto role, fakta 4x sehari, dan anti-phishing tanpa API berbayar.",
+    "E": "Reaction role, polling, pengingat, starboard, verifikasi, sticky, temp voice, kotak saran.",
+    "F": "Lavalink v4 gratis: panel ala Rythm, filter audio, autoplay, role DJ, dan playlist per member.",
+    "G": "Giveaway dengan tombol ikut, ulang tahun, balasan otomatis, dan pengumuman terjadwal.",
+    "H": "Deteksi spam, link, dan lonjakan join — bawaan mode lapor saja, staff dikecualikan.",
+    "I": "XP pesan & voice, role hadiah, musim dan prestige; tiket thread dengan SLA & rating bintang.",
+    "J": "Dashboard web ringan di proses yang sama: pantau status dan kontrol fitur dari browser.",
+    "K": "Terjemahan ter-cache lewat command, reaksi bendera, atau menu tekan-tahan pesan.",
+    "L": "Statistik pemakaian AI, cache rekap channel, FAQ lokal, dan cap harian per member/server.",
+    "M": "Panel bergaya web hosting dengan Components V2: tema, aksen, emoji, kepadatan, footer.",
+    "N": "Catatan pesan, member, role, dan channel beserta aksi moderasinya di satu channel log.",
+    "O": "Koin harian, toko role, transfer, dan papan peringkat — semua lokal tanpa kuota AI.",
+    "P": "Ringkasan pertumbuhan server, invite tracker, dan retensi member baru.",
+    "Q": "Menu builder dengan tombol role/link/command, self roles v2, dan visibilitas per item.",
+    "R": "Anti-nuke: deteksi penghapusan massal, bot asing, mode beku, dan pemulihan ringan.",
+    "S": "Mode darurat otomatis saat lonjakan join: tahan auto role, verifikasi, lockdown sementara.",
+    "T": "Antarmuka ID/EN untuk dialog konfirmasi, kata status, dan pesan izin (0 kuota AI).",
+    "U": "Prefix teks per server; prefix `!` lama tetap berfungsi dan tidak pernah dihapus.",
+    "V": "Ekspor CSV level, moderasi, tiket, dan pemakaian AI, plus kirim ke webhook Discord.",
+    "W": "Audit RAM, ukuran folder data, cache terbesar beserta batasnya, dan saran otomatis.",
+}
 
 
 def _demote(block: str) -> str:
@@ -80,16 +127,21 @@ def _short(title: str) -> str:
     return t.rstrip(",").strip()
 
 
-def _front_matter(title: str, link_title: str, weight: int) -> str:
-    safe_title = title.replace('"', "'")
-    safe_link = link_title.replace('"', "'")
-    return (
-        "---\n"
-        f'title: "{safe_title}"\n'
-        f'linkTitle: "{safe_link}"\n'
-        f"weight: {weight}\n"
-        "---\n\n"
-    )
+def _fm(**fields: object) -> str:
+    """Front matter TOML sederhana (Lotus Docs memakai title/description/icon/weight)."""
+    lines = ["---"]
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            lines.append(f"{key}: {'true' if value else 'false'}")
+        elif isinstance(value, int):
+            lines.append(f"{key}: {value}")
+        else:
+            safe = str(value).replace('"', "'")
+            lines.append(f'{key}: "{safe}"')
+    lines.append("---")
+    return "\n".join(lines) + "\n\n"
 
 
 def fitur_pages() -> list[dict[str, object]]:
@@ -110,55 +162,24 @@ def fitur_pages() -> list[dict[str, object]]:
                 "title": f"{letter}. {title.replace('`', '')}",
                 "link_title": f"{letter}. {_short(title)}",
                 "slug": SLUGS[letter],
+                "icon": ICONS[letter],
+                "description": DESCRIPTIONS[letter],
                 "body": _demote(body),
             }
         )
     return pages
 
 
-def _index_md() -> str:
-    return """---
-title: AI Discord Chat & Community Agent
-layout: hextra-home
----
-
-<div class="hx:mt-6 hx:mb-6">
-{{< hextra/hero-headline >}}
-  Dokumentasi Bot Discord&nbsp;<br class="hx:sm:block hx:hidden" />berbasis Google Gemini
-{{< /hextra/hero-headline >}}
-</div>
-
-<div class="hx:mb-12">
-{{< hextra/hero-subtitle >}}
-  52 command utama · satu proses · penyimpanan JSON · jalan di Free Tier (±53 MB RAM)
-{{< /hextra/hero-subtitle >}}
-</div>
-
-<div class="hx:mb-6">
-{{< hextra/hero-button text="Buka dokumentasi" link="docs" >}}
-</div>
-
-{{< hextra/feature-grid >}}
-  {{< hextra/feature-card title="🔒 Ruang AI privat" subtitle="Private thread, 5 kepribadian, PDF, voice note, vision, generate gambar" link="docs/sesi" >}}
-  {{< hextra/feature-card title="🌐 AI Agent publik" subtitle="Auto-chat dengan etika anti-nimbrung, digest pagi, welcome & goodbye" link="docs/agent" >}}
-  {{< hextra/feature-card title="🎵 Musik 24/7" subtitle="Lavalink v4, panel ala Rythm, filter audio, playlist per member" link="docs/musik" >}}
-  {{< hextra/feature-card title="🛡️ Keamanan" subtitle="Moderasi bercatatan, anti-spam, anti-nuke, raid guard otomatis" link="docs/keamanan" >}}
-  {{< hextra/feature-card title="📈 Retensi" subtitle="Level & XP, musim, prestige, tiket thread dengan SLA & rating" link="docs/level" >}}
-  {{< hextra/feature-card title="📊 Hemat kuota" subtitle="Statistik AI, cache jawaban, cap harian, 0 kuota untuk UI" link="docs/pemakaian" >}}
-{{< /hextra/feature-grid >}}
-"""
-
-
 def _docs_index_md(pages: list[dict[str, object]]) -> str:
     lines = [
-        "---",
-        'title: "Dokumentasi"',
-        'linkTitle: "Dokumentasi"',
-        "weight: 0",
-        "---",
-        "",
-        "Dokumentasi lengkap bot **AI Discord Chat & Community Agent** (`v1.40.0-beta`).",
-        "Penjelasan tiap area fitur ada di bawah; referensi command di halaman terpisah.",
+        _fm(
+            title="Dokumentasi",
+            description="Penjelasan lengkap 23 area fitur bot AI Discord Chat.",
+            icon="menu_book",
+            weight=1,
+        ),
+        "Dokumentasi bot **AI Discord Chat & Community Agent** (`v1.40.0-beta`). "
+        "Setiap area fitur punya halamannya sendiri — pilih dari sidebar atau daftar berikut.",
         "",
     ]
     for page in pages:
@@ -166,7 +187,7 @@ def _docs_index_md(pages: list[dict[str, object]]) -> str:
     lines += [
         "- [📋 Referensi Command & Tombol](command/)",
         "",
-        "Butuh cara memasang (berkas `.env`, Developer Portal, deploy Wispbyte)? Semua ada di",
+        "Butuh cara memasang (berkas `.env`, Developer Portal, deploy Wispbyte)? Semua ada di "
         "[README](https://github.com/whyuangga/ai-discord-chat#readme).",
         "",
     ]
@@ -179,23 +200,36 @@ def _command_md() -> str:
     body = (
         body.replace("](../README.md)", "](https://github.com/whyuangga/ai-discord-chat#readme)")
         .replace("](fitur.md#u-prefix-command-per-server-prefix)", "](prefix/)")
-        .replace("](fitur.md)", "](../)")
+        .replace("](fitur.md)", "](../docs/)")
     )
-    return _front_matter("Referensi Command & Tombol", "📋 Referensi Command", 40) + body + "\n"
+    return (
+        _fm(
+            title="Referensi Command & Tombol",
+            description="52 command utama, subcommand, dan tombol panel.",
+            icon="terminal",
+            weight=90,
+            toc=True,
+        )
+        + body
+        + "\n"
+    )
 
 
 def generate() -> dict[str, str]:
     """Hasilkan semua berkas konten situs: {path relatif terhadap site/: isi}."""
     pages = fitur_pages()
-    files: dict[str, str] = {
-        "content/_index.md": _index_md(),
-        "content/docs/_index.md": _docs_index_md(pages),
-        "content/docs/command.md": _command_md(),
-    }
+    files: dict[str, str] = {"content/docs/_index.md": _docs_index_md(pages),
+                             "content/docs/command.md": _command_md()}
     for page in pages:
         files[f"content/docs/{page['slug']}.md"] = (
-            _front_matter(str(page["title"]), str(page["link_title"]), int(page["weight"]))
-            + page["body"]
+            _fm(
+                title=page["title"],
+                description=page["description"],
+                icon=page["icon"],
+                weight=page["weight"],
+                toc=True,
+            )
+            + str(page["body"])
             + "\n"
         )
     return files

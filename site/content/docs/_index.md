@@ -1,11 +1,12 @@
 ---
 title: "Dokumentasi"
-linkTitle: "Dokumentasi"
-weight: 0
+description: "Penjelasan lengkap 23 area fitur bot AI Discord Chat."
+icon: "menu_book"
+weight: 1
 ---
 
-Dokumentasi lengkap bot **AI Discord Chat & Community Agent** (`v1.40.0-beta`).
-Penjelasan tiap area fitur ada di bawah; referensi command di halaman terpisah.
+
+Dokumentasi bot **AI Discord Chat & Community Agent** (`v1.40.0-beta`). Setiap area fitur punya halamannya sendiri — pilih dari sidebar atau daftar berikut.
 
 - [A. Fitur Ruang Sesi Privat (/sesi)](sesi/)
 - [B. Fitur AI Agent & Otomasi Komunitas (/agent)](agent/)
@@ -32,5 +33,4 @@ Penjelasan tiap area fitur ada di bawah; referensi command di halaman terpisah.
 - [W. Audit RAM & Cache (/perawatan memori)](perawatan/)
 - [📋 Referensi Command & Tombol](command/)
 
-Butuh cara memasang (berkas `.env`, Developer Portal, deploy Wispbyte)? Semua ada di
-[README](https://github.com/whyuangga/ai-discord-chat#readme).
+Butuh cara memasang (berkas `.env`, Developer Portal, deploy Wispbyte)? Semua ada di [README](https://github.com/whyuangga/ai-discord-chat#readme).

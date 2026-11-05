@@ -1,7 +1,9 @@
 ---
 title: "J. Dashboard Web (DASHBOARD_TOKEN)"
-linkTitle: "J. Dashboard Web"
+description: "Dashboard web ringan di proses yang sama: pantau status dan kontrol fitur dari browser."
+icon: "dashboard"
 weight: 10
+toc: true
 ---
 
 Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lewat Discord

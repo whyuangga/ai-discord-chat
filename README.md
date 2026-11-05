@@ -566,8 +566,9 @@ ai-discord-chat/
 │   ├── fitur.md        # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
 │   ├── command.md      # Referensi 52 command utama, subcommand, & tombol panel
 │   └── catatan-dashboard-dan-kunci-api.md  # Rencana dashboard/BYOK yang masih diparkir
-├── site/               # Situs dokumentasi statis (Hugo + tema Hextra)
-│   ├── hugo.yaml       # Konfigurasi situs: menu, pencarian, tema
+├── site/               # Situs dokumentasi statis (Hugo + tema Lotus Docs)
+│   ├── hugo.toml       # Konfigurasi situs: params.docs, pencarian, warna tema
+│   ├── data/landing.yaml  # Halaman depan: hero + 6 kartu fitur
 │   └── content/        # HASIL GENERATE dari docs/ — jangan diedit manual
 ├── tools/
 │   └── sync_docs.py    # docs/*.md → site/content/ (juga dipakai tes sinkronisasi)

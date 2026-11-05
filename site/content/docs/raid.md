@@ -1,7 +1,9 @@
 ---
 title: "S. Raid Guard (/raid)"
-linkTitle: "S. Raid Guard"
+description: "Mode darurat otomatis saat lonjakan join: tahan auto role, verifikasi, lockdown sementara."
+icon: "crisis_alert"
 weight: 19
+toc: true
 ---
 
 Melengkapi anti-raid yang hanya **melapor**: bila server diserbu akun palsu, bot menyalakan

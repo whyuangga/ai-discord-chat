@@ -1,7 +1,9 @@
 ---
 title: "R. Anti-Nuke (/nuke)"
-linkTitle: "R. Anti-Nuke"
+description: "Anti-nuke: deteksi penghapusan massal, bot asing, mode beku, dan pemulihan ringan."
+icon: "security"
 weight: 18
+toc: true
 ---
 
 Melindungi server dari **penghancuran massal oleh staff jahat atau akun yang di-hack**.

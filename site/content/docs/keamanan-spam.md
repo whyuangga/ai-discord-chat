@@ -1,7 +1,9 @@
 ---
 title: "H. Anti-Spam & Anti-Raid Ringan (/keamanan spam)"
-linkTitle: "H. Anti-Spam & Anti-Raid Ringan"
+description: "Deteksi spam, link, dan lonjakan join — bawaan mode lapor saja, staff dikecualikan."
+icon: "gpp_maybe"
 weight: 8
+toc: true
 ---
 
 > 🕊️ **Filosofi fitur ini: "lapor dulu, tindak belakangan".** Banyak bot moderasi merusak obrolan

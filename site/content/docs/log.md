@@ -1,7 +1,9 @@
 ---
 title: "N. Audit Log Server (/log)"
-linkTitle: "N. Audit Log Server"
+description: "Catatan pesan, member, role, dan channel beserta aksi moderasinya di satu channel log."
+icon: "receipt_long"
 weight: 14
+toc: true
 ---
 
 Mencatat aktivitas penting server ke **satu channel** — bukti saat moderasi, tanpa AI.

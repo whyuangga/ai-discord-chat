@@ -1,7 +1,9 @@
 ---
 title: "G. Fitur Keramaian Server (/giveaway, /ultah, /jawab-otomatis, /pengumuman)"
-linkTitle: "G. Keramaian Server"
+description: "Giveaway dengan tombol ikut, ulang tahun, balasan otomatis, dan pengumuman terjadwal."
+icon: "celebration"
 weight: 7
+toc: true
 ---
 
 > 💡 **Empat fitur ini benar-benar 0 kuota Gemini.** Tidak ada satu pun permintaan AI, semuanya

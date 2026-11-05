@@ -1,7 +1,9 @@
 ---
 title: "T. Bahasa Antarmuka (/bahasa)"
-linkTitle: "T. Bahasa Antarmuka"
+description: "Antarmuka ID/EN untuk dialog konfirmasi, kata status, dan pesan izin (0 kuota AI)."
+icon: "language"
 weight: 20
+toc: true
 ---
 
 Bot berbicara **Bahasa Indonesia** secara bawaan, tapi teks **kerangka** bisa diganti ke English

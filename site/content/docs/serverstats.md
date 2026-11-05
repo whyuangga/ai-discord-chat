@@ -1,7 +1,9 @@
 ---
 title: "D. Fitur Server Otomatis (/serverstats, /autorole, /fakta, /keamanan)"
-linkTitle: "D. Server Otomatis"
+description: "Channel statistik otomatis, auto role, fakta 4x sehari, dan anti-phishing tanpa API berbayar."
+icon: "dns"
 weight: 4
+toc: true
 ---
 
 ## 1. 📊 Statistik Server seperti Bot Serverstats (`/serverstats`)

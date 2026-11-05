@@ -1,7 +1,9 @@
 ---
 title: "E. Fitur Komunitas Ringan (/panel-role, /poll, /saran, /embed, /tempvoice)"
-linkTitle: "E. Komunitas Ringan"
+description: "Reaction role, polling, pengingat, starboard, verifikasi, sticky, temp voice, kotak saran."
+icon: "groups"
 weight: 5
+toc: true
 ---
 
 > 💡 Semua fitur di bagian ini **tidak memanggil Gemini sama sekali** (0 kuota, 0 biaya) dan **default NONAKTIF**.

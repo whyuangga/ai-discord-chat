@@ -1,7 +1,9 @@
 ---
 title: "M. Tampilan Panel Components V2 (/panel, /tampilan)"
-linkTitle: "M. Tampilan Panel Components V2"
+description: "Panel bergaya web hosting dengan Components V2: tema, aksen, emoji, kepadatan, footer."
+icon: "palette"
 weight: 13
+toc: true
 ---
 
 Discord kini mendukung **Components V2** (`Container`, `Section`, `TextDisplay`, `Separator`,

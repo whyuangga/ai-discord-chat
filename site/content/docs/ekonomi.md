@@ -1,7 +1,9 @@
 ---
 title: "O. Ekonomi Koin (/ekonomi)"
-linkTitle: "O. Ekonomi Koin"
+description: "Koin harian, toko role, transfer, dan papan peringkat — semua lokal tanpa kuota AI."
+icon: "paid"
 weight: 15
+toc: true
 ---
 
 Gamifikasi ringan supaya member betah — **0 kuota AI**, semua hitungan lokal.

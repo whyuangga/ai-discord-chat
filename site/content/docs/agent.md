@@ -1,7 +1,9 @@
 ---
 title: "B. Fitur AI Agent & Otomasi Komunitas (/agent)"
-linkTitle: "B. AI Agent & Otomasi Komunitas"
+description: "Auto-chat dengan etika anti-nimbrung, pemecah sepi, galeri, welcome/goodbye, digest & FAQ."
+icon: "smart_toy"
 weight: 2
+toc: true
 ---
 
 Fitur ini membuat bot berbaur di channel publik server — baik di **Text Channel biasa (`#general`)** maupun di dalam **Channel Forum & Media (`#tanya-jawab`, `#showcase-karya`, `#forum-berita`)** — layaknya **warga/teman nongkrong asli** (bukan gaya kaku robot asisten). Seluruh fiturnya dikendalikan per-channel oleh Admin melalui command `/agent`:

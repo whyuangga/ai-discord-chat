@@ -1,7 +1,9 @@
 ---
 title: "V. Ekspor Analitik CSV & Webhook (/analitik)"
-linkTitle: "V. Ekspor Analitik CSV & Webhook"
+description: "Ekspor CSV level, moderasi, tiket, dan pemakaian AI, plus kirim ke webhook Discord."
+icon: "analytics"
 weight: 22
+toc: true
 ---
 
 Data yang bot sudah punya bisa **diunduh** atau **dikirim otomatis** ke webhook Discord

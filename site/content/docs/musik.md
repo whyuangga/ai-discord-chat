@@ -1,7 +1,9 @@
 ---
 title: "F. Streaming Musik 24/7 (/musik + Lavalink)"
-linkTitle: "F. Streaming Musik 24/7"
+description: "Lavalink v4 gratis: panel ala Rythm, filter audio, autoplay, role DJ, dan playlist per member."
+icon: "music_note"
 weight: 6
+toc: true
 ---
 
 > ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.

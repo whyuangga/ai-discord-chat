@@ -1,7 +1,9 @@
 ---
 title: "U. Prefix Command per Server (/prefix)"
-linkTitle: "U. Prefix Command per Server"
+description: "Prefix teks per server; prefix `!` lama tetap berfungsi dan tidak pernah dihapus."
+icon: "terminal"
 weight: 21
+toc: true
 ---
 
 Slash command (`/...`) tidak butuh prefix, tetapi bot juga punya command teks lama

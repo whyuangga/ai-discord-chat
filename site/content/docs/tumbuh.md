@@ -1,7 +1,9 @@
 ---
 title: "P. Pertumbuhan Server & Invite Tracker (/tumbuh)"
-linkTitle: "P. Pertumbuhan Server & Invite Tracker"
+description: "Ringkasan pertumbuhan server, invite tracker, dan retensi member baru."
+icon: "trending_up"
 weight: 16
+toc: true
 ---
 
 Menjawab pertanyaan "server ini tumbuh atau mati?" — **0 kuota AI**.

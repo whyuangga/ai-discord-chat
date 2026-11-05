@@ -1,7 +1,9 @@
 ---
 title: "Q. Menu Builder & Self Roles v2 (/menu)"
-linkTitle: "Q. Menu Builder & Self Roles v2"
+description: "Menu builder dengan tombol role/link/command, self roles v2, dan visibilitas per item."
+icon: "widgets"
 weight: 17
+toc: true
 ---
 
 Bikin panel sendiri — mirip *Self Roles* milik bot Discohook, tapi isinya tidak harus role:

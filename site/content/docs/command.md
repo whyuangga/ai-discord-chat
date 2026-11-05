@@ -1,13 +1,15 @@
 ---
 title: "Referensi Command & Tombol"
-linkTitle: "📋 Referensi Command"
-weight: 40
+description: "52 command utama, subcommand, dan tombol panel."
+icon: "terminal"
+weight: 90
+toc: true
 ---
 
 Referensi lengkap **52 command utama** beserta subcommand dan tombol panel, disusun per area
 fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom yang tertera).
 
-- Kembali ke [README](https://github.com/whyuangga/ai-discord-chat#readme) · penjelasan tiap fitur ada di [dokumentasi fitur](../).
+- Kembali ke [README](https://github.com/whyuangga/ai-discord-chat#readme) · penjelasan tiap fitur ada di [dokumentasi fitur](../docs/).
 - Prefix `!` tetap berfungsi untuk command lama; lihat [`/prefix`](prefix/).
 
 ---

@@ -1,7 +1,9 @@
 ---
 title: "K. Penerjemah Hemat Kuota (/terjemah)"
-linkTitle: "K. Penerjemah Hemat Kuota"
+description: "Terjemahan ter-cache lewat command, reaksi bendera, atau menu tekan-tahan pesan."
+icon: "translate"
 weight: 11
+toc: true
 ---
 
 Tiga tingkat pemakaian kuota, dari paling hemat:

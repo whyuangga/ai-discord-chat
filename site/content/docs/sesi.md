@@ -1,7 +1,9 @@
 ---
 title: "A. Fitur Ruang Sesi Privat (/sesi)"
-linkTitle: "A. Ruang Sesi Privat"
+description: "Private thread AI per member: 5 kepribadian, PDF, voice note, vision, dan generate gambar."
+icon: "forum"
 weight: 1
+toc: true
 ---
 
 Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assistant`) menggunakan `/sesi panel` (atau `!setup_panel`). Dari panel tersebut, setiap member dapat membuka ruang privat (*Private Thread*) yang hanya bisa dilihat oleh member itu sendiri.
