@@ -174,6 +174,18 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+        embed.add_field(
+            name="📋 Log, Ekonomi & Pertumbuhan (0 kuota AI)",
+            value=(
+                "• `/log channel channel:#bot-log` *(Admin)* — catat pesan dihapus/diedit, member join/keluar, "
+                "perubahan role, & channel baru ke satu channel. Kategori `voice` default mati.\n"
+                "• `/ekonomi atur aktif:True` *(Admin)* — koin dari chat & voice, hadiah harian ber-streak, "
+                "toko role (`/ekonomi tambah-item`), & `/ekonomi transfer`. **Default NONAKTIF.**\n"
+                "• `/tumbuh ringkas` — join/keluar, retensi, tren harian, & Top Inviter; `/tumbuh atur` untuk "
+                "channel log join-keluar (butuh izin *Manage Server*)."
+            ),
+            inline=False,
+        )
     elif category == "komunitas":
         embed = discord.Embed(
             title="🧩 Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)",
@@ -558,10 +570,12 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
                 "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
-                "• **Dashboard web** — pantau status & `/pemakaian` dari browser (read-only, 0 kuota).\n"
-                "• **`/agent keamanan`** — tingkat keamanan konten AI per server (longgar/normal/ketat).\n"
+                "• **Dashboard web** — status & `/pemakaian` dari browser (0 kuota).\n"
+                "• **`/agent keamanan`** — tingkat keamanan konten AI (longgar/normal/ketat).\n"
                 "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
                 "• **`/terjemah`** — penerjemah hemat kuota (reaksi bendera 🇮🇩/🇬🇧).\n"
+                "**🌱 Tumbuh & Ekonomi**\n"
+                "• **`/log`**, **`/tumbuh`**, **`/ekonomi`** (koin + toko role).\n"
                 "**🧩 Komunitas & Lain-lain**\n"
                 "• **`/panel-role`**, **`/poll`**, **`/ingatkan`**, **`/starboard`**, **`/sticky`**.\n"
                 "• **`/info`**, **`/perawatan`**, **`/status`**, **`/bantuan`**."

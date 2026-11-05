@@ -2226,6 +2226,10 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "afk", "thread-otomatis", "lockdown", "backup",
         # v1.22.0-beta: penerjemah hemat kuota (reaksi bendera + /terjemah)
         "terjemah",
+        # v1.23.0-beta: audit log server + ekonomi koin (0 kuota AI)
+        "log", "ekonomi",
+        # v1.25.0-beta: statistik pertumbuhan & invite tracker (0 kuota AI)
+        "tumbuh",
     }
     assert len(chat_cmds) <= 100
 
@@ -6577,3 +6581,325 @@ async def test_translate_heuristics_cache_modes_and_quota(monkeypatch, tmp_path)
     tt.translate_guilds.clear()
     tt.clear_cache()
     tt.reset_rate_limits()
+
+
+@pytest.mark.asyncio
+async def test_audit_log_config_events_and_persistence(monkeypatch, tmp_path):
+    """Audit Log: konfigurasi, kirim embed, helper event, & simpan/muat JSON."""
+    import audit_log
+
+    audit_log.audit_guilds.clear()
+
+    # 1. Default: nonaktif sampai channel dipasang
+    assert audit_log.is_enabled(10) is False
+    assert audit_log.is_category_enabled(10, "pesan") is False
+
+    cfg = audit_log.set_log_channel(10, 900)
+    assert audit_log.is_enabled(10) is True
+    assert cfg["channel_id"] == 900
+    assert cfg["categories"]["pesan"] is True and cfg["categories"]["voice"] is False
+
+    # 2. Kategori bisa dinyalakan/dimatikan
+    audit_log.set_category(10, "voice", True)
+    assert audit_log.is_category_enabled(10, "voice") is True
+    audit_log.set_category(10, "pesan", False)
+    assert audit_log.is_category_enabled(10, "pesan") is False
+    assert audit_log.set_category(10, "ngawur", True) is None
+    audit_log.set_category(10, "pesan", True)
+
+    # 3. Channel yang diabaikan
+    audit_log.toggle_ignore_channel(10, 555, ignore=True)
+    assert audit_log.is_channel_ignored(10, 555) is True
+    audit_log.toggle_ignore_channel(10, 555, ignore=False)
+    assert audit_log.is_channel_ignored(10, 555) is False
+
+    # 4. Pengiriman embed ke channel log
+    sent: list[dict] = []
+
+    class _FakeChannel:
+        id = 900
+
+        async def send(self, **kwargs):
+            sent.append(kwargs)
+
+    class _FakeBot:
+        def get_channel(self, cid):
+            return _FakeChannel() if int(cid) == 900 else None
+
+    class _Guild:
+        id = 10
+
+    class _Author:
+        id = 501
+        bot = False
+        display_name = "Budi"
+
+    class _Msg:
+        def __init__(self, content="halo dunia", channel_id=700):
+            self.content = content
+            self.guild = _Guild()
+            self.author = _Author()
+            self.channel = type("C", (), {"id": channel_id, "mention": f"<#{channel_id}>"})()
+            self.jump_url = "https://discord.com/channels/10/700/1"
+            self.attachments = []
+
+    ok = await audit_log.log_message_delete(_FakeBot(), _Msg())
+    assert ok is True and sent and sent[-1]["embed"].title.endswith("Pesan dihapus")
+    assert "halo dunia" in sent[-1]["embed"].description
+
+    # 5. Channel yang diabaikan tidak dikirim
+    audit_log.toggle_ignore_channel(10, 700, ignore=True)
+    before = len(sent)
+    assert await audit_log.log_message_delete(_FakeBot(), _Msg()) is False
+    assert len(sent) == before
+    audit_log.toggle_ignore_channel(10, 700, ignore=False)
+
+    # 6. Edit hanya dikirim bila isi berubah
+    before_msg = _Msg("versi lama")
+    after_msg = _Msg("versi lama")
+    assert await audit_log.log_message_edit(_FakeBot(), before_msg, after_msg) is False
+    after_msg.content = "versi baru"
+    assert await audit_log.log_message_edit(_FakeBot(), before_msg, after_msg) is True
+    assert "versi baru" in sent[-1]["embed"].description
+
+    # 7. Member join/keluar + perubahan role
+    class _Member:
+        id = 502
+        bot = False
+        display_name = "Sinta"
+        guild = _Guild()
+        created_at = discord.utils.utcnow()
+        joined_at = discord.utils.utcnow()
+
+        def __init__(self, roles=()):
+            self.roles = list(roles)
+
+    assert await audit_log.log_member_join(_FakeBot(), _Member()) is True
+    assert await audit_log.log_member_remove(_FakeBot(), _Member()) is True
+    role_before = _Member([type("R", (), {"id": 1})()])
+    role_after = _Member([type("R", (), {"id": 1})(), type("R", (), {"id": 2})()])
+    assert await audit_log.log_member_update(_FakeBot(), role_before, role_after) is True
+
+    # 8. Voice default mati → tidak dikirim
+    class _VoiceState:
+        def __init__(self, cid):
+            self.channel = None if cid is None else type("C", (), {"id": cid, "mention": f"<#{cid}>"})()
+
+    audit_log.set_category(10, "voice", False)
+    before = len(sent)
+    assert await audit_log.log_voice_change(_FakeBot(), _Member(), _VoiceState(None), _VoiceState(800)) is False
+    assert len(sent) == before
+
+    # 9. Simpan & muat ulang
+    monkeypatch.setattr(audit_log, "AUDIT_FILE", tmp_path / "audit.json")
+    await audit_log.save_audit_to_disk()
+    audit_log.audit_guilds.clear()
+    assert audit_log.load_audit_from_disk() == 1
+    assert audit_log.is_enabled(10) is True
+
+    # 10. Status embed & pembersihan channel terhapus
+    embed = audit_log.build_status_embed(10)
+    assert "900" in embed.description
+    assert audit_log.handle_channel_delete(900) is True
+    assert audit_log.is_enabled(10) is False
+    assert isinstance(audit_log.cleanup_audit_runtime(), int)
+    audit_log.audit_guilds.clear()
+
+
+@pytest.mark.asyncio
+async def test_economy_coins_daily_shop_and_transfer(monkeypatch, tmp_path):
+    """Ekonomi: koin pesan/voice, hadiah harian + streak, toko role, transfer, & persistensi."""
+    import economy
+
+    economy.economy_guilds.clear()
+    economy.balances.clear()
+    economy.meta.clear()
+    economy.shop.clear()
+
+    gid = 20
+    # 1. Default nonaktif
+    assert economy.is_active(gid) is False
+    assert economy.earn_from_message(gid, 501) is None
+
+    economy.set_config(gid, aktif=True, per_message=5, cooldown=60, per_voice_min=3, daily_amount=100)
+    cfg = economy.get_config(gid)
+    assert cfg["enabled"] is True and cfg["per_message"] == 5
+
+    # 2. Koin dari pesan dengan jeda
+    assert economy.earn_from_message(gid, 501, now=1000.0) == 5
+    assert economy.earn_from_message(gid, 501, now=1030.0) is None       # masih jeda
+    assert economy.earn_from_message(gid, 501, now=1070.0) == 10
+    assert economy.balance(gid, 501) == 10
+
+    # 3. Koin dari voice
+    assert economy.earn_from_voice(gid, 502, 4, now=2000.0) == 12
+    assert economy.earn_from_voice(gid, 502, 0) is None
+    assert economy.balance(gid, 502) == 12
+
+    # 4. Hadiah harian + streak
+    ok, amount, streak = economy.claim_daily(gid, 501, now=3000.0)
+    assert ok is True and amount == 100 and streak == 1
+    assert economy.claim_daily(gid, 501, now=3100.0)[0] is False        # belum 24 jam
+    assert economy.daily_ready_in(gid, 501, now=3100.0) > 0
+    ok2, amount2, streak2 = economy.claim_daily(gid, 501, now=3000.0 + 86400)
+    assert ok2 is True and streak2 == 2 and amount2 > 100                # bonus streak
+
+    # 5. Transfer: minimal, saldo, dan jeda
+    economy.add_coins(gid, 503, 100, now=4000.0)
+    ok_t, msg_t = economy.transfer(gid, 503, 504, 50, now=5000.0)
+    assert ok_t is True and "Berhasil" in msg_t
+    assert economy.balance(gid, 503) == 50 and economy.balance(gid, 504) == 50
+    assert economy.transfer(gid, 503, 504, 5, now=5100.0)[0] is False     # di bawah minimum
+    assert economy.transfer(gid, 503, 503, 20, now=5200.0)[0] is False    # ke diri sendiri
+    assert economy.transfer(gid, 504, 503, 100, now=5300.0)[0] is False   # saldo kurang
+    assert economy.transfer(gid, 503, 504, 20, now=5002.0)[0] is False    # kena jeda transfer
+
+    # 6. Toko: tambah item, beli, role hadiah
+    item, status = economy.add_item(gid, "Role VIP", 40, role_id=777, description="Akses channel VIP")
+    assert status == "added" and item["price"] == 40
+    assert economy.add_item(gid, "Role VIP", 45)[1] == "updated"
+    assert economy.find_item(gid, "role vip")["price"] == 45
+    ok_b, msg_b, role_id = economy.buy(gid, 504, "Role VIP")
+    assert ok_b is True and role_id == 777 and economy.balance(gid, 504) == 5
+    assert economy.buy(gid, 504, "Role VIP")[0] is False                  # saldo kurang
+    assert economy.buy(gid, 504, "Tidak Ada")[0] is False
+    assert economy.remove_item(gid, "role vip") is True
+    assert economy.items(gid) == {}
+
+    # 7. Papan peringkat & total koin
+    rows = economy.leaderboard(gid, limit=5)
+    assert rows and rows[0][0] == 501
+    assert economy.net_worth(gid) >= sum(value for _uid, value in rows)
+
+    # 8. Format koin mengikuti mata uang server
+    assert "koin" in economy.format_coins(1000, cfg)
+
+    # 9. Simpan & muat ulang
+    monkeypatch.setattr(economy, "ECONOMY_FILE", tmp_path / "economy.json")
+    await economy.save_economy_to_disk()
+    economy.economy_guilds.clear()
+    economy.balances.clear()
+    economy.meta.clear()
+    economy.shop.clear()
+    guilds, balances = economy.load_economy_from_disk()
+    assert guilds == 1 and balances >= 2
+    assert economy.balance(gid, 501) > 0
+    assert economy.get_config(gid)["enabled"] is True
+
+    # 10. Matikan fitur: saldo tetap ada, tapi tidak menambah koin
+    economy.set_config(gid, aktif=False)
+    assert economy.is_active(gid) is False
+    assert economy.earn_from_message(gid, 501, now=9000.0) is None
+    assert economy.balance(gid, 501) > 0
+    assert isinstance(economy.cleanup_economy_runtime(), int)
+    economy.economy_guilds.clear()
+    economy.balances.clear()
+    economy.meta.clear()
+    economy.shop.clear()
+
+
+@pytest.mark.asyncio
+async def test_growth_tracker_invites_stats_and_persistence(monkeypatch, tmp_path):
+    """Pertumbuhan: deteksi pengundang, statistik join/keluar, retensi, & persistensi."""
+    import growth_tracker
+
+    growth_tracker.growth_guilds.clear()
+    growth_tracker.invite_cache.clear()
+    growth_tracker.join_records.clear()
+    growth_tracker.inviter_stats.clear()
+    growth_tracker.daily.clear()
+
+    gid = 30
+    assert growth_tracker.is_enabled(gid) is True     # default aktif (0 kuota, ringan)
+
+    # 1. Deteksi pengundang dari selisih `uses` invite
+    class _Inviter:
+        id = 900
+
+    class _Invite:
+        def __init__(self, code, uses, inviter=None):
+            self.code = code
+            self.uses = uses
+            self.inviter = inviter
+
+    class _Guild:
+        id = gid
+
+        def __init__(self, invites):
+            self._invites = invites
+
+        async def invites(self):
+            return self._invites
+
+    guild = _Guild([_Invite("abc", 3, _Inviter()), _Invite("xyz", 1, _Inviter())])
+    assert await growth_tracker.sync_invites(guild) == 2
+    assert growth_tracker.invite_cache[gid]["abc"] == 3
+
+    guild._invites = [_Invite("abc", 4, _Inviter()), _Invite("xyz", 1, _Inviter())]
+    inviter_id, code = await growth_tracker.detect_inviter(guild, None)
+    assert inviter_id == 900 and code == "abc"
+    assert growth_tracker.invite_cache[gid]["abc"] == 4
+
+    # 2. Catat join & keluar + statistik (pakai waktu nyata agar tidak terpangkas)
+    base = time.time() - 600
+    growth_tracker.record_join(gid, 501, inviter_id, "abc", now=base)
+    growth_tracker.record_join(gid, 502, inviter_id, "abc", now=base + 100)
+    growth_tracker.record_join(gid, 503, None, None, now=base + 200)
+    growth_tracker.record_leave(gid, 502, now=base + 300)      # keluar cepat (<1 jam)
+    data = growth_tracker.stats(gid, 1, now=base + 400)
+    assert data["joins"] == 3 and data["leaves"] == 1 and data["net"] == 2
+    assert data["tracked"] == 3 and data["stayed"] == 2
+    assert data["retention_pct"] == 67
+    assert data["top_inviters"] and data["top_inviters"][0][0] == 900
+    assert data["invites_cached"] == 2
+
+    # 3. Papan pengundang & sparkline
+    board = growth_tracker.invite_leaderboard(gid)
+    assert board and board[0][0] == 900 and board[0][1] == 2 and board[0][3] == 1
+    series = growth_tracker._days_series(gid, 3, now=base + 400)
+    assert len(series) == 3
+    assert growth_tracker.build_sparkline(series)
+    assert growth_tracker.build_sparkline([("x", 0, 0)]) == "_belum ada data_"
+
+    # 4. Cache invite bisa diperbarui lewat event
+    growth_tracker.track_invite_create(gid, _Invite("baru", 0))
+    assert "baru" in growth_tracker.invite_cache[gid]
+    growth_tracker.track_invite_delete(gid, _Invite("baru", 0))
+    assert "baru" not in growth_tracker.invite_cache[gid]
+
+    # 5. Tanpa izin (guild.invites error) → tidak crash, kembalikan None
+    class _BadGuild:
+        id = gid
+
+        async def invites(self):
+            raise discord.Forbidden(type("R", (), {"status": 403, "reason": "x"})(), "nope")
+
+    assert await growth_tracker.detect_inviter(_BadGuild(), None) == (None, None)
+    assert await growth_tracker.sync_invites(_BadGuild()) == 0
+
+    # 6. Konfigurasi & channel log
+    growth_tracker.set_config(gid, enabled=True, log_channel_id=555)
+    assert growth_tracker.get_config(gid)["log_channel_id"] == 555
+    assert growth_tracker.handle_channel_delete(555) is True
+    assert growth_tracker.get_config(gid)["log_channel_id"] is None
+
+    # 7. Simpan & muat ulang
+    monkeypatch.setattr(growth_tracker, "GROWTH_FILE", tmp_path / "growth.json")
+    await growth_tracker.save_growth_to_disk()
+    growth_tracker.growth_guilds.clear()
+    growth_tracker.invite_cache.clear()
+    growth_tracker.join_records.clear()
+    growth_tracker.inviter_stats.clear()
+    growth_tracker.daily.clear()
+    assert growth_tracker.load_growth_from_disk() >= 1
+    reloaded = growth_tracker.stats(gid, 1, now=base + 400)
+    assert reloaded["joins"] == 3 and reloaded["tracked"] == 3
+    assert growth_tracker.invite_leaderboard(gid)[0][0] == 900
+
+    # 8. Pembersihan runtime
+    assert isinstance(growth_tracker.cleanup_growth_runtime(), int)
+    growth_tracker.growth_guilds.clear()
+    growth_tracker.invite_cache.clear()
+    growth_tracker.join_records.clear()
+    growth_tracker.inviter_stats.clear()
+    growth_tracker.daily.clear()

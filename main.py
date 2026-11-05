@@ -13,6 +13,21 @@ from cogs import (
 )
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
+from growth_tracker import (
+    cleanup_growth_runtime,
+    load_growth_from_disk,
+    save_growth_to_disk,
+)
+from economy import (
+    cleanup_economy_runtime,
+    load_economy_from_disk,
+    save_economy_to_disk,
+)
+from audit_log import (
+    cleanup_audit_runtime,
+    load_audit_from_disk,
+    save_audit_to_disk,
+)
 from translate_tools import (
     cleanup_translate_runtime,
     load_translate_from_disk,
@@ -228,6 +243,9 @@ class GeminiDiscordBot(commands.Bot):
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_translate_guilds = load_translate_from_disk()
+        loaded_audit_guilds = load_audit_from_disk()
+        loaded_econ_guilds, loaded_econ_balances = load_economy_from_disk()
+        loaded_growth_guilds = load_growth_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -301,6 +319,11 @@ class GeminiDiscordBot(commands.Bot):
         )
         logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
         logger.info("Penerjemah dimuat: %d server dengan channel terpilih.", loaded_translate_guilds)
+        logger.info("Audit log dimuat: %d server dengan channel log.", loaded_audit_guilds)
+        logger.info(
+            "Ekonomi dimuat: %d server, %d saldo member.", loaded_econ_guilds, loaded_econ_balances
+        )
+        logger.info("Pelacak pertumbuhan dimuat: %d server.", loaded_growth_guilds)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -388,6 +411,9 @@ class GeminiDiscordBot(commands.Bot):
         await save_tickets_to_disk()
         await save_ai_usage_to_disk()
         await save_translate_to_disk()
+        await save_audit_to_disk()
+        await save_economy_to_disk()
+        await save_growth_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -439,6 +465,9 @@ async def idle_chat_watcher():
             cleanup_insights_runtime()
             cleanup_ai_guard_runtime()   # buang cache jawaban AI yang kedaluwarsa (hemat RAM)
             cleanup_translate_runtime()  # buang cache terjemahan & rate limit lama
+            cleanup_audit_runtime()      # buang konfigurasi audit log tanpa channel
+            cleanup_economy_runtime()    # bersihkan rate-limit transfer ekonomi
+            cleanup_growth_runtime()     # pangkas data pertumbuhan lama
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

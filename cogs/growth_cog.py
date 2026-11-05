@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import economy
 import levels
 import tickets
 import ui_kit
@@ -326,6 +327,19 @@ async def run_voice_xp_check(bot: commands.Bot) -> int:
     if not awards:
         return 0
 
+    # Koin untuk menit voice (default NONAKTIF)
+    try:
+        earned = False
+        for award in awards:
+            if economy.earn_from_voice(
+                award["guild_id"], award["user_id"], int(award["result"].get("minutes") or 0)
+            ):
+                earned = True
+        if earned:
+            await economy.save_economy_to_disk()
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Koin voice dilewati: %s", exc)
+
     global _voice_flush_since_save
     _voice_flush_since_save += 1
     level_up_awards = [a for a in awards if a["result"].get("level_up")]
@@ -383,6 +397,16 @@ async def handle_message_xp(bot: commands.Bot, message) -> None:
         return
 
     role_ids = {getattr(role, "id", 0) for role in (getattr(author, "roles", None) or [])}
+    # Koin ekonomi (default NONAKTIF) — 0 kuota AI
+    try:
+        if economy.is_active(guild.id):
+            if economy.earn_from_message(
+                guild.id, author.id, channel_id=getattr(channel, "id", 0), role_ids=role_ids
+            ):
+                await economy.save_economy_to_disk()
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Koin pesan dilewati: %s", exc)
+
     result = levels.add_message_xp(
         guild.id,
         author.id,
