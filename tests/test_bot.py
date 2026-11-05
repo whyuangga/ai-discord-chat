@@ -4468,7 +4468,9 @@ async def test_growth_commands_views_and_help():
     from cogs.growth_cog import level_group, tiket_group
 
     assert level_group.name == "level"
-    assert {c.name for c in level_group.commands} == {"lihat", "papan", "atur", "role", "status"}
+    assert {c.name for c in level_group.commands} == {
+        "lihat", "papan", "atur", "role", "status", "voice",
+    }
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {
         "panel", "status", "tutup", "tambah", "daftar", "matikan",
@@ -6209,3 +6211,120 @@ def test_ai_guard_routing_safety_resilience_and_tokens(monkeypatch):
         {"summary": "Senin siang", "clock": "12.00"},
     )
     assert "[ATURAN AKURASI]" in prompt
+
+
+class _VoiceFakeChannel:
+    def __init__(self, cid: int, channel_type: int = 2):
+        self.id = cid
+        self.type = channel_type
+        self.mention = f"<#{cid}>"
+
+
+class _VoiceFakeState:
+    def __init__(self, channel=None, *, self_mute=False, self_deaf=False, afk=False):
+        self.channel = channel
+        self.self_mute = self_mute
+        self.self_deaf = self_deaf
+        self.afk = afk
+
+
+class _VoiceFakeMember:
+    def __init__(self, uid: int, guild, *, bot=False):
+        self.id = uid
+        self.bot = bot
+        self.guild = guild
+        self.display_name = f"Member {uid}"
+
+
+class _VoiceFakeGuild:
+    def __init__(self, gid: int, afk_channel_id: int | None = None):
+        self.id = gid
+        self.afk_channel_id = afk_channel_id
+
+
+def test_voice_xp_tracking_cap_and_level_card():
+    """XP Voice: sesi per menit, anti self-mute/AFK, batas harian, & tampil di kartu level."""
+    import voice_activity
+
+    gid = 4242
+    levels.level_guilds.pop(gid, None)
+    levels.level_guilds[gid] = levels.default_config()
+    levels.set_level_config(gid, voice_enabled=True, voice_xp_per_min=2, voice_daily_cap_min=10)
+    for key in [k for k in levels.levels if k.startswith(f"{gid}:")]:
+        levels.levels.pop(key, None)
+    voice_activity.reset_voice_sessions()
+
+    guild = _VoiceFakeGuild(gid, afk_channel_id=999)
+    voice_ch = _VoiceFakeChannel(700)
+    member = _VoiceFakeMember(501, guild)
+
+    # 1. Mulai sesi saat masuk voice channel
+    assert voice_activity.handle_voice_state(
+        member, _VoiceFakeState(None), _VoiceFakeState(voice_ch), guild=guild, now=1000.0
+    ) == "start"
+    assert voice_activity.active_sessions() == 1
+
+    # 2. Belum 60 detik → belum ada XP
+    assert voice_activity.flush_voice_sessions(now=1030.0) == []
+
+    # 3. 65 detik → 1 menit penuh = 2 XP
+    awards = voice_activity.flush_voice_sessions(now=1065.0)
+    assert len(awards) == 1
+    award = awards[0]
+    assert award["guild_id"] == gid and award["user_id"] == 501
+    assert award["result"]["minutes"] == 1 and award["result"]["gained"] == 2
+    data = levels.get_member_level(gid, 501)
+    assert data["xp"] == 2 and data["voice_xp"] == 2 and data["voice_min_today"] == 1
+
+    # 4. Self-mute menghentikan hitungan, idel di AFK channel juga tidak dihitung
+    assert voice_activity.handle_voice_state(
+        member, _VoiceFakeState(voice_ch), _VoiceFakeState(voice_ch, self_mute=True), guild=guild, now=1070.0
+    ) == "stop"
+    assert voice_activity.active_sessions() == 0
+    assert voice_activity.handle_voice_state(
+        member, _VoiceFakeState(None), _VoiceFakeState(_VoiceFakeChannel(999)), guild=guild, now=1080.0
+    ) is None
+
+    # 5. Bot tidak pernah dapat XP voice
+    bot_member = _VoiceFakeMember(777, guild, bot=True)
+    assert voice_activity.handle_voice_state(
+        bot_member, _VoiceFakeState(None), _VoiceFakeState(voice_ch), guild=guild, now=1090.0
+    ) is None
+
+    # 6. Batas harian 10 menit: menit ke-11 tidak menambah XP
+    for idx in range(12):
+        result = levels.add_voice_minutes(gid, 501, 1, channel_id=700, now=2000.0 + idx)
+    final = levels.get_member_level(gid, 501)
+    assert final["voice_min_today"] == 10
+    assert final["voice_xp"] == 20          # 10 menit × 2 XP
+    assert levels.add_voice_minutes(gid, 501, 1, now=3000.0) is None
+
+    # 7. Channel yang diabaikan & leveling nonaktif tidak memberi XP
+    levels.set_level_config(gid, voice_ignore_channels=[700])
+    assert levels.add_voice_minutes(gid, 502, 1, channel_id=700, now=4000.0) is None
+    assert levels.add_voice_minutes(gid, 502, 1, channel_id=701, now=4000.0) is not None
+    levels.level_guilds.pop(gid, None)
+    assert levels.add_voice_minutes(gid, 503, 1, now=5000.0) is None
+
+    # 8. Kartu level menampilkan XP voice
+    levels.level_guilds[gid] = levels.default_config()
+    levels.set_level_config(gid, voice_xp_per_min=2, voice_daily_cap_min=30)
+    levels.add_voice_minutes(gid, 501, 3, now=6000.0)
+    card = member
+    embed = levels.build_level_embed(card, levels.get_member_level(gid, 501), levels.get_level_config(gid))
+    assert any("XP Voice" in f.name for f in embed.fields)
+
+    # 9. Pengumuman level-up dari voice tidak error walau bot belum siap
+    import asyncio
+    from cogs.growth_cog import run_voice_xp_check
+
+    class _DummyBot:
+        def get_guild(self, _gid):
+            return None
+
+    levels.level_guilds[gid] = levels.default_config()
+    voice_activity.reset_voice_sessions()
+    voice_activity.sessions[f"{gid}:900"] = {"since": 0.0, "channel_id": 700}
+    assert asyncio.run(run_voice_xp_check(_DummyBot())) >= 0
+    voice_activity.reset_voice_sessions()
+    levels.level_guilds.pop(gid, None)

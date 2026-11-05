@@ -11,6 +11,8 @@ from cogs import (
     ringkas_link_cmd,
     slash_cari,
 )
+from cogs.growth_cog import run_voice_xp_check
+from voice_activity import reset_voice_sessions
 from community_agent import (
     cleanup_stale_agent_runtime,
     load_agent_config_from_disk,
@@ -369,6 +371,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_music_settings_to_disk()
         await save_engagement_to_disk()
         await save_antispam_to_disk()
+        reset_voice_sessions()
         await save_levels_to_disk()
         await save_tickets_to_disk()
         await save_ai_usage_to_disk()
@@ -401,6 +404,9 @@ async def idle_chat_watcher():
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 4 == 0:
             # Node Lavalink publik sering restart: pulihkan otomatis tanpa restart bot.
             await ensure_nodes_alive(bot)
+        if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 4 == 0:
+            # XP voice: beri XP untuk setiap menit penuh di voice channel (0 kuota AI)
+            await run_voice_xp_check(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 20 == 0:
             await run_serverstats_check(bot)
             try:

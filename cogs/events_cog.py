@@ -220,6 +220,16 @@ def register_events_cog(bot: commands.Bot) -> None:
             logger.warning("Pesan boost gagal dikirim: %s", exc)
 
     @bot.event
+    async def on_voice_state_update(member, before, after):
+        """Memulai/menghentikan hitungan XP voice (0 kuota AI)."""
+        try:
+            import voice_activity
+
+            voice_activity.handle_voice_state(member, before, after, guild=getattr(member, "guild", None))
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pelacakan XP voice dilewati: %s", exc)
+
+    @bot.event
     async def on_member_remove(member: discord.Member):
         """Mengirim pesan perpisahan AI saat member keluar dari server (jika aktif)."""
         await trigger_member_goodbye(bot, member.guild, member)

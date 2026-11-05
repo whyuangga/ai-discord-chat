@@ -550,6 +550,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             value=(
                 "**📈 Retensi & Pelayanan**\n"
                 "• **`/level`** — kartu level, papan peringkat, & role hadiah.\n"
+                "• **`/level voice`** — XP dari aktivitas voice channel (anti self-mute/AFK, 0 kuota AI).\n"
                 "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
                 "**🎉 Keramaian Server**\n"
                 "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"

@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.19.0-beta"
+BOT_VERSION = "1.20.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -226,6 +226,10 @@ LEVELS_COOLDOWN_SEC: int = _env_int("LEVELS_COOLDOWN_SEC", 60, minimum=0)
 LEVELS_MAX_LEVEL: int = _env_int("LEVELS_MAX_LEVEL", 100, minimum=5)
 # Jumlah member teratas yang disimpan per server (menjaga file JSON tetap kecil)
 LEVELS_MAX_MEMBERS: int = _env_int("LEVELS_MAX_MEMBERS", 500, minimum=25)
+# XP Voice: XP per menit berada di voice channel (0 kuota AI).
+LEVELS_VOICE_XP_PER_MIN: int = _env_int("LEVELS_VOICE_XP_PER_MIN", 2, minimum=1)
+# Batas menit voice yang dihitung per member per hari (0 = tanpa batas, tidak disarankan).
+LEVELS_VOICE_DAILY_CAP_MIN: int = _env_int("LEVELS_VOICE_DAILY_CAP_MIN", 240, minimum=0)
 
 # ==============================================================================
 # SISTEM TIKET DUKUNGAN (Tier 2C) — default NONAKTIF
