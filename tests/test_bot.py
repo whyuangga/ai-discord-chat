@@ -2230,6 +2230,18 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "log", "ekonomi",
         # v1.25.0-beta: statistik pertumbuhan & invite tracker (0 kuota AI)
         "tumbuh",
+        # v1.26.0-beta: menu builder (tombol role/link/command + dropdown)
+        "menu",
+        # v1.27.0-beta: anti-nuke (deteksi audit log + tindakan + pemulihan)
+        "nuke",
+        # v1.31.0-beta: raid guard (mode darurat otomatis saat server diserbu)
+        "raid",
+        # v1.36.0-beta: i18n inti (/bahasa)
+        "bahasa",
+        # v1.37.0-beta: prefix command per server
+        "prefix",
+        # v1.38.0-beta: ekspor analitik CSV & webhook
+        "analitik",
     }
     assert len(chat_cmds) <= 100
 
@@ -3168,7 +3180,7 @@ def test_community_command_and_view_limits():
         "verifikasi": {"pasang", "status", "matikan"},
         "sticky": {"pasang", "lepas", "status"},
         "info": {"user", "server"},
-        "perawatan": {"backup", "atur", "status"},
+        "perawatan": {"backup", "atur", "status", "memori"},
     }
     for group_name, subs in expected_subs.items():
         assert {c.name for c in tree_cmds[group_name].commands} == subs
@@ -3575,9 +3587,14 @@ async def test_music_command_structure_and_setup_guard(monkeypatch):
         "seek", "sebelumnya", "filter", "autoplay", "panel",
         # v1.11.1-beta: diagnosa & sambung ulang node Lavalink
         "node",
+        # v1.32.0-beta: playlist per member
+        "playlist",
     }
     for sub in musik.commands:
         assert 1 <= len(sub.description) <= 100
+        if isinstance(sub, discord.app_commands.Group):
+            for child in sub.commands:
+                assert 1 <= len(child.description) <= 100
 
     # Tanpa konfigurasi Lavalink, bot tetap hidup & command memberi panduan setup
     monkeypatch.setattr(music, "MUSIC_ENABLED", False)
@@ -4476,10 +4493,14 @@ async def test_growth_commands_views_and_help():
     assert level_group.name == "level"
     assert {c.name for c in level_group.commands} == {
         "lihat", "papan", "atur", "role", "status", "voice",
+        # v1.34.0-beta: musim & prestige
+        "musim", "prestise",
     }
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {
         "panel", "status", "tutup", "tambah", "daftar", "matikan",
+        # v1.33.0-beta: rating bintang, SLA respons pertama, & auto-close
+        "atur", "rating",
     }
     for group in (level_group, tiket_group):
         assert len(group.description) <= 100
@@ -5683,7 +5704,11 @@ async def test_moderation_cases_auto_punish_and_persistence():
 
     # 7. Command /mod terdaftar lengkap
     names = {c.name for c in mod_group.commands}
-    assert {"warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur"} == names
+    assert {
+        "warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur",
+        # v1.28.0-beta: perkakas moderasi harian
+        "slowmode", "role", "role-massal", "nickname",
+    } == names
 
     md.mod_cases.pop(gid, None)
     md.mod_settings.pop(gid, None)
@@ -5944,7 +5969,7 @@ async def test_server_tools_afk_threads_lockdown_backup():
     assert {"atur", "daftar", "hapus"} == {c.name for c in afk_group.commands}
     assert {"aktifkan", "matikan", "status"} == {c.name for c in thread_group.commands}
     assert {"aktif", "status"} == {c.name for c in lockdown_group.commands}
-    assert {"struktur"} == {c.name for c in backup_group.commands}
+    assert {"struktur", "pratinjau", "pulihkan"} == {c.name for c in backup_group.commands}
 
     st.afk_users.pop(gid, None)
     st.auto_thread_channels.pop(gid, None)
@@ -6388,10 +6413,20 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     assert status["uptime"].startswith("01:0") and status["ping_ms"] == 42
     usage = web_dashboard.collect_usage(1234)
     assert set(usage) >= {"total", "tokens_in", "tokens_out", "cache_hits", "faq_hits"}
+    kontrol = web_dashboard.render_controls_block(1234, "rahasia-uji")
     page = web_dashboard.render_dashboard_html(
-        status=status, usage=usage, levels={"rows": []}, refresh=15, heading="<script>x</script>"
+        status=status,
+        usage=usage,
+        levels={"rows": []},
+        refresh=15,
+        heading="<script>x</script>",
+        kontrol_block=kontrol,
     )
-    assert config.BOT_VERSION in page and "read-only" in page
+    assert config.BOT_VERSION in page and "Kontrol Cepat" in page
+    # Setiap form tulis membawa token tersembunyi & mengarah ke /api/aksi
+    assert page.count('action="/api/aksi"') == 5
+    assert 'name="token" value="rahasia-uji"' in page
+    assert "Simpan" in page
     assert "<script>x</script>" not in page      # di-escape
     assert 'http-equiv="refresh"' in page
 
@@ -6418,17 +6453,57 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
                 assert resp.status == 200 and "total" in data
             async with session.get(f"{base}/healthz") as resp:
                 assert resp.status == 200 and (await resp.text()) == "ok"
-            # read-only: tidak ada endpoint POST
+            # Halaman tetap GET-only
             async with session.post(f"{base}/?token=rahasia-uji", json={"x": 1}) as resp:
                 assert resp.status in (404, 405)
+
+            # v1.29.0-beta: endpoint tulis /api/aksi — wajib token
+            async with session.post(
+                f"{base}/api/aksi",
+                json={"guild": 1234, "action": "level", "value": "on"},
+                headers={"X-Dashboard-Token": "salah"},
+            ) as resp:
+                assert resp.status == 401
+            async with session.post(
+                f"{base}/api/aksi",
+                json={"guild": 1234, "action": "level", "value": "on"},
+                headers={"X-Dashboard-Token": "rahasia-uji"},
+            ) as resp:
+                data = await resp.json()
+                assert resp.status == 200 and data["ok"] is True
+            async with session.get(
+                f"{base}/api/kontrol?token=rahasia-uji&guild=1234"
+            ) as resp:
+                data = await resp.json()
+                assert resp.status == 200 and data["controls"]["level"] == "on"
+            # Aksi tak dikenal ditolak dengan pesan jelas
+            async with session.post(
+                f"{base}/api/aksi",
+                json={"guild": 1234, "action": "hapus-semua", "value": "on"},
+                headers={"X-Dashboard-Token": "rahasia-uji"},
+            ) as resp:
+                assert resp.status == 400
     finally:
         await web_dashboard.stop_dashboard()
 
-    # 6. Tidak ada satu pun route tulis (POST/PUT/DELETE) di modul dashboard
+    # 6. Satu-satunya jalur tulis hanya `/api/aksi` (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    for needle in ("add_post(", "add_put(", "add_delete(", "add_patch("):
-        assert needle not in src, f"dashboard seharusnya read-only: {needle}"
+    assert src.count("add_post(") == 1 and 'add_post("/api/aksi"' in src
+    for needle in ("add_put(", "add_delete(", "add_patch("):
+        assert needle not in src, f"dashboard tidak boleh punya {needle}"
     assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()
+
+    # 7. Kegagalan/aksi tak dikenal tidak pernah melempar exception
+    import levels as _levels
+    ok, message = await web_dashboard.apply_dashboard_action(1234, "level", "off")
+    assert ok is True and "nonaktif" in message
+    ok2, message2 = await web_dashboard.apply_dashboard_action(1234, "bukan-aksi", "on")
+    assert ok2 is False and "tidak didukung" in message2
+    ok3, _ = await web_dashboard.apply_dashboard_action(0, "level", "on")
+    assert ok3 is False
+    ok4, message4 = await web_dashboard.apply_dashboard_action(1234, "antispam", "mode-ngawur")
+    assert ok4 is False and "tidak dikenal" in message4
+    _levels.disable_leveling(1234)
 
 
 @pytest.mark.asyncio
@@ -6959,3 +7034,1970 @@ async def test_new_guild_gets_instant_commands_and_checklist():
     assert "/log" in sent[-1]["embed"].description
     assert "/tumbuh" in sent[-1]["embed"].description
     assert sent[-1]["allowed_mentions"].everyone is False
+
+
+# ==============================================================================
+# MENU BUILDER & SELF ROLES v2 (v1.26.0-beta)
+# ==============================================================================
+class _MBRole:
+    """Role tiruan dengan perbandingan berbasis `position` (hierarki)."""
+
+    def __init__(self, rid, name="Role", position=1, *, default=False, managed=False):
+        self.id = rid
+        self.name = name
+        self.position = position
+        self.mention = f"<@&{rid}>"
+        self._default = default
+        self.managed = managed
+
+    def is_default(self):
+        return self._default
+
+    def __ge__(self, other):
+        return self.position >= getattr(other, "position", -1)
+
+    def __lt__(self, other):
+        return self.position < getattr(other, "position", 0)
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def __eq__(self, other):
+        return getattr(other, "id", None) == self.id
+
+
+class _MBPerms:
+    def __init__(self, manage_roles=True, administrator=False, manage_guild=False):
+        self.manage_roles = manage_roles
+        self.administrator = administrator
+        self.manage_guild = manage_guild
+
+
+class _MBMember:
+    def __init__(self, uid=501, roles=None):
+        self.id = uid
+        self.mention = f"<@{uid}>"
+        self.roles = list(roles or [])
+        self.display_name = f"Member{uid}"
+        self.guild_permissions = _MBPerms(administrator=True)
+
+    async def add_roles(self, *roles, reason=None):
+        for role in roles:
+            if role not in self.roles:
+                self.roles.append(role)
+
+    async def remove_roles(self, *roles, reason=None):
+        for role in roles:
+            self.roles = [r for r in self.roles if r.id != role.id]
+
+
+class _MBGuild:
+    def __init__(self, gid=77, roles=None):
+        self.id = gid
+        self.name = "Server Uji"
+        self._roles = {r.id: r for r in (roles or [])}
+        self.me = _MBMember(999, [])
+        self.me.guild_permissions = _MBPerms(manage_roles=True)
+        self.me.top_role = _MBRole(900, "Bot", position=50)
+
+    def get_role(self, rid):
+        return self._roles.get(int(rid))
+
+
+class _MBResp:
+    def __init__(self):
+        self.sent = []
+        self.deferred = []
+        self._done = False
+
+    def is_done(self):
+        return self._done
+
+    async def send_message(self, *args, **kwargs):
+        self._done = True
+        self.sent.append(kwargs)
+
+    async def defer(self, *args, **kwargs):
+        self._done = True
+        self.deferred.append(kwargs)
+
+    async def edit_message(self, *args, **kwargs):
+        self._done = True
+
+
+class _MBFollow:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append(kwargs)
+
+
+class _MBInteraction:
+    def __init__(self, guild, member, client=None):
+        self.guild = guild
+        self.user = member
+        self.client = client
+        self.channel = type("C", (), {"id": 700, "mention": "#umum"})()
+        self.response = _MBResp()
+        self.followup = _MBFollow()
+        self.data = {}
+
+
+@pytest.mark.asyncio
+async def test_menu_builder_role_toggle_exclusive_and_limits():
+    """Menu Builder: tombol role toggle, dropdown eksklusif, batas item, & persistensi."""
+    import menu_builder
+
+    menu_builder.menus.clear()
+    menu_builder._role_cooldown.clear()
+
+    role_a = _MBRole(1, "Gamer", position=10)
+    role_b = _MBRole(2, "Musik", position=11)
+    role_old = _MBRole(3, "13-17", position=12)
+    role_new = _MBRole(4, "18-24", position=13)
+    guild = _MBGuild(77, [role_a, role_b, role_old, role_new])
+    member = _MBMember(501, [role_old])
+
+    # 1. Buat menu + tombol role + tombol link + dropdown eksklusif
+    menu = menu_builder.create_menu(guild.id, "Pusat Role", description="Ambil role kamu")
+    assert menu and menu["kind"] == menu_builder.MENU_KIND_MENU
+    assert menu_builder.create_menu(guild.id, "") is None       # judul kosong ditolak
+
+    assert menu_builder.add_role_button(menu, 1, "Gamer", emoji="🎮") is not None
+    assert menu_builder.add_role_button(menu, 1, "Duplikat") is None        # role sama ditolak
+    assert menu_builder.add_link_button(menu, "Support", "https://example.com") is not None
+    assert menu_builder.add_link_button(menu, "Rusak", "bukan-url") is None
+    assert menu_builder.add_command_button(menu, "serverstats") is not None
+    assert menu_builder.add_command_button(menu, "ngawur") is None          # di luar whitelist
+
+    dropdown = menu_builder.add_dropdown(
+        menu,
+        "Pilih kelompok usia…",
+        [{"role_id": 3, "label": "13-17"}, {"role_id": 4, "label": "18-24"}],
+        exclusive=True,
+        group="usia",
+    )
+    assert dropdown and dropdown["exclusive"] is True
+    assert menu_builder.add_dropdown(menu, "x", [{"role_id": 1, "label": "a"}]) is not None
+    assert menu_builder.add_dropdown(menu, "y", [{"role_id": 1, "label": "a"}]) is None  # maks 2
+
+    # 2. Toggle role: klik pertama memberi, klik kedua melepas
+    ix = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix, 1) is True
+    assert role_a in member.roles
+    menu_builder._role_cooldown.clear()      # lewati jeda 3 detik untuk pengujian
+    ix2 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix2, 1) is True
+    assert role_a not in member.roles
+
+    # 3. Jeda anti double-click
+    menu_builder._role_cooldown.clear()
+    ix3 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix3, 2) is True
+    ix4 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix4, 2) is False    # masih dalam jeda
+    assert role_b in member.roles
+
+    # 4. Role di atas role bot / @everyone ditolak
+    guild._roles[5] = _MBRole(5, "Admin", position=99)
+    guild._roles[6] = _MBRole(6, "@everyone", position=0, default=True)
+    ok, reason = menu_builder.check_role_usable(guild, 5)
+    assert ok is False and "di atas role bot" in reason
+    ok2, _ = menu_builder.check_role_usable(guild, 6)
+    assert ok2 is False
+    ok3, _ = menu_builder.check_role_usable(guild, 424242)
+    assert ok3 is False
+
+    # 5. Dropdown eksklusif: role grup dilepas otomatis
+    menu_builder._role_cooldown.clear()
+    exclusive_ids = menu_builder.role_ids_in_group(menu, "usia")
+    assert sorted(exclusive_ids) == [3, 4]
+    member.roles = [role_old]
+    ix5 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix5, 4, exclusive_role_ids=exclusive_ids) is True
+    assert role_new in member.roles and role_old not in member.roles
+
+    # 6. Batas jumlah tombol per panel
+    limited = menu_builder.create_menu(guild.id, "Penuh")
+    for idx in range(menu_builder.MAX_BUTTONS):
+        assert menu_builder.add_link_button(limited, f"L{idx}", f"https://x{idx}.test") is not None
+    assert menu_builder.add_link_button(limited, "Lebih", "https://lebih.test") is None
+    assert menu_builder.delete_menu(guild.id, limited["id"]) is True
+
+    # 7. Hapus item berdasarkan nomor & label
+    assert menu_builder.remove_item(menu, "1") is not None
+    assert menu_builder.remove_item(menu, "Tidak Ada") is None
+    assert menu_builder.count_items(menu) >= 1
+
+    # 8. Dispatch tombol: menu tidak dikenal → balasan sopan (tanpa crash)
+    ix6 = _MBInteraction(guild, member)
+    await menu_builder.handle_button(ix6, "tidak-ada", "x")
+    assert ix6.response.sent or ix6.followup.sent
+
+    # Dropdown tidak dikenal: diam saja, tanpa error
+    ix7 = _MBInteraction(guild, member)
+    await menu_builder.handle_select(ix7, menu["id"], "dropdown-tidak-ada")
+    assert ix7.response.sent == [] and ix7.followup.sent == []
+
+    # Dropdown valid: memilih opsi = role diberikan (atau dilepas)
+    menu_builder._role_cooldown.clear()
+    member.roles = []
+    ix8 = _MBInteraction(guild, member)
+    ix8.data = {"values": ["4"]}
+    await menu_builder.handle_select(ix8, menu["id"], dropdown["id"])
+    assert role_new in member.roles
+
+    # 9. Persistensi
+    menu_builder.menus.clear()
+    assert menu_builder.load_menus_from_disk() >= 0
+    assert isinstance(menu_builder.cleanup_menu_runtime(), int)
+    menu_builder.menus.clear()
+
+
+@pytest.mark.asyncio
+async def test_menu_builder_command_buttons_and_visibility(monkeypatch):
+    """Tombol command: whitelist, jalan atas nama pengklik, & paksa visibilitas."""
+    import menu_builder
+
+    menu_builder.menus.clear()
+    menu_builder._role_cooldown.clear()
+
+    calls: list[dict] = []
+
+    async def _fake_command(interaction):
+        calls.append({"ephemeral": None})
+        await interaction.response.send_message(content="hasil info", ephemeral=True)
+
+    class _Command:
+        callback = staticmethod(_fake_command)
+
+    class _Group:
+        def __init__(self):
+            self._children = {"lihat": _Command()}
+
+        def get_command(self, name):
+            return self._children.get(name)
+
+    class _Tree:
+        def __init__(self):
+            self._top = {"serverstats": _Group()}
+
+        def get_command(self, name):
+            return self._top.get(name)
+
+    class _Client:
+        def __init__(self):
+            self.tree = _Tree()
+
+    guild = _MBGuild(88, [_MBRole(1, "Gamer", position=10)])
+    member = _MBMember(601)
+    client = _Client()
+    ix = _MBInteraction(guild, member, client=client)
+
+    # 1. Command ada di whitelist → berhasil dipanggil
+    assert await menu_builder.run_command_item(ix, "serverstats", menu_builder.VIS_AUTO) is True
+    assert calls
+
+    # 2. Visibilitas publik memaksa `ephemeral=False`
+    ix_pub = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_pub, "serverstats", menu_builder.VIS_PUBLIK) is True
+    assert ix_pub.response.sent[-1]["ephemeral"] is False
+
+    # 3. Visibilitas ephemeral memaksa `ephemeral=True`
+    ix_eph = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_eph, "serverstats", menu_builder.VIS_EPHEMERAL) is True
+    assert ix_eph.response.sent[-1]["ephemeral"] is True
+
+    # 4. Command di luar whitelist / tidak tersedia → ditolak tanpa crash
+    ix_bad = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_bad, "serverstats", menu_builder.VIS_AUTO) is True
+    ix_missing = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_missing, "level", menu_builder.VIS_AUTO) is False
+
+    # 5. Menu dasar & tombol command terpasang benar
+    menu = menu_builder.create_menu(guild.id, "Pusat Info")
+    item = menu_builder.add_command_button(menu, "serverstats", visibility=menu_builder.VIS_PUBLIK)
+    assert item and item["kind"] == menu_builder.KIND_COMMAND
+    assert menu_builder.SAFE_COMMANDS["serverstats"]["path"] == ("serverstats", "lihat")
+    # Command berbahaya tidak terdaftar
+    for forbidden in ("ban", "purge", "lockdown", "backup", "mod", "ekonomi_atur"):
+        assert forbidden not in menu_builder.SAFE_COMMANDS
+
+    # 6. Handler tombol command memakai visibilitas tersimpan
+    ix_btn = _MBInteraction(guild, member, client=client)
+    await menu_builder.handle_button(ix_btn, menu["id"], item["id"])
+    assert ix_btn.response.sent[-1]["ephemeral"] is False
+
+    # 7. Panel dapat dirender (V2) & fallback embed
+    view = menu_builder.build_view(menu)
+    assert view is not None
+    embed = menu_builder.build_fallback_embed(menu)
+    assert "Pusat Info" in (embed.title or "")
+
+    menu_builder.menus.clear()
+
+
+# ==============================================================================
+# ANTI-NUKE (v1.27.0-beta)
+# ==============================================================================
+class _ANRole:
+    def __init__(self, rid, name="Role", *, dangerous=True):
+        self.id = rid
+        self.name = name
+        self.mention = f"<@&{rid}>"
+        self.permissions = type(
+            "P",
+            (),
+            {
+                "administrator": dangerous,
+                "manage_guild": False,
+                "manage_roles": False,
+                "manage_channels": False,
+                "manage_webhooks": False,
+                "ban_members": False,
+                "kick_members": False,
+                "manage_messages": False,
+            },
+        )()
+
+    def is_default(self):
+        return False
+
+
+class _ANMember:
+    def __init__(self, uid=801, name="Nuker", roles=None, *, owner=False):
+        self.id = uid
+        self.name = name
+        self.mention = f"<@{uid}>"
+        self.roles = list(roles or [])
+        self.bot = False
+        self._owner = owner
+        self.kicked = False
+        self.banned = False
+        self.timed_out_until = None
+        self.removed_roles = []
+
+    async def remove_roles(self, *roles, reason=None):
+        self.removed_roles.extend(roles)
+        self.roles = [r for r in self.roles if r.id not in {x.id for x in roles}]
+
+    async def timeout(self, until, reason=None):
+        self.timed_out_until = until
+
+    async def kick(self, reason=None):
+        self.kicked = True
+
+
+class _ANChannel:
+    def __init__(self, cid=901):
+        self.id = cid
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append(kwargs)
+
+
+class _ANHook:
+    def __init__(self, uid):
+        self.user = type("U", (), {"id": uid})()
+        self.deleted = False
+
+    async def delete(self, reason=None):
+        self.deleted = True
+
+
+class _ANGuild:
+    def __init__(self, gid=99, *, name="Server Asli", owner_id=700):
+        self.id = gid
+        self.name = name
+        self.owner_id = owner_id
+        self.owner = None
+        self.icon = None
+        self.system_channel = _ANChannel(902)
+        self.me = _ANMember(999, "Bot", owner=False)
+        self._members = {}
+        self._hooks = []
+        self.edits = []
+        self.banned = None
+
+    def get_member(self, uid):
+        return self._members.get(int(uid))
+
+    def get_role(self, rid):
+        return None
+
+    async def webhooks(self):
+        return self._hooks
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        if "name" in kwargs:
+            self.name = kwargs["name"]
+
+    async def ban(self, member, reason=None, delete_message_seconds=0):
+        self.banned = member
+        if hasattr(member, "banned"):
+            member.banned = True
+
+    async def fetch_member(self, uid):
+        return None
+
+
+class _ANEntry:
+    def __init__(self, guild, user, action_name):
+        self.guild = guild
+        self.user = user
+        self.action = type("A", (), {"name": action_name})()
+
+
+@pytest.mark.asyncio
+async def test_antinuke_detection_actions_and_whitelist():
+    """Anti-Nuke: deteksi ambang, tindakan bertingkat, whitelist, & pemulihan identitas."""
+    import antinuke
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+    guild = _ANGuild(99)
+    nuker = _ANMember(801, "Nuker", [_ANRole(11)])
+    guild._members[801] = nuker
+
+    # 1. Konfigurasi bawaan aman
+    cfg = antinuke.get_config(99)
+    assert cfg["enabled"] is True and cfg["action"] == "lapor"
+    assert cfg["restore"] is True and cfg["dm_owner"] is True
+    assert antinuke.is_enabled(99) is True
+
+    # 2. Klasifikasi aksi audit log
+    assert antinuke.classify("channel_delete") == "channel_delete"
+    assert antinuke.classify("ban") == "ban"
+    assert antinuke.classify("kick") == "kick"
+    assert antinuke.classify("webhook_create") == "webhook_create"
+    assert antinuke.classify("role_delete") == "role_delete"
+    assert antinuke.classify("bukan_aksi") is None
+
+    # 3. Di bawah ambang: tidak ada pelanggaran & tidak ada laporan
+    antinuke.set_config(99, thresholds={"channel_delete": 3}, window=60)
+    log_channel = _ANChannel(901)
+    cfg = antinuke.get_config(99)
+    cfg["log_channel_id"] = 901
+    cfg["dm_owner"] = False
+    bot = type("B", (), {"get_channel": lambda self, cid: log_channel if int(cid) == 901 else None,
+                         "user": _ANMember(999, "Bot")})()
+
+    base = 1000.0
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base) is None
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base + 1) is None
+    assert log_channel.sent == []
+
+    # 4. Melewati ambang & mode `lapor` → laporan dikirim, tanpa tindakan
+    violation = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base + 2)
+    assert violation is not None
+    assert violation["action"] == "channel_delete" and violation["count"] >= 3
+    assert "lapor" in violation["taken"]
+    assert log_channel.sent and "Anti-Nuke" in log_channel.sent[-1]["embed"].title
+    assert nuker.removed_roles == [] and nuker.kicked is False
+    assert antinuke.recent_violations(99, 5)
+
+    # 5. Mode `cabut-role`: role berbahaya pelaku dicabut otomatis
+    antinuke.reset_events()
+    antinuke.set_config(99, action="cabut-role")
+    for offset in range(3):
+        last = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "role_delete"), now=base + 100 + offset)
+    assert last is not None and "cabut-role" in last["taken"]
+    assert nuker.removed_roles and nuker.removed_roles[0].id == 11
+
+    # 6. Mode `timeout` & `kick`
+    antinuke.reset_events()
+    antinuke.set_config(99, action="timeout", timeout_sec=600)
+    for offset in range(5):
+        last = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "ban"), now=base + 200 + offset)
+    assert nuker.timed_out_until is not None
+    assert "timeout" in last["taken"]
+
+    antinuke.reset_events()
+    antinuke.set_config(99, action="kick")
+    for offset in range(5):
+        last = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "kick"), now=base + 300 + offset)
+    assert nuker.kicked is True and "kick" in last["taken"]
+
+    # 7. Whitelist: member, role, owner, & bot sendiri tidak pernah ditindak
+    antinuke.reset_events()
+    antinuke.set_config(99, action="ban")
+    assert antinuke.add_whitelist(99, user_id=801) is True
+    assert antinuke.add_whitelist(99, user_id=801) is False            # duplikat
+    assert antinuke.is_whitelisted(guild, nuker) is True
+    for offset in range(6):
+        assert await antinuke.handle_audit_entry(
+            bot, _ANEntry(guild, nuker, "ban"), now=base + 400 + offset
+        ) is None
+
+    owner_member = _ANMember(700, "Owner", owner=True)
+    guild._members[700] = owner_member
+    assert antinuke.is_whitelisted(guild, owner_member) is True
+    assert antinuke.is_whitelisted(guild, guild.me) is True
+
+    role_member = _ANMember(802, "Mod", [_ANRole(22)])
+    assert antinuke.is_whitelisted(guild, role_member) is False
+    assert antinuke.add_whitelist(99, role_id=22) is True
+    assert antinuke.is_whitelisted(guild, role_member) is True
+    assert antinuke.remove_whitelist(99, role_id=22) is True
+    assert antinuke.remove_whitelist(99, user_id=801) is True
+    assert antinuke.is_whitelisted(guild, role_member) is False
+
+    # 8. Pemulihan identitas server saat `guild_update`
+    antinuke.snapshot_identity(guild)
+    guild.name = "Server Dibajak"
+    antinuke.reset_events()
+    antinuke.set_config(99, action="lapor", restore=True)
+    for offset in range(2):
+        await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "guild_update"), now=base + 500 + offset)
+    assert guild.edits and guild.edits[-1].get("name") == "Server Asli"
+    assert guild.name == "Server Asli"
+
+    # 9. Pemulihan webhook buatan pelaku
+    hook = _ANHook(801)
+    other = _ANHook(12345)
+    guild._hooks = [hook, other]
+    removed = await antinuke.cleanup_offender_webhooks(guild, nuker)
+    assert removed == 1 and hook.deleted is True and other.deleted is False
+
+    # 10. Simulasi (uji kering)
+    data = antinuke.simulate(99, "channel_delete")
+    assert data["limit"] >= 1 and data["window"] >= 1
+
+    # 11. Persistensi & pembersihan
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    assert antinuke.load_antinuke_from_disk() >= 0
+    assert isinstance(antinuke.cleanup_antinuke_runtime(), int)
+    assert antinuke.handle_channel_delete(901) in (0, 1)
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+
+@pytest.mark.asyncio
+async def test_antinuke_disabled_and_permission_edges():
+    """Anti-Nuke: fungsi mati, aksi tak dikenal, & kegagalan izin tidak membuat bot error."""
+    import antinuke
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+    guild = _ANGuild(50)
+    nuker = _ANMember(803, "Nuker2", [_ANRole(31)])
+    guild._members[803] = nuker
+
+    class _Bot:
+        def get_channel(self, cid):
+            return None
+
+        user = _ANMember(999, "Bot")
+
+    bot = _Bot()
+
+    # 1. Dinonaktifkan → tidak ada deteksi
+    antinuke.set_config(50, enabled=False)
+    assert antinuke.is_enabled(50) is False
+    for offset in range(10):
+        assert await antinuke.handle_audit_entry(
+            bot, _ANEntry(guild, nuker, "channel_delete"), now=2000.0 + offset
+        ) is None
+
+    # 2. Aksi tidak dikenal / tanpa user / tanpa guild → diabaikan
+    antinuke.set_config(50, enabled=True)
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "pesan_diedit"), now=2100.0) is None
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, None, "channel_delete"), now=2100.0) is None
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(None, nuker, "channel_delete"), now=2100.0) is None
+
+    # 3. Gagal mencabut role (Forbidden) tidak melempar error
+    class _ForbiddenMember(_ANMember):
+        async def remove_roles(self, *roles, reason=None):
+            raise discord.Forbidden(type("R", (), {"status": 403, "reason": "x"})(), "nope")
+
+    denied = _ForbiddenMember(804, "Denied", [_ANRole(41)])
+    result = await antinuke.apply_action(guild, denied, "cabut-role")
+    assert "gagal" in result
+
+    # 4. Aksi `lapor` tidak mengubah apa pun
+    assert "lapor" in await antinuke.apply_action(guild, nuker, "lapor")
+
+    # 5. Pemulihan identitas tanpa titik pulih → pesan jelas
+    antinuke.antinuke_guilds.clear()
+    fresh = _ANGuild(51, name="Baru")
+    ok, message = await antinuke.restore_identity(bot, fresh)
+    assert ok is False and "titik pulih" in message
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+
+# ==============================================================================
+# MODERASI HARIAN (v1.28.0-beta): slowmode, role, & nickname
+# ==============================================================================
+class _ModRole:
+    def __init__(self, rid=51, name="Member", position=5, *, default=False, managed=False):
+        self.id = rid
+        self.name = name
+        self.position = position
+        self.mention = f"<@&{rid}>"
+        self._default = default
+        self.managed = managed
+
+    def is_default(self):
+        return self._default
+
+    def __ge__(self, other):
+        return self.position >= getattr(other, "position", -1)
+
+    def __lt__(self, other):
+        return self.position < getattr(other, "position", 0)
+
+
+class _ModPerms:
+    def __init__(self, **flags):
+        self.administrator = flags.get("administrator", False)
+        self.moderate_members = flags.get("moderate_members", True)
+        self.manage_roles = flags.get("manage_roles", True)
+        self.manage_channels = flags.get("manage_channels", True)
+        self.manage_messages = flags.get("manage_messages", True)
+        self.ban_members = flags.get("ban_members", True)
+        self.kick_members = flags.get("kick_members", True)
+
+
+class _ModChannel:
+    def __init__(self, cid=700):
+        self.id = cid
+        self.name = "umum"
+        self.mention = f"<#{cid}>"
+        self.slowmode_delay = 0
+        self.edits = []
+
+    async def edit(self, **kwargs):
+        self.edits.append(kwargs)
+        if "slowmode_delay" in kwargs:
+            self.slowmode_delay = kwargs["slowmode_delay"]
+
+
+class _ModMember:
+    def __init__(self, uid=601, name="Anggota", top_role=None):
+        self.id = uid
+        self.name = name
+        self.mention = f"<@{uid}>"
+        self.bot = False
+        self.roles = []
+        self.top_role = top_role or _ModRole(60, "Anggota", position=3)
+        self.nick = None
+        self.dm_sent = []
+
+    async def add_roles(self, *roles, reason=None):
+        self.roles.extend(r for r in roles if r not in self.roles)
+
+    async def remove_roles(self, *roles, reason=None):
+        self.roles = [r for r in self.roles if r.id not in {x.id for x in roles}]
+
+    async def edit(self, **kwargs):
+        if "nick" in kwargs:
+            self.nick = kwargs["nick"]
+
+    async def send(self, content=None, **kwargs):
+        self.dm_sent.append(content)
+
+
+class _ModGuild:
+    def __init__(self, gid=12):
+        self.id = gid
+        self.name = "Server Mod"
+        self.owner_id = 1
+        self.members = []
+        self.me = _ModMember(999, "Bot", _ModRole(900, "Bot", position=50))
+        self.me.guild_permissions = _ModPerms()
+        self._channels = {}
+
+    def get_channel(self, cid):
+        return self._channels.get(int(cid))
+
+
+class _ModResp:
+    def __init__(self):
+        self.sent = []
+        self._done = False
+
+    def is_done(self):
+        return self._done
+
+    async def send_message(self, *args, **kwargs):
+        self._done = True
+        self.sent.append((args, kwargs))
+
+    async def defer(self, *args, **kwargs):
+        self._done = True
+
+
+class _ModFollow:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append((args, kwargs))
+
+
+class _ModInteraction:
+    def __init__(self, guild, user):
+        self.guild = guild
+        self.user = user
+        self.channel = _ModChannel()
+        self.response = _ModResp()
+        self.followup = _ModFollow()
+        self.edits = []
+
+    async def edit_original_response(self, **kwargs):
+        self.edits.append(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_moderation_daily_tools_slowmode_role_nickname(monkeypatch):
+    """Slowmode, role massal, & nickname berjalan, tercatat sebagai kasus, & menghormati hierarki."""
+    import moderation as mod
+    from cogs.moderation_cog import (
+        _role_change_problem,
+        mod_nickname_cmd,
+        mod_role_cmd,
+        mod_role_massal_cmd,
+        mod_slowmode_cmd,
+    )
+
+    mod.mod_cases.clear()
+    mod.mod_settings.clear()
+    mod.get_settings(12)
+
+    guild = _ModGuild(12)
+    staff = _ModMember(601, "Staff")
+    staff.guild_permissions = _ModPerms(administrator=True)
+    target = _ModMember(602, "Anggota")
+    target.guild_permissions = _ModPerms(administrator=False)
+    bot_member = guild.me
+    bot_member.guild_permissions = _ModPerms()
+    guild.members = [bot_member, staff, target]
+    guild._channels[700] = guild.me and _ModChannel(700)
+
+    # 1. Slowmode dipasang & dimatikan
+    ix = _ModInteraction(guild, staff)
+    await mod_slowmode_cmd.callback(ix, 30)
+    assert ix.channel.slowmode_delay == 30
+    ix2 = _ModInteraction(guild, staff)
+    await mod_slowmode_cmd.callback(ix2, 0)
+    assert ix2.channel.slowmode_delay == 0
+    assert any(case["action"] == "note" for case in mod.list_cases(12))
+
+    # 2. Role diberikan & dicabut ke satu member
+    role = _ModRole(55, "Gamer", position=8)
+    ok, _reason = _role_change_problem(guild, target, role)
+    assert ok is True
+    ix3 = _ModInteraction(guild, staff)
+    await mod_role_cmd.callback(ix3, target, role, None, "hadiah event")
+    assert role in target.roles
+    ix4 = _ModInteraction(guild, staff)
+    await mod_role_cmd.callback(ix4, target, role, type("C", (), {"value": "cabut"})(), None)
+    assert role not in target.roles
+
+    # 3. Hierarki: role di atas bot & pemilik server ditolak
+    high_role = _ModRole(56, "Admin", position=99)
+    ok2, reason2 = _role_change_problem(guild, target, high_role)
+    assert ok2 is False and "di atas role bot" in reason2
+    owner = _ModMember(1, "Owner")
+    ok3, reason3 = _role_change_problem(guild, owner, role)
+    assert ok3 is False and "pemilik server" in reason3
+
+    # 4. Role massal: konfirmasi dimatikan tema → langsung dijalankan
+    monkeypatch.setattr("ui_theme.confirm_enabled", lambda _gid: False)
+    ix5 = _ModInteraction(guild, staff)
+    await mod_role_massal_cmd.callback(ix5, role, type("C", (), {"value": "beri"})())
+    assert role in target.roles
+    assert ix5.edits  # ringkasan hasil dikirim
+
+    # 5. Nickname diubah & direset
+    ix6 = _ModInteraction(guild, staff)
+    await mod_nickname_cmd.callback(ix6, target, "Sobat Baru", None)
+    assert target.nick == "Sobat Baru"
+    ix7 = _ModInteraction(guild, staff)
+    await mod_nickname_cmd.callback(ix7, target, None, "reset")
+    assert target.nick is None
+
+    mod.mod_cases.clear()
+    mod.mod_settings.clear()
+
+
+# ==============================================================================
+# PEMULIHAN STRUKTUR BACKUP (v1.30.0-beta)
+# ==============================================================================
+class _BRRole:
+    def __init__(self, rid, name):
+        self.id = rid
+        self.name = name
+
+
+class _BRCategory:
+    def __init__(self, cid, name):
+        self.id = cid
+        self.name = name
+        self.perms = []
+
+    async def set_permissions(self, target, allow=None, deny=None, reason=None):
+        self.perms.append((target.name, allow.value if allow else 0))
+
+
+class _BRChannel:
+    def __init__(self, name, kind="text"):
+        self.name = name
+        self.type = kind
+        self.perms = []
+
+    async def set_permissions(self, target, allow=None, deny=None, reason=None):
+        self.perms.append((target.name, allow.value if allow else 0))
+
+
+class _BRGuild:
+    def __init__(self, gid=88):
+        self.id = gid
+        self.roles = [_BRRole(1, "@everyone"), _BRRole(2, "Moderator")]
+        self.categories = [_BRCategory(10, "INFO")]
+        self.channels = [_BRChannel("umum"), _BRChannel("voice-lounge", "voice")]
+        self.created = {"roles": [], "categories": [], "channels": []}
+
+    async def create_role(self, name, permissions=None, colour=None, hoist=False, mentionable=False, reason=None):
+        role = _BRRole(900 + len(self.created["roles"]), name)
+        self.created["roles"].append(name)
+        self.roles.append(role)
+        return role
+
+    async def create_category(self, name, reason=None):
+        cat = _BRCategory(800 + len(self.created["categories"]), name)
+        self.created["categories"].append(name)
+        self.categories.append(cat)
+        return cat
+
+    async def create_text_channel(self, name, **kwargs):
+        self.created["channels"].append(("text", name, kwargs))
+        return _BRChannel(name, "text")
+
+    async def create_voice_channel(self, name, **kwargs):
+        self.created["channels"].append(("voice", name, kwargs))
+        return _BRChannel(name, "voice")
+
+
+def _sample_backup() -> dict:
+    return {
+        "meta": {"generated_at": "2026-11-05T00:00:00", "version": 1, "guild_id": 88, "guild_name": "Server Lama"},
+        "roles": [
+            {"name": "Moderator", "permissions": 8, "colour": 0},
+            {"name": "Event", "permissions": 0, "colour": 0x5865F2, "hoist": True, "mentionable": True},
+        ],
+        "categories": [
+            {"id": 10, "name": "INFO", "position": 0,
+             "overwrites": [{"target_type": "role", "target_id": 2, "target_name": "Moderator", "allow": 2048, "deny": 0}]},
+            {"id": 11, "name": "EVENT", "position": 1, "overwrites": []},
+        ],
+        "channels": [
+            {"id": 100, "name": "umum", "type": "text", "category_id": 10},
+            {"id": 101, "name": "pengumuman", "type": "news", "category_id": 10,
+             "overwrites": [{"target_type": "role", "target_name": "Moderator", "allow": 2048, "deny": 0},
+                            {"target_type": "member", "target_name": "Budi", "allow": 1, "deny": 0}]},
+            {"id": 102, "name": "voice-lounge", "type": "voice", "category_id": 11},
+            {"id": 103, "name": "lounge-2", "type": "voice", "category_id": 11, "bitrate": 64000, "user_limit": 5},
+            {"id": 104, "name": "forum-diskusi", "type": "forum", "category_id": 11},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_backup_restore_parse_plan_and_apply(monkeypatch):
+    """Pemulihan struktur: parsing, dry-run, pembuatan role/kategori/channel, & pengaman."""
+    import json as _json
+
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+
+    # 1. Parsing & validasi
+    snapshot = _sample_backup()
+    raw = _json.dumps(snapshot)
+    parsed, error = br.parse_backup(raw)
+    assert parsed is not None and error == ""
+    assert br.parse_backup("")[1] == "Berkas kosong."
+    assert "JSON" in br.parse_backup("{bukan json")[1]
+    assert "bukan backup struktur" in br.parse_backup('{"foo": 1}')[1]
+    bad_version = dict(snapshot, meta={"version": 99})
+    assert "lebih baru" in br.parse_backup(_json.dumps(bad_version))[1]
+
+    info = br.summarize(snapshot)
+    assert info["guild_name"] == "Server Lama"
+    assert info["roles"] == 2 and info["categories"] == 2 and info["channels"] == 5
+
+    # 2. Rencana (dry-run) tidak mengubah server sama sekali
+    guild = _BRGuild()
+    plan = br.build_plan(guild, snapshot)
+    assert guild.created == {"roles": [], "categories": [], "channels": []}
+    assert [r["name"] for r in plan["roles"]] == ["Event"]           # Moderator sudah ada
+    assert [c["name"] for c in plan["categories"]] == ["EVENT"]      # INFO sudah ada
+    names = [c["name"] for c in plan["channels"]]
+    assert "pengumuman" in names and "lounge-2" in names
+    assert "umum" not in names and "voice-lounge" not in names       # sudah ada
+    assert any("forum" in item and "belum didukung" in item for item in plan["skipped"])
+    assert plan["already"] == {"roles": 1, "categories": 1, "channels": 2}
+    assert "Event" in br.describe_plan(plan) and "Dilewati" in br.describe_plan(plan)
+
+    # 3. Opsi nonaktif → tidak ada yang dibuat untuk jenis itu
+    plan_no_role = br.build_plan(guild, snapshot, buat_role=False)
+    assert plan_no_role["roles"] == []
+
+    # 4. Eksekusi: role → kategori → channel, izin role diterapkan
+    result = await br.apply_plan(guild, plan, actor_id=42)
+    assert result["roles"] == 1 and guild.created["roles"] == ["Event"]
+    assert result["categories"] == 1 and guild.created["categories"] == ["EVENT"]
+    assert {c[1] for c in guild.created["channels"]} == {"pengumuman", "lounge-2"}
+    assert result["channels"] == 2
+    assert result["overwrites"] >= 1          # izin role Moderator diterapkan
+    assert result["errors"] == []
+
+    # Channel announcement dibuat sebagai text, voice memakai bitrate & limit
+    kinds = {c[1]: c for c in guild.created["channels"]}
+    assert kinds["pengumuman"][0] == "text"
+    assert kinds["lounge-2"][0] == "voice"
+    assert kinds["lounge-2"][2].get("user_limit") == 5
+    assert kinds["pengumuman"][2].get("category").name == "INFO"
+    # Overwrite per-member dilewati (ID member beda di server lain)
+    applied = [p[0] for p in kinds["pengumuman"][2].get("category").perms]
+    assert isinstance(applied, list)
+
+    # 5. Batas jumlah item per pemulihan
+    big = {
+        "meta": {"version": 1},
+        "roles": [{"name": f"R{i}", "permissions": 0} for i in range(40)],
+        "categories": [],
+        "channels": [],
+    }
+    plan_big = br.build_plan(_BRGuild(99), big)
+    assert plan_big["total"] <= br.MAX_CREATE_TOTAL
+    assert any("batas" in item for item in plan_big["skipped"])
+
+    # 6. Kegagalan izin tidak menghentikan item lain
+    class _Forbidden(Exception):
+        pass
+
+    forbidden_guild = _BRGuild(77)
+
+    async def _deny(**kwargs):
+        raise discord.Forbidden(type("R", (), {"status": 403, "reason": "x"})(), "nope")
+
+    forbidden_guild.create_role = _deny
+    result2 = await br.apply_plan(forbidden_guild, br.build_plan(forbidden_guild, snapshot))
+    assert result2["roles"] == 0 and result2["errors"]
+    assert result2["channels"] == 2            # channel tetap dibuat
+
+    assert "Role dibuat" in br.describe_result(result)
+
+
+# ==============================================================================
+# RAID GUARD (v1.31.0-beta)
+# ==============================================================================
+class _RaidGuild:
+    def __init__(self, gid=64):
+        self.id = gid
+        self.name = "Server Raid"
+        self.owner_id = 1
+        self.owner = None
+        self.system_channel = _RaidChannel(900)
+        self.members = []
+
+    async def fetch_member(self, uid):
+        return None
+
+
+class _RaidChannel:
+    def __init__(self, cid=901):
+        self.id = cid
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append(kwargs)
+
+
+class _RaidMember:
+    def __init__(self, uid=501, name="Pendatang", mention=None):
+        self.id = uid
+        self.name = name
+        self.mention = mention or f"<@{uid}>"
+        self.bot = False
+        self.dm = []
+
+    async def send(self, content=None, **kwargs):
+        self.dm.append(content)
+
+
+@pytest.mark.asyncio
+async def test_raid_guard_detection_actions_and_auto_end(monkeypatch):
+    """Raid Guard: deteksi lonjakan join, tahan Auto Role, lockdown opsional, & berakhir otomatis."""
+    import raid_guard
+
+    raid_guard.raid_configs.clear()
+    raid_guard.raid_states.clear()
+    raid_guard.reset_runtime()
+
+    guild = _RaidGuild(64)
+    log_channel = _RaidChannel(901)
+    guild.system_channel = log_channel
+    member = _RaidMember(501)
+    member.guild = guild
+
+    class _Bot:
+        user = _RaidMember(999, "Bot")
+
+        def get_guild(self, gid):
+            return guild if int(gid) == 64 else None
+
+        def get_channel(self, cid):
+            return log_channel if int(cid) == 901 else None
+
+    bot = _Bot()
+
+    # 1. Default nonaktif → join tidak memicu apa pun
+    assert raid_guard.is_enabled(64) is False
+    for _ in range(10):
+        assert await raid_guard.handle_member_join(bot, member) is None
+    assert raid_guard.is_raid_active(64) is None
+
+    # 2. Setelah diaktifkan, lonjakan join memicu mode raid otomatis
+    raid_guard.reset_runtime()
+    raid_guard.set_config(64, enabled=True, join_threshold=3, window_sec=60, action="verifikasi", duration_min=5)
+    cfg = raid_guard.get_config(64)
+    cfg["log_channel_id"] = 901
+    cfg["verify_channel_id"] = 901
+
+    assert await raid_guard.handle_member_join(bot, member) is None      # join ke-1
+    assert await raid_guard.handle_member_join(bot, member) is None      # join ke-2
+    state = await raid_guard.handle_member_join(bot, member)             # join ke-3 → raid
+    assert state is not None and state["action"] == "verifikasi"
+    assert raid_guard.is_raid_active(64) is not None
+    assert raid_guard.should_skip_autorole(64) is True
+    titles = [kw["embed"].title for kw in log_channel.sent if kw.get("embed")]
+    assert any("Mode Raid" in title for title in titles)
+    assert member.dm                                                # DM pengingat verifikasi terkirim
+
+    # 3. Ambang & validasi konfigurasi
+    raid_guard.set_config(64, join_threshold=999, window_sec=1, duration_min=9999)
+    cfg = raid_guard.get_config(64)
+    assert cfg["join_threshold"] == 100 and cfg["window_sec"] == 10 and cfg["duration_min"] == 1440
+
+    # 4. Mode `lapor` tidak menahan Auto Role
+    raid_guard.raid_states.clear()
+    raid_guard.set_config(64, action="lapor")
+    await raid_guard.start(bot, guild, reason="uji lapor", action="lapor", duration_min=1)
+    assert raid_guard.should_skip_autorole(64) is False
+
+    # 5. Mode lockdown memakai server_tools & dibuka kembali saat berakhir
+    import server_tools as st
+
+    calls = {"start": 0, "stop": 0}
+
+    async def _fake_start(guild_arg, by_id=0, reason=""):
+        calls["start"] += 1
+        return 2, 0
+
+    async def _fake_stop(guild_arg):
+        calls["stop"] += 1
+        return 2
+
+    monkeypatch.setattr(st, "start_lockdown", _fake_start)
+    monkeypatch.setattr(st, "stop_lockdown", _fake_stop)
+    monkeypatch.setattr(st, "save_server_tools_to_disk", lambda: _noop())
+
+    async def _noop():
+        return None
+
+    raid_guard.raid_states.clear()
+    result = await raid_guard.start(bot, guild, reason="uji lockdown", action="verifikasi+lockdown", duration_min=1)
+    assert calls["start"] == 1 and result["state"]["locked"] is True
+    ended = await raid_guard.end(bot, guild)
+    assert ended["ended"] is True and calls["stop"] == 1
+
+    # 6. Akhiri saat tidak aktif
+    again = await raid_guard.end(bot, guild)
+    assert again["ended"] is False
+
+    # 7. Kedaluwarsa otomatis (tick) & sisa waktu
+    raid_guard.raid_states.clear()
+    await raid_guard.start(bot, guild, reason="uji tick", action="lapor", duration_min=1)
+    assert raid_guard.remaining_seconds(64) > 0
+    raid_guard.raid_states[64]["until"] = time.time() - 1
+    assert await raid_guard.tick(bot) == [64]
+    assert raid_guard.is_raid_active(64) is None
+
+    # 8. Anti-spam laporan: trigger kedua dalam 5 menit diabaikan
+    raid_guard.reset_runtime()
+    raid_guard.set_config(64, enabled=True, join_threshold=2, action="verifikasi")
+    assert await raid_guard.handle_member_join(bot, member) is None
+    first = await raid_guard.handle_member_join(bot, member)
+    assert first is not None
+    raid_guard.raid_states.clear()
+    raid_guard.reset_runtime()
+    raid_guard._alert_cooldown[64] = time.time()
+    assert await raid_guard.handle_member_join(bot, member) is None
+
+    # 9. Persistensi
+    raid_guard.raid_configs.clear()
+    raid_guard.raid_states.clear()
+    assert raid_guard.load_raid_from_disk() >= 0
+    assert isinstance(raid_guard.cleanup_raid_runtime(), int)
+    assert raid_guard.handle_channel_delete(901) in (0, 1)
+
+    raid_guard.raid_configs.clear()
+    raid_guard.raid_states.clear()
+    raid_guard.reset_runtime()
+
+
+# ==============================================================================
+# PLAYLIST MUSIK PER MEMBER (v1.32.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_music_playlists_per_member():
+    """Playlist pribadi: simpan, batas kuota, ubah nama, hapus lagu, & persistensi."""
+    import music_playlists as pl
+
+    pl.guild_playlists.clear()
+
+    def _track(title, uri=None, ident="ytsearch"):
+        return {"title": title, "query": uri or title, "identifier": ident}
+
+    # 1. Simpan playlist pertama (menimpa)
+    ok, msg = pl.save_playlist(1, 10, "  Favorit  Nya ", [_track("Lagu A"), _track("Lagu B")])
+    assert ok and "Favorit Nya" in msg
+    assert len(pl.member_playlists(1, 10)) == 1
+    data = pl.get_playlist(1, 10, "favorit nya")
+    assert data is not None and len(data["tracks"]) == 2
+
+    # 2. Duplikat nama (tanpa peka huruf) tidak membuat playlist baru
+    ok, _ = pl.save_playlist(1, 10, "FAVORIT NYA", [_track("Lagu A"), _track("Lagu C")], replace=False)
+    assert ok
+    names = [item["name"] for item in pl.member_playlists(1, 10)]
+    assert names == ["Favorit Nya"]
+    # replace=False menambahkan lagu baru tanpa menghapus yang lama
+    assert [t["title"] for t in pl.get_playlist(1, 10, "favorit nya")["tracks"]] == ["Lagu A", "Lagu B", "Lagu C"]
+
+    # 3. Validasi nama
+    assert pl.save_playlist(1, 10, "   ", [_track("X")])[0] is False
+    assert "32" in pl.save_playlist(1, 10, "x" * 40, [_track("X")])[1]
+    assert pl.save_playlist(1, 10, "semua", [_track("X")])[0] is False
+
+    # 4. Batas playlist per member
+    for i in range(4):
+        assert pl.save_playlist(1, 10, f"Set {i}", [_track(f"Lagu {i}")])[0] is True
+    assert len(pl.member_playlists(1, 10)) == pl.MAX_PLAYLISTS_PER_MEMBER
+    ok, msg = pl.save_playlist(1, 10, "Set Baru", [_track("Lagu Z")])
+    assert ok is False and str(pl.MAX_PLAYLISTS_PER_MEMBER) in msg
+
+    # 5. Dokumen lagu dirapikan & dideduplikasi
+    entries = pl.tracks_from_queue([_track("A"), _track("A"), {"title": "B"}, {"query": ""}])
+    assert [e["title"] for e in entries] == ["A", "B"]
+
+    # 6. Batas lagu per playlist
+    many = [_track(f"Juara {i}") for i in range(pl.MAX_TRACKS_PER_PLAYLIST + 20)]
+    ok, _ = pl.save_playlist(1, 11, "Panjang", many)
+    assert ok and len(pl.get_playlist(1, 11, "panjang")["tracks"]) == pl.MAX_TRACKS_PER_PLAYLIST
+
+    # 7. Ubah nama
+    ok, msg = pl.rename_playlist(1, 10, "Set 0", "Favorit Baru")
+    assert ok and pl.get_playlist(1, 10, "favorit baru") is not None
+    assert pl.get_playlist(1, 10, "set 0") is None
+    assert pl.rename_playlist(1, 10, "Favorit Baru", "Set 1")[0] is False       # sudah dipakai
+    assert pl.rename_playlist(1, 10, "tidak ada", "Apa")[0] is False
+
+    # 8. Hapus lagu berdasarkan nomor (playlist kosong otomatis dihapus)
+    assert pl.remove_track(1, 10, "Favorit Baru", 99)[0] is False
+    assert pl.remove_track(1, 10, "Favorit Baru", 1)[0] is True
+    assert pl.get_playlist(1, 10, "Favorit Baru") is None
+
+    # 9. Hapus playlist terakhir ikut menghapus entri member
+    ok, _ = pl.delete_playlist(1, 11, "Panjang")
+    assert ok and pl.get_playlist(1, 11, "panjang") is None
+    assert pl.delete_playlist(1, 11, "Panjang")[0] is False
+
+    # 10. Persistensi & pembersihan
+    await pl.save_playlists_to_disk()
+    pl.guild_playlists.clear()
+    assert pl.load_playlists_from_disk() >= 1
+    assert pl.get_playlist(1, 10, "Set 1") is not None
+    pl.get_playlist(1, 10, "Set 1")["tracks"] = []
+    assert pl.cleanup_music_playlist_runtime() >= 1
+    pl.guild_playlists.clear()
+    await pl.save_playlists_to_disk()
+
+
+# ==============================================================================
+# RATING BINTANG, SLA, & AUTO-CLOSE TIKET (v1.33.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_ticket_rating_sla_and_auto_close(monkeypatch):
+    """Tiket: rating bintang pemilik tiket, SLA respons pertama, & auto-close menganggur."""
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    tickets._ticket_seq.clear()
+
+    gid = 4242
+    cfg = tickets.set_ticket_config(gid, enabled=True, sla_jam=2, auto_close_jam=48, rating_aktif=True)
+    assert cfg["sla_jam"] == 2 and cfg["auto_close_jam"] == 48 and cfg["rating_aktif"] is True
+    assert tickets.set_ticket_config(gid, sla_jam=9999)["sla_jam"] == 720
+    tickets.set_ticket_config(gid, sla_jam=2)   # kembalikan ke batas uji
+
+    now = time.time()
+    data = tickets.register_ticket(9001, gid, 777, topic="Bantuan", now=now)
+    assert data["first_response_at"] == 0 and data["rating"] == 0
+
+    # 1. Respons staf pertama tercatat sekali saja
+    assert tickets.record_first_response(9001, 55, now=now + 300) is True
+    assert tickets.record_first_response(9001, 66, now=now + 400) is False
+    assert data["first_response_by"] == 55 and data["status"] == "diklaim"
+
+    # 2. SLA dihitung dari tiket yang belum direspons
+    other = tickets.register_ticket(9002, gid, 778, now=now)
+    assert tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3600) == []
+    assert 9002 in tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3 * 3600)
+    assert 9001 not in tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3 * 3600)
+    assert tickets.sla_overdue(guild_id=gid, now=now + 3 * 3600) == [9002]   # pakai config server
+    assert tickets.mark_sla_alerted(9002) is True
+    assert tickets.mark_sla_alerted(9002) is False                          # tidak spam
+    assert tickets.get_ticket_config(gid)["sla_alerted"] == 1
+
+    # 3. Rating hanya boleh oleh pemilik tiket & setelah tiket selesai
+    assert tickets.rate_ticket(9002, 5, user_id=778)[0] == "belum_selesai"
+    status, closed = tickets.close_ticket(9002, 999, reason="staf")
+    assert status == "ok" and closed["closed_reason"] == "staf"
+    assert tickets.rate_ticket(9002, 5, user_id=12345)[0] == "bukan_pemilik"
+    assert tickets.rate_ticket(9002, 9, user_id=778)[0] == "tidak_valid"
+    assert tickets.rate_ticket(9002, 4, user_id=778)[0] == "ok"
+    assert tickets.rate_ticket(9002, 5, user_id=778)[0] == "sudah"
+    assert tickets.rate_ticket(123456, 5)[0] == "tidak_ada"
+
+    summary = tickets.rating_summary(gid)
+    assert summary["count"] == 1 and summary["average"] == 4.0
+    assert summary["distribution"][4] == 1 and summary["distribution"][5] == 0
+
+    sla = tickets.sla_stats(gid)
+    assert sla["responded"] == 1 and sla["pending"] == 0 and sla["avg_minutes"] == 5
+
+    # 4. Auto-close memakai aktivitas terakhir
+    idle = tickets.register_ticket(9003, gid, 779, now=now)
+    assert tickets.stale_tickets(guild_id=gid, now=now + 3600) == []
+    assert tickets.record_activity(9003, now=now + 7200) is True
+    stale_now = tickets.stale_tickets(guild_id=gid, now=now + 50 * 3600)
+    assert 9003 not in stale_now          # baru saja ada aktivitas
+    assert 9001 in stale_now              # tiket lama tanpa aktivitas
+    assert 9003 in tickets.stale_tickets(guild_id=gid, now=now + 100 * 3600)
+    assert tickets.stale_tickets(hours=0, guild_id=gid) == []
+
+    # 5. Pelacakan pesan: staf → respons pertama, pemilik → aktivitas saja
+    class _Msg:
+        def __init__(self, uid, roles=(), admin=False):
+            self.channel = type("C", (), {"id": 9004})()
+            self.author = type(
+                "A",
+                (),
+                {
+                    "id": uid,
+                    "bot": False,
+                    "roles": [type("R", (), {"id": r})() for r in roles],
+                    "guild_permissions": type("P", (), {"administrator": admin, "manage_threads": False, "manage_channels": False})(),
+                },
+            )()
+
+    tickets.register_ticket(9004, gid, 780, now=now)
+    assert tickets.maybe_track_ticket_message(_Msg(780)) is True       # pemilik: aktivitas
+    assert tickets.get_ticket(9004)["first_response_at"] == 0
+    assert tickets.maybe_track_ticket_message(_Msg(900, admin=True)) is True
+    assert tickets.get_ticket(9004)["first_response_at"] > 0
+    assert tickets.maybe_track_ticket_message(type("M", (), {"channel": None, "author": None})()) is False
+
+    # 6. Pengawas: kirim peringatan SLA & tutup tiket menganggur
+    tickets.set_ticket_config(gid, sla_jam=1, auto_close_jam=1)
+    tickets.register_ticket(9005, gid, 781, now=now - 5 * 3600)
+    alerts = []
+
+    class _Chan:
+        async def send(self, *args, **kwargs):
+            alerts.append(kwargs)
+
+    class _Guild:
+        id = gid
+        system_channel = _Chan()
+
+    class _Bot:
+        def get_guild(self, gid_arg):
+            return _Guild() if int(gid_arg) == gid else None
+
+        def get_channel(self, cid):
+            return _Chan()
+
+    async def _edit(*args, **kwargs):
+        return None
+
+    result = await tickets.run_ticket_check(_Bot())
+    assert result["sla"] >= 1
+    assert result["closed"] >= 1
+    assert tickets.get_ticket(9005)["closed_reason"].startswith("otomatis")
+    assert alerts
+
+    # 7. Persistensi pengaturan baru
+    await tickets.save_tickets_to_disk()
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    assert tickets.load_tickets_from_disk() >= 1
+    reloaded = tickets.get_ticket_config(gid)
+    assert reloaded["sla_jam"] == 1 and reloaded["auto_close_jam"] == 1
+    assert reloaded["rating_count"] == 1
+
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    tickets._ticket_seq.clear()
+    await tickets.save_tickets_to_disk()
+
+
+# ==============================================================================
+# MUSIM LEVEL & PRESTIGE (v1.34.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_level_season_reset_and_prestige():
+    """Musim level: snapshot juara, reset XP, prestige permanen, & reset otomatis."""
+    import levels as lv
+
+    lv.level_guilds.clear()
+    lv.levels.clear()
+
+    gid = 9090
+    lv.set_level_config(gid, aktif=True)
+    lv.set_level_config(gid, season_auto_hari=30, prestige_min_level=3)
+
+    now = time.time()
+    lv.levels[lv._key(gid, 1)] = {"xp": 500, "level": 5, "messages": 40, "prestige": 1}
+    lv.levels[lv._key(gid, 2)] = {"xp": 300, "level": 3, "messages": 20}
+    lv.levels[lv._key(gid, 3)] = {"xp": 100, "level": 1, "messages": 5}
+
+    # 1. Status musim awal
+    info = lv.season_info(gid, now=now)
+    assert info["season"] == 1 and info["auto_hari"] == 30 and info["sisa_hari"] == 30
+    assert info["last"] is None
+
+    # 2. Prestige: syarat level minimum
+    ok, reason = lv.can_prestige(gid, 3)
+    assert ok is False and "level 3" in reason
+    ok, reason = lv.can_prestige(gid, 1)
+    assert ok is True
+
+    ok, data = lv.apply_prestige(gid, 1)
+    assert ok and data["prestige"] == 2
+    member = lv.get_member_level(gid, 1)
+    assert member["level"] == 0 and member["xp"] == 0 and member["prestige"] == 2
+    assert lv.get_level_config(gid)["prestige_count"] == 1
+
+    # 3. Prestige bisa dimatikan admin
+    lv.set_level_config(gid, prestige_aktif=False)
+    assert lv.can_prestige(gid, 2)[0] is False
+    lv.set_level_config(gid, prestige_aktif=True)
+
+    # 4. Reset musim: snapshot juara, XP direset, prestige disimpan
+    snapshot = lv.reset_season(gid, by_id=42, now=now)
+    assert snapshot["season"] == 1 and snapshot["participants"] == 3
+    assert snapshot["top"][0]["user_id"] == 2         # juara = XP tertinggi saat reset
+    assert snapshot["by"] == 42
+    cfg = lv.get_level_config(gid)
+    assert cfg["season"] == 2
+    assert len(cfg["season_history"]) == 1
+    assert lv.get_member_level(gid, 2)["xp"] == 0
+    assert lv.get_member_level(gid, 1)["prestige"] == 2     # trofi tetap ada
+    assert lv.season_info(gid, now=now + 86400)["days_elapsed"] == 1
+
+    # 5. Riwayat dibatasi 12 musim
+    for _ in range(13):
+        lv.reset_season(gid, now=now)
+    assert len(lv.get_level_config(gid)["season_history"]) == 12
+    assert lv.get_level_config(gid)["season"] == 15
+
+    # 6. Reset otomatis sesuai jadwal
+    lv.set_level_config(gid, season_auto_hari=7)
+    cfg = lv.get_level_config(gid)
+    cfg["season_started_at"] = now - 8 * 86400
+    assert lv.season_due(gid, now=now) is True
+    cfg["season_started_at"] = now
+    assert lv.season_due(gid, now=now) is False
+    lv.set_level_config(gid, season_auto_hari=0)
+    cfg["season_started_at"] = now - 400 * 86400
+    assert lv.season_due(gid, now=now) is False      # manual saja
+
+    # 7. Embed pengumuman & pengawas
+    lv.set_level_config(gid, season_auto_hari=1)
+    lv.get_level_config(gid)["season_started_at"] = now - 2 * 86400
+    lv.levels[lv._key(gid, 7)] = {"xp": 50, "level": 1, "messages": 2}
+
+    class _Chan:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, *args, **kwargs):
+            self.sent.append(kwargs)
+
+    channel = _Chan()
+
+    class _Guild:
+        id = gid
+        name = "Server Musim"
+
+    class _Bot:
+        def get_guild(self, gid_arg):
+            return _Guild() if int(gid_arg) == gid else None
+
+        def get_channel(self, cid):
+            return channel
+
+    lv.get_level_config(gid)["announce_channel_id"] = 1234
+    assert await lv.run_level_season_check(_Bot()) == 1
+    assert channel.sent and "Musim" in channel.sent[0]["embed"].title
+
+    # 8. Kartu level & papan peringkat menampilkan prestige
+    class _Member:
+        display_name = "Budi"
+        display_avatar = None
+
+    lv.levels[lv._key(gid, 8)] = {"xp": 20, "level": 1, "messages": 1, "prestige": 3}
+    card = lv.build_level_embed(_Member(), lv.get_member_level(gid, 8), lv.get_level_config(gid))
+    assert any("Prestige" in f.name for f in card.fields)
+    board = lv.build_leaderboard_embed(
+        _Guild(), [(8, lv.levels[lv._key(gid, 8)])], page=0, total_pages=1, total_members=1
+    )
+    assert "🌟`3×`" in board.fields[0].value
+
+    # 9. Persistensi musim & prestige
+    await lv.save_levels_to_disk()
+    lv.level_guilds.clear()
+    lv.levels.clear()
+    assert lv.load_levels_from_disk() >= 1
+    assert lv.get_level_config(gid)["season"] >= 2
+    assert lv.get_member_level(gid, 8)["prestige"] == 3
+
+    lv.level_guilds.clear()
+    lv.levels.clear()
+    await lv.save_levels_to_disk()
+
+
+# ==============================================================================
+# ANTI-NUKE LANJUTAN: BOT JAHAT & MODE BEKU (v1.35.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_antinuke_freeze_and_foreign_bot():
+    """Anti-Nuke: mode beku (ambang 1 aksi) & perlindungan bot asing ber-Administrator."""
+    import antinuke
+
+    antinuke.antinuke_guilds.clear()
+    antinuke.violations.clear()
+    antinuke.reset_events()
+
+    gid = 999
+    guild = _ANGuild(gid)
+    nuker = _ANMember(801, "Nuker", [_ANRole(11)])
+    guild._members[801] = nuker
+    channel = _ANChannel(902)
+    guild.system_channel = channel
+
+    class _Bot:
+        def get_channel(self, cid):
+            return channel if int(cid) == 902 else None
+
+        def get_guild(self, gid_arg):
+            return guild if int(gid_arg) == gid else None
+
+    bot = _Bot()
+    antinuke.set_config(gid, enabled=True, action="timeout", restore=True)
+
+    # 1. Sebelum beku: satu aksi belum melewati ambang (3x)
+    base = time.time()
+    assert await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base) is None
+
+    # 2. Mulai beku → setiap aksi destruktif langsung ditindak
+    cfg = antinuke.start_freeze(gid, minutes=30, by_id=555, now=base)
+    assert cfg["freeze_aktif"] is True
+    assert antinuke.is_frozen(gid, now=base + 10) is True
+    assert antinuke.freeze_remaining(gid, now=base + 60) == 29 * 60
+    violation = await antinuke.handle_audit_entry(bot, _ANEntry(guild, nuker, "channel_delete"), now=base + 20)
+    assert violation is not None and violation["limit"] == 1
+    assert nuker.timed_out_until is not None
+    assert any("beku" in f.value.lower() for f in channel.sent[-1]["embed"].fields)
+
+    # 3. Beku berakhir otomatis sesuai durasi
+    assert antinuke.is_frozen(gid, now=base + 31 * 60) is False
+    assert antinuke.get_config(gid)["freeze_aktif"] is False
+
+    # 4. Bot asing yang ditambahkan langsung dikeluarkan
+    evil_bot = _ANMember(950, "EvilBot")
+    evil_bot.bot = True
+    entry = _ANEntry(guild, nuker, "bot_add")
+    entry.target = evil_bot
+    violation2 = await antinuke.handle_audit_entry(bot, entry, now=base + 5000)
+    assert violation2 is not None and violation2["action"] == "bot_add"
+    assert evil_bot.kicked is True
+    assert any("dikeluarkan" in f.value for f in channel.sent[-1]["embed"].fields)
+
+    # 5. auto_kick_bot bisa dimatikan Admin
+    antinuke.set_config(gid, auto_kick_bot=False)
+    evil_bot2 = _ANMember(951, "EvilBot2")
+    evil_bot2.bot = True
+    entry2 = _ANEntry(guild, nuker, "bot_add")
+    entry2.target = evil_bot2
+    antinuke.reset_events()
+    assert await antinuke.handle_audit_entry(bot, entry2, now=base + 6000) is not None
+    assert evil_bot2.kicked is False
+
+    # 6. Pembuatan role massal ikut terdeteksi
+    assert antinuke.classify("role_create") == "role_create"
+    assert antinuke.classify("bot_add") == "bot_add"
+    assert antinuke.classify("message_delete") is None
+
+    # 7. Cairkan manual & watcher beku kedaluwarsa
+    antinuke.start_freeze(gid, minutes=5, by_id=1)
+    assert antinuke.end_freeze(gid) is True
+    assert antinuke.end_freeze(gid) is False
+    antinuke.start_freeze(gid, minutes=5, by_id=1)
+    antinuke.get_config(gid)["freeze_until"] = time.time() - 1
+    assert antinuke.expired_freezes() == [gid]
+    assert await antinuke.refresh_freezes(bot) == 1
+    assert antinuke.is_frozen(gid) is False
+
+    # 8. Persistensi status beku
+    antinuke.start_freeze(gid, minutes=10, by_id=77)
+    await antinuke.save_antinuke_to_disk()
+    antinuke.antinuke_guilds.clear()
+    assert antinuke.load_antinuke_from_disk() >= 1
+    assert antinuke.is_frozen(gid) is True
+    assert antinuke.get_config(gid)["auto_kick_bot"] is False
+
+    antinuke.end_freeze(gid)
+    await antinuke.save_antinuke_to_disk()
+
+
+# ==============================================================================
+# i18n INTI & /bahasa (v1.36.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_i18n_core_texts_and_language_command():
+    """Bahasa per server: normalisasi kode, terjemahan kerangka, & persistensi."""
+    import i18n
+    import ui_kit
+
+    i18n.guild_lang.clear()
+
+    # 1. Default Bahasa Indonesia
+    assert i18n.get_lang(1) == "id"
+    assert i18n.t("confirm.yes", 1) == "Ya, lanjutkan"
+    assert i18n.t("status.on", 1) == "aktif"
+
+    # 2. Normalisasi kode & alias
+    for raw, expected in [
+        ("en", "en"),
+        ("EN", "en"),
+        ("en-US", "en"),
+        ("english", "en"),
+        ("id-ID", "id"),
+        ("indonesia", "id"),
+    ]:
+        assert i18n.normalize_lang(raw) == expected
+    assert i18n.normalize_lang("klingon") is None
+    assert i18n.normalize_lang("") is None
+
+    # 3. Ganti bahasa server
+    ok, code = i18n.set_lang(1, "en")
+    assert ok and code == "en"
+    assert i18n.t("confirm.yes", 1) == "Yes, continue"
+    assert i18n.t("status.off", 1) == "disabled"
+    assert i18n.t("perm.admin", 1) == "Admin permission required"
+    assert "Server language" in i18n.t("lang.current", 1, lang=i18n.lang_label("en"))
+    assert i18n.t("confirm.cancelled_detail", 1) == "No changes were made."
+
+    # Server lain tidak terpengaruh
+    assert i18n.get_lang(2) == "id"
+
+    # 4. Kode tidak dikenal ditolak tanpa mengubah bahasa
+    assert i18n.set_lang(1, "xx") == (False, "en")
+    assert i18n.get_lang(1) == "en"
+
+    # 5. Semua kunci punya versi Indonesia & English
+    for key, entry in i18n.TEXTS.items():
+        assert entry.get("id"), key
+        assert entry.get("en"), key
+
+    # 6. Dialog konfirmasi ikut berbahasa server
+    view = ui_kit.ConfirmView(1, title="Uji", detail="Detail")
+    labels = []
+    for container in view.children:
+        for child in getattr(container, "children", []):
+            for item in getattr(child, "children", []) or []:
+                label = getattr(item, "label", None)
+                if label:
+                    labels.append(label)
+    assert "Yes, continue" in labels and "Cancel" in labels
+    assert "Ya, lanjutkan" in str(ui_kit.ConfirmView(2, title="Uji", detail="Detail").to_components())
+
+    # 7. Persistensi (bahasa default tidak ditulis)
+    await i18n.save_lang_to_disk()
+    i18n.guild_lang.clear()
+    assert i18n.load_lang_from_disk() >= 1
+    assert i18n.get_lang(1) == "en"
+    i18n.guild_lang[3] = "id"
+    assert i18n.cleanup_i18n_runtime() == 1
+
+    # 8. Pilihan bahasa tersedia untuk command
+    assert set(i18n.available_langs()) == {"id", "en"}
+    assert i18n.describe_lang(1) == "🇬🇧 English"
+
+    i18n.guild_lang.clear()
+    await i18n.save_lang_to_disk()
+
+
+# ==============================================================================
+# PREFIX COMMAND PER SERVER (v1.37.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_custom_prefix_per_guild():
+    """Prefix per server: validasi, pencocokan pesan, reset, & persistensi."""
+    import prefixes
+
+    prefixes.guild_prefixes.clear()
+
+    # 1. Default `!`
+    assert prefixes.DEFAULT_PREFIX == "!"
+    assert prefixes.get_prefix(1) == "!"
+    assert prefixes.prefixes_for(1) == ["!"]
+    assert prefixes.is_prefix_command("!setup_panel", 1) is True
+    assert prefixes.is_prefix_command("?setup_panel", 1) is False
+
+    # 2. Validasi prefix
+    for bad in ("", "   ", "a b", "toolong", "@everyone", "#kanal", "<@123>", "a"):
+        ok, _value, error = prefixes.set_prefix(1, bad)
+        assert ok is False and error, bad
+    assert prefixes.get_prefix(1) == "!"          # tidak berubah karena gagal
+
+    # 3. Prefix valid
+    ok, value, message = prefixes.set_prefix(1, " ? ")
+    assert ok and value == "?" and "?" in message
+    assert prefixes.get_prefix(1) == "?"
+    assert prefixes.prefixes_for(1) == ["?", "!"]      # bawaan tetap diterima
+    assert prefixes.match_prefix("?setup_panel", 1) == "?"
+    assert prefixes.match_prefix("!setup_panel", 1) == "!"
+    assert prefixes.is_prefix_command("halo ?bukan-command", 1) is False
+    # Server lain tidak terpengaruh
+    assert prefixes.is_prefix_command("?setup_panel", 2) is False
+
+    # 4. Prefix multi-karakter & huruf
+    ok, value, _ = prefixes.set_prefix(1, "..")
+    assert ok and value == ".." and prefixes.match_prefix("..setup_panel", 1) == ".."
+    ok, value, _ = prefixes.set_prefix(1, "bot!")
+    assert ok and prefixes.match_prefix("bot!setup_panel", 1) == "bot!"
+
+    # 5. Kembali ke bawaan lewat set & reset
+    ok, value, _ = prefixes.set_prefix(1, "!")
+    assert ok and value == "!" and prefixes.get_prefix(1) == "!"
+    assert prefixes.set_prefix(1, "?")[0] is True
+    assert prefixes.reset_prefix(1) is True
+    assert prefixes.reset_prefix(1) is False
+
+    # 6. Persistensi
+    prefixes.set_prefix(5, "?")
+    await prefixes.save_prefixes_to_disk()
+    prefixes.guild_prefixes.clear()
+    assert prefixes.load_prefixes_from_disk() >= 1
+    assert prefixes.get_prefix(5) == "?"
+    prefixes.guild_prefixes[6] = "!"
+    assert prefixes.cleanup_prefixes_runtime() == 1
+    assert prefixes.get_prefix(6) == "!"
+
+    prefixes.guild_prefixes.clear()
+    await prefixes.save_prefixes_to_disk()
+
+
+# ==============================================================================
+# EKSPOR ANALITIK CSV & WEBHOOK (v1.38.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_analytics_export_csv_webhook_and_schedule(monkeypatch):
+    """Ekspor analitik: CSV per jenis, validasi webhook, jadwal, & pengiriman."""
+    import analytics_export as ax
+    import insights
+    import levels
+    import moderation
+    import tickets
+
+    ax.analytics_guilds.clear()
+    gid = 3131
+    now = time.time()
+
+    # 1. Data contoh dari modul yang sudah ada
+    levels.levels.clear()
+    levels.levels[f"{gid}:1"] = {"xp": 120, "level": 2, "messages": 9, "voice_xp": 4, "prestige": 1}
+    levels.levels[f"{gid}:2"] = {"xp": 300, "level": 3, "messages": 20}
+    levels.levels["999:1"] = {"xp": 999, "level": 9, "messages": 99}       # server lain
+
+    moderation.mod_cases.clear()
+    moderation.mod_cases[gid] = [
+        {
+            "id": 1,
+            "user_id": 11,
+            "moderator_id": 22,
+            "action": "warn",
+            "reason": "spam, link berlebih",
+            "duration_sec": None,
+            "created_at": now,
+        }
+    ]
+
+    tickets.tickets.clear()
+    tickets.tickets[7001] = {
+        "thread_id": 7001,
+        "guild_id": gid,
+        "user_id": 33,
+        "number": 1,
+        "status": "selesai",
+        "topic": "bantuan akun",
+        "created_at": now - 3600,
+        "first_response_at": now - 3000,
+        "closed_at": now,
+        "claimed_by": 22,
+        "rating": 5,
+        "closed_reason": "staf",
+    }
+
+    insights.ai_usage.clear()
+    insights.ai_usage["2026-11-05"] = {
+        "total": 10,
+        "cache_hits": 4,
+        "kinds": {"chat": 6, "ringkas": 2, "gambar": 1, "cari": 1},
+    }
+
+    # 2. CSV level: hanya server ini, urut XP tertinggi
+    body, filename, error = ax.build_csv("level", gid)
+    assert error == "" and filename.startswith("analitik-level-3131-") and filename.endswith(".csv")
+    lines = body.strip().splitlines()
+    assert lines[0] == "user_id,level,xp,messages,voice_xp,prestige,last_activity"
+    assert len(lines) == 3
+    assert lines[1].startswith("2,3,300")
+    assert lines[2].startswith("1,2,120")
+
+    # 3. CSV moderasi & tiket (alasan berkoma tetap aman)
+    mod_body = ax.build_csv("moderasi", gid)[0]
+    assert "warn" in mod_body and '"spam, link berlebih"' in mod_body
+    tiket_body = ax.build_csv("tiket", gid)[0]
+    assert tiket_body.splitlines()[1].startswith("1,33,selesai")
+    assert ",5," in tiket_body or tiket_body.rstrip().endswith("staf")
+
+    # 4. CSV pemakaian AI & jenis tidak dikenal
+    usage_body = ax.build_csv("pemakaian", gid)[0]
+    assert "2026-11-05" in usage_body and usage_body.splitlines()[0].startswith("day,total_calls")
+    assert ax.build_csv("entah", gid)[1] == ""
+    assert "tidak dikenal" in ax.build_csv("entah", gid)[2]
+
+    # 5. Server tanpa data → pesan jelas
+    empty_body, _fn, empty_error = ax.build_csv("level", 5555)
+    assert empty_body is None and "Belum ada data" in empty_error
+
+    # 6. BOM UTF-8 untuk Excel
+    assert ax.csv_bytes("a,b\n1,2\n").startswith(b"\xef\xbb\xbf")
+
+    # 7. build_all mengembalikan hanya yang berisi data
+    kinds = [kind for kind, _name, _body in ax.build_all(gid)]
+    assert "level" in kinds and "tiket" in kinds
+
+    # 8. Validasi webhook
+    assert ax.validate_webhook("https://discord.com/api/webhooks/1/abc") == (True, "")
+    assert ax.validate_webhook("")[0] is False
+    assert "https://" in ax.validate_webhook("discord.com/api/webhooks/1/abc")[1]
+    assert ax.validate_webhook("https://example.com/hook")[0] is False
+    masked = ax.mask_webhook("https://discord.com/api/webhooks/1/abcdef123456")
+    assert "abcdef123456" not in masked and masked.startswith("`...")
+
+    # 9. Konfigurasi & jadwal
+    cfg = ax.set_config(gid, aktif=True, webhook_url="https://discord.com/api/webhooks/1/tok", jadwal="harian")
+    assert cfg["aktif"] is True and cfg["jadwal"] == "harian"
+    assert ax.is_due(gid, now=now) is True                      # belum pernah dikirim
+    cfg["last_sent"] = now
+    assert ax.is_due(gid, now=now + 3600) is False
+    assert ax.is_due(gid, now=now + 25 * 3600) is True
+    ax.set_config(gid, jadwal="mati")
+    assert ax.is_due(gid, now=now + 365 * 86400) is False
+    ax.set_config(gid, jadwal="harian", jenis=["level", "entah"])
+    assert ax.get_config(gid)["jenis"] == ["level"]
+
+    # 10. Pengiriman ke webhook (HTTP tiruan) & pencatatan
+    sent_files = []
+
+    class _Resp:
+        status = 204
+
+        async def text(self):
+            return ""
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class _Session:
+        def post(self, url, data=None, timeout=None):
+            sent_files.append(url)
+            return _Resp()   # aiohttp: post() mengembalikan context manager, bukan coroutine
+
+    ok, message = await ax.post_csv_to_webhook(
+        "https://discord.com/api/webhooks/1/tok", mod_body, "uji.csv", session=_Session()
+    )
+    assert ok and message == "terkirim" and sent_files
+
+    class _Bot:
+        http_session = _Session()
+
+        def get_guild(self, gid_arg):
+            return None
+
+    cfg["last_sent"] = 0
+    delivered = await ax.run_analytics_check(_Bot(), now=now + 86400 * 2)
+    assert delivered >= 1
+    assert ax.get_config(gid)["sent_count"] >= 1
+    assert ax.get_config(gid)["last_sent"] > 0
+
+    # 11. Persistensi & pembersihan
+    ax.set_config(7000, aktif=False, webhook_url="", jadwal="mati")
+    await ax.save_analytics_to_disk()
+    ax.analytics_guilds.clear()
+    assert ax.load_analytics_from_disk() >= 1
+    assert ax.get_config(gid)["webhook_url"].endswith("/tok")
+    assert ax.cleanup_analytics_runtime() >= 0
+
+    ax.analytics_guilds.clear()
+    levels.levels.clear()
+    moderation.mod_cases.clear()
+    tickets.tickets.clear()
+    insights.ai_usage.clear()
+    await ax.save_analytics_to_disk()
+
+
+# ==============================================================================
+# AUDIT RAM & CACHE (v1.39.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_memory_audit_snapshot_and_report(monkeypatch):
+    """`/perawatan memori`: angka nyata, cache terhitung, & saran otomatis."""
+    import memory_audit
+
+    # 1. Snapshot dasar
+    snap = memory_audit.snapshot()
+    assert snap["rss_mb"] > 0
+    assert isinstance(snap["data_kb"], float)
+    assert snap["files"] >= 0
+    assert snap["total_entries"] >= 0
+    assert {item["label"] for item in snap["caches"]} >= {"XP & level member", "Tiket dukungan"}
+
+    # 2. Cache terhitung dari modul asli
+    import levels
+    import tickets
+
+    levels.level_guilds.clear()
+    levels.levels.clear()
+    tickets.tickets.clear()
+    levels.levels["1234:1"] = {"xp": 10, "level": 1, "messages": 1}
+    levels.levels["1234:2"] = {"xp": 20, "level": 1, "messages": 2}
+    tickets.tickets[555] = {"thread_id": 555, "guild_id": 1234, "status": "selesai"}
+
+    snap = memory_audit.snapshot()
+    by_label = {item["label"]: item for item in snap["caches"]}
+    assert by_label["XP & level member"]["entries"] == 2
+    assert by_label["Tiket dukungan"]["entries"] == 1
+    assert by_label["XP & level member"]["cap"] == "500 member / server"
+
+    # 3. Playlist terhitung terpisah
+    import music_playlists
+
+    music_playlists.guild_playlists.clear()
+    music_playlists.guild_playlists[1] = {
+        10: {
+            "favorit": {
+                "name": "Favorit",
+                "tracks": [{"title": "A", "query": "A"}, {"title": "B", "query": "B"}],
+            }
+        }
+    }
+    assert memory_audit.playlist_track_total() == 2
+
+    # 4. Laporan teks memuat angka & saran
+    report = memory_audit.format_report()
+    assert "RAM proses" in report and "Cache terbesar" in report
+    assert "Saran" in report and len(report) <= 1900
+    assert memory_audit.short_line().startswith("RAM `")
+
+    # 5. Saran menyesuaikan angka besar
+    fake = memory_audit.snapshot()
+    fake["rss_mb"] = 420.0
+    fake["data_kb"] = 9000.0
+    fake["playlist_tracks"] = 2400
+    tips = memory_audit.suggestions(fake)
+    assert any("RAM sudah tinggi" in tip for tip in tips)
+    assert any("Playlist member besar" in tip for tip in tips)
+    assert any("8 MB" in tip for tip in tips)
+    assert len(tips) <= 4
+
+    # 6. Data dir & path_size_kb tidak melempar
+    assert memory_audit.data_dir_kb() >= 0
+    assert memory_audit.path_size_kb("/tidak/ada") == 0.0
+    assert memory_audit.path_size_kb("config.py") > 0
+
+    # 7. Cache yang tidak ada tidak membuat error
+    assert memory_audit._count_entries(None) == 0
+    assert memory_audit._count_entries({"a": 1}) == 1
+    assert memory_audit._count_entries([1, 2, 3]) == 3
+    assert memory_audit._resolve("modul_tidak_ada_xyz", "apa") is None
+
+    levels.level_guilds.clear()
+    levels.levels.clear()
+    tickets.tickets.clear()
+    music_playlists.guild_playlists.clear()
+
+
+# ==============================================================================
+# /bantuan DIPERBARUI: RINGKASAN VERSI TERBARU (v1.40.0-beta)
+# ==============================================================================
+def test_help_overview_shows_latest_features():
+    """Halaman depan `/bantuan` memuat ringkasan fitur terbaru & tetap dalam batas Discord."""
+    from views.help import TOP_LEVEL_COUNT, build_help_embed
+
+    embed = build_help_embed("overview")
+    names = [field.name for field in embed.fields]
+    assert len(embed.fields) == 4
+    assert any("Menu Utama" in name for name in names)
+    assert any("Terbaru" in name for name in names)
+
+    # Semua field aman dari batas Discord (1024) & total embed < 6000
+    assert all(len(field.value) <= 1024 for field in embed.fields)
+    assert sum(len(field.value) for field in embed.fields) <= 6000
+
+    isi = "\n".join(field.value for field in embed.fields)
+    for fitur in ("/raid", "/nuke", "/backup pulihkan", "/level musim", "/musik playlist", "/tiket rating",
+                  "/bahasa", "/prefix", "/analitik", "/perawatan memori"):
+        assert fitur in isi, fitur
+
+    # Angka menu utama harus sama dengan jumlah command tingkat atas yang benar-benar terdaftar
+    assert TOP_LEVEL_COUNT == len(bot_main.bot.tree.get_commands())
+
+    # Kategori lain tetap sehat
+    for key in ("sesi", "tools", "games", "server", "growth", "insights", "engagement", "musik",
+                "komunitas", "admin"):
+        kategori = build_help_embed(key)
+        assert kategori.fields
+        assert all(len(field.value) <= 1024 for field in kategori.fields), key

@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import backup_restore as restore
 import server_tools as st
 import ui_kit
 import ui_theme
@@ -35,7 +36,7 @@ lockdown_group = app_commands.Group(
 
 backup_group = app_commands.Group(
     name="backup",
-    description="Ekspor struktur server (role, kategori, channel, izin) ke berkas JSON",
+    description="Backup & pulihkan struktur server (role, kategori, channel, izin) via JSON",
     default_permissions=discord.Permissions(administrator=True),
     guild_only=True,
 )
@@ -384,6 +385,179 @@ async def backup_struktur_cmd(interaction: discord.Interaction):
         file=discord.File(io.BytesIO(raw), filename=filename),
         ephemeral=True,
     )
+
+
+# ==============================================================================
+# PEMULIHAN STRUKTUR (v1.30.0-beta) — hanya menambah, tidak menghapus
+# ==============================================================================
+async def _read_backup_attachment(attachment: discord.Attachment) -> tuple[dict | None, str]:
+    """Membaca lampiran berkas backup (maks 4 MB) & memvalidasinya."""
+    size = int(getattr(attachment, "size", 0) or 0)
+    if size > restore.MAX_FILE_BYTES:
+        return None, f"Berkas terlalu besar ({size / 1024 / 1024:.1f} MB, maks 4 MB)."
+    filename = str(getattr(attachment, "filename", "") or "")
+    if filename and not filename.lower().endswith(".json"):
+        return None, "Lampirkan berkas **`.json`** hasil `/backup struktur`."
+    try:
+        raw = await attachment.read()
+    except (discord.HTTPException, AttributeError) as exc:
+        return None, f"Gagal membaca berkas: `{type(exc).__name__}`."
+    return restore.parse_backup(raw)
+
+
+@backup_group.command(name="pratinjau", description="Lihat rencana pemulihan (dry-run) dari berkas backup — tanpa mengubah server")
+@app_commands.describe(berkas="Lampirkan berkas .json hasil /backup struktur")
+async def backup_pratinjau_cmd(interaction: discord.Interaction, berkas: discord.Attachment):
+    if interaction.guild is None:
+        return
+    if not _is_admin(interaction):
+        await interaction.response.send_message("⚠️ Pemulihan backup hanya untuk **Admin**.", ephemeral=True)
+        return
+
+    snapshot, error = await _read_backup_attachment(berkas)
+    if snapshot is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(interaction.guild.id, "error", "Berkas tidak bisa dipakai", error),
+            ephemeral=True,
+        )
+        return
+
+    info = restore.summarize(snapshot)
+    plan = restore.build_plan(interaction.guild, snapshot)
+    asal = info["guild_name"]
+    if info["guild_id"] and info["guild_id"] != interaction.guild.id:
+        asal += f" (`{info['guild_id']}`)"
+
+    body = (
+        f"**Sumber:** {asal} • dibuat `{info['generated_at'][:19]}`\n"
+        f"**Isi berkas:** `{info['roles']}` role • `{info['categories']}` kategori • `{info['channels']}` channel\n\n"
+        f"**Rencana (dry-run):** {plan['total']} item baru\n"
+        + restore.describe_plan(plan)
+        + "\n\n-# Jalankan dengan `/backup pulihkan berkas:<file>`. Bot hanya **menambah**, tidak menghapus apa pun."
+    )
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "info",
+            "🔍 Pratinjau Pemulihan Struktur",
+            body[:3900],
+            footer="Dry-run • 0 kuota AI • tidak ada perubahan pada server",
+        ),
+        ephemeral=True,
+    )
+
+
+@backup_group.command(name="pulihkan", description="Buat ulang role/kategori/channel dari berkas backup (dengan konfirmasi)")
+@app_commands.describe(
+    berkas="Lampirkan berkas .json hasil /backup struktur",
+    buat_role="Buat role yang belum ada",
+    buat_kategori="Buat kategori yang belum ada",
+    buat_channel="Buat channel yang belum ada",
+)
+async def backup_pulihkan_cmd(
+    interaction: discord.Interaction,
+    berkas: discord.Attachment,
+    buat_role: bool = True,
+    buat_kategori: bool = True,
+    buat_channel: bool = True,
+):
+    if interaction.guild is None:
+        return
+    if not _is_admin(interaction):
+        await interaction.response.send_message("⚠️ Pemulihan backup hanya untuk **Admin**.", ephemeral=True)
+        return
+
+    snapshot, error = await _read_backup_attachment(berkas)
+    if snapshot is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(interaction.guild.id, "error", "Berkas tidak bisa dipakai", error),
+            ephemeral=True,
+        )
+        return
+
+    plan = restore.build_plan(
+        interaction.guild,
+        snapshot,
+        buat_role=buat_role,
+        buat_kategori=buat_kategori,
+        buat_channel=buat_channel,
+    )
+    if plan["total"] <= 0:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                interaction.guild.id,
+                "ok",
+                "Tidak ada yang perlu dibuat",
+                "Semua role/kategori/channel di berkas sudah ada di server ini.\n\n"
+                + restore.describe_plan(plan),
+            ),
+            ephemeral=True,
+        )
+        return
+
+    async def _run(confirm_interaction: discord.Interaction) -> None:
+        await confirm_interaction.response.defer()
+        result = await restore.apply_plan(
+            interaction.guild,
+            plan,
+            actor_id=interaction.user.id,
+            reason="Pemulihan struktur dari backup",
+        )
+        try:
+            import audit_log
+
+            await audit_log.log_event(
+                interaction.client,
+                interaction.guild,
+                "channel",
+                "♻️ Struktur server dipulihkan dari backup",
+                f"Role `{result['roles']}` • Kategori `{result['categories']}` • "
+                f"Channel `{result['channels']}` • Gagal `{len(result['errors'])}`",
+            )
+        except Exception:  # pragma: no cover - audit opsional
+            pass
+        await confirm_interaction.edit_original_response(
+            embed=ui_theme.status_embed(
+                interaction.guild.id,
+                "ok" if not result["errors"] else "warn",
+                "♻️ Pemulihan struktur selesai",
+                restore.describe_result(result)[:3900],
+                footer="0 kuota AI • hanya menambah, tidak menghapus",
+            )
+        )
+
+    view = await ui_kit.ask_confirm(
+        interaction,
+        interaction.guild.id,
+        title="Konfirmasi pemulihan struktur",
+        detail=(
+            f"Bot akan membuat **{plan['total']} item** baru di server ini:\n"
+            + restore.describe_plan(plan)
+            + "\n\nTidak ada channel/role lama yang dihapus atau ditimpa. Lanjutkan?"
+        ),
+        confirm_label="Ya, pulihkan",
+        on_confirm=_run,
+    )
+    if view is None:  # tema server mematikan konfirmasi → langsung jalankan
+        await interaction.response.defer(ephemeral=True)
+        result = await restore.apply_plan(
+            interaction.guild, plan, actor_id=interaction.user.id, reason="Pemulihan struktur dari backup"
+        )
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                interaction.guild.id,
+                "ok" if not result["errors"] else "warn",
+                "♻️ Pemulihan struktur selesai",
+                restore.describe_result(result)[:3900],
+            ),
+            follow=True,
+            ephemeral=True,
+        )
 
 
 async def handle_message_tools(message: discord.Message) -> None:

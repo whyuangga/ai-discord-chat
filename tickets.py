@@ -58,6 +58,15 @@ def default_config() -> dict:
         "ping_staff": True,
         "opened": 0,
         "closed": 0,
+        # v1.33.0-beta: rating bintang, SLA respons pertama, & auto-close
+        "rating_aktif": True,
+        "sla_jam": 0,            # 0 = nonaktif; N = jam sebelum tiket tanpa respons dianggap telat
+        "auto_close_jam": int(TICKET_AUTO_CLOSE_HOURS or 0),  # 0 = nonaktif
+        "sla_channel_id": None,
+        "rating_sum": 0,
+        "rating_count": 0,
+        "auto_closed": 0,
+        "sla_alerted": 0,
     }
 
 
@@ -103,6 +112,14 @@ def load_tickets_from_disk() -> int:
                 "ping_staff": bool(data.get("ping_staff", True)),
                 "opened": max(0, _to_int(data.get("opened"))),
                 "closed": max(0, _to_int(data.get("closed"))),
+                "rating_aktif": bool(data.get("rating_aktif", True)),
+                "sla_jam": max(0, min(720, _to_int(data.get("sla_jam")))),
+                "auto_close_jam": max(0, min(720, _to_int(data.get("auto_close_jam"), base["auto_close_jam"]))),
+                "sla_channel_id": _to_int(data.get("sla_channel_id")) or None,
+                "rating_sum": max(0, _to_int(data.get("rating_sum"))),
+                "rating_count": max(0, _to_int(data.get("rating_count"))),
+                "auto_closed": max(0, _to_int(data.get("auto_closed"))),
+                "sla_alerted": max(0, _to_int(data.get("sla_alerted"))),
             }
         )
         ticket_guilds[gid] = base
@@ -132,6 +149,13 @@ def load_tickets_from_disk() -> int:
             "closed_by": _to_int(data.get("closed_by")) or None,
             "closed_at": float(data.get("closed_at") or 0),
             "added_users": [_to_int(u) for u in (data.get("added_users") or []) if _to_int(u)],
+            "first_response_at": float(data.get("first_response_at") or 0),
+            "first_response_by": _to_int(data.get("first_response_by")) or None,
+            "last_activity": float(data.get("last_activity") or data.get("created_at") or 0),
+            "sla_alerted": bool(data.get("sla_alerted", False)),
+            "rating": max(0, min(5, _to_int(data.get("rating")))),
+            "rated_at": float(data.get("rated_at") or 0),
+            "closed_reason": str(data.get("closed_reason") or "")[:100],
         }
         _ticket_seq[gid] = max(_ticket_seq.get(gid, 0), number)
     return len(ticket_guilds)
@@ -186,6 +210,10 @@ def set_ticket_config(
     log_channel_id: int | None = None,
     max_open: int | None = None,
     ping_staff: bool | None = None,
+    rating_aktif: bool | None = None,
+    sla_jam: int | None = None,
+    auto_close_jam: int | None = None,
+    sla_channel_id: int | None = None,
 ) -> dict:
     """Mengubah konfigurasi panel tiket server."""
     cfg = get_ticket_config(guild_id)
@@ -205,6 +233,14 @@ def set_ticket_config(
         cfg["max_open"] = max(1, min(10, int(max_open)))
     if ping_staff is not None:
         cfg["ping_staff"] = bool(ping_staff)
+    if rating_aktif is not None:
+        cfg["rating_aktif"] = bool(rating_aktif)
+    if sla_jam is not None:
+        cfg["sla_jam"] = max(0, min(720, int(sla_jam)))
+    if auto_close_jam is not None:
+        cfg["auto_close_jam"] = max(0, min(720, int(auto_close_jam)))
+    if sla_channel_id is not None:
+        cfg["sla_channel_id"] = int(sla_channel_id) or None
     return cfg
 
 
@@ -271,6 +307,13 @@ def register_ticket(
         "closed_by": None,
         "closed_at": 0.0,
         "added_users": [],
+        "first_response_at": 0.0,
+        "first_response_by": None,
+        "last_activity": time.time() if now is None else float(now),
+        "sla_alerted": False,
+        "rating": 0,
+        "rated_at": 0.0,
+        "closed_reason": "",
     }
     tickets[int(thread_id)] = data
     cfg = get_ticket_config(gid)
@@ -296,7 +339,13 @@ def claim_ticket(thread_id: int, staff_id: int) -> tuple[str, dict | None]:
     return "ok", data
 
 
-def close_ticket(thread_id: int, closed_by: int, *, now: float | None = None) -> tuple[str, dict | None]:
+def close_ticket(
+    thread_id: int,
+    closed_by: int,
+    *,
+    now: float | None = None,
+    reason: str = "manual",
+) -> tuple[str, dict | None]:
     """Menutup tiket. Status: `ok`, `selesai`, `tidak_ada`."""
     data = tickets.get(int(thread_id))
     if data is None:
@@ -306,6 +355,7 @@ def close_ticket(thread_id: int, closed_by: int, *, now: float | None = None) ->
     data["status"] = "selesai"
     data["closed_by"] = int(closed_by)
     data["closed_at"] = time.time() if now is None else float(now)
+    data["closed_reason"] = str(reason or "manual")[:100]
     cfg = get_ticket_config(data["guild_id"])
     cfg["closed"] = int(cfg.get("closed") or 0) + 1
     return "ok", data
@@ -339,17 +389,200 @@ def list_tickets(guild_id: int, *, status: str | None = None, limit: int = 15) -
     return items[:limit]
 
 
-def stale_tickets(*, hours: int = TICKET_AUTO_CLOSE_HOURS, now: float | None = None) -> list[int]:
-    """Tiket yang dianggap kedaluwarsa (bila fitur auto-close diaktifkan Admin)."""
-    if hours <= 0:
-        return []
+def record_activity(thread_id: int, *, now: float | None = None) -> bool:
+    """Memperbarui waktu aktivitas terakhir tiket (dipakai auto-close)."""
+    data = tickets.get(int(thread_id))
+    if data is None or data.get("status") == "selesai":
+        return False
+    data["last_activity"] = time.time() if now is None else float(now)
+    return True
+
+
+def record_first_response(thread_id: int, staff_id: int, *, now: float | None = None) -> bool:
+    """Mencatat respons staf pertama (SLA). Mengembalikan True bila baru dicatat."""
+    data = tickets.get(int(thread_id))
+    if data is None or data.get("status") == "selesai":
+        return False
+    if float(data.get("first_response_at") or 0) > 0:
+        return False
+    data["first_response_at"] = time.time() if now is None else float(now)
+    data["first_response_by"] = int(staff_id)
+    data["status"] = "diklaim" if data.get("status") == "terbuka" else data.get("status")
+    data.setdefault("claimed_by", int(staff_id))
+    data["claimed_by"] = data.get("claimed_by") or int(staff_id)
+    return True
+
+
+def is_staff_member(member, cfg: dict | None = None) -> bool:
+    """Apakah member ini staf (izin kelola thread/channel, admin, atau role staf)."""
+    perms = getattr(member, "guild_permissions", None)
+    if perms is not None and (
+        getattr(perms, "administrator", False)
+        or getattr(perms, "manage_threads", False)
+        or getattr(perms, "manage_channels", False)
+    ):
+        return True
+    role_id = _to_int((cfg or {}).get("staff_role_id"))
+    if role_id:
+        return role_id in {_to_int(getattr(role, "id", 0)) for role in (getattr(member, "roles", None) or [])}
+    return False
+
+
+def maybe_track_ticket_message(message) -> bool:
+    """Mencatat aktivitas & respons pertama staf dari sebuah pesan. `(perubahan?)`."""
+    channel = getattr(message, "channel", None)
+    tid = _to_int(getattr(channel, "id", 0))
+    data = tickets.get(tid)
+    if data is None or data.get("status") == "selesai":
+        return False
+    author = getattr(message, "author", None)
+    if author is None or getattr(author, "bot", False):
+        return False
+
+    changed = record_activity(tid)
+    if _to_int(getattr(author, "id", 0)) == _to_int(data.get("user_id")):
+        return changed
+    cfg = get_ticket_config(data["guild_id"])
+    if is_staff_member(author, cfg) and record_first_response(tid, author.id):
+        changed = True
+    return changed
+
+
+def sla_overdue(
+    *,
+    hours: int | None = None,
+    guild_id: int | None = None,
+    now: float | None = None,
+) -> list[int]:
+    """Tiket aktif yang belum direspons staf melewati batas SLA (per server)."""
     current = time.time() if now is None else float(now)
-    limit = current - hours * 3600
-    return [
-        tid
-        for tid, data in tickets.items()
-        if data.get("status") in ("terbuka", "diklaim") and float(data.get("created_at") or 0) < limit
+    overdue: list[int] = []
+    for tid, data in tickets.items():
+        if data.get("status") not in ("terbuka", "diklaim"):
+            continue
+        if float(data.get("first_response_at") or 0) > 0:
+            continue
+        if guild_id is not None and int(data.get("guild_id") or 0) != int(guild_id):
+            continue
+        cfg = get_ticket_config(data["guild_id"])
+        limit_hours = _to_int(cfg.get("sla_jam"), 0) if hours is None else int(hours)
+        if limit_hours <= 0:
+            continue
+        if current - float(data.get("created_at") or 0) >= limit_hours * 3600:
+            overdue.append(tid)
+    return overdue
+
+
+def mark_sla_alerted(thread_id: int) -> bool:
+    data = tickets.get(int(thread_id))
+    if data is None or data.get("sla_alerted"):
+        return False
+    data["sla_alerted"] = True
+    cfg = get_ticket_config(data["guild_id"])
+    cfg["sla_alerted"] = _to_int(cfg.get("sla_alerted")) + 1
+    return True
+
+
+def rate_ticket(
+    thread_id: int,
+    stars: int,
+    *,
+    user_id: int | None = None,
+    now: float | None = None,
+) -> tuple[str, dict | None]:
+    """Memberi rating bintang (1–5) untuk tiketnya.
+
+    Status: `ok`, `sudah`, `belum_selesai`, `bukan_pemilik`, `tidak_valid`, `tidak_ada`.
+    """
+    data = tickets.get(int(thread_id))
+    if data is None:
+        return "tidak_ada", None
+    score = _to_int(stars)
+    if score < 1 or score > 5:
+        return "tidak_valid", data
+    if user_id is not None and _to_int(user_id) != _to_int(data.get("user_id")):
+        return "bukan_pemilik", data
+    if data.get("status") != "selesai":
+        return "belum_selesai", data
+    if _to_int(data.get("rating")) > 0:
+        return "sudah", data
+
+    data["rating"] = score
+    data["rated_at"] = time.time() if now is None else float(now)
+    cfg = get_ticket_config(data["guild_id"])
+    cfg["rating_sum"] = _to_int(cfg.get("rating_sum")) + score
+    cfg["rating_count"] = _to_int(cfg.get("rating_count")) + 1
+    return "ok", data
+
+
+def rating_summary(guild_id: int) -> dict:
+    """Ringkasan rating bintang server: jumlah, rata-rata, & sebaran."""
+    rated = [
+        _to_int(d.get("rating"))
+        for d in tickets.values()
+        if _to_int(d.get("guild_id")) == int(guild_id) and _to_int(d.get("rating")) > 0
     ]
+    distribution = {star: rated.count(star) for star in range(1, 6)}
+    cfg = get_ticket_config(guild_id)
+    count = len(rated) or _to_int(cfg.get("rating_count"))
+    total = sum(rated) or _to_int(cfg.get("rating_sum"))
+    closed = _to_int(cfg.get("closed")) or 0
+    return {
+        "count": count,
+        "sum": total,
+        "average": round(total / count, 2) if count else 0.0,
+        "distribution": distribution,
+        "response_rate": round(count / closed * 100) if closed else 0,
+    }
+
+
+def sla_stats(guild_id: int) -> dict:
+    """Statistik SLA: tiket dengan respons pertama & rata-rata waktu respons (menit)."""
+    gid = int(guild_id)
+    responded = []
+    pending = 0
+    for data in tickets.values():
+        if _to_int(data.get("guild_id")) != gid:
+            continue
+        if data.get("status") not in ("terbuka", "diklaim", "selesai"):
+            continue
+        first = float(data.get("first_response_at") or 0)
+        if first > 0:
+            responded.append(max(0.0, first - float(data.get("created_at") or first)))
+        elif data.get("status") in ("terbuka", "diklaim"):
+            pending += 1
+    return {
+        "responded": len(responded),
+        "pending": pending,
+        "avg_minutes": round(sum(responded) / len(responded) / 60) if responded else 0,
+    }
+
+
+def stale_tickets(
+    *,
+    hours: int | None = None,
+    guild_id: int | None = None,
+    now: float | None = None,
+) -> list[int]:
+    """Tiket kedaluwarsa (bila auto-close diaktifkan Admin).
+
+    `hours=None` memakai pengaturan `auto_close_jam` per server; aktivitas terakhir
+    (pesan terbaru) dipakai agar tiket yang masih dibalas tidak ikut ditutup.
+    """
+    current = time.time() if now is None else float(now)
+    result: list[int] = []
+    for tid, data in tickets.items():
+        if data.get("status") not in ("terbuka", "diklaim"):
+            continue
+        if guild_id is not None and _to_int(data.get("guild_id")) != int(guild_id):
+            continue
+        limit_hours = _to_int(get_ticket_config(data["guild_id"]).get("auto_close_jam")) if hours is None else int(hours)
+        if limit_hours <= 0:
+            continue
+        last = float(data.get("last_activity") or data.get("created_at") or 0)
+        if last < current - limit_hours * 3600:
+            result.append(tid)
+    return result
 
 
 # ==============================================================================
@@ -456,6 +689,25 @@ def build_ticket_status_embed(guild_id: int, guild=None) -> discord.Embed:
                 f"• `#{data['number']:04d}` <@{data['user_id']}> — {TICKET_STATUS.get(data['status'], '-')}"
             )
         embed.add_field(name="🟢 Tiket Aktif", value="\n".join(lines)[:1024], inline=False)
+    rating = rating_summary(guild_id)
+    sla = sla_stats(guild_id)
+    rating = rating_summary(guild_id)
+    sla = sla_stats(guild_id)
+    sla_line = (
+        "nonaktif"
+        if not _to_int(cfg.get("sla_jam"))
+        else f"aktif — {sla['pending']} tiket menunggu"
+    )
+    auto_line = "nonaktif" if not _to_int(cfg.get("auto_close_jam")) else "aktif"
+    embed.add_field(
+        name="⭐ Layanan",
+        value=(
+            f"• Rating: **{rating['average']} / 5** (`{rating['count']}` penilaian)\n"
+            f"• SLA respons pertama ({_to_int(cfg.get('sla_jam'))} jam): {sla_line}\n"
+            f"• Auto-close ({_to_int(cfg.get('auto_close_jam'))} jam): {auto_line}"
+        ),
+        inline=False,
+    )
     embed.set_footer(text="Tiket dibuat sebagai thread privat, bukan channel baru")
     return embed
 
@@ -573,6 +825,108 @@ def handle_channel_delete(channel) -> bool:
 def handle_thread_delete(thread_id: int) -> bool:
     """Membuang catatan tiket saat thread-nya dihapus manual."""
     return tickets.pop(int(thread_id), None) is not None
+
+
+# ==============================================================================
+# PENGAWAS SLA & AUTO-CLOSE (v1.33.0-beta) — 0 kuota AI
+# ==============================================================================
+def build_sla_embed(guild, thread_ids: list[int], hours: int) -> discord.Embed:
+    """Laporan tiket yang belum direspons staf melewati batas SLA."""
+    lines = []
+    for tid in thread_ids[:10]:
+        data = tickets.get(tid) or {}
+        lines.append(
+            f"• `#{_to_int(data.get('number')):04d}` <@{_to_int(data.get('user_id'))}> — "
+            f"dibuat <t:{int(float(data.get('created_at') or 0))}:R>"
+        )
+    embed = discord.Embed(
+        title="⏰ SLA Terlampaui — belum ada respons staf",
+        description=(
+            f"`{len(thread_ids)}` tiket melewati batas **{hours} jam** tanpa respons pertama.\n"
+            + "\n".join(lines)
+            + ("\n… dan tiket lainnya." if len(thread_ids) > 10 else "")
+        ),
+        color=discord.Color.orange(),
+    )
+    embed.set_footer(text="SLA Tiket • 0 kuota AI • atur batas lewat /tiket atur")
+    return embed
+
+
+def _alert_channel(bot, guild, cfg: dict):
+    for key in ("sla_channel_id", "log_channel_id"):
+        cid = _to_int(cfg.get(key))
+        if cid and callable(getattr(bot, "get_channel", None)):
+            channel = bot.get_channel(cid)
+            if channel is not None and hasattr(channel, "send"):
+                return channel
+    channel = getattr(guild, "system_channel", None)
+    return channel if channel is not None and hasattr(channel, "send") else None
+
+
+async def run_ticket_check(bot) -> dict:
+    """Dipanggil berkala: kirim peringatan SLA & tutup tiket yang lama menganggur."""
+    result = {"sla": 0, "closed": 0}
+    guilds = {
+        _to_int(data.get("guild_id"))
+        for data in tickets.values()
+        if data.get("status") in ("terbuka", "diklaim")
+    }
+    for gid in guilds:
+        if not gid:
+            continue
+        guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+        if guild is None:
+            continue
+        cfg = get_ticket_config(gid)
+
+        # 1. SLA respons pertama
+        hours = _to_int(cfg.get("sla_jam"))
+        if hours > 0:
+            overdue = [tid for tid in sla_overdue(hours=hours, guild_id=gid) if mark_sla_alerted(tid)]
+            if overdue:
+                channel = _alert_channel(bot, guild, cfg)
+                if channel is not None:
+                    try:
+                        await channel.send(
+                            embed=build_sla_embed(guild, overdue, hours),
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                        result["sla"] += len(overdue)
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
+        # 2. Auto-close tiket yang menganggur
+        for tid in stale_tickets(guild_id=gid):
+            thread = None
+            if callable(getattr(bot, "get_channel", None)):
+                thread = bot.get_channel(tid)
+            status, closed = close_ticket(tid, 0, reason="otomatis (menganggur)")
+            if closed is None:
+                continue
+            cfg["auto_closed"] = _to_int(cfg.get("auto_closed")) + 1
+            result["closed"] += 1
+            if thread is not None:
+                try:
+                    await thread.send(
+                        f"⏰ Tiket ditutup **otomatis** karena tidak ada aktivitas selama "
+                        f"`{_to_int(cfg.get('auto_close_jam'))}` jam. "
+                        "Buka tiket baru kapan saja bila masih butuh bantuan."
+                    )
+                except (discord.Forbidden, discord.HTTPException, AttributeError):
+                    pass
+                try:
+                    await thread.edit(
+                        name=f"tiket-{_to_int(closed.get('number')):04d}-otomatis"[:100],
+                        locked=True,
+                        archived=True,
+                        reason="Auto-close tiket menganggur",
+                    )
+                except (discord.Forbidden, discord.HTTPException, AttributeError):
+                    pass
+
+    if result["sla"] or result["closed"]:
+        await save_tickets_to_disk()
+    return result
 
 
 def cleanup_tickets_runtime(*, max_closed: int = 200) -> int:

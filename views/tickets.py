@@ -248,7 +248,11 @@ class TicketActionsView(discord.ui.View):
 
         await interaction.response.defer()
         messages = await tickets.collect_thread_messages(interaction.channel)
-        status, closed = tickets.close_ticket(interaction.channel_id, interaction.user.id)
+        status, closed = tickets.close_ticket(
+            interaction.channel_id,
+            interaction.user.id,
+            reason="pembuat tiket" if is_owner else "staf",
+        )
         if closed is None:
             await interaction.followup.send("⚠️ Tiket ini tidak tercatat lagi.", ephemeral=True)
             return
@@ -256,6 +260,8 @@ class TicketActionsView(discord.ui.View):
         await tickets.save_tickets_to_disk()
         text, filename = tickets.build_transcript(closed, messages)
         await tickets.send_transcript(interaction.client, closed, text, filename)
+        # Kartu rating dikirim sebelum thread dikunci
+        await send_rating_prompt(interaction.channel, interaction.guild_id, closed)
 
         try:
             await interaction.channel.edit(
@@ -272,3 +278,112 @@ class TicketActionsView(discord.ui.View):
             "Transkrip sudah dikirim ke channel log (bila diatur).",
             allowed_mentions=discord.AllowedMentions.none(),
         )
+
+
+class TicketRatingView(ui_kit.ui.LayoutView):
+    """Kartu rating bintang 1–5 setelah tiket ditutup (hanya pembuat tiket)."""
+
+    def __init__(self, guild_id: int | None, thread_id: int, user_id: int):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.thread_id = int(thread_id)
+        self.user_id = int(user_id)
+
+        buttons = [
+            ui_kit.button(
+                f"{star}",
+                emoji="⭐",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"ticket:rate:{star}",
+                callback=self._rate(star),
+            )
+            for star in range(1, 6)
+        ]
+        self.add_item(
+            ui_kit.card(
+                guild_id,
+                ui_kit.text(
+                    ui_kit.title_line(
+                        guild_id,
+                        "star",
+                        "Bagaimana bantuan staf kami?",
+                        "Tekan bintang: **1** = kurang, **5** = sangat puas. Penilaianmu membantu kami jadi lebih baik.",
+                    )
+                ),
+                ui_kit.sep(),
+                ui_kit.action_row(*buttons),
+            )
+        )
+
+    def _rate(self, star: int):
+        async def _callback(interaction: discord.Interaction) -> None:
+            status, data = tickets.rate_ticket(self.thread_id, star, user_id=interaction.user.id)
+            if status == "bukan_pemilik":
+                await interaction.response.send_message(
+                    "⚠️ Hanya **pembuat tiket** yang bisa memberi rating.", ephemeral=True
+                )
+                return
+            if status == "sudah":
+                await interaction.response.send_message(
+                    f"🙏 Kamu sudah memberi rating **{int((data or {}).get('rating') or 0)}★** untuk tiket ini.",
+                    ephemeral=True,
+                )
+                return
+            if status == "belum_selesai":
+                await interaction.response.send_message(
+                    "ℹ️ Rating bisa diberikan setelah tiket ditutup.", ephemeral=True
+                )
+                return
+            if status != "ok":
+                await interaction.response.send_message(
+                    "⚠️ Data tiket ini tidak ditemukan (mungkin bot baru restart).", ephemeral=True
+                )
+                return
+
+            await tickets.save_tickets_to_disk()
+            await interaction.response.send_message(
+                f"⭐ Terima kasih! Rating **{star}★** untuk tiket "
+                f"**#{int((data or {}).get('number') or 0):04d}** sudah tersimpan.",
+                ephemeral=True,
+            )
+            try:
+                await interaction.message.edit(
+                    view=ui_kit.build_view(
+                        self.guild_id,
+                        ui_kit.card(
+                            self.guild_id,
+                            ui_kit.text(
+                                ui_kit.title_line(
+                                    self.guild_id,
+                                    "ok",
+                                    f"Rating diterima: {star}★",
+                                    "Terima kasih atas penilaianmu — staf kami akan memakainya untuk perbaikan.",
+                                )
+                            ),
+                        ),
+                    )
+                )
+            except (discord.HTTPException, AttributeError):
+                pass
+
+        return _callback
+
+
+async def send_rating_prompt(channel, guild_id: int, data: dict) -> bool:
+    """Mengirim kartu rating bintang ke thread tiket yang baru ditutup."""
+    cfg = tickets.get_ticket_config(guild_id)
+    if not cfg.get("rating_aktif", True):
+        return False
+    user_id = int(data.get("user_id") or 0)
+    if not user_id or not hasattr(channel, "send"):
+        return False
+    try:
+        await channel.send(
+            f"<@{user_id}>",
+            view=TicketRatingView(guild_id, int(data.get("thread_id") or 0), user_id),
+            allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=user_id)]),
+        )
+        return True
+    except (discord.Forbidden, discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Gagal mengirim kartu rating tiket: %s", sanitize_error_message(exc))
+        return False

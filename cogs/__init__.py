@@ -1,6 +1,7 @@
 from discord.ext import commands
 
 from cogs.agent_cog import agent_group, register_agent_cog, trigger_member_welcome
+from cogs.antinuke_cog import nuke_group, register_antinuke_cog
 from cogs.audit_cog import log_group, register_audit_cog
 from cogs.analytics_cog import register_analytics_cog, tumbuh_group
 from cogs.economy_cog import ekonomi_group, register_economy_cog
@@ -30,7 +31,12 @@ from cogs.insights_cog import (
 )
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
+from cogs.menu_cog import menu_group, register_menu_cog
 from cogs.moderation_cog import mod_group, register_moderation_cog
+from cogs.raid_cog import raid_group, register_raid_cog
+from cogs.language_cog import bahasa_group, register_language_cog
+from cogs.prefix_cog import prefix_group, register_prefix_cog
+from cogs.export_cog import analitik_group, register_export_cog
 from cogs.music_cog import musik_group, register_music_cog
 from cogs.panel_cog import panel_group, register_panel_cog, tampilan_group
 from cogs.server_cog import (
@@ -85,6 +91,12 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_audit_cog(bot)
     register_economy_cog(bot)
     register_analytics_cog(bot)
+    register_menu_cog(bot)
+    register_antinuke_cog(bot)
+    register_raid_cog(bot)
+    register_language_cog(bot)
+    register_prefix_cog(bot)
+    register_export_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
     register_tempvoice_cog(bot)

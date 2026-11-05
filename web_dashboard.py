@@ -211,6 +211,11 @@ _PAGE_TEMPLATE = """<!doctype html>
          background: #0f1117; color: #e6e6f0; }}
   h1 {{ font-size: 20px; margin: 0 0 4px; }}
   .muted {{ color: #8b90a3; font-size: 12px; }}
+  .kontrol {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }}
+  .kontrol label {{ min-width: 190px; font-size: 13px; }}
+  .kontrol select, .kontrol button {{ padding: 6px 10px; border-radius: 8px; border: 1px solid #2a2f3d;
+      background: #171b25; color: #e6e6f0; font-size: 13px; }}
+  .kontrol button {{ background: #5865f2; border-color: #5865f2; cursor: pointer; }}
   .grid {{ display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
            margin: 16px 0 24px; }}
   .card {{ background: #171a23; border: 1px solid #242838; border-radius: 14px; padding: 14px 16px; }}
@@ -263,9 +268,15 @@ _PAGE_TEMPLATE = """<!doctype html>
     {levels_table}
   </div>
 
+  <div class="panel">
+    <h2>⚙️ Kontrol Cepat</h2>
+    <p class="muted">Menyala/mematikan fitur per server. Butuh token dashboard yang sah.</p>
+    {kontrol_block}
+  </div>
+
   <footer class="muted">
-    Data dibaca langsung dari memori bot (JSON lokal). Halaman ini hanya menampilkan data —
-    tidak bisa mengubah setelan server. Rahasiakan tautan ini.
+    Data dibaca dari JSON lokal bot. Kontrol di atas hanya mengubah setelan fitur (bukan menghapus data).
+    Rahasiakan tautan ini — siapa pun yang punya token bisa mengubah setelan.
   </footer>
 </body>
 </html>
@@ -303,6 +314,7 @@ def render_dashboard_html(
     levels: dict,
     refresh: int = 30,
     heading: str = "🛰️ Dashboard Bot",
+    kontrol_block: str = '<div class="muted">Kontrol tidak tersedia.</div>',
 ) -> str:
     """Merender halaman HTML dashboard (string). Aman untuk data kosong."""
     guild_limit = int(usage.get("guild_limit") or 0)
@@ -339,7 +351,139 @@ def render_dashboard_html(
         kinds_table=_rows_table(usage.get("kinds") or [], value_label="Operasi"),
         channels_table=_rows_table(usage.get("channels") or [], value_label="Operasi"),
         levels_table=_levels_table(levels),
+        kontrol_block=kontrol_block,
     )
+
+
+# ==============================================================================
+# KONTROL TULIS (v1.29.0-beta) — hanya lewat token dashboard
+# ==============================================================================
+LEVEL_OPTIONS = [("on", "Aktif"), ("off", "Nonaktif")]
+FITUR_SEDERHANA = {
+    "level": "Level & XP",
+    "ekonomi": "Ekonomi koin",
+    "tumbuh": "Pertumbuhan & invite",
+}
+
+
+def dashboard_controls(guild_id: int) -> dict:
+    """Status ringkas fitur yang bisa dinyalakan/dimatikan dari dashboard."""
+    import antinuke
+    import antispam
+    import economy
+    import growth_tracker
+    import levels
+
+    gid = int(guild_id or 0)
+    level_cfg = levels.get_level_config(gid) if gid else {}
+    econ_cfg = economy.get_config(gid) if gid else {}
+    growth_cfg = growth_tracker.get_config(gid) if gid else {}
+    spam_cfg = antispam.get_spam_config(gid) if gid else {}
+    nuke_cfg = antinuke.get_config(gid) if gid else {}
+
+    return {
+        "guild": gid,
+        "level": "on" if level_cfg.get("enabled") else "off",
+        "ekonomi": "on" if econ_cfg.get("enabled") else "off",
+        "tumbuh": "on" if growth_cfg.get("enabled", True) else "off",
+        "antispam": str(spam_cfg.get("mode")) if spam_cfg.get("enabled") else "off",
+        "antinuke": str(nuke_cfg.get("action") or "lapor"),
+    }
+
+
+async def apply_dashboard_action(guild_id: int, action: str, value: str) -> tuple[bool, str]:
+    """Menjalankan satu aksi tulis dari dashboard. `(berhasil, pesan)`."""
+    import antinuke
+    import antispam
+    import economy
+    import growth_tracker
+    import levels
+
+    gid = int(guild_id or 0)
+    if not gid:
+        return False, "Server tidak dikenali."
+    act = str(action or "").strip().lower()
+    val = str(value or "").strip().lower()
+
+    if act == "level":
+        if val not in ("on", "off"):
+            return False, "Nilai level harus `on` atau `off`."
+        levels.set_level_config(gid, enabled=(val == "on"))
+        await levels.save_levels_to_disk()
+        return True, f"Level & XP sekarang **{'aktif' if val == 'on' else 'nonaktif'}**."
+
+    if act == "ekonomi":
+        if val not in ("on", "off"):
+            return False, "Nilai ekonomi harus `on` atau `off`."
+        economy.set_config(gid, aktif=(val == "on"))
+        await economy.save_economy_to_disk()
+        return True, f"Ekonomi koin sekarang **{'aktif' if val == 'on' else 'nonaktif'}**."
+
+    if act == "tumbuh":
+        if val not in ("on", "off"):
+            return False, "Nilai pertumbuhan harus `on` atau `off`."
+        growth_tracker.set_config(gid, enabled=(val == "on"))
+        await growth_tracker.save_growth_to_disk()
+        return True, f"Pelacakan pertumbuhan **{'aktif' if val == 'on' else 'nonaktif'}**."
+
+    if act == "antispam":
+        if val == "off":
+            antispam.set_spam_config(gid, aktif=False)
+            await antispam.save_antispam_to_disk()
+            return True, "Anti-spam **dimatikan**."
+        if val not in antispam.SPAM_MODES:
+            return False, "Mode anti-spam tidak dikenal."
+        antispam.set_spam_config(gid, mode=val)
+        await antispam.save_antispam_to_disk()
+        return True, f"Anti-spam aktif dengan mode **{val}**."
+
+    if act == "antinuke":
+        if val not in antinuke.PUNISH_CHOICES:
+            return False, "Aksi anti-nuke tidak dikenal."
+        antinuke.set_config(gid, action=val)
+        await antinuke.save_antinuke_to_disk()
+        return True, f"Anti-Nuke memakai aksi **{val}**."
+
+    return False, f"Aksi `{act or '-'}` tidak didukung (hanya: level, ekonomi, tumbuh, antispam, antinuke)."
+
+
+def render_controls_block(guild_id: int, token: str) -> str:
+    """Form HTML sederhana untuk menyalakan/mematikan fitur dari browser."""
+    import antinuke
+    import antispam
+
+    state = dashboard_controls(guild_id)
+    hidden = (
+        f'<input type="hidden" name="token" value="{html.escape(token)}">'
+        f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
+    )
+
+    def _form(action: str, label: str, options: list[tuple[str, str]], current: str) -> str:
+        opts = "".join(
+            f'<option value="{html.escape(value)}"'
+            + (" selected" if value == current else "")
+            + f'>{html.escape(text)}</option>'
+            for value, text in options
+        )
+        return (
+            f'<form method="post" action="/api/aksi" class="kontrol">'
+            f'{hidden}<input type="hidden" name="action" value="{action}">'
+            f'<label>{html.escape(label)}</label>'
+            f'<select name="value">{opts}</select>'
+            f'<button type="submit">Simpan</button></form>'
+        )
+
+    sp_options = [("off", "Mati")] + [(key, key.capitalize()) for key in antispam.SPAM_MODES]
+    nuke_options = [(key, key) for key in antinuke.PUNISH_CHOICES]
+
+    forms = [
+        _form("level", "📈 Level & XP", LEVEL_OPTIONS, state["level"]),
+        _form("ekonomi", "💰 Ekonomi koin", LEVEL_OPTIONS, state["ekonomi"]),
+        _form("tumbuh", "🌱 Pertumbuhan & invite", LEVEL_OPTIONS, state["tumbuh"]),
+        _form("antispam", "🚨 Anti-spam", sp_options, state["antispam"]),
+        _form("antinuke", "🛡️ Anti-Nuke (aksi)", nuke_options, state["antinuke"]),
+    ]
+    return "".join(forms)
 
 
 # ==============================================================================
@@ -398,6 +542,7 @@ async def start_dashboard(bot) -> bool:
             levels=collect_levels(gid),
             refresh=cfg["refresh"],
             heading=f"🛰️ Dashboard {guild_name}" if guild_name else "🛰️ Dashboard Bot",
+            kontrol_block=render_controls_block(gid, cfg["token"]),
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8")
 
@@ -418,6 +563,56 @@ async def start_dashboard(bot) -> bool:
         gid, _name = _guild_hint(bot, request)
         return web.json_response(collect_levels(gid))
 
+    async def handle_kontrol(request):
+        if not _authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        gid, guild_name = _guild_hint(bot, request)
+        return web.json_response({"guild": gid, "guild_name": guild_name,
+                                  "controls": dashboard_controls(gid)})
+
+    async def handle_aksi(request):
+        if not _authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+
+        payload: dict = {}
+        try:
+            if request.content_type.startswith("application/json"):
+                payload = dict(await request.json())
+            else:
+                payload = dict(await request.post())
+        except Exception:
+            return web.json_response({"error": "body tidak valid"}, status=400)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        ok, message = await apply_dashboard_action(
+            gid, str(payload.get("action") or ""), str(payload.get("value") or "")
+        )
+        logger.info("Dashboard aksi %s=%s (server %s): %s", payload.get("action"),
+                    payload.get("value"), gid, message)
+
+        if request.content_type.startswith("application/json"):
+            return web.json_response({"ok": ok, "message": message, "guild": gid},
+                                     status=200 if ok else 400)
+
+        # Form browser → kembali ke dashboard dengan pesan singkat
+        safe = html.escape(message)
+        page = (
+            "<!doctype html><html lang=id><head><meta charset=utf-8>"
+            "<title>Dashboard — hasil</title>"
+            "<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e6e6f0;"
+            "padding:32px}a{color:#8ea2ff}</style></head><body>"
+            f"<h1>{'✅' if ok else '⚠️'} {safe}</h1>"
+            f'<p><a href="/?token={html.escape(cfg["token"])}">← Kembali ke dashboard</a></p>'
+            "</body></html>"
+        )
+        return web.Response(text=page, content_type="text/html", charset="utf-8",
+                            status=200 if ok else 400)
+
+    app.router.add_get("/api/kontrol", handle_kontrol)
+    app.router.add_post("/api/aksi", handle_aksi)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/pemakaian", handle_usage)

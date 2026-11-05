@@ -19,6 +19,7 @@ import logging
 import discord
 from discord import ui
 
+import i18n
 import ui_theme
 
 logger = logging.getLogger("gemini_bot.ui_kit")
@@ -387,8 +388,8 @@ class ConfirmView(ui.LayoutView):
         *,
         title: str,
         detail: str,
-        confirm_label: str = "Ya, lanjutkan",
-        cancel_label: str = "Batal",
+        confirm_label: str | None = None,
+        cancel_label: str | None = None,
         on_confirm=None,
         on_cancel=None,
         author_id: int | None = None,
@@ -400,6 +401,8 @@ class ConfirmView(ui.LayoutView):
         self._on_cancel = on_cancel
         self.author_id = author_id
 
+        confirm_label = confirm_label or i18n.t("confirm.yes", guild_id)
+        cancel_label = cancel_label or i18n.t("confirm.cancel", guild_id)
         body = ui_theme.emoji(guild_id, "warn", "⚠️")
         container = card(
             guild_id,
@@ -427,7 +430,7 @@ class ConfirmView(ui.LayoutView):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.author_id and interaction.user.id != self.author_id:
             await interaction.response.send_message(
-                "⚠️ Dialog ini milik orang lain. Jalankan command sendiri untuk konfirmasi.",
+                i18n.t("confirm.other_user", self.guild_id),
                 ephemeral=True,
             )
             return False
@@ -444,7 +447,11 @@ class ConfirmView(ui.LayoutView):
                 self.guild_id,
                 card(
                     self.guild_id,
-                    text(f"### {ui_theme.emoji(self.guild_id, 'ok', '✅')} Dikonfirmasi\nAksi dijalankan."),
+                    text(
+                        f"### {ui_theme.emoji(self.guild_id, 'ok', '✅')} "
+                        f"{i18n.t('confirm.confirmed', self.guild_id)}\n"
+                        f"{i18n.t('confirm.confirmed_detail', self.guild_id)}"
+                    ),
                 ),
             )
         )
@@ -460,7 +467,11 @@ class ConfirmView(ui.LayoutView):
                 self.guild_id,
                 card(
                     self.guild_id,
-                    text(f"### {ui_theme.emoji(self.guild_id, 'close', '✖')} Dibatalkan\nTidak ada perubahan."),
+                    text(
+                        f"### {ui_theme.emoji(self.guild_id, 'close', '✖')} "
+                        f"{i18n.t('confirm.cancelled', self.guild_id)}\n"
+                        f"{i18n.t('confirm.cancelled_detail', self.guild_id)}"
+                    ),
                 ),
             )
         )
@@ -472,7 +483,7 @@ async def ask_confirm(
     *,
     title: str,
     detail: str,
-    confirm_label: str = "Ya, lanjutkan",
+    confirm_label: str | None = None,
     on_confirm=None,
     on_cancel=None,
 ) -> ConfirmView | None:

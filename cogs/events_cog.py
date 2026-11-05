@@ -100,6 +100,29 @@ def register_events_cog(bot: commands.Bot) -> None:
         if not ai_handler.is_gemini_key_configured():
             logger.warning("⚠️ GEMINI_API_KEY belum diisi! Isi di .env atau panel Variables Wispbyte.")
 
+        # Simpan titik pulih identitas server untuk pemulihan Anti-Nuke
+        try:
+            import antinuke
+
+            saved = 0
+            for guild in getattr(bot, "guilds", []) or []:
+                antinuke.snapshot_identity(guild)
+                saved += 1
+            if saved:
+                await antinuke.save_antinuke_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Titik pulih identitas dilewati: %s", exc)
+
+        # Pasang kembali panel menu persisten (tombol/dropdown buatan Admin)
+        try:
+            import menu_builder
+
+            restored = menu_builder.register_menus(bot)
+            if restored:
+                logger.info("Panel menu interaktif dipulihkan: %d panel.", restored)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pemulihan panel menu dilewati: %s", exc)
+
         # Sinkronkan cache invite sekali saat start agar pelacakan pengundang akurat
         try:
             import growth_tracker
@@ -213,6 +236,27 @@ def register_events_cog(bot: commands.Bot) -> None:
             await save_levels_to_disk()
         if handle_tickets_channel_delete(channel):
             await save_tickets_to_disk()
+        try:
+            import raid_guard
+
+            if raid_guard.handle_channel_delete(getattr(channel, "id", 0)):
+                await raid_guard.save_raid_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pembersihan Raid Guard dilewati: %s", exc)
+        try:
+            import antinuke
+
+            if antinuke.handle_channel_delete(getattr(channel, "id", 0)):
+                await antinuke.save_antinuke_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pembersihan anti-nuke dilewati: %s", exc)
+        try:
+            import menu_builder
+
+            if menu_builder.handle_channel_delete(getattr(channel, "id", 0)):
+                await menu_builder.save_menus_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pembersihan panel menu dilewati: %s", exc)
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:
@@ -279,6 +323,16 @@ def register_events_cog(bot: commands.Bot) -> None:
             await audit_log.log_message_edit(bot, before, after)
         except Exception as exc:  # pragma: no cover
             logger.debug("Audit log pesan edit dilewati: %s", exc)
+
+    @bot.event
+    async def on_audit_log_entry_create(entry):
+        """Anti-Nuke: membaca Audit Log Discord untuk mendeteksi penghancuran server."""
+        try:
+            import antinuke
+
+            await antinuke.handle_audit_entry(bot, entry)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Anti-Nuke melewati entri audit: %s", exc)
 
     @bot.event
     async def on_guild_join(guild):
@@ -351,7 +405,30 @@ def register_events_cog(bot: commands.Bot) -> None:
     @bot.event
     async def on_member_join(member: discord.Member):
         """Menyambut member baru, memasang Auto Role, & mendeteksi lonjakan join (raid)."""
-        if not getattr(member, "bot", False) and member.guild.id in autorole_guilds:
+        # Raid Guard: deteksi lonjakan join & tahan Auto Role saat mode darurat
+        raid_state = None
+        try:
+            import raid_guard
+
+            raid_state = await raid_guard.handle_member_join(bot, member)
+            if raid_state is not None:
+                await raid_guard.save_raid_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Raid Guard join dilewati: %s", exc)
+
+        skip_autorole = False
+        try:
+            import raid_guard
+
+            skip_autorole = raid_guard.should_skip_autorole(member.guild.id)
+        except Exception:  # pragma: no cover
+            skip_autorole = False
+
+        if (
+            not skip_autorole
+            and not getattr(member, "bot", False)
+            and member.guild.id in autorole_guilds
+        ):
             await apply_autorole_to_member(member)
         try:
             await handle_member_join_guard(bot, member)  # hanya melapor, tidak menendang
@@ -440,6 +517,16 @@ def register_events_cog(bot: commands.Bot) -> None:
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Sticky message gagal diperbarui: %s", exc)
 
+        # Tiket: catat aktivitas terakhir & respons pertama staf (SLA, 0 kuota AI)
+        if message.guild is not None:
+            try:
+                import tickets as ticket_store
+
+                if ticket_store.maybe_track_ticket_message(message):
+                    await ticket_store.save_tickets_to_disk()
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Pencatatan tiket dilewati: %s", exc)
+
         # AFK (lepas status + beri tahu mentioner) & thread otomatis (0 kuota AI)
         if message.guild is not None:
             try:
@@ -463,7 +550,15 @@ def register_events_cog(bot: commands.Bot) -> None:
             return
 
         # Jalankan command prefix (seperti !setup_panel) tanpa memicu AI
-        if message.content.strip().startswith(bot.command_prefix):
+        try:
+            import prefixes as prefix_store
+
+            is_prefix_cmd = prefix_store.is_prefix_command(
+                message.content, getattr(message.guild, "id", None)
+            )
+        except Exception:  # pragma: no cover - jaring aman
+            is_prefix_cmd = message.content.strip().startswith("!")
+        if is_prefix_cmd:
             await bot.process_commands(message)
             return
 

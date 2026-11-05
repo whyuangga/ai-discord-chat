@@ -2,6 +2,9 @@
 
 import discord
 from config import BOT_VERSION
+
+# Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
+TOP_LEVEL_COUNT = 52
 import ui_kit
 
 
@@ -149,6 +152,45 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🛡️ Anti-Nuke (`/nuke` — 0 kuota AI)",
+            value=(
+                "• `/nuke atur aktif:True aksi:cabut-role channel:#mod-log` *(Admin)* — hentikan "
+                "**penghancuran server** oleh staff jahat/akun hack: hapus channel/role massal, ban/kick massal, "
+                "banjir webhook, & pembajakan nama server.\n"
+                "• Aksi bertingkat: `lapor` (bawaan, tanpa tindakan) → `cabut-role` → `timeout` → `kick` → `ban`.\n"
+                "• Pemulihan otomatis: nama/ikon server dikembalikan & webhook pelaku dihapus. "
+                "Owner, bot, & whitelist tidak pernah ditindak.\n"
+                "• `/nuke beku durasi_menit:30` *(Admin)* — **mode beku**: ambang jadi **1 aksi**, cocok saat "
+                "server sedang diserang; `/nuke cairkan` untuk berhenti.\n"
+                "• **Bot asing** yang ditambahkan lewat OAuth **langsung dikeluarkan** (audit `bot_add`).\n"
+                "• `/nuke status`, `/nuke uji`, `/nuke whitelist`, `/nuke pulihkan`, `/nuke matikan`."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🚨 Raid Guard (`/raid` — 0 kuota AI)",
+            value=(
+                "• `/raid atur aktif:True ambang:8 aksi:verifikasi` *(Admin)* — saat server diserbu akun palsu, "
+                "bot **otomatis** menyalakan mode darurat.\n"
+                "• Aksi: `lapor` → `verifikasi` (bawaan: tahan Auto Role + minta verifikasi) → "
+                "`verifikasi+lockdown` (kunci text channel sementara).\n"
+                "• Berakhir sendiri sesuai `durasi_menit`; lockdown dibuka kembali otomatis.\n"
+                "• `/raid status`, `/raid mulai`, `/raid akhiri` *(Admin)*."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🧹 Perkakas Moderasi Harian (`/mod`)",
+            value=(
+                "• `/mod slowmode detik:30 channel:#umum` — jeda antar-pesan (0 = matikan, maks 6 jam).\n"
+                "• `/mod role member:@x role:@Gamer aksi:beri|cabut` — satu member.\n"
+                "• `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` — banyak member sekaligus "
+                "dengan **konfirmasi** & ringkasan hasil.\n"
+                "• `/mod nickname member:@x nama:Sobat` — ubah/reset nickname."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🚨 Anti-Spam & Anti-Raid (`/keamanan spam`)",
             value=(
                 "• `/keamanan spam aktif:True` — **mode awalnya hanya *lapor*** ke channel log, "
@@ -170,7 +212,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/thread-otomatis aktifkan arsip_menit:1440` *(Admin)* — tiap pesan baru dibuatkan thread.\n"
                 "• `/lockdown aktif:True alasan:raid` *(Admin)* — kunci semua text channel; "
                 "`aktif:False` membuka hanya channel yang dikunci bot.\n"
-                "• `/backup struktur` *(Admin)* — unduh JSON role/kategori/channel/izin (baca-saja, tanpa isi pesan)."
+                "• `/backup struktur` *(Admin)* — unduh JSON role/kategori/channel/izin (tanpa isi pesan).\n"
+                "• `/backup pratinjau` → `/backup pulihkan` *(Admin)* — **bangun ulang** role/kategori/channel dari "
+                "berkas itu setelah kecelakaan: dry-run dulu, hanya menambah, tidak pernah menghapus."
             ),
             inline=False,
         )
@@ -196,11 +240,15 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.purple(),
         )
         embed.add_field(
-            name="🎭 Reaction Role (`/panel-role`)",
+            name="🎭 Self Roles (`/panel-role`) + 🧱 Menu Builder (`/menu`)",
             value=(
-                "• `/panel-role pasang channel:#ambil-role judul:Ambil Role role1:@Gamer emoji1:🎮` — member klik emoji untuk mengambil role sendiri.\n"
-                "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel yang sudah ada.\n"
-                "• `/panel-role daftar` — lihat seluruh panel di server ini."
+                "• `/panel-role pasang … gaya:campuran banner:<gambar>` — panel **Self Roles** ala Discohook: "
+                "**banner + tombol + dropdown** (klik = ambil role, klik lagi = lepas). Gaya lain: `reaksi` (lama), `tombol`, `dropdown`.\n"
+                "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel reaksi.\n"
+                "• `/menu buat judul:Pusat Info [banner]` — panel sendiri berisi **tombol role, tombol link, & tombol command**.\n"
+                "• `/menu tombol-command aksi:serverstats` — tombol yang **menjalankan command**, mis. `/serverstats lihat`, "
+                "`/level lihat`, `/tumbuh ringkas`, `/bantuan`. Visibilitas: `auto`/`ephemeral`/`publik`.\n"
+                "• `/menu tombol-role`, `/menu tombol-link`, `/menu dropdown-role`, `/menu hapus-item`, `/menu daftar`."
             ),
             inline=False,
         )
@@ -281,6 +329,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/level atur aktif:True jeda:60 xp_minimal:15 xp_maksimal:25` *(Admin)*.\n"
                 "• `/level role level:5 role:@Aktif` *(Admin)* — hadiah role otomatis.\n"
                 "• `/level status` — statistik & konfigurasi leveling.\n"
+                "• `/level musim status` & `/level prestise` — **musim level** (reset berkala, "
+                "juara musim disimpan) & **Prestige** (level max → trofi permanen, XP kembali 0).\n"
                 "• XP dibatasi jeda (default 60 detik) & bisa dikecualikan per channel/role."
             ),
             inline=False,
@@ -293,7 +343,10 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "(tidak memakai slot channel server).\n"
                 "• Staf memakai tombol **🙋 Klaim** & **🔒 Tutup Tiket** di dalam thread.\n"
                 "• `/tiket daftar` / `/tiket tambah member:@X` / `/tiket status` / `/tiket matikan`.\n"
-                "• Transkrip `.txt` otomatis dikirim ke channel log saat tiket ditutup."
+                "• Transkrip `.txt` otomatis dikirim ke channel log saat tiket ditutup.\n"
+                "• **⭐ Rating bintang** 1–5 dari pembuat tiket setelah tiket selesai (rekap: `/tiket rating`).\n"
+                "• `/tiket atur sla_jam:2 auto_close_jam:72` *(Admin)* — peringatan **SLA respons pertama** "
+                "& **auto-close** tiket menganggur (default nonaktif)."
             ),
             inline=False,
         )
@@ -423,6 +476,18 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="💾 Playlist Pribadi (0 kuota AI)",
+            value=(
+                "• `/musik playlist simpan nama:Favorit` — simpan **antrean** (atau `dari:sekarang` untuk "
+                "lagu yang sedang diputar) jadi playlist milikmu.\n"
+                "• `/musik playlist daftar` & `/musik playlist lihat nama:...` — cek koleksimu.\n"
+                "• `/musik playlist putar nama:Favorit` — mainkan lagi kapan saja (bisa `berikutnya:True`).\n"
+                "• `/musik playlist hapus-lagu`, `ganti-nama`, `hapus` — kelola isinya.\n"
+                "• Batas ramah Free Tier: **5 playlist/member**, **50 lagu/playlist**."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🎛️ Kontrol Pemutaran",
             value=(
                 "• `/musik sekarang` — lagu aktif + progres bar & volume.\n"
@@ -459,7 +524,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n"
                 "• **Role DJ bukan syarat memutar lagu** — cukup masuk voice channel. DJ hanya mengunci "
                 "tombol kontrol untuk member di luar VC.\n"
-                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di README bagian F."
+                "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di `docs/fitur.md` bagian F."
             ),
             inline=False,
         )
@@ -529,6 +594,17 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             ),
             inline=False,
         )
+        embed.add_field(
+            name="🧠 Perawatan, Diagnosa & Tampilan",
+            value=(
+                "• `/perawatan status` — backup terakhir, channel log error, ukuran backup, & RAM.\n"
+                "• `/perawatan memori` — audit RAM **nyata**, ukuran `data/`, cache terbesar, & saran hemat.\n"
+                "• `/perawatan backup` & `/perawatan atur` — backup konfigurasi manual/otomatis.\n"
+                "• `/analitik ekspor` & `/analitik webhook` *(Admin)* — CSV level/moderasi/tiket/pemakaian.\n"
+                "• `/bahasa atur` *(Admin)* — bahasa teks kerangka ID/EN; `/prefix atur` *(Admin)* — prefix server."
+            ),
+            inline=False,
+        )
     else:
         embed = discord.Embed(
             title=f"📚 Pusat Panduan Bot Gemini AI (`v{BOT_VERSION}`)",
@@ -539,23 +615,42 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ AI, Server & Hiburan (30 Menu Utama)",
+            name=f"⚡ AI, Server & Hiburan ({TOP_LEVEL_COUNT} Menu Utama)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
                 "• **`/ringkas`** — Rangkum obrolan (`chat`), per periode (`channel`), atau link/YouTube (`link`).\n"
                 "• **`/cari`** — Cari berita, skor, cuaca, atau info terbaru hari ini.\n"
                 "• **`/game`** — 6 mode Mini-Game Tongkrongan & Papan Skor.\n"
-                "• **`/musik`** — streaming YouTube/Spotify via Lavalink (putar, antrean, volume, DJ).\n"
+                "• **`/musik`** — streaming Lavalink (antrean, volume, DJ, playlist).\n"
                 "**🎨 Tampilan & Pusat Kontrol**\n"
                 "• **`/panel`** — **Control Center**: kartu status semua modul + pindah tab lewat dropdown.\n"
                 "• **`/tampilan`** *(Admin)* — ubah warna aksen, emoji, kepadatan, & branding panel server.\n"
                 "**🛠️ Pengelolaan Server**\n"
-                "• **`/agent`** *(Admin)* — Panel kontrol AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
+                "• **`/agent`** *(Admin)* — AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
                 "• **`/serverstats`** — Statistik server + channel penghitung otomatis.\n"
                 "• **`/autorole`**, **`/verifikasi`** *(Admin)* — Role otomatis & gerbang verifikasi.\n"
                 "• **`/fakta`** — Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
-                "• **`/keamanan`** — Anti-phishing, anti-spam, & cek keamanan link."
+                "• **`/keamanan`**, **`/nuke`**, **`/raid`** — anti-phishing, anti-spam, anti-nuke, "
+                "& mode darurat (0 kuota)."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🆕 Terbaru (v1.28 → v1.39) — Cek Cepat",
+            value=(
+                "**🛡️ Keamanan & Pemulihan**\n"
+                "• **`/raid`** — mode darurat otomatis: tahan Auto Role, minta verifikasi, lockdown opsional.\n"
+                "• **`/nuke`** — anti-nuke, **keluarkan bot asing**, & **`/nuke beku`** (ambang 1 aksi).\n"
+                "• **`/backup pulihkan`** — bangun ulang role/kategori/channel dari JSON (dry-run dulu).\n"
+                "**📈 Retensi & Pelayanan**\n"
+                "• **`/level musim`** & **`/level prestise`** — musim level + trofi permanen.\n"
+                "• **`/musik playlist`** — playlist pribadi per member.\n"
+                "• **`/tiket atur`** & **`/tiket rating`** — SLA respons pertama, auto-close, rating bintang.\n"
+                "**🧰 Admin & Diagnosa**\n"
+                "• **`/mod`** — slowmode, role, role-massal, nickname.\n"
+                "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
+                "• **Dashboard web** — pantau + **kontrol** fitur dari browser dengan token."
             ),
             inline=False,
         )
@@ -570,10 +665,10 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
                 "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
-                "• **Dashboard web** — status & `/pemakaian` dari browser (0 kuota).\n"
-                "• **`/agent keamanan`** — tingkat keamanan konten AI (longgar/normal/ketat).\n"
-                "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
-                "• **`/terjemah`** — penerjemah hemat kuota (reaksi bendera 🇮🇩/🇬🇧).\n"
+                "• **Dashboard web** — status, `/pemakaian`, & kontrol nyala/mati fitur dari browser (0 kuota).\n"
+                "• **`/agent keamanan`** — keamanan konten AI (longgar/normal/ketat).\n"
+                "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola (Admin).\n"
+                "• **`/terjemah`** — penerjemah hemat kuota (bendera 🇮🇩/🇬🇧).\n"
                 "**🌱 Tumbuh & Ekonomi**\n"
                 "• **`/log`**, **`/tumbuh`**, **`/ekonomi`** (koin + toko role).\n"
                 "**🧩 Komunitas & Lain-lain**\n"

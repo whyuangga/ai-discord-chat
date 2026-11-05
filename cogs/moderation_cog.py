@@ -576,6 +576,322 @@ async def mod_atur_cmd(
     )
 
 
+
+# ==============================================================================
+# v1.28.0-beta — PERKAKAS MODERASI HARIAN (slowmode, role, nickname)
+# ==============================================================================
+@mod_group.command(name="slowmode", description="Atur mode lambat (slowmode) supaya channel tidak banjir")
+@app_commands.describe(
+    detik="Jeda antar-pesan dalam detik (0 = matikan, maks 21600 = 6 jam)",
+    channel="Channel yang diatur (bawaan: channel ini)",
+    alasan="Alasan perubahan (opsional)",
+)
+async def mod_slowmode_cmd(
+    interaction: discord.Interaction,
+    detik: app_commands.Range[int, 0, 21600],
+    channel: discord.TextChannel | None = None,
+    alasan: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    target = channel or interaction.channel
+    # TextChannel punya `slowmode_delay`; voice/stage tidak.
+    if not isinstance(target, discord.TextChannel) and not hasattr(target, "slowmode_delay"):
+        await interaction.response.send_message(
+            "⚠️ Slowmode hanya berlaku di **text channel** (bukan voice/thread).", ephemeral=True
+        )
+        return
+
+    me = interaction.guild.me
+    perms = getattr(me, "guild_permissions", None) if me else None
+    if perms is None or not perms.manage_channels:
+        await interaction.response.send_message(
+            "⚠️ Bot butuh izin **Manage Channels** untuk mengatur slowmode.", ephemeral=True
+        )
+        return
+
+    try:
+        await target.edit(
+            slowmode_delay=int(detik),
+            reason=(alasan or f"Slowmode oleh {interaction.user}")[:400],
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.response.send_message(
+            f"⚠️ Gagal mengubah slowmode: `{type(exc).__name__}`", ephemeral=True
+        )
+        return
+
+    case = mod.add_case(
+        interaction.guild.id,
+        0,
+        interaction.user.id,
+        "note",
+        f"Slowmode {target.name} → {int(detik)} dtk" + (f" ({alasan})" if alasan else ""),
+    )
+    await mod.save_moderation_to_disk()
+
+    if int(detik) == 0:
+        judul, isi = "Slowmode dimatikan", f"{target.mention} kembali normal (tanpa jeda)."
+    else:
+        menit = int(detik) // 60
+        panjang = f"{menit} menit" if menit else f"{int(detik)} detik"
+        judul, isi = "Slowmode dipasang", f"{target.mention} — jeda **{panjang}** antar-pesan."
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id, "ok", judul, isi + f"\n• Kasus: `#{case['id']}`"
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(name="role", description="Beri atau cabut satu role dari seorang member")
+@app_commands.describe(
+    member="Member yang diubah",
+    role="Role yang diberikan/dicabut",
+    aksi="Beri atau cabut role",
+    alasan="Alasan perubahan (opsional)",
+)
+@app_commands.choices(
+    aksi=[
+        app_commands.Choice(name="➕ Beri role", value="beri"),
+        app_commands.Choice(name="➖ Cabut role", value="cabut"),
+    ]
+)
+async def mod_role_cmd(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    role: discord.Role,
+    aksi: app_commands.Choice[str] | None = None,
+    alasan: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    mode = aksi.value if aksi else "beri"
+    ok, reason = _role_change_problem(interaction.guild, member, role)
+    if not ok:
+        await interaction.response.send_message(f"⚠️ {reason}", ephemeral=True)
+        return
+
+    try:
+        if mode == "beri":
+            await member.add_roles(role, reason=(alasan or f"oleh {interaction.user}")[:400])
+        else:
+            await member.remove_roles(role, reason=(alasan or f"oleh {interaction.user}")[:400])
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.response.send_message(
+            f"⚠️ Gagal mengubah role: `{type(exc).__name__}`", ephemeral=True
+        )
+        return
+
+    case = mod.add_case(
+        interaction.guild.id,
+        member.id,
+        interaction.user.id,
+        "note",
+        f"{'Beri' if mode == 'beri' else 'Cabut'} role {role.name}" + (f" — {alasan}" if alasan else ""),
+    )
+    await mod.save_moderation_to_disk()
+    await _announce(interaction, case, member)
+
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Role diperbarui",
+            f"{'✅ Ditambahkan' if mode == 'beri' else '🗑️ Dicabut'}: {role.mention}\n"
+            f"• Member: {member.mention}\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(name="role-massal", description="Beri/cabut satu role ke banyak member sekaligus (dengan konfirmasi)")
+@app_commands.describe(
+    role="Role yang diberikan/dicabut",
+    aksi="Beri atau cabut role",
+    filter_role="Hanya member yang punya role ini (opsional)",
+    batas="Maksimal member diproses (1–100)",
+)
+@app_commands.choices(
+    aksi=[
+        app_commands.Choice(name="➕ Beri ke semua", value="beri"),
+        app_commands.Choice(name="➖ Cabut dari semua", value="cabut"),
+    ]
+)
+async def mod_role_massal_cmd(
+    interaction: discord.Interaction,
+    role: discord.Role,
+    aksi: app_commands.Choice[str],
+    filter_role: discord.Role | None = None,
+    batas: app_commands.Range[int, 1, 100] = 50,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    guild = interaction.guild
+    me = guild.me
+    if me is None or role >= me.top_role:
+        await interaction.response.send_message(
+            "⚠️ Posisi role itu **di atas role bot**. Pindahkan role bot lebih tinggi.", ephemeral=True
+        )
+        return
+    if role.is_default() or role.managed:
+        await interaction.response.send_message(
+            "⚠️ Role `@everyone` atau role yang dikelola integrasi tidak bisa diubah massal.", ephemeral=True
+        )
+        return
+
+    mode = aksi.value
+    targets: list[discord.Member] = []
+    for member in guild.members:
+        if member.bot or member.id == guild.owner_id or member.id == me.id:
+            continue
+        if filter_role is not None and filter_role not in member.roles:
+            continue
+        has_role = role in member.roles
+        if (mode == "beri" and has_role) or (mode == "cabut" and not has_role):
+            continue
+        targets.append(member)
+        if len(targets) >= int(batas):
+            break
+
+    if not targets:
+        await interaction.response.send_message(
+            "ℹ️ Tidak ada member yang perlu diubah (semua sudah sesuai).", ephemeral=True
+        )
+        return
+
+    daftar = ", ".join(m.mention for m in targets[:10]) + ("…" if len(targets) > 10 else "")
+
+    async def _run() -> None:
+        berhasil, gagal = 0, 0
+        for member in targets:
+            try:
+                if mode == "beri":
+                    await member.add_roles(role, reason="Role massal oleh staff")
+                else:
+                    await member.remove_roles(role, reason="Role massal oleh staff")
+                berhasil += 1
+            except (discord.Forbidden, discord.HTTPException):
+                gagal += 1
+
+        case = mod.add_case(
+            guild.id,
+            0,
+            interaction.user.id,
+            "note",
+            f"Role massal {'+' if mode == 'beri' else '-'}{role.name}: {berhasil} berhasil, {gagal} gagal",
+        )
+        await mod.save_moderation_to_disk()
+        await interaction.edit_original_response(
+            embed=ui_theme.status_embed(
+                guild.id,
+                "ok" if berhasil else "warn",
+                "Role massal selesai",
+                f"{'✅ Diberi' if mode == 'beri' else '🗑️ Dicabut'}: {role.mention}\n"
+                f"• Berhasil: **{berhasil}** • Gagal: **{gagal}**\n• Kasus: `#{case['id']}`",
+            )
+        )
+
+    view = await ui_kit.ask_confirm(
+        interaction,
+        guild.id,
+        title="Konfirmasi role massal",
+        detail=(
+            f"Akan **{'memberi' if mode == 'beri' else 'mencabut'}** role {role.mention} "
+            f"ke **{len(targets)} member**:\n{daftar}\n\nLanjutkan?"
+        ),
+        confirm_label="Ya, jalankan",
+        on_confirm=_run,
+    )
+    if view is None:  # tema server mematikan konfirmasi → langsung jalankan
+        await interaction.response.defer(ephemeral=True)
+        await _run()
+
+
+@mod_group.command(name="nickname", description="Ubah atau reset nama panggilan (nickname) member")
+@app_commands.describe(member="Member yang diubah", nama="Nama baru (kosongkan untuk reset)", alasan="Alasan (opsional)")
+async def mod_nickname_cmd(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    nama: str | None = None,
+    alasan: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    guild = interaction.guild
+    me = guild.me
+    if me is None or (member.id != me.id and member.top_role >= me.top_role):
+        await interaction.response.send_message(
+            "⚠️ Member ini punya role lebih tinggi/sama dengan bot, jadi nickname-nya tidak bisa diubah.",
+            ephemeral=True,
+        )
+        return
+
+    clean = (nama or "").strip()[:32] or None
+    try:
+        await member.edit(nick=clean, reason=(alasan or f"oleh {interaction.user}")[:400])
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.response.send_message(
+            f"⚠️ Gagal mengubah nickname: `{type(exc).__name__}`", ephemeral=True
+        )
+        return
+
+    case = mod.add_case(
+        guild.id,
+        member.id,
+        interaction.user.id,
+        "note",
+        (f"Nickname → {clean}" if clean else "Nickname direset") + (f" ({alasan})" if alasan else ""),
+    )
+    await mod.save_moderation_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            guild.id,
+            "ok",
+            "Nickname diperbarui",
+            f"• Member: {member.mention}\n"
+            f"• Nama baru: **{clean or 'direset ke nama asli'}**\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
+    )
+
+
+def _role_change_problem(guild: discord.Guild, member: discord.Member, role: discord.Role) -> tuple[bool, str]:
+    """Memastikan bot boleh mengubah role member ini."""
+    me = guild.me
+    if me is None:
+        return False, "Bot tidak berada di server ini."
+    perms = getattr(me, "guild_permissions", None)
+    if perms is None or not perms.manage_roles:
+        return False, "Bot butuh izin **Manage Roles**."
+    if role.is_default():
+        return False, "Role `@everyone` tidak bisa diubah."
+    if role.managed:
+        return False, "Role ini dikelola integrasi/bot lain."
+    if role >= me.top_role:
+        return False, "Posisi role itu **di atas role bot**."
+    if member.id == guild.owner_id:
+        return False, "Tidak bisa mengubah role **pemilik server**."
+    if member.top_role >= me.top_role and member.id != me.id:
+        return False, f"{member.mention} punya role lebih tinggi/sama dengan bot."
+    return True, ""
+
+
 def register_moderation_cog(bot: commands.Bot) -> None:
     """Mendaftarkan group `/mod` ke bot."""
     bot.tree.add_command(mod_group)

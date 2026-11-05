@@ -23,6 +23,8 @@ from .community import (  # noqa: F401
 from .tickets import (  # noqa: F401
     handle_ticket_open,
     TicketPanelView,
+    TicketRatingView,
+    send_rating_prompt,
     TicketPanelFallbackView,
     send_ticket_panel,
     TicketActionsView,
@@ -82,6 +84,8 @@ __all__ = [
     "TicketActionsView",
     "TicketPanelFallbackView",
     "TicketPanelView",
+    "TicketRatingView",
+    "send_rating_prompt",
     "VerificationGateView",
     "_build_channel_spotlight_summary",
     "_build_solved_disabled_view",

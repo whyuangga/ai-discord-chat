@@ -23,7 +23,7 @@ from config import (
     LEVELS_MAX_MEMBERS,
     TICKET_MAX_OPEN_PER_USER,
 )
-from views import send_ticket_panel
+from views import send_rating_prompt, send_ticket_panel
 
 logger = logging.getLogger("gemini_bot.growth_cog")
 
@@ -249,6 +249,188 @@ async def level_status_cmd(interaction: discord.Interaction):
         f"• **Batas level:** `{LEVELS_MAX_LEVEL}` • **Jeda default:** `{LEVELS_COOLDOWN_SEC}` dtk",
         ephemeral=True,
     )
+
+
+season_group = app_commands.Group(
+    name="musim",
+    description="Musim level: status musim berjalan & reset musim baru (0 kuota AI)",
+    parent=level_group,
+)
+
+
+@level_group.command(
+    name="prestise",
+    description="Tukar level maksimummu menjadi 1× Prestige (XP kembali 0, trofi permanen)",
+)
+async def level_prestise_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    ok, reason = levels.can_prestige(gid, interaction.user.id)
+    if not ok:
+        await interaction.response.send_message(f"ℹ️ {reason}", ephemeral=True)
+        return
+
+    data = levels.get_member_level(gid, interaction.user.id)
+    min_level = levels.prestige_min_level(gid)
+    view = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Prestige sekarang?",
+        detail=(
+            f"Level **{data['level']}** dan **{data['xp']} XP** akan kembali ke **0** "
+            f"(syukur: kamu dapat **1× Prestige** permanen).\n"
+            f"Prestige saat ini: `{data['prestige']}×`.\n"
+            f"XP hanya diberikan lagi setelah prestige — syarat level **{min_level}** tetap terpenuhi."
+        ),
+        confirm_label="Ya, tukar jadi Prestige",
+    )
+    if view is not None:
+        await view.wait()
+        if not view.result:
+            return
+
+    ok2, result = levels.apply_prestige(gid, interaction.user.id)
+    if not ok2:
+        message = f"ℹ️ {result.get('reason')}"
+    else:
+        await levels.save_levels_to_disk()
+        message = (
+            f"🌟 **Prestige {result['prestige']}×!** Levelmu kembali ke 0 dan XP direset. "
+            "Trofi prestige tersimpan permanen di kartu level & papan peringkat."
+        )
+
+    if view is None:
+        await interaction.response.send_message(message, ephemeral=True)
+    else:
+        try:
+            await interaction.edit_original_response(
+                embed=ui_theme.status_embed(gid, "ok" if ok2 else "info", "🌟 Prestige", message),
+                view=None,
+            )
+        except discord.HTTPException:  # pragma: no cover
+            pass
+
+
+@season_group.command(name="status", description="Lihat musim level berjalan, sisa hari, & juara musim lalu")
+async def level_musim_status_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    cfg = levels.get_level_config(gid)
+    info = levels.season_info(gid)
+    top = levels.season_top(gid, limit=5)
+
+    lines = [
+        f"🏁 **Musim {info['season']}** • berjalan `{info['days_elapsed']}` hari",
+        (
+            f"• Reset otomatis: setiap **{info['auto_hari']} hari** (sisa `{info['sisa_hari']}` hari)"
+            if info["auto_hari"]
+            else "• Reset otomatis: ⛔ nonaktif (Admin bisa `/level musim ulang`)"
+        ),
+        f"• Prestige: {'✅ aktif' if cfg.get('prestige_aktif', True) else '⛔ nonaktif'} "
+        f"(syarat level `{levels.prestige_min_level(gid)}`)",
+        f"• Total prestige server: `{cfg.get('prestige_count', 0)}`",
+    ]
+    if top:
+        lines.append("")
+        lines.append("**Peringkat sementara**")
+        lines.extend(
+            f"`{i}.` <@{row['user_id']}> — level `{row['level']}` (`{row['xp']}` XP)"
+            for i, row in enumerate(top, start=1)
+        )
+
+    last = info["last"]
+    if last:
+        medals = ["🥇", "🥈", "🥉"]
+        lines.append("")
+        lines.append(f"**Juara Musim {last.get('season')}** (`{last.get('participants', 0)}` peserta)")
+        for index, row in enumerate((last.get("top") or [])[:3]):
+            lines.append(
+                f"{medals[index]} <@{row['user_id']}> — level `{row.get('level', 0)}` "
+                f"(`{row.get('xp', 0)}` XP)"
+            )
+
+    await interaction.response.send_message(
+        embed=ui_theme.status_embed(
+            gid, "info", "🏁 Musim Level", "\n".join(lines)[:3800]
+        ),
+        ephemeral=True,
+    )
+
+
+@season_group.command(
+    name="ulang",
+    description="Tutup musim sekarang & mulai musim baru (XP direset, prestige disimpan) — Admin",
+)
+@app_commands.describe(
+    konfirmasi="Wajib True — reset XP seluruh member musim ini",
+    reset_otomatis_hari="Aktifkan reset otomatis tiap N hari (0 = manual)",
+)
+async def level_musim_ulang_cmd(
+    interaction: discord.Interaction,
+    konfirmasi: bool = False,
+    reset_otomatis_hari: app_commands.Range[int, 0, 365] | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    gid = interaction.guild.id
+    if not konfirmasi:
+        info = levels.season_info(gid)
+        await interaction.response.send_message(
+            f"⚠️ **Reset musim {info['season']}?** Semua XP member akan kembali ke 0 "
+            "(prestige tetap tersimpan). Jalankan ulang dengan `konfirmasi:True`.",
+            ephemeral=True,
+        )
+        return
+
+    if reset_otomatis_hari is not None:
+        levels.set_level_config(gid, season_auto_hari=int(reset_otomatis_hari))
+
+    view = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Reset musim level sekarang?",
+        detail=(
+            "Semua XP & level member di musim ini akan direset. "
+            "Juara musim ini disimpan sebagai riwayat, dan **prestige tetap permanen**."
+        ),
+        confirm_label="Ya, mulai musim baru",
+    )
+    if view is not None:
+        await view.wait()
+        if not view.result:
+            return
+
+    snapshot = levels.reset_season(gid, by_id=interaction.user.id)
+    await levels.save_levels_to_disk()
+    cfg = levels.get_level_config(gid)
+    new_season = int(cfg.get("season") or 1)
+
+    embed = levels.build_season_announce_embed(interaction.guild, snapshot, next_season=new_season)
+    if view is None:
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    else:
+        try:
+            await interaction.edit_original_response(embed=embed, view=None)
+        except discord.HTTPException:  # pragma: no cover
+            pass
+
+    # Umumkan ke channel pengumuman level bila diatur
+    channel_id = int(cfg.get("announce_channel_id") or 0)
+    if channel_id and cfg.get("season_announce", True):
+        channel = interaction.guild.get_channel(channel_id)
+        if channel is not None:
+            try:
+                await channel.send(
+                    embed=embed, allowed_mentions=discord.AllowedMentions.none()
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
 
 
 @level_group.command(name="voice", description="Atur XP dari aktivitas voice channel (0 kuota AI)")
@@ -560,7 +742,8 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
 
     await interaction.response.defer()
     messages = await tickets.collect_thread_messages(interaction.channel)
-    status, closed = tickets.close_ticket(interaction.channel_id, interaction.user.id)
+    reason = "pembuat tiket" if int(data.get("user_id") or 0) == interaction.user.id else "staf"
+    status, closed = tickets.close_ticket(interaction.channel_id, interaction.user.id, reason=reason)
     if closed is None:
         await interaction.followup.send("ℹ️ Tiket ini sudah ditutup sebelumnya.", ephemeral=True)
         return
@@ -568,6 +751,8 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
     await tickets.save_tickets_to_disk()
     text, filename = tickets.build_transcript(closed, messages)
     sent = await tickets.send_transcript(interaction.client, closed, text, filename)
+    # Kartu rating bintang dikirim SEBELUM thread dikunci
+    await send_rating_prompt(interaction.channel, interaction.guild.id, closed)
 
     try:
         await interaction.channel.edit(
@@ -656,6 +841,102 @@ async def tiket_daftar_cmd(interaction: discord.Interaction, hanya_milikku: bool
             inline=False,
         )
     embed.set_footer(text="Staf: gunakan tombol 🙋 Klaim / 🔒 Tutup di dalam thread tiket")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@tiket_group.command(
+    name="atur",
+    description="Atur rating bintang, batas SLA respons pertama, & auto-close tiket (Admin)",
+)
+@app_commands.describe(
+    rating_aktif="Tampilkan kartu rating bintang setelah tiket ditutup",
+    sla_jam="Batas jam respons staf pertama sebelum peringatan SLA (0 = nonaktif, maks 720)",
+    auto_close_jam="Tutup otomatis tiket tanpa aktivitas setelah N jam (0 = nonaktif, maks 720)",
+    channel_sla="Channel tujuan peringatan SLA (kosong = channel log/system)",
+)
+async def tiket_atur_cmd(
+    interaction: discord.Interaction,
+    rating_aktif: bool | None = None,
+    sla_jam: app_commands.Range[int, 0, 720] | None = None,
+    auto_close_jam: app_commands.Range[int, 0, 720] | None = None,
+    channel_sla: discord.TextChannel | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    if all(value is None for value in (rating_aktif, sla_jam, auto_close_jam, channel_sla)):
+        await interaction.response.send_message(
+            "ℹ️ Tidak ada perubahan. Isi minimal satu parameter, contoh: "
+            "`/tiket atur sla_jam:2 auto_close_jam:72`.",
+            ephemeral=True,
+        )
+        return
+
+    cfg = tickets.set_ticket_config(
+        interaction.guild.id,
+        rating_aktif=rating_aktif,
+        sla_jam=int(sla_jam) if sla_jam is not None else None,
+        auto_close_jam=int(auto_close_jam) if auto_close_jam is not None else None,
+        sla_channel_id=channel_sla.id if channel_sla else None,
+    )
+    await tickets.save_tickets_to_disk()
+
+    sla_channel_id = cfg.get("sla_channel_id")
+    sla_channel_text = f"<#{sla_channel_id}>" if sla_channel_id else "_channel log/system_"
+    await interaction.response.send_message(
+        "⚙️ **Pengaturan tiket diperbarui**\n"
+        f"• Rating bintang: **{'aktif' if cfg.get('rating_aktif') else 'nonaktif'}**\n"
+        f"• SLA respons pertama: `{cfg.get('sla_jam')}` jam "
+        f"({'⛔ nonaktif' if not int(cfg.get('sla_jam') or 0) else 'aktif'})\n"
+        f"• Auto-close: `{cfg.get('auto_close_jam')}` jam tanpa aktivitas "
+        f"({'⛔ nonaktif' if not int(cfg.get('auto_close_jam') or 0) else 'aktif'})\n"
+        f"• Channel peringatan SLA: {sla_channel_text}",
+        ephemeral=True,
+    )
+
+
+@tiket_group.command(name="rating", description="Lihat rata-rata rating bintang & statistik SLA tiket server")
+async def tiket_rating_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    summary = tickets.rating_summary(interaction.guild.id)
+    sla = tickets.sla_stats(interaction.guild.id)
+
+    stars = "".join(
+        f"{'⭐' * star} `{summary['distribution'][star]}`\n"
+        for star in (5, 4, 3, 2, 1)
+        if summary["distribution"][star]
+    ) or "_belum ada rating_"
+
+    embed = discord.Embed(
+        title="⭐ Rating & SLA Layanan Tiket",
+        color=discord.Color.gold(),
+    )
+    embed.add_field(
+        name="Rating",
+        value=(
+            f"• Rata-rata: **{summary['average']} / 5** (`{summary['count']}` penilaian)\n"
+            f"• Tingkat penilaian: `{summary['response_rate']}%` dari tiket selesai"
+        ),
+        inline=False,
+    )
+    embed.add_field(name="Sebaran Bintang", value=stars[:1024], inline=False)
+    embed.add_field(
+        name="SLA Respons Pertama",
+        value=(
+            f"• Batas: `{cfg.get('sla_jam')}` jam "
+            f"({'nonaktif' if not int(cfg.get('sla_jam') or 0) else 'aktif'})\n"
+            f"• Sudah direspons: `{sla['responded']}` tiket (rata-rata `{sla['avg_minutes']}` menit)\n"
+            f"• Menunggu respons: `{sla['pending']}` tiket\n"
+            f"• Auto-close: `{cfg.get('auto_close_jam')}` jam • sudah menutup `{cfg.get('auto_closed', 0)}` tiket"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Semua angka dihitung lokal dari data tiket — 0 kuota AI")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

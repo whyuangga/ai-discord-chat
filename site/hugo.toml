@@ -1,0 +1,44 @@
+baseURL = "/"
+locale = "id"
+defaultContentLanguage = "id"
+title = "AI Discord Chat — Dokumentasi"
+theme = "lotusdocs"
+enableEmoji = true
+enableGitInfo = false
+enableRobotsTXT = true
+
+[markup]
+  defaultMarkdownHandler = "goldmark"
+  [markup.tableOfContents]
+    endLevel = 3
+    startLevel = 1
+  [markup.goldmark.renderer]
+    unsafe = true
+
+[params]
+  [params.footer]
+    copyright = "Dokumentasi AI Discord Chat & Community Agent — MIT"
+
+  [params.social]
+    github = "whyuangga/ai-discord-chat"
+
+  [params.docs]
+    title = "Dokumentasi AI Discord Chat"
+    themeColor = "magenta"
+    darkMode = true
+    prism = true
+    prismTheme = "lotusdocs"
+    editPage = false
+    lastMod = false
+    sidebarIcons = true
+    breadcrumbs = true
+    backToTop = true
+    toc = true
+    tocMobile = true
+    scrollSpy = true
+    descriptions = true
+    titleIcon = true
+    navDesc = true
+
+  [params.flexsearch]
+    enabled = true
