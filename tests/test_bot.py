@@ -4491,6 +4491,8 @@ async def test_growth_commands_views_and_help():
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {
         "panel", "status", "tutup", "tambah", "daftar", "matikan",
+        # v1.33.0-beta: rating bintang, SLA respons pertama, & auto-close
+        "atur", "rating",
     }
     for group in (level_group, tiket_group):
         assert len(group.description) <= 100
@@ -8226,3 +8228,131 @@ async def test_music_playlists_per_member():
     assert pl.cleanup_music_playlist_runtime() >= 1
     pl.guild_playlists.clear()
     await pl.save_playlists_to_disk()
+
+
+# ==============================================================================
+# RATING BINTANG, SLA, & AUTO-CLOSE TIKET (v1.33.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_ticket_rating_sla_and_auto_close(monkeypatch):
+    """Tiket: rating bintang pemilik tiket, SLA respons pertama, & auto-close menganggur."""
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    tickets._ticket_seq.clear()
+
+    gid = 4242
+    cfg = tickets.set_ticket_config(gid, enabled=True, sla_jam=2, auto_close_jam=48, rating_aktif=True)
+    assert cfg["sla_jam"] == 2 and cfg["auto_close_jam"] == 48 and cfg["rating_aktif"] is True
+    assert tickets.set_ticket_config(gid, sla_jam=9999)["sla_jam"] == 720
+    tickets.set_ticket_config(gid, sla_jam=2)   # kembalikan ke batas uji
+
+    now = time.time()
+    data = tickets.register_ticket(9001, gid, 777, topic="Bantuan", now=now)
+    assert data["first_response_at"] == 0 and data["rating"] == 0
+
+    # 1. Respons staf pertama tercatat sekali saja
+    assert tickets.record_first_response(9001, 55, now=now + 300) is True
+    assert tickets.record_first_response(9001, 66, now=now + 400) is False
+    assert data["first_response_by"] == 55 and data["status"] == "diklaim"
+
+    # 2. SLA dihitung dari tiket yang belum direspons
+    other = tickets.register_ticket(9002, gid, 778, now=now)
+    assert tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3600) == []
+    assert 9002 in tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3 * 3600)
+    assert 9001 not in tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3 * 3600)
+    assert tickets.sla_overdue(guild_id=gid, now=now + 3 * 3600) == [9002]   # pakai config server
+    assert tickets.mark_sla_alerted(9002) is True
+    assert tickets.mark_sla_alerted(9002) is False                          # tidak spam
+    assert tickets.get_ticket_config(gid)["sla_alerted"] == 1
+
+    # 3. Rating hanya boleh oleh pemilik tiket & setelah tiket selesai
+    assert tickets.rate_ticket(9002, 5, user_id=778)[0] == "belum_selesai"
+    status, closed = tickets.close_ticket(9002, 999, reason="staf")
+    assert status == "ok" and closed["closed_reason"] == "staf"
+    assert tickets.rate_ticket(9002, 5, user_id=12345)[0] == "bukan_pemilik"
+    assert tickets.rate_ticket(9002, 9, user_id=778)[0] == "tidak_valid"
+    assert tickets.rate_ticket(9002, 4, user_id=778)[0] == "ok"
+    assert tickets.rate_ticket(9002, 5, user_id=778)[0] == "sudah"
+    assert tickets.rate_ticket(123456, 5)[0] == "tidak_ada"
+
+    summary = tickets.rating_summary(gid)
+    assert summary["count"] == 1 and summary["average"] == 4.0
+    assert summary["distribution"][4] == 1 and summary["distribution"][5] == 0
+
+    sla = tickets.sla_stats(gid)
+    assert sla["responded"] == 1 and sla["pending"] == 0 and sla["avg_minutes"] == 5
+
+    # 4. Auto-close memakai aktivitas terakhir
+    idle = tickets.register_ticket(9003, gid, 779, now=now)
+    assert tickets.stale_tickets(guild_id=gid, now=now + 3600) == []
+    assert tickets.record_activity(9003, now=now + 7200) is True
+    stale_now = tickets.stale_tickets(guild_id=gid, now=now + 50 * 3600)
+    assert 9003 not in stale_now          # baru saja ada aktivitas
+    assert 9001 in stale_now              # tiket lama tanpa aktivitas
+    assert 9003 in tickets.stale_tickets(guild_id=gid, now=now + 100 * 3600)
+    assert tickets.stale_tickets(hours=0, guild_id=gid) == []
+
+    # 5. Pelacakan pesan: staf → respons pertama, pemilik → aktivitas saja
+    class _Msg:
+        def __init__(self, uid, roles=(), admin=False):
+            self.channel = type("C", (), {"id": 9004})()
+            self.author = type(
+                "A",
+                (),
+                {
+                    "id": uid,
+                    "bot": False,
+                    "roles": [type("R", (), {"id": r})() for r in roles],
+                    "guild_permissions": type("P", (), {"administrator": admin, "manage_threads": False, "manage_channels": False})(),
+                },
+            )()
+
+    tickets.register_ticket(9004, gid, 780, now=now)
+    assert tickets.maybe_track_ticket_message(_Msg(780)) is True       # pemilik: aktivitas
+    assert tickets.get_ticket(9004)["first_response_at"] == 0
+    assert tickets.maybe_track_ticket_message(_Msg(900, admin=True)) is True
+    assert tickets.get_ticket(9004)["first_response_at"] > 0
+    assert tickets.maybe_track_ticket_message(type("M", (), {"channel": None, "author": None})()) is False
+
+    # 6. Pengawas: kirim peringatan SLA & tutup tiket menganggur
+    tickets.set_ticket_config(gid, sla_jam=1, auto_close_jam=1)
+    tickets.register_ticket(9005, gid, 781, now=now - 5 * 3600)
+    alerts = []
+
+    class _Chan:
+        async def send(self, *args, **kwargs):
+            alerts.append(kwargs)
+
+    class _Guild:
+        id = gid
+        system_channel = _Chan()
+
+    class _Bot:
+        def get_guild(self, gid_arg):
+            return _Guild() if int(gid_arg) == gid else None
+
+        def get_channel(self, cid):
+            return _Chan()
+
+    async def _edit(*args, **kwargs):
+        return None
+
+    result = await tickets.run_ticket_check(_Bot())
+    assert result["sla"] >= 1
+    assert result["closed"] >= 1
+    assert tickets.get_ticket(9005)["closed_reason"].startswith("otomatis")
+    assert alerts
+
+    # 7. Persistensi pengaturan baru
+    await tickets.save_tickets_to_disk()
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    assert tickets.load_tickets_from_disk() >= 1
+    reloaded = tickets.get_ticket_config(gid)
+    assert reloaded["sla_jam"] == 1 and reloaded["auto_close_jam"] == 1
+    assert reloaded["rating_count"] == 1
+
+    tickets.ticket_guilds.clear()
+    tickets.tickets.clear()
+    tickets._ticket_seq.clear()
+    await tickets.save_tickets_to_disk()

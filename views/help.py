@@ -335,7 +335,10 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "(tidak memakai slot channel server).\n"
                 "• Staf memakai tombol **🙋 Klaim** & **🔒 Tutup Tiket** di dalam thread.\n"
                 "• `/tiket daftar` / `/tiket tambah member:@X` / `/tiket status` / `/tiket matikan`.\n"
-                "• Transkrip `.txt` otomatis dikirim ke channel log saat tiket ditutup."
+                "• Transkrip `.txt` otomatis dikirim ke channel log saat tiket ditutup.\n"
+                "• **⭐ Rating bintang** 1–5 dari pembuat tiket setelah tiket selesai (rekap: `/tiket rating`).\n"
+                "• `/tiket atur sla_jam:2 auto_close_jam:72` *(Admin)* — peringatan **SLA respons pertama** "
+                "& **auto-close** tiket menganggur (default nonaktif)."
             ),
             inline=False,
         )

@@ -23,7 +23,7 @@ from config import (
     LEVELS_MAX_MEMBERS,
     TICKET_MAX_OPEN_PER_USER,
 )
-from views import send_ticket_panel
+from views import send_rating_prompt, send_ticket_panel
 
 logger = logging.getLogger("gemini_bot.growth_cog")
 
@@ -560,7 +560,8 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
 
     await interaction.response.defer()
     messages = await tickets.collect_thread_messages(interaction.channel)
-    status, closed = tickets.close_ticket(interaction.channel_id, interaction.user.id)
+    reason = "pembuat tiket" if int(data.get("user_id") or 0) == interaction.user.id else "staf"
+    status, closed = tickets.close_ticket(interaction.channel_id, interaction.user.id, reason=reason)
     if closed is None:
         await interaction.followup.send("ℹ️ Tiket ini sudah ditutup sebelumnya.", ephemeral=True)
         return
@@ -568,6 +569,8 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
     await tickets.save_tickets_to_disk()
     text, filename = tickets.build_transcript(closed, messages)
     sent = await tickets.send_transcript(interaction.client, closed, text, filename)
+    # Kartu rating bintang dikirim SEBELUM thread dikunci
+    await send_rating_prompt(interaction.channel, interaction.guild.id, closed)
 
     try:
         await interaction.channel.edit(
@@ -656,6 +659,102 @@ async def tiket_daftar_cmd(interaction: discord.Interaction, hanya_milikku: bool
             inline=False,
         )
     embed.set_footer(text="Staf: gunakan tombol 🙋 Klaim / 🔒 Tutup di dalam thread tiket")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@tiket_group.command(
+    name="atur",
+    description="Atur rating bintang, batas SLA respons pertama, & auto-close tiket (Admin)",
+)
+@app_commands.describe(
+    rating_aktif="Tampilkan kartu rating bintang setelah tiket ditutup",
+    sla_jam="Batas jam respons staf pertama sebelum peringatan SLA (0 = nonaktif, maks 720)",
+    auto_close_jam="Tutup otomatis tiket tanpa aktivitas setelah N jam (0 = nonaktif, maks 720)",
+    channel_sla="Channel tujuan peringatan SLA (kosong = channel log/system)",
+)
+async def tiket_atur_cmd(
+    interaction: discord.Interaction,
+    rating_aktif: bool | None = None,
+    sla_jam: app_commands.Range[int, 0, 720] | None = None,
+    auto_close_jam: app_commands.Range[int, 0, 720] | None = None,
+    channel_sla: discord.TextChannel | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    if all(value is None for value in (rating_aktif, sla_jam, auto_close_jam, channel_sla)):
+        await interaction.response.send_message(
+            "ℹ️ Tidak ada perubahan. Isi minimal satu parameter, contoh: "
+            "`/tiket atur sla_jam:2 auto_close_jam:72`.",
+            ephemeral=True,
+        )
+        return
+
+    cfg = tickets.set_ticket_config(
+        interaction.guild.id,
+        rating_aktif=rating_aktif,
+        sla_jam=int(sla_jam) if sla_jam is not None else None,
+        auto_close_jam=int(auto_close_jam) if auto_close_jam is not None else None,
+        sla_channel_id=channel_sla.id if channel_sla else None,
+    )
+    await tickets.save_tickets_to_disk()
+
+    sla_channel_id = cfg.get("sla_channel_id")
+    sla_channel_text = f"<#{sla_channel_id}>" if sla_channel_id else "_channel log/system_"
+    await interaction.response.send_message(
+        "⚙️ **Pengaturan tiket diperbarui**\n"
+        f"• Rating bintang: **{'aktif' if cfg.get('rating_aktif') else 'nonaktif'}**\n"
+        f"• SLA respons pertama: `{cfg.get('sla_jam')}` jam "
+        f"({'⛔ nonaktif' if not int(cfg.get('sla_jam') or 0) else 'aktif'})\n"
+        f"• Auto-close: `{cfg.get('auto_close_jam')}` jam tanpa aktivitas "
+        f"({'⛔ nonaktif' if not int(cfg.get('auto_close_jam') or 0) else 'aktif'})\n"
+        f"• Channel peringatan SLA: {sla_channel_text}",
+        ephemeral=True,
+    )
+
+
+@tiket_group.command(name="rating", description="Lihat rata-rata rating bintang & statistik SLA tiket server")
+async def tiket_rating_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    summary = tickets.rating_summary(interaction.guild.id)
+    sla = tickets.sla_stats(interaction.guild.id)
+
+    stars = "".join(
+        f"{'⭐' * star} `{summary['distribution'][star]}`\n"
+        for star in (5, 4, 3, 2, 1)
+        if summary["distribution"][star]
+    ) or "_belum ada rating_"
+
+    embed = discord.Embed(
+        title="⭐ Rating & SLA Layanan Tiket",
+        color=discord.Color.gold(),
+    )
+    embed.add_field(
+        name="Rating",
+        value=(
+            f"• Rata-rata: **{summary['average']} / 5** (`{summary['count']}` penilaian)\n"
+            f"• Tingkat penilaian: `{summary['response_rate']}%` dari tiket selesai"
+        ),
+        inline=False,
+    )
+    embed.add_field(name="Sebaran Bintang", value=stars[:1024], inline=False)
+    embed.add_field(
+        name="SLA Respons Pertama",
+        value=(
+            f"• Batas: `{cfg.get('sla_jam')}` jam "
+            f"({'nonaktif' if not int(cfg.get('sla_jam') or 0) else 'aktif'})\n"
+            f"• Sudah direspons: `{sla['responded']}` tiket (rata-rata `{sla['avg_minutes']}` menit)\n"
+            f"• Menunggu respons: `{sla['pending']}` tiket\n"
+            f"• Auto-close: `{cfg.get('auto_close_jam')}` jam • sudah menutup `{cfg.get('auto_closed', 0)}` tiket"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Semua angka dihitung lokal dari data tiket — 0 kuota AI")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

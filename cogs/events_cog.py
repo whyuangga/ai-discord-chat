@@ -517,6 +517,16 @@ def register_events_cog(bot: commands.Bot) -> None:
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Sticky message gagal diperbarui: %s", exc)
 
+        # Tiket: catat aktivitas terakhir & respons pertama staf (SLA, 0 kuota AI)
+        if message.guild is not None:
+            try:
+                import tickets as ticket_store
+
+                if ticket_store.maybe_track_ticket_message(message):
+                    await ticket_store.save_tickets_to_disk()
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Pencatatan tiket dilewati: %s", exc)
+
         # AFK (lepas status + beri tahu mentioner) & thread otomatis (0 kuota AI)
         if message.guild is not None:
             try:

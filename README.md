@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.32.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.33.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -765,6 +765,8 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/tiket daftar [hanya_milikku:True]`** | Tiket yang masih terbuka/ditangani. |
 | **`/tiket tambah member:@X`** | *(Staf)* Tambahkan pihak lain ke thread tiket. |
 | **`/tiket tutup`** | Tutup tiket (pembuat atau staf) + kirim transkrip. |
+| **`/tiket atur sla_jam:2 auto_close_jam:72 rating_aktif:True channel_sla:#mod-log`** *(Admin)* | Batas **SLA respons pertama**, **auto-close** tiket menganggur, & kartu **rating bintang**. |
+| **`/tiket rating`** | Rata-rata rating bintang, sebaran bintang, & statistik SLA server. |
 | **`/tiket matikan`** *(Admin)* | Matikan sistem tiket (thread lama tetap bisa dibaca). |
 
 **Cara kerja:**
@@ -773,6 +775,15 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
 5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
+
+**Kualitas layanan (v1.33.0-beta, 0 kuota AI):**
+
+| Fitur | Detail |
+| :--- | :--- |
+| **⭐ Rating bintang** | Setelah tiket ditutup, pembuat tiket menerima kartu **1–5 bintang** di thread (sebelum thread dikunci). Hanya pembuat tiket yang bisa menilai, satu kali per tiket. Rekap di `/tiket rating`. |
+| **⏰ SLA respons pertama** | Bot mencatat **pesan staf pertama** di tiket. Bila belum ada respons sampai `sla_jam`, peringatan dikirim ke `channel_sla` / channel log (sekali per tiket, anti-spam). |
+| **🧹 Auto-close** | Tiket tanpa aktivitas selama `auto_close_jam` ditutup otomatis: pesan penjelasan, transkrip tetap dikirim ke log, thread dikunci & diarsipkan. Aktivitas member (termasuk pembuat tiket) memperbarui hitungan. |
+| **Default aman** | Rating **aktif**, SLA & auto-close **nonaktif** (`0`) sampai Admin menyalakannya. Pemeriksaan berjalan tiap 1 menit di watcher yang sudah ada. |
 
 ---
 
@@ -1491,6 +1502,8 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/tiket daftar` | `hanya_milikku` | Daftar tiket aktif. |
 | `/tiket tambah` | `member` | *(Staf)* Tambah member ke thread tiket. |
 | `/tiket tutup` | — | Tutup tiket + kirim transkrip. |
+| `/tiket atur` | `rating_aktif`, `sla_jam`, `auto_close_jam`, `channel_sla` | *(Admin)* Rating bintang, SLA respons pertama, & auto-close. |
+| `/tiket rating` | — | Rata-rata rating bintang & statistik SLA. |
 | `/tiket matikan` | — | *(Admin)* Matikan sistem tiket. |
 
 ### 9. Slash Commands Hemat Kuota AI (`/pemakaian`, `/ringkas channel`, `/faq`)

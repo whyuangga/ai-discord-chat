@@ -13,6 +13,7 @@ from cogs import (
 )
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
+from tickets import run_ticket_check
 from music_playlists import (
     cleanup_music_playlist_runtime,
     load_playlists_from_disk,
@@ -469,6 +470,7 @@ async def idle_chat_watcher():
         await run_idle_chat_check(bot, http_session=bot.http_session)
         await raid_tick(bot)         # akhiri mode raid yang sudah kedaluwarsa
         await run_reminder_check(bot)
+        await run_ticket_check(bot)  # peringatan SLA & auto-close tiket menganggur
         await run_engagement_check(bot)  # giveaway berakhir, ucapan ultah, pengumuman terjadwal
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_morning_digest_check(bot, http_session=bot.http_session)
