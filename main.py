@@ -231,6 +231,16 @@ class GeminiDiscordBot(commands.Bot):
         )
         logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
+        try:
+            import welcome_media
+
+            logger.info(
+                "Media kustom (banner sambutan/boost) dimuat: %.2f MB di data/media | Pillow: %s",
+                welcome_media.media_footprint_mb(),
+                "tersedia" if welcome_media.pillow_available() else "tidak ada (kartu dinamis nonaktif)",
+            )
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Gagal membaca folder media: %s", exc)
         logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,

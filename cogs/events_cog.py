@@ -59,7 +59,7 @@ from games import active_channel_games, cancel_channel_game, handle_active_game_
 from storage import remove_thread_data, save_sessions_to_disk
 from utils import select_best_forum_tags, split_discord_message
 from views import ForumPostSolvedView
-from cogs.agent_cog import trigger_member_goodbye, trigger_member_welcome
+from cogs.agent_cog import trigger_member_boost, trigger_member_goodbye, trigger_member_welcome
 from cogs.helpers import get_memory_usage_mb
 from cogs.session_cog import handle_private_session_message
 from server_features import (
@@ -205,6 +205,18 @@ def register_events_cog(bot: commands.Bot) -> None:
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.warning("Anti-Raid gagal memeriksa member join: %s", exc)
         await trigger_member_welcome(bot, member.guild, member)
+
+    @bot.event
+    async def on_member_update(before: discord.Member, after: discord.Member):
+        """Mendeteksi boost server baru & mengirim pesan terima kasih (jika diaktifkan)."""
+        before_boost = getattr(before, "premium_since", None)
+        after_boost = getattr(after, "premium_since", None)
+        if after_boost is None or before_boost is not None:
+            return
+        try:
+            await trigger_member_boost(bot, after.guild, after)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Pesan boost gagal dikirim: %s", exc)
 
     @bot.event
     async def on_member_remove(member: discord.Member):

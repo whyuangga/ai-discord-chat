@@ -19,6 +19,7 @@ def _record_ai_usage_safe(kind: str, *, user_id: int = 0, channel_id: int = 0) -
         pass
 
 
+from welcome_media import CARD_MODES
 from config import (
     AGENT_CHANNEL_COOLDOWN_SEC,
     GEMINI_API_KEY,
@@ -75,12 +76,14 @@ gallery_agent_channels: dict[int, dict] = {}
 youtube_agent_channels: dict[int, dict] = {}
 search_agent_channels: dict[int, dict] = {}
 welcome_agent_guilds: dict[int, dict] = {}
+boost_agent_guilds: dict[int, dict] = {}   # guild_id -> konfigurasi pesan boost server
 goodbye_agent_guilds: dict[int, dict] = {}
 digest_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
 
 MAX_SERVER_KNOWLEDGE_ENTRIES = 25
 _recent_welcomed_members: dict[tuple[int, int], float] = {}
+_recent_boosted_members: dict[tuple[int, int], float] = {}   # anti-dobel pesan boost
 _recent_goodbye_members: dict[tuple[int, int], float] = {}
 _standalone_last_reply_at: dict[int, float] = {}
 _post_runtime_state: dict[int, dict] = {}
@@ -725,10 +728,64 @@ def set_welcome_config(
         "extra_note": note,
         "persona": chosen_persona,
         "hello_language": chosen_lang,
+        "card_mode": str(existing.get("card_mode") or "mati"),
+        "dm": bool(existing.get("dm", False)),
         "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
         "recent_hellos": list(existing.get("recent_hellos") or [])[-8:],
     }
     return welcome_agent_guilds[guild_id]
+
+
+def set_welcome_card_mode(guild_id: int, mode: str) -> str:
+    """Mengatur tampilan sambutan: `mati`, `statis`, atau `dinamis`."""
+    chosen = str(mode or "mati").strip().lower()
+    if chosen not in CARD_MODES:
+        chosen = "mati"
+    cfg = welcome_agent_guilds.get(int(guild_id))
+    if cfg is None:
+        return "mati"
+    cfg["card_mode"] = chosen
+    return chosen
+
+
+def set_welcome_dm(guild_id: int, enabled: bool) -> bool:
+    """Mengaktifkan/mematikan salinan sambutan lewat DM ke member baru."""
+    cfg = welcome_agent_guilds.get(int(guild_id))
+    if cfg is None:
+        return False
+    cfg["dm"] = bool(enabled)
+    return cfg["dm"]
+
+
+def set_boost_config(
+    guild_id: int,
+    *,
+    enabled: bool = True,
+    channel_id: int | None = None,
+    message: str | None = None,
+) -> dict | None:
+    """Mengatur pesan otomatis saat ada member yang nge-boost server."""
+    if not enabled:
+        boost_agent_guilds.pop(int(guild_id), None)
+        return None
+    existing = boost_agent_guilds.get(int(guild_id)) or {}
+    target = channel_id or existing.get("channel_id")
+    if target is None:
+        return None
+    note = str(existing.get("message") or "")
+    if message is not None:
+        note = "" if message.strip() == "-" else message.strip()[:400]
+    boost_agent_guilds[int(guild_id)] = {
+        "enabled": True,
+        "channel_id": int(target),
+        "message": note,
+    }
+    return boost_agent_guilds[int(guild_id)]
+
+
+def should_process_member_boost(guild_id: int, user_id: int) -> bool:
+    """Anti-dobel: satu pesan boost per member per 10 menit."""
+    return _should_process_once(_recent_boosted_members, guild_id, user_id)
 
 
 def set_goodbye_config(
@@ -815,12 +872,17 @@ def _parse_greeting_guild_config(
     persona = str(raw.get("persona") or "hangat").strip().lower()
     if persona not in GREETING_PERSONAS:
         persona = "hangat"
+    card_mode = str(raw.get("card_mode") or "mati").strip().lower()
+    if card_mode not in {"mati", "statis", "dinamis"}:
+        card_mode = "mati"
     return {
         "enabled": True,
         "channel_id": int(raw["channel_id"]),
         "extra_note": str(raw.get("extra_note") or "").strip()[:250],
         "persona": persona,
         "hello_language": str(raw.get("hello_language") or "auto").strip().lower() or "auto",
+        "card_mode": card_mode,
+        "dm": bool(raw.get("dm", False)),
         recent_text_key: [str(x) for x in (raw.get(recent_text_key) or [])[-5:]],
         recent_word_key: [str(x) for x in (raw.get(recent_word_key) or [])[-8:]],
     }
@@ -933,6 +995,18 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+    for gid_str, bdata in (raw.get("boost_guilds") or {}).items():
+        try:
+            if not bdata.get("enabled", True):
+                continue
+            boost_agent_guilds[int(gid_str)] = {
+                "enabled": True,
+                "channel_id": int(bdata["channel_id"]),
+                "message": str(bdata.get("message") or "")[:400],
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+
     for gid_str, gdata in (raw.get("goodbye_guilds") or {}).items():
         try:
             gid = int(gid_str)
@@ -995,6 +1069,7 @@ async def save_agent_config_to_disk() -> None:
                 "search_channels": {str(k): v for k, v in search_agent_channels.items()},
                 "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
                 "goodbye_guilds": {str(k): v for k, v in goodbye_agent_guilds.items()},
+                "boost_guilds": {str(k): v for k, v in boost_agent_guilds.items()},
                 "digest_guilds": {str(k): v for k, v in digest_agent_guilds.items()},
                 "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in recent_hist_items},
             }
@@ -2263,7 +2338,7 @@ def cleanup_stale_agent_runtime(max_idle_sec: float = 21600.0) -> int:
     cutoff = now - max(60.0, float(max_idle_sec))
     cleaned = 0
 
-    for tracker in (_recent_welcomed_members, _recent_goodbye_members):
+    for tracker in (_recent_welcomed_members, _recent_goodbye_members, _recent_boosted_members):
         for key, ts in list(tracker.items()):
             if now - ts > 600.0:
                 tracker.pop(key, None)

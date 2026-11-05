@@ -475,6 +475,11 @@ def test_agent_command_group_registered():
         "digest",
         "panel",
         "goodbye",
+        # v1.13.0-beta: banner sambutan, mode kartu, DM, & pesan boost
+        "banner",
+        "kartu",
+        "dm",
+        "boost",
     } == sub_names
 
 
@@ -5246,3 +5251,133 @@ def test_serverstats_icon_customisation():
     assert {"lihat", "otomatis", "ikon"} <= {c.name for c in serverstats_group.commands}
 
     sf.serverstats_guilds.pop(gid, None)
+
+
+def test_welcome_media_storage_and_render():
+    """Banner sambutan disimpan di data/media (bukan URL) & kartu dinamis bisa dirender."""
+    import asyncio
+    import io
+
+    import welcome_media as wm
+
+    gid = 818181
+    wm.delete_banner(gid, kind="welcome")
+    wm.delete_banner(gid, kind="boost")
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1280, 640), (90, 40, 160)).save(buf, format="PNG")
+    payload = buf.getvalue()
+
+    path = wm.save_banner(gid, payload, "banner.png")
+    assert path.exists() and path.suffix == ".png"
+    assert wm.has_banner(gid) is True
+    assert wm.read_banner_bytes(gid) == payload
+
+    # jenis berbeda tidak saling menimpa
+    assert wm.has_banner(gid, kind="boost") is False
+    wm.save_banner(gid, payload, "boost.jpg", kind="boost")
+    assert wm.banner_path(gid, kind="boost").suffix == ".jpg"
+
+    # ekstensi tak dikenal → .png, berkas lama ikut dihapus
+    wm.save_banner(gid, payload, "aneh.exe")
+    assert wm.banner_path(gid).suffix == ".png"
+    assert len(list(wm.media_dir().glob(f"welcome_{gid}.*"))) == 1
+
+    # batas ukuran
+    with pytest.raises(ValueError):
+        wm.save_banner(gid, b"x" * (wm.MAX_BANNER_BYTES + 1))
+
+    # kartu dinamis (butuh Pillow)
+    if wm.pillow_available():
+        abuf = io.BytesIO()
+        Image.new("RGB", (256, 256), (240, 200, 120)).save(abuf, format="JPEG")
+        card = asyncio.run(
+            wm.render_card(
+                banner_bytes=payload,
+                avatar_bytes=abuf.getvalue(),
+                title="Whas",
+                subtitle="Member ke-2",
+                footer="Server Uji",
+            )
+        )
+        assert card and card.startswith(b"\x89PNG")
+
+    assert wm.delete_banner(gid) is True
+    assert wm.delete_banner(gid) is False
+    wm.delete_banner(gid, kind="boost")
+
+
+@pytest.mark.asyncio
+async def test_greeting_payload_modes_boost_and_commands():
+    """Payload sambutan mengikuti mode (teks/banner/kartu) + command baru terdaftar."""
+    import io
+
+    import community_agent as ca
+    import welcome_media as wm
+    from cogs.agent_cog import agent_group, build_greeting_payload, trigger_member_boost
+
+    gid = 828282
+    wm.delete_banner(gid)
+
+    class _Avatar:
+        url = "https://cdn.discordapp.com/avatars/1/a.png"
+
+        async def read(self):
+            return b""
+
+    class _Member:
+        id = 501
+        display_name = "Whas"
+        mention = "<@501>"
+        display_avatar = _Avatar()
+
+    class _Guild:
+        id = gid
+        name = "Server Uji"
+        member_count = 2
+
+    guild, member = _Guild(), _Member()
+
+    # 1. mode mati → teks biasa
+    payload = await build_greeting_payload(guild, member, "Halo semua", mode="mati")
+    assert payload == {"content": "Halo semua"}
+
+    # 2. mode statis tanpa banner → tetap teks
+    assert (await build_greeting_payload(guild, member, "Hai", mode="statis"))["content"] == "Hai"
+
+    # 3. mode statis dengan banner → embed + file lokal
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1024, 420), (120, 60, 200)).save(buf, format="PNG")
+    wm.save_banner(gid, buf.getvalue())
+    payload = await build_greeting_payload(guild, member, "Hai", mode="statis")
+    assert "embed" in payload and payload["file"].filename.startswith("banner-welcome")
+    assert payload["embed"].image.url.startswith("attachment://")
+
+    # 4. mode dinamis → kartu PNG (atau mundur ke banner bila Pillow tak ada)
+    payload = await build_greeting_payload(guild, member, "Hai", mode="dinamis")
+    assert "embed" in payload and payload["file"] is not None
+
+    # 5. konfigurasi boost: pesan & anti-dobel
+    ca.boost_agent_guilds.pop(gid, None)
+    assert ca.set_boost_config(gid, enabled=True, channel_id=700, message="Hai {user}") is not None
+    assert ca.boost_agent_guilds[gid]["message"] == "Hai {user}"
+    assert ca.should_process_member_boost(gid, 501) is True
+    ca.should_process_member_boost(gid, 501)  # dicatat
+    ca.boost_agent_guilds.pop(gid, None)
+
+    # 6. command baru terdaftar di /agent
+    names = {c.name for c in agent_group.commands}
+    assert {"banner", "kartu", "dm", "boost", "welcome", "goodbye"} <= names
+
+    # 7. mode kartu & DM tersimpan di konfigurasi sambutan
+    ca.set_welcome_config(gid, 600, enabled=True)
+    assert ca.set_welcome_card_mode(gid, "dinamis") == "dinamis"
+    assert ca.set_welcome_dm(gid, True) is True
+    assert ca.welcome_agent_guilds[gid]["card_mode"] == "dinamis"
+    assert ca.set_welcome_card_mode(gid, "ngawur") == "mati"
+    ca.welcome_agent_guilds.pop(gid, None)
+    wm.delete_banner(gid)

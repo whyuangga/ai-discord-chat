@@ -180,7 +180,13 @@ def build_agent_status_embed(
     if w_cfg and w_cfg.get("enabled"):
         w_note = f" *(Info: {w_cfg['extra_note']})*" if w_cfg.get("extra_note") else ""
         persona_lbl = GREETING_PERSONAS.get(str(w_cfg.get("persona") or "hangat"), {}).get("label", "Hangat & Tulus")
-        welcome_text = f"✅ Aktif di <#{w_cfg['channel_id']}> — Persona: `{persona_lbl}`{w_note}"
+        card_mode = str(w_cfg.get("card_mode") or "mati")
+        card_lbl = {"mati": "teks", "statis": "banner", "dinamis": "kartu"}.get(card_mode, "teks")
+        dm_lbl = " • DM ✅" if w_cfg.get("dm") else ""
+        welcome_text = (
+            f"✅ Aktif di <#{w_cfg['channel_id']}> — Persona: `{persona_lbl}` "
+            f"• Tampilan: `{card_lbl}`{dm_lbl}{w_note}"
+        )
     else:
         welcome_text = "_Belum aktif_"
 

@@ -427,6 +427,19 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🖼️ Sambutan Bergambar & Boost (`/agent banner`)",
+            value=(
+                "• `/agent banner gambar:<file> jenis:...` — unggah banner sambutan / perpisahan / boost "
+                "(maks 8 MB, disimpan di `data/media/` agar tidak kedaluwarsa).\n"
+                "• `/agent kartu mode:...` — tampilan sambutan: **teks**, **banner statis**, atau "
+                "**kartu dinamis** (foto profil bulat + nama + jumlah member).\n"
+                "• `/agent dm aktif:True` — kirim juga salinan sambutan lewat DM.\n"
+                "• `/agent boost channel:#umum` — pesan terima kasih otomatis saat ada member nge-boost "
+                "server (dukungan `{user}`, `{name}`, `{guild}`)."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="📡 Pengaturan Fitur Per-Channel & Forum",
             value=(
                 "• `/agent chat` — Auto-Chat natural, Pemecah Sepi otomatis, & penjawab **Forum Post** lengkap dengan **Auto-Tag** + tombol **`✅ Tandai Selesai`**.\n"
@@ -434,6 +447,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/agent youtube` & `/agent cari` — Aktifkan perangkum link & pencarian berita di channel/forum pilihan.\n"
                 "• `/agent welcome` — Sambutan member baru dengan **persona khusus** (Hangat / Lucu / Santai / Normal) + kata sapaan Asia yang berganti-ganti.\n"
                 "• `/agent goodbye` — Kartu perpisahan hangat saat member keluar, plus masa kebersamaan.\n"
+
                 "• `/agent digest` — Kirim **Koran & Sapaan Pagi** terjadwal setiap hari.\n"
                 "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI."
             ),
