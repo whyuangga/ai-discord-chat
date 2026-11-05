@@ -1,6 +1,9 @@
 from discord.ext import commands
 
 from cogs.agent_cog import agent_group, register_agent_cog, trigger_member_welcome
+from cogs.audit_cog import log_group, register_audit_cog
+from cogs.analytics_cog import register_analytics_cog, tumbuh_group
+from cogs.economy_cog import ekonomi_group, register_economy_cog
 from cogs.community_cog import (
     info_group,
     ingatkan_group,
@@ -45,6 +48,7 @@ from cogs.suggestions_cog import (
 )
 from cogs.social_cog import register_social_cog, sosial_group
 from cogs.tempvoice_cog import register_tempvoice_cog, tempvoice_group
+from cogs.translate_cog import register_translate_cog, terjemah_group
 from cogs.utility_cog import (
     afk_group,
     backup_group,
@@ -77,6 +81,10 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_engagement_cog(bot)
     register_growth_cog(bot)
     register_insights_cog(bot)
+    register_translate_cog(bot)
+    register_audit_cog(bot)
+    register_economy_cog(bot)
+    register_analytics_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
     register_tempvoice_cog(bot)

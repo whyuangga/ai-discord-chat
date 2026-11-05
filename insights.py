@@ -57,6 +57,8 @@ AI_KIND_LABELS: dict[str, str] = {
     "galeri": "🖼️ Komentar galeri",
     "game": "🎮 Gambar game AI",
     "transform": "🌐 Terjemahkan/Jelaskan",
+    "terjemah": "🌐 Terjemah (bendera/manual)",
+    "cache": "♻️ Dijawab dari cache",
     "fakta": "🌍 Fakta Harian",
 }
 

@@ -11,8 +11,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import economy
 import levels
 import tickets
+import ui_kit
+import ui_theme
+import voice_activity
 from config import (
     LEVELS_COOLDOWN_SEC,
     LEVELS_MAX_LEVEL,
@@ -236,11 +240,148 @@ async def level_status_cmd(interaction: discord.Interaction):
         f"• **Member terdata:** `{len(members)}` (maks `{LEVELS_MAX_MEMBERS}` per server)\n"
         f"• **XP tertinggi:** `{top_xp}`\n"
         f"• **Naik level total:** `{cfg.get('leveled_up', 0)}` kali\n"
+        f"• **XP voice:** {'✅ aktif' if cfg.get('voice_enabled', True) else '⛔ nonaktif'} "
+        f"(`{int(cfg.get('voice_xp_per_min') or 0)}` XP/menit, batas "
+        + (f"`{int(cfg.get('voice_daily_cap_min') or 0)}` menit/hari)" if int(cfg.get('voice_daily_cap_min') or 0) else "_tanpa batas_)")
+        + "\n"
         f"• **Pengumuman:** {'✅ aktif' if cfg.get('announce') else '⛔ nonaktif'}\n"
         f"• **Hadiah role:** {roles_preview}\n"
         f"• **Batas level:** `{LEVELS_MAX_LEVEL}` • **Jeda default:** `{LEVELS_COOLDOWN_SEC}` dtk",
         ephemeral=True,
     )
+
+
+@level_group.command(name="voice", description="Atur XP dari aktivitas voice channel (0 kuota AI)")
+@app_commands.describe(
+    aktif="True untuk menghitung XP voice, False untuk mematikan",
+    xp_per_menit="XP yang didapat tiap 1 menit berada di voice (1–20)",
+    batas_menit_harian="Batas menit per member per hari (0 = tanpa batas, 60–1440 disarankan)",
+    abaikan_channel="Voice channel yang tidak dihitung (mis. AFK/room musik)",
+)
+async def level_voice_cmd(
+    interaction: discord.Interaction,
+    aktif: bool | None = None,
+    xp_per_menit: app_commands.Range[int, 1, 20] | None = None,
+    batas_menit_harian: app_commands.Range[int, 0, 1440] | None = None,
+    abaikan_channel: discord.VoiceChannel | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    gid = interaction.guild.id
+    changes: dict = {}
+    if aktif is not None:
+        changes["voice_enabled"] = aktif
+    if xp_per_menit is not None:
+        changes["voice_xp_per_min"] = int(xp_per_menit)
+    if batas_menit_harian is not None:
+        changes["voice_daily_cap_min"] = int(batas_menit_harian)
+    if abaikan_channel is not None:
+        cfg_now = levels.get_level_config(gid)
+        current = [int(c) for c in (cfg_now.get("voice_ignore_channels") or []) if int(c) != abaikan_channel.id]
+        current.append(int(abaikan_channel.id))
+        changes["voice_ignore_channels"] = current
+
+    if changes:
+        if not levels.is_leveling_active(gid):
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid,
+                    "warn",
+                    "Leveling masih nonaktif",
+                    "Aktifkan dulu sistem level dengan `/level atur aktif:True`, "
+                    "baru pengaturan XP voice bisa dipakai.",
+                ),
+                ephemeral=True,
+            )
+            return
+        levels.set_level_config(gid, **changes)
+        await levels.save_levels_to_disk()
+
+    cfg = levels.get_level_config(gid)
+    state = "✅ aktif" if cfg.get("voice_enabled", True) else "⛔ nonaktif"
+    cap = int(cfg.get("voice_daily_cap_min") or 0)
+    ignored = ", ".join(f"<#{cid}>" for cid in (cfg.get("voice_ignore_channels") or [])) or "_tidak ada_"
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "info",
+            "🎙️ XP Voice",
+            f"Status: **{state}**\n"
+            f"• XP per menit: `{int(cfg.get('voice_xp_per_min') or 0)}`\n"
+            f"• Batas harian: " + (f"`{cap}` menit/member" if cap else "_tanpa batas_") + "\n"
+            f"• Channel diabaikan: {ignored}\n\n"
+            "Hanya member yang benar-benar berada di voice (tidak self-mute/self-deaf, "
+            "bukan channel AFK) yang dihitung. XP tetap memakai kurva level yang sama "
+            "dan tercatat di `/level lihat`.",
+        ),
+        ephemeral=True,
+    )
+
+
+async def run_voice_xp_check(bot: commands.Bot) -> int:
+    """Beri XP voice tiap menit & umumkan kenaikan level (0 kuota AI)."""
+    awards = voice_activity.flush_voice_sessions()
+    if not awards:
+        return 0
+
+    # Koin untuk menit voice (default NONAKTIF)
+    try:
+        earned = False
+        for award in awards:
+            if economy.earn_from_voice(
+                award["guild_id"], award["user_id"], int(award["result"].get("minutes") or 0)
+            ):
+                earned = True
+        if earned:
+            await economy.save_economy_to_disk()
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Koin voice dilewati: %s", exc)
+
+    global _voice_flush_since_save
+    _voice_flush_since_save += 1
+    level_up_awards = [a for a in awards if a["result"].get("level_up")]
+    # Hemat I/O: simpan tiap 5 menit, atau langsung saat ada kenaikan level
+    if level_up_awards or _voice_flush_since_save >= 5:
+        _voice_flush_since_save = 0
+        await levels.save_levels_to_disk()
+
+    announced = 0
+    for award in level_up_awards:
+        guild = bot.get_guild(award["guild_id"]) if callable(getattr(bot, "get_guild", None)) else None
+        if guild is None:
+            continue
+        member = guild.get_member(award["user_id"]) if callable(getattr(guild, "get_member", None)) else None
+        result = award["result"]
+        if result.get("role_id") and member is not None:
+            await levels.apply_level_role(member, int(result["role_id"]))
+        cfg = levels.get_level_config(award["guild_id"])
+        if not cfg.get("announce"):
+            continue
+        target = None
+        announce_id = cfg.get("announce_channel_id")
+        if announce_id and callable(getattr(bot, "get_channel", None)):
+            target = bot.get_channel(int(announce_id))
+        if target is None:
+            target = getattr(guild, "system_channel", None)
+        if target is None:
+            continue
+        reward = f"\n🎁 Role baru: <@&{result['role_id']}>" if result.get("role_id") else ""
+        try:
+            await target.send(
+                f"🎙️ <@{award['user_id']}> naik ke **level {result['level']}** "
+                f"karena aktif di voice channel!{reward}",
+                allowed_mentions=discord.AllowedMentions(users=True, roles=True),
+            )
+            announced += 1
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+    return announced
+
+
+_voice_flush_since_save = 0
 
 
 async def handle_message_xp(bot: commands.Bot, message) -> None:
@@ -256,6 +397,16 @@ async def handle_message_xp(bot: commands.Bot, message) -> None:
         return
 
     role_ids = {getattr(role, "id", 0) for role in (getattr(author, "roles", None) or [])}
+    # Koin ekonomi (default NONAKTIF) — 0 kuota AI
+    try:
+        if economy.is_active(guild.id):
+            if economy.earn_from_message(
+                guild.id, author.id, channel_id=getattr(channel, "id", 0), role_ids=role_ids
+            ):
+                await economy.save_economy_to_disk()
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Koin pesan dilewati: %s", exc)
+
     result = levels.add_message_xp(
         guild.id,
         author.id,

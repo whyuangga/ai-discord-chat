@@ -2224,6 +2224,12 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "saran", "embed",
         # v1.18.0-beta: perkakas server (AFK, auto-thread, lockdown, backup struktur)
         "afk", "thread-otomatis", "lockdown", "backup",
+        # v1.22.0-beta: penerjemah hemat kuota (reaksi bendera + /terjemah)
+        "terjemah",
+        # v1.23.0-beta: audit log server + ekonomi koin (0 kuota AI)
+        "log", "ekonomi",
+        # v1.25.0-beta: statistik pertumbuhan & invite tracker (0 kuota AI)
+        "tumbuh",
     }
     assert len(chat_cmds) <= 100
 
@@ -4468,7 +4474,9 @@ async def test_growth_commands_views_and_help():
     from cogs.growth_cog import level_group, tiket_group
 
     assert level_group.name == "level"
-    assert {c.name for c in level_group.commands} == {"lihat", "papan", "atur", "role", "status"}
+    assert {c.name for c in level_group.commands} == {
+        "lihat", "papan", "atur", "role", "status", "voice",
+    }
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {
         "panel", "status", "tutup", "tambah", "daftar", "matikan",
@@ -6209,3 +6217,745 @@ def test_ai_guard_routing_safety_resilience_and_tokens(monkeypatch):
         {"summary": "Senin siang", "clock": "12.00"},
     )
     assert "[ATURAN AKURASI]" in prompt
+
+
+class _VoiceFakeChannel:
+    def __init__(self, cid: int, channel_type: int = 2):
+        self.id = cid
+        self.type = channel_type
+        self.mention = f"<#{cid}>"
+
+
+class _VoiceFakeState:
+    def __init__(self, channel=None, *, self_mute=False, self_deaf=False, afk=False):
+        self.channel = channel
+        self.self_mute = self_mute
+        self.self_deaf = self_deaf
+        self.afk = afk
+
+
+class _VoiceFakeMember:
+    def __init__(self, uid: int, guild, *, bot=False):
+        self.id = uid
+        self.bot = bot
+        self.guild = guild
+        self.display_name = f"Member {uid}"
+
+
+class _VoiceFakeGuild:
+    def __init__(self, gid: int, afk_channel_id: int | None = None):
+        self.id = gid
+        self.afk_channel_id = afk_channel_id
+
+
+def test_voice_xp_tracking_cap_and_level_card():
+    """XP Voice: sesi per menit, anti self-mute/AFK, batas harian, & tampil di kartu level."""
+    import voice_activity
+
+    gid = 4242
+    levels.level_guilds.pop(gid, None)
+    levels.level_guilds[gid] = levels.default_config()
+    levels.set_level_config(gid, voice_enabled=True, voice_xp_per_min=2, voice_daily_cap_min=10)
+    for key in [k for k in levels.levels if k.startswith(f"{gid}:")]:
+        levels.levels.pop(key, None)
+    voice_activity.reset_voice_sessions()
+
+    guild = _VoiceFakeGuild(gid, afk_channel_id=999)
+    voice_ch = _VoiceFakeChannel(700)
+    member = _VoiceFakeMember(501, guild)
+
+    # 1. Mulai sesi saat masuk voice channel
+    assert voice_activity.handle_voice_state(
+        member, _VoiceFakeState(None), _VoiceFakeState(voice_ch), guild=guild, now=1000.0
+    ) == "start"
+    assert voice_activity.active_sessions() == 1
+
+    # 2. Belum 60 detik → belum ada XP
+    assert voice_activity.flush_voice_sessions(now=1030.0) == []
+
+    # 3. 65 detik → 1 menit penuh = 2 XP
+    awards = voice_activity.flush_voice_sessions(now=1065.0)
+    assert len(awards) == 1
+    award = awards[0]
+    assert award["guild_id"] == gid and award["user_id"] == 501
+    assert award["result"]["minutes"] == 1 and award["result"]["gained"] == 2
+    data = levels.get_member_level(gid, 501)
+    assert data["xp"] == 2 and data["voice_xp"] == 2 and data["voice_min_today"] == 1
+
+    # 4. Self-mute menghentikan hitungan, idel di AFK channel juga tidak dihitung
+    assert voice_activity.handle_voice_state(
+        member, _VoiceFakeState(voice_ch), _VoiceFakeState(voice_ch, self_mute=True), guild=guild, now=1070.0
+    ) == "stop"
+    assert voice_activity.active_sessions() == 0
+    assert voice_activity.handle_voice_state(
+        member, _VoiceFakeState(None), _VoiceFakeState(_VoiceFakeChannel(999)), guild=guild, now=1080.0
+    ) is None
+
+    # 5. Bot tidak pernah dapat XP voice
+    bot_member = _VoiceFakeMember(777, guild, bot=True)
+    assert voice_activity.handle_voice_state(
+        bot_member, _VoiceFakeState(None), _VoiceFakeState(voice_ch), guild=guild, now=1090.0
+    ) is None
+
+    # 6. Batas harian 10 menit: menit ke-11 tidak menambah XP
+    for idx in range(12):
+        levels.add_voice_minutes(gid, 501, 1, channel_id=700, now=2000.0 + idx)
+    final = levels.get_member_level(gid, 501)
+    assert final["voice_min_today"] == 10
+    assert final["voice_xp"] == 20          # 10 menit × 2 XP
+    assert levels.add_voice_minutes(gid, 501, 1, now=3000.0) is None
+
+    # 7. Channel yang diabaikan & leveling nonaktif tidak memberi XP
+    levels.set_level_config(gid, voice_ignore_channels=[700])
+    assert levels.add_voice_minutes(gid, 502, 1, channel_id=700, now=4000.0) is None
+    assert levels.add_voice_minutes(gid, 502, 1, channel_id=701, now=4000.0) is not None
+    levels.level_guilds.pop(gid, None)
+    assert levels.add_voice_minutes(gid, 503, 1, now=5000.0) is None
+
+    # 8. Kartu level menampilkan XP voice
+    levels.level_guilds[gid] = levels.default_config()
+    levels.set_level_config(gid, voice_xp_per_min=2, voice_daily_cap_min=30)
+    levels.add_voice_minutes(gid, 501, 3, now=6000.0)
+    card = member
+    embed = levels.build_level_embed(card, levels.get_member_level(gid, 501), levels.get_level_config(gid))
+    assert any("XP Voice" in f.name for f in embed.fields)
+
+    # 9. Pengumuman level-up dari voice tidak error walau bot belum siap
+    import asyncio
+    from cogs.growth_cog import run_voice_xp_check
+
+    class _DummyBot:
+        def get_guild(self, _gid):
+            return None
+
+    levels.level_guilds[gid] = levels.default_config()
+    voice_activity.reset_voice_sessions()
+    voice_activity.sessions[f"{gid}:900"] = {"since": 0.0, "channel_id": 700}
+    assert asyncio.run(run_voice_xp_check(_DummyBot())) >= 0
+    voice_activity.reset_voice_sessions()
+    levels.level_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
+    """Dashboard web: opt-in via token, read-only, auth 3 jalur, & endpoint HTTP nyata."""
+    import socket
+
+    import aiohttp
+
+    import web_dashboard
+
+    # 1. Nonaktif tanpa token / tanpa port
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "")
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", 8080)
+    monkeypatch.delenv("SERVER_PORT", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
+    assert web_dashboard.dashboard_config()["enabled"] is False
+
+    # 2. Port bisa diambil dari environment panel hosting
+    monkeypatch.setenv("SERVER_PORT", "8123")
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", 0)
+    cfg = web_dashboard.dashboard_config()
+    assert cfg["port"] == 8123 and cfg["enabled"] is False
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "rahasia-uji")
+    assert web_dashboard.dashboard_config()["enabled"] is True
+
+    # 3. Auth: query, header, Bearer, & penolakan
+    assert web_dashboard.is_authorized(query_token="rahasia-uji", expected="rahasia-uji") is True
+    assert web_dashboard.is_authorized(header_token="rahasia-uji", expected="rahasia-uji") is True
+    assert web_dashboard.is_authorized(header_token="Bearer rahasia-uji", expected="rahasia-uji") is True
+    assert web_dashboard.is_authorized(query_token="salah", expected="rahasia-uji") is False
+    assert web_dashboard.is_authorized(query_token="", expected="") is False
+
+    # 4. Data & render (tanpa AI, aman untuk data kosong)
+    class _G:
+        id = 1234
+        name = "Server Uji <b>"
+        member_count = 42
+
+    class _Bot:
+        started_at = time.time() - 3661
+        latency = 0.042
+        guilds = [_G()]
+        user = type("U", (), {"name": "BotUji"})()
+
+        def get_guild(self, gid):
+            return self.guilds[0] if int(gid) == 1234 else None
+
+    status = web_dashboard.collect_status(_Bot())
+    assert status["version"] == config.BOT_VERSION
+    assert status["guilds"] == 1 and status["members"] == 42
+    assert status["uptime"].startswith("01:0") and status["ping_ms"] == 42
+    usage = web_dashboard.collect_usage(1234)
+    assert set(usage) >= {"total", "tokens_in", "tokens_out", "cache_hits", "faq_hits"}
+    page = web_dashboard.render_dashboard_html(
+        status=status, usage=usage, levels={"rows": []}, refresh=15, heading="<script>x</script>"
+    )
+    assert config.BOT_VERSION in page and "read-only" in page
+    assert "<script>x</script>" not in page      # di-escape
+    assert 'http-equiv="refresh"' in page
+
+    # 5. Server HTTP sungguhan: 401 tanpa token, 200 dengan token, /healthz bebas token
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    free_port = sock.getsockname()[1]
+    sock.close()
+
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_HOST", "127.0.0.1")
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", free_port)
+    monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "rahasia-uji")
+    assert await web_dashboard.start_dashboard(_Bot()) is True
+    try:
+        base = f"http://127.0.0.1:{free_port}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base}/") as resp:
+                assert resp.status == 401
+            async with session.get(f"{base}/?token=rahasia-uji&guild=1234") as resp:
+                body = await resp.text()
+                assert resp.status == 200 and config.BOT_VERSION in body
+            async with session.get(f"{base}/api/pemakaian", headers={"X-Dashboard-Token": "rahasia-uji"}) as resp:
+                data = await resp.json()
+                assert resp.status == 200 and "total" in data
+            async with session.get(f"{base}/healthz") as resp:
+                assert resp.status == 200 and (await resp.text()) == "ok"
+            # read-only: tidak ada endpoint POST
+            async with session.post(f"{base}/?token=rahasia-uji", json={"x": 1}) as resp:
+                assert resp.status in (404, 405)
+    finally:
+        await web_dashboard.stop_dashboard()
+
+    # 6. Tidak ada satu pun route tulis (POST/PUT/DELETE) di modul dashboard
+    src = open("web_dashboard.py", encoding="utf-8").read()
+    for needle in ("add_post(", "add_put(", "add_delete(", "add_patch("):
+        assert needle not in src, f"dashboard seharusnya read-only: {needle}"
+    assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()
+
+
+@pytest.mark.asyncio
+async def test_translate_heuristics_cache_modes_and_quota(monkeypatch, tmp_path):
+    """Penerjemah hemat kuota: heuristik, cache, rate limit, reaksi bendera, & auto-post."""
+    import cogs.translate_cog as tc
+    import translate_tools as tt
+
+    # 1. Heuristik: hanya teks yang layak yang diterjemahkan
+    assert tt.looks_translatable("hello everyone, how is your day going?") is True
+    assert tt.looks_translatable("halo semua apa kabar hari ini") is True
+    assert tt.looks_translatable("😀😀😀") is False
+    assert tt.looks_translatable("https://youtu.be/abc123") is False
+    assert tt.looks_translatable("hai") is False
+    assert tt.looks_translatable("x" * 700) is False
+
+    # 2. Cache: kalimat identik = 0 kuota, kedaluwarsa hilang
+    tt.clear_cache()
+    assert tt.cache_size() == 0
+    text = "good morning everyone, welcome to the server!"
+    assert tt.get_cached_translation(text, "id") is None
+    assert tt.store_cached_translation(text, "id", "Selamat pagi semua, selamat datang di server!") is True
+    assert tt.cache_size() == 1
+    assert tt.get_cached_translation(text.upper(), "id")
+    assert tt.get_cached_translation(text, "en") is None          # bahasa beda = entri beda
+    assert tt.get_cached_translation(text, "id", ttl=0) is None
+    assert tt.cache_size() == 0
+    assert tt.store_cached_translation("hi", "id", "hai") is False  # terlalu pendek
+
+    # 3. Rate limit per channel
+    tt.reset_rate_limits()
+    assert tt.rate_limited(555, now=1000.0) is False
+    assert tt.rate_limited(555, now=1000.5) is True
+    assert tt.rate_limited(555, now=1000.0 + tt.TRANSLATE_RATE_LIMIT_SEC + 1) is False
+    assert tt.rate_limited(556, now=1000.5) is False
+
+    # 4. Konfigurasi channel + simpan/muat JSON
+    monkeypatch.setattr(tt, "TRANSLATE_FILE", tmp_path / "translate.json")
+    tt.translate_guilds.clear()
+    assert tt.channel_config(10, 100) is None
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=False)
+    assert tt.channel_config(10, 100) == {"auto_react": True, "auto_post": False}
+    assert tt.watched_channel_ids(10) == [100]
+    await tt.save_translate_to_disk()
+    tt.translate_guilds.clear()
+    assert tt.load_translate_from_disk() == 1
+    assert tt.channel_config(10, 100)["auto_post"] is False   # default aman
+    assert tt.remove_channel_config(10, 100) is True
+    assert tt.channel_config(10, 100) is None
+
+    # 5. translate_text: panggil AI sekali, lalu dari cache; hormati kuota server
+    tt.clear_cache()
+    calls: list[str] = []
+
+    async def fake_transform(mode, message_text, **kwargs):
+        calls.append(mode)
+        return f"[{mode}] {message_text}", None
+
+    monkeypatch.setattr(tc.ai_handler, "transform_message_with_gemini", fake_transform)
+    contoh = "could someone explain the server rules please?"
+    hasil, err = await tc.translate_text(contoh, "id", guild_id=10)
+    assert err is None and hasil.startswith("[translate_id]")
+    hasil2, _ = await tc.translate_text(contoh, "id", guild_id=10)
+    assert hasil2 == hasil and len(calls) == 1      # kedua kali dari cache = 0 kuota
+    hasil3, _ = await tc.translate_text(contoh, "en", guild_id=10)
+    assert calls[-1] == "translate_en"
+    too_short, _ = await tc.translate_text("halo", "id", guild_id=10)
+    assert too_short is None   # terlalu pendek
+
+    real_cap = tc.ai_guard.check_guild_cap
+    monkeypatch.setattr(tc.ai_guard, "check_guild_cap", lambda gid, cap=None: (False, 50, 50))
+    tt.clear_cache()
+    blocked, msg = await tc.translate_text("another sentence to translate here", "id", guild_id=10)
+    assert blocked is None and "batas harian" in msg
+    monkeypatch.setattr(tc.ai_guard, "check_guild_cap", real_cap)   # pulihkan kuota normal
+
+    # 6. Reaksi bendera: hanya channel terpilih, kirim via DM, anti-banjir
+    tt.translate_guilds.clear()
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=False)
+    tt.reset_rate_limits()
+    tt.clear_cache()
+
+    class _FakeMsg:
+        def __init__(self, content):
+            self.content = content
+            self.author = type("A", (), {"bot": False})()
+            self.replied = 0
+
+        async def reply(self, **kwargs):
+            self.replied += 1
+
+    class _FakeChannel:
+        def __init__(self, msg):
+            self._msg = msg
+
+        async def fetch_message(self, mid):
+            return self._msg
+
+    class _FakeUser:
+        def __init__(self):
+            self.dms = 0
+
+        async def send(self, **kwargs):
+            self.dms += 1
+
+    msg = _FakeMsg("hey guys, is the event still happening tonight?")
+    channel = _FakeChannel(msg)
+    user = _FakeUser()
+
+    class _FakeBot:
+        def get_channel(self, cid):
+            return channel if int(cid) == 100 else None
+
+    class _FakePayload:
+        def __init__(self, emoji="🇮🇩", channel_id=100):
+            self.emoji = emoji
+            self.guild_id = 10
+            self.channel_id = channel_id
+            self.message_id = 999
+            self.user_id = 7
+            self.member = user
+
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("👍")) is False
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("🇮🇩", channel_id=404)) is False
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("🇮🇩")) is True
+    assert user.dms == 1 and msg.replied == 0        # DM diutamakan, channel tidak banjir
+    calls.clear()
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("🇮🇩")) is True
+    assert calls == []                                # kena rate limit → tidak memakai kuota
+
+    # 7. Auto-post default MATI; menyala hanya bila Admin memintanya
+    tt.translate_guilds.clear()
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=False)
+    tt.reset_rate_limits()
+    plain_msg = _FakeMsg("this is an english sentence for auto translation")
+    plain_msg.guild = type("G", (), {"id": 10})()
+    plain_msg.channel = type("C", (), {"id": 100})()
+    assert await tc.maybe_auto_translate(_FakeBot(), plain_msg) is False
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=True)
+    tt.clear_cache()
+    assert await tc.maybe_auto_translate(_FakeBot(), plain_msg) is True
+    assert plain_msg.replied == 1
+
+    # 8. Bersih-bersih runtime & audit: mode otomatis tidak pernah default aktif
+    assert tt.cleanup_translate_runtime() >= 0
+    src = open("translate_tools.py", encoding="utf-8").read()
+    assert "auto_post: bool = False" in src        # default MATI (hemat kuota)
+    assert "auto_post\", False" in src or '"auto_post": bool((ch or {}).get("auto_post", False))' in src
+    assert "TRANSLATE_RATE_LIMIT_SEC" in src
+    tt.translate_guilds.clear()
+    tt.clear_cache()
+    tt.reset_rate_limits()
+
+
+@pytest.mark.asyncio
+async def test_audit_log_config_events_and_persistence(monkeypatch, tmp_path):
+    """Audit Log: konfigurasi, kirim embed, helper event, & simpan/muat JSON."""
+    import audit_log
+
+    audit_log.audit_guilds.clear()
+
+    # 1. Default: nonaktif sampai channel dipasang
+    assert audit_log.is_enabled(10) is False
+    assert audit_log.is_category_enabled(10, "pesan") is False
+
+    cfg = audit_log.set_log_channel(10, 900)
+    assert audit_log.is_enabled(10) is True
+    assert cfg["channel_id"] == 900
+    assert cfg["categories"]["pesan"] is True and cfg["categories"]["voice"] is False
+
+    # 2. Kategori bisa dinyalakan/dimatikan
+    audit_log.set_category(10, "voice", True)
+    assert audit_log.is_category_enabled(10, "voice") is True
+    audit_log.set_category(10, "pesan", False)
+    assert audit_log.is_category_enabled(10, "pesan") is False
+    assert audit_log.set_category(10, "ngawur", True) is None
+    audit_log.set_category(10, "pesan", True)
+
+    # 3. Channel yang diabaikan
+    audit_log.toggle_ignore_channel(10, 555, ignore=True)
+    assert audit_log.is_channel_ignored(10, 555) is True
+    audit_log.toggle_ignore_channel(10, 555, ignore=False)
+    assert audit_log.is_channel_ignored(10, 555) is False
+
+    # 4. Pengiriman embed ke channel log
+    sent: list[dict] = []
+
+    class _FakeChannel:
+        id = 900
+
+        async def send(self, **kwargs):
+            sent.append(kwargs)
+
+    class _FakeBot:
+        def get_channel(self, cid):
+            return _FakeChannel() if int(cid) == 900 else None
+
+    class _Guild:
+        id = 10
+
+    class _Author:
+        id = 501
+        bot = False
+        display_name = "Budi"
+
+    class _Msg:
+        def __init__(self, content="halo dunia", channel_id=700):
+            self.content = content
+            self.guild = _Guild()
+            self.author = _Author()
+            self.channel = type("C", (), {"id": channel_id, "mention": f"<#{channel_id}>"})()
+            self.jump_url = "https://discord.com/channels/10/700/1"
+            self.attachments = []
+
+    ok = await audit_log.log_message_delete(_FakeBot(), _Msg())
+    assert ok is True and sent and sent[-1]["embed"].title.endswith("Pesan dihapus")
+    assert "halo dunia" in sent[-1]["embed"].description
+
+    # 5. Channel yang diabaikan tidak dikirim
+    audit_log.toggle_ignore_channel(10, 700, ignore=True)
+    before = len(sent)
+    assert await audit_log.log_message_delete(_FakeBot(), _Msg()) is False
+    assert len(sent) == before
+    audit_log.toggle_ignore_channel(10, 700, ignore=False)
+
+    # 6. Edit hanya dikirim bila isi berubah
+    before_msg = _Msg("versi lama")
+    after_msg = _Msg("versi lama")
+    assert await audit_log.log_message_edit(_FakeBot(), before_msg, after_msg) is False
+    after_msg.content = "versi baru"
+    assert await audit_log.log_message_edit(_FakeBot(), before_msg, after_msg) is True
+    assert "versi baru" in sent[-1]["embed"].description
+
+    # 7. Member join/keluar + perubahan role
+    class _Member:
+        id = 502
+        bot = False
+        display_name = "Sinta"
+        guild = _Guild()
+        created_at = discord.utils.utcnow()
+        joined_at = discord.utils.utcnow()
+
+        def __init__(self, roles=()):
+            self.roles = list(roles)
+
+    assert await audit_log.log_member_join(_FakeBot(), _Member()) is True
+    assert await audit_log.log_member_remove(_FakeBot(), _Member()) is True
+    role_before = _Member([type("R", (), {"id": 1})()])
+    role_after = _Member([type("R", (), {"id": 1})(), type("R", (), {"id": 2})()])
+    assert await audit_log.log_member_update(_FakeBot(), role_before, role_after) is True
+
+    # 8. Voice default mati → tidak dikirim
+    class _VoiceState:
+        def __init__(self, cid):
+            self.channel = None if cid is None else type("C", (), {"id": cid, "mention": f"<#{cid}>"})()
+
+    audit_log.set_category(10, "voice", False)
+    before = len(sent)
+    assert await audit_log.log_voice_change(_FakeBot(), _Member(), _VoiceState(None), _VoiceState(800)) is False
+    assert len(sent) == before
+
+    # 9. Simpan & muat ulang
+    monkeypatch.setattr(audit_log, "AUDIT_FILE", tmp_path / "audit.json")
+    await audit_log.save_audit_to_disk()
+    audit_log.audit_guilds.clear()
+    assert audit_log.load_audit_from_disk() == 1
+    assert audit_log.is_enabled(10) is True
+
+    # 10. Status embed & pembersihan channel terhapus
+    embed = audit_log.build_status_embed(10)
+    assert "900" in embed.description
+    assert audit_log.handle_channel_delete(900) is True
+    assert audit_log.is_enabled(10) is False
+    assert isinstance(audit_log.cleanup_audit_runtime(), int)
+    audit_log.audit_guilds.clear()
+
+
+@pytest.mark.asyncio
+async def test_economy_coins_daily_shop_and_transfer(monkeypatch, tmp_path):
+    """Ekonomi: koin pesan/voice, hadiah harian + streak, toko role, transfer, & persistensi."""
+    import economy
+
+    economy.economy_guilds.clear()
+    economy.balances.clear()
+    economy.meta.clear()
+    economy.shop.clear()
+
+    gid = 20
+    # 1. Default nonaktif
+    assert economy.is_active(gid) is False
+    assert economy.earn_from_message(gid, 501) is None
+
+    economy.set_config(gid, aktif=True, per_message=5, cooldown=60, per_voice_min=3, daily_amount=100)
+    cfg = economy.get_config(gid)
+    assert cfg["enabled"] is True and cfg["per_message"] == 5
+
+    # 2. Koin dari pesan dengan jeda
+    assert economy.earn_from_message(gid, 501, now=1000.0) == 5
+    assert economy.earn_from_message(gid, 501, now=1030.0) is None       # masih jeda
+    assert economy.earn_from_message(gid, 501, now=1070.0) == 10
+    assert economy.balance(gid, 501) == 10
+
+    # 3. Koin dari voice
+    assert economy.earn_from_voice(gid, 502, 4, now=2000.0) == 12
+    assert economy.earn_from_voice(gid, 502, 0) is None
+    assert economy.balance(gid, 502) == 12
+
+    # 4. Hadiah harian + streak
+    ok, amount, streak = economy.claim_daily(gid, 501, now=3000.0)
+    assert ok is True and amount == 100 and streak == 1
+    assert economy.claim_daily(gid, 501, now=3100.0)[0] is False        # belum 24 jam
+    assert economy.daily_ready_in(gid, 501, now=3100.0) > 0
+    ok2, amount2, streak2 = economy.claim_daily(gid, 501, now=3000.0 + 86400)
+    assert ok2 is True and streak2 == 2 and amount2 > 100                # bonus streak
+
+    # 5. Transfer: minimal, saldo, dan jeda
+    economy.add_coins(gid, 503, 100, now=4000.0)
+    ok_t, msg_t = economy.transfer(gid, 503, 504, 50, now=5000.0)
+    assert ok_t is True and "Berhasil" in msg_t
+    assert economy.balance(gid, 503) == 50 and economy.balance(gid, 504) == 50
+    assert economy.transfer(gid, 503, 504, 5, now=5100.0)[0] is False     # di bawah minimum
+    assert economy.transfer(gid, 503, 503, 20, now=5200.0)[0] is False    # ke diri sendiri
+    assert economy.transfer(gid, 504, 503, 100, now=5300.0)[0] is False   # saldo kurang
+    assert economy.transfer(gid, 503, 504, 20, now=5002.0)[0] is False    # kena jeda transfer
+
+    # 6. Toko: tambah item, beli, role hadiah
+    item, status = economy.add_item(gid, "Role VIP", 40, role_id=777, description="Akses channel VIP")
+    assert status == "added" and item["price"] == 40
+    assert economy.add_item(gid, "Role VIP", 45)[1] == "updated"
+    assert economy.find_item(gid, "role vip")["price"] == 45
+    ok_b, msg_b, role_id = economy.buy(gid, 504, "Role VIP")
+    assert ok_b is True and role_id == 777 and economy.balance(gid, 504) == 5
+    assert economy.buy(gid, 504, "Role VIP")[0] is False                  # saldo kurang
+    assert economy.buy(gid, 504, "Tidak Ada")[0] is False
+    assert economy.remove_item(gid, "role vip") is True
+    assert economy.items(gid) == {}
+
+    # 7. Papan peringkat & total koin
+    rows = economy.leaderboard(gid, limit=5)
+    assert rows and rows[0][0] == 501
+    assert economy.net_worth(gid) >= sum(value for _uid, value in rows)
+
+    # 8. Format koin mengikuti mata uang server
+    assert "koin" in economy.format_coins(1000, cfg)
+
+    # 9. Simpan & muat ulang
+    monkeypatch.setattr(economy, "ECONOMY_FILE", tmp_path / "economy.json")
+    await economy.save_economy_to_disk()
+    economy.economy_guilds.clear()
+    economy.balances.clear()
+    economy.meta.clear()
+    economy.shop.clear()
+    guilds, balances = economy.load_economy_from_disk()
+    assert guilds == 1 and balances >= 2
+    assert economy.balance(gid, 501) > 0
+    assert economy.get_config(gid)["enabled"] is True
+
+    # 10. Matikan fitur: saldo tetap ada, tapi tidak menambah koin
+    economy.set_config(gid, aktif=False)
+    assert economy.is_active(gid) is False
+    assert economy.earn_from_message(gid, 501, now=9000.0) is None
+    assert economy.balance(gid, 501) > 0
+    assert isinstance(economy.cleanup_economy_runtime(), int)
+    economy.economy_guilds.clear()
+    economy.balances.clear()
+    economy.meta.clear()
+    economy.shop.clear()
+
+
+@pytest.mark.asyncio
+async def test_growth_tracker_invites_stats_and_persistence(monkeypatch, tmp_path):
+    """Pertumbuhan: deteksi pengundang, statistik join/keluar, retensi, & persistensi."""
+    import growth_tracker
+
+    growth_tracker.growth_guilds.clear()
+    growth_tracker.invite_cache.clear()
+    growth_tracker.join_records.clear()
+    growth_tracker.inviter_stats.clear()
+    growth_tracker.daily.clear()
+
+    gid = 30
+    assert growth_tracker.is_enabled(gid) is True     # default aktif (0 kuota, ringan)
+
+    # 1. Deteksi pengundang dari selisih `uses` invite
+    class _Inviter:
+        id = 900
+
+    class _Invite:
+        def __init__(self, code, uses, inviter=None):
+            self.code = code
+            self.uses = uses
+            self.inviter = inviter
+
+    class _Guild:
+        id = gid
+
+        def __init__(self, invites):
+            self._invites = invites
+
+        async def invites(self):
+            return self._invites
+
+    guild = _Guild([_Invite("abc", 3, _Inviter()), _Invite("xyz", 1, _Inviter())])
+    assert await growth_tracker.sync_invites(guild) == 2
+    assert growth_tracker.invite_cache[gid]["abc"] == 3
+
+    guild._invites = [_Invite("abc", 4, _Inviter()), _Invite("xyz", 1, _Inviter())]
+    inviter_id, code = await growth_tracker.detect_inviter(guild, None)
+    assert inviter_id == 900 and code == "abc"
+    assert growth_tracker.invite_cache[gid]["abc"] == 4
+
+    # 2. Catat join & keluar + statistik (pakai waktu nyata agar tidak terpangkas)
+    base = time.time() - 600
+    growth_tracker.record_join(gid, 501, inviter_id, "abc", now=base)
+    growth_tracker.record_join(gid, 502, inviter_id, "abc", now=base + 100)
+    growth_tracker.record_join(gid, 503, None, None, now=base + 200)
+    growth_tracker.record_leave(gid, 502, now=base + 300)      # keluar cepat (<1 jam)
+    data = growth_tracker.stats(gid, 1, now=base + 400)
+    assert data["joins"] == 3 and data["leaves"] == 1 and data["net"] == 2
+    assert data["tracked"] == 3 and data["stayed"] == 2
+    assert data["retention_pct"] == 67
+    assert data["top_inviters"] and data["top_inviters"][0][0] == 900
+    assert data["invites_cached"] == 2
+
+    # 3. Papan pengundang & sparkline
+    board = growth_tracker.invite_leaderboard(gid)
+    assert board and board[0][0] == 900 and board[0][1] == 2 and board[0][3] == 1
+    series = growth_tracker._days_series(gid, 3, now=base + 400)
+    assert len(series) == 3
+    assert growth_tracker.build_sparkline(series)
+    assert growth_tracker.build_sparkline([("x", 0, 0)]) == "_belum ada data_"
+
+    # 4. Cache invite bisa diperbarui lewat event
+    growth_tracker.track_invite_create(gid, _Invite("baru", 0))
+    assert "baru" in growth_tracker.invite_cache[gid]
+    growth_tracker.track_invite_delete(gid, _Invite("baru", 0))
+    assert "baru" not in growth_tracker.invite_cache[gid]
+
+    # 5. Tanpa izin (guild.invites error) → tidak crash, kembalikan None
+    class _BadGuild:
+        id = gid
+
+        async def invites(self):
+            raise discord.Forbidden(type("R", (), {"status": 403, "reason": "x"})(), "nope")
+
+    assert await growth_tracker.detect_inviter(_BadGuild(), None) == (None, None)
+    assert await growth_tracker.sync_invites(_BadGuild()) == 0
+
+    # 6. Konfigurasi & channel log
+    growth_tracker.set_config(gid, enabled=True, log_channel_id=555)
+    assert growth_tracker.get_config(gid)["log_channel_id"] == 555
+    assert growth_tracker.handle_channel_delete(555) is True
+    assert growth_tracker.get_config(gid)["log_channel_id"] is None
+
+    # 7. Simpan & muat ulang
+    monkeypatch.setattr(growth_tracker, "GROWTH_FILE", tmp_path / "growth.json")
+    await growth_tracker.save_growth_to_disk()
+    growth_tracker.growth_guilds.clear()
+    growth_tracker.invite_cache.clear()
+    growth_tracker.join_records.clear()
+    growth_tracker.inviter_stats.clear()
+    growth_tracker.daily.clear()
+    assert growth_tracker.load_growth_from_disk() >= 1
+    reloaded = growth_tracker.stats(gid, 1, now=base + 400)
+    assert reloaded["joins"] == 3 and reloaded["tracked"] == 3
+    assert growth_tracker.invite_leaderboard(gid)[0][0] == 900
+
+    # 8. Pembersihan runtime
+    assert isinstance(growth_tracker.cleanup_growth_runtime(), int)
+    growth_tracker.growth_guilds.clear()
+    growth_tracker.invite_cache.clear()
+    growth_tracker.join_records.clear()
+    growth_tracker.inviter_stats.clear()
+    growth_tracker.daily.clear()
+
+
+@pytest.mark.asyncio
+async def test_new_guild_gets_instant_commands_and_checklist():
+    """Bot masuk server baru: Slash Command disinkronkan + checklist setup dikirim (0 kuota AI)."""
+    from cogs.events_cog import register_events_cog
+
+    sent: list[dict] = []
+
+    class _Tree:
+        def __init__(self):
+            self.synced_guilds: list[int] = []
+
+        async def sync(self, *, guild=None):
+            if guild is not None:
+                self.synced_guilds.append(guild.id)
+            return [object()] * 3
+
+        def get_commands(self):
+            return [object()] * 3
+
+    class _Channel:
+        def __init__(self):
+            self.id = 42
+
+        async def send(self, **kwargs):
+            sent.append(kwargs)
+
+    class _Guild:
+        id = 987
+        name = "Server Teman"
+        member_count = 12
+        system_channel = _Channel()
+
+    class _FakeBot:
+        def __init__(self):
+            self.tree = _Tree()
+            self.handlers: dict[str, object] = {}
+
+        def event(self, coro):
+            self.handlers[coro.__name__] = coro
+            return coro
+
+    bot = _FakeBot()
+    register_events_cog(bot)
+
+    assert "on_guild_join" in bot.handlers
+    await bot.handlers["on_guild_join"](_Guild())
+
+    # Command langsung disinkronkan ke server baru itu saja
+    assert bot.tree.synced_guilds == [987]
+    # Checklist setup terkirim tanpa mention massal
+    assert sent and sent[-1]["embed"].title
+    assert "/log" in sent[-1]["embed"].description
+    assert "/tumbuh" in sent[-1]["embed"].description
+    assert sent[-1]["allowed_mentions"].everyone is False

@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.19.0-beta"
+BOT_VERSION = "1.25.1-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -154,6 +154,10 @@ MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
 ANTISPAM_FILE = DATA_DIR / "antispam.json"
 LEVELS_FILE = DATA_DIR / "levels.json"
+TRANSLATE_FILE = DATA_DIR / "translate.json"
+AUDIT_FILE = DATA_DIR / "audit.json"
+ECONOMY_FILE = DATA_DIR / "economy.json"
+GROWTH_FILE = DATA_DIR / "growth.json"
 AI_USAGE_FILE = DATA_DIR / "ai_usage.json"
 TICKETS_FILE = DATA_DIR / "tickets.json"
 # Gambar kustom (banner sambutan/perpisahan/boost) — file biner, bukan JSON
@@ -226,6 +230,22 @@ LEVELS_COOLDOWN_SEC: int = _env_int("LEVELS_COOLDOWN_SEC", 60, minimum=0)
 LEVELS_MAX_LEVEL: int = _env_int("LEVELS_MAX_LEVEL", 100, minimum=5)
 # Jumlah member teratas yang disimpan per server (menjaga file JSON tetap kecil)
 LEVELS_MAX_MEMBERS: int = _env_int("LEVELS_MAX_MEMBERS", 500, minimum=25)
+# XP Voice: XP per menit berada di voice channel (0 kuota AI).
+LEVELS_VOICE_XP_PER_MIN: int = _env_int("LEVELS_VOICE_XP_PER_MIN", 2, minimum=1)
+# Batas menit voice yang dihitung per member per hari (0 = tanpa batas, tidak disarankan).
+LEVELS_VOICE_DAILY_CAP_MIN: int = _env_int("LEVELS_VOICE_DAILY_CAP_MIN", 240, minimum=0)
+
+# ==============================================================================
+# DASHBOARD WEB READ-ONLY (status & /pemakaian) — default NONAKTIF
+# ==============================================================================
+# Port HTTP dashboard. Kosong/0 = coba ambil dari SERVER_PORT/PORT panel hosting.
+# Dashboard hanya menyala bila DASHBOARD_TOKEN juga diisi.
+DASHBOARD_PORT: int = _env_int("DASHBOARD_PORT", 0, minimum=0)
+DASHBOARD_HOST: str = os.getenv("DASHBOARD_HOST") or "0.0.0.0"
+# Token rahasia di URL (?token=...) — WAJIB diisi untuk mengaktifkan dashboard.
+DASHBOARD_TOKEN: str = os.getenv("DASHBOARD_TOKEN") or ""
+# Interval auto-refresh halaman (detik).
+DASHBOARD_REFRESH_SEC: int = _env_int("DASHBOARD_REFRESH_SEC", 30, minimum=5)
 
 # ==============================================================================
 # SISTEM TIKET DUKUNGAN (Tier 2C) — default NONAKTIF

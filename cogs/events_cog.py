@@ -100,6 +100,19 @@ def register_events_cog(bot: commands.Bot) -> None:
         if not ai_handler.is_gemini_key_configured():
             logger.warning("⚠️ GEMINI_API_KEY belum diisi! Isi di .env atau panel Variables Wispbyte.")
 
+        # Sinkronkan cache invite sekali saat start agar pelacakan pengundang akurat
+        try:
+            import growth_tracker
+
+            total = 0
+            for guild in getattr(bot, "guilds", []) or []:
+                total += await growth_tracker.sync_invites(guild)
+            if total:
+                await growth_tracker.save_growth_to_disk()
+            logger.info("Cache invite disinkronkan: %d kode terpantau.", total)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Sinkronisasi invite dilewati: %s", exc)
+
     @bot.event
     async def on_raw_thread_delete(payload: discord.RawThreadDeleteEvent):
         """Membersihkan sisa memori sesi privat, game aktif, & riwayat Forum/Thread saat thread dihapus."""
@@ -114,8 +127,45 @@ def register_events_cog(bot: commands.Bot) -> None:
             logger.info("Data sesi privat dibersihkan karena thread %s dihapus.", tid)
 
     @bot.event
+    async def on_guild_role_create(role: discord.Role):
+        try:
+            import audit_log
+
+            await audit_log.log_role_change(bot, role.guild, "create", role)
+        except Exception:  # pragma: no cover
+            pass
+
+    @bot.event
+    async def on_guild_role_delete(role: discord.Role):
+        try:
+            import audit_log
+
+            await audit_log.log_role_change(bot, role.guild, "delete", role)
+        except Exception:  # pragma: no cover
+            pass
+
+    @bot.event
+    async def on_guild_channel_create(channel: discord.abc.GuildChannel):
+        try:
+            import audit_log
+
+            await audit_log.log_channel_change(bot, getattr(channel, "guild", None), "create", channel)
+        except Exception:  # pragma: no cover
+            pass
+
+    @bot.event
     async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
         """Membersihkan konfigurasi AI Agent & game aktif jika channel publik dihapus dari server."""
+        try:
+            import audit_log
+
+            await audit_log.log_channel_change(
+                bot, getattr(channel, "guild", None), "delete", channel
+            )
+            if audit_log.handle_channel_delete(getattr(channel, "id", 0)):
+                await audit_log.save_audit_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Audit log channel hapus dilewati: %s", exc)
         removed = False
         if channel.id in chat_agent_channels:
             set_chat_channel_config(channel.guild.id, channel.id, enabled=False)
@@ -176,6 +226,10 @@ def register_events_cog(bot: commands.Bot) -> None:
         if bot.user is not None and payload.user_id == bot.user.id:
             return  # abaikan reaksi bot sendiri (mis. emoji panel reaction role)
         try:
+            from cogs.translate_cog import handle_translate_reaction
+
+            if await handle_translate_reaction(bot, payload):
+                return  # reaksi bendera 🇮🇩/🇬🇧 untuk penerjemah
             if await handle_starboard_reaction(bot, payload, added=True):
                 return
             await handle_reaction_role(bot, payload, added=True)
@@ -197,6 +251,104 @@ def register_events_cog(bot: commands.Bot) -> None:
             logger.warning("Reaction handler gagal: %s", exc)
 
     @bot.event
+    async def on_message_delete(message: discord.Message):
+        """Mencatat pesan yang dihapus ke Audit Log (0 kuota AI)."""
+        try:
+            import audit_log
+
+            await audit_log.log_message_delete(bot, message)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Audit log pesan hapus dilewati: %s", exc)
+
+    @bot.event
+    async def on_bulk_message_delete(messages):
+        """Mencatat hapus massal (purge) ke Audit Log."""
+        try:
+            import audit_log
+
+            await audit_log.log_bulk_delete(bot, messages)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Audit log hapus massal dilewati: %s", exc)
+
+    @bot.event
+    async def on_message_edit(before: discord.Message, after: discord.Message):
+        """Mencatat pesan yang diedit ke Audit Log."""
+        try:
+            import audit_log
+
+            await audit_log.log_message_edit(bot, before, after)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Audit log pesan edit dilewati: %s", exc)
+
+    @bot.event
+    async def on_guild_join(guild):
+        """Server baru: Slash Command langsung muncul & kirim checklist setup (0 kuota AI)."""
+        fixed_commands = 0
+        try:
+            await bot.tree.sync(guild=discord.Object(id=guild.id))
+            fixed_commands = len(getattr(bot.tree, "get_commands", lambda: [])())
+        except Exception as exc:  # pragma: no cover - rate limit / izin
+            logger.debug("Sinkronisasi command server baru dilewati: %s", exc)
+
+        try:
+            import ui_theme
+
+            total = getattr(guild, "member_count", None) or len(getattr(guild, "members", []) or [])
+            embed = ui_theme.status_embed(
+                guild.id,
+                "info",
+                "👋 Terima kasih sudah mengundang bot ini!",
+                "**Langkah cepat 5 menit** (semua opsional, bot sudah jalan tanpa ini):\n"
+                "1. `/agent panel` — pilih channel AI Agent, welcome, & FAQ lewat tombol.\n"
+                "2. `/level atur aktif:True` — XP chat & voice + role hadiah.\n"
+                "3. `/tiket panel channel:#bantuan` — tiket bantuan berbasis thread.\n"
+                "4. `/log channel channel:#bot-log` — audit log server (hapus/edit pesan, dll).\n"
+                "5. `/tumbuh atur channel:#log-member` — statistik tumbuh & invite tracker "
+                "(butuh izin *Manage Server*).\n\n"
+                f"Server ini: **{guild.name}** (`{guild.id}`) • {total} member\n"
+                "Bantuan lengkap: `/bantuan` • Cek kesehatan: `/status`",
+                footer="0 kuota AI untuk semua fitur di atas • dashboard web opsional",
+            )
+            target = getattr(guild, "system_channel", None)
+            if target is None:
+                for channel in getattr(guild, "text_channels", []) or []:
+                    perms = getattr(channel, "permissions_for", lambda _m: None)(guild.me)
+                    if perms is not None and getattr(perms, "send_messages", False):
+                        target = channel
+                        break
+            if target is not None:
+                await target.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Checklist server baru dilewati: %s", exc)
+
+        logger.info(
+            "Bergabung ke server baru: %s (%s) • %s member • %d command disinkronkan.",
+            getattr(guild, "name", "?"),
+            getattr(guild, "id", "?"),
+            getattr(guild, "member_count", "?"),
+            fixed_commands,
+        )
+
+    @bot.event
+    async def on_invite_create(invite):
+        """Memperbarui cache invite agar pelacakan pengundang tetap akurat."""
+        try:
+            import growth_tracker
+
+            growth_tracker.track_invite_create(getattr(getattr(invite, "guild", None), "id", 0), invite)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Cache invite (create) dilewati: %s", exc)
+
+    @bot.event
+    async def on_invite_delete(invite):
+        try:
+            import growth_tracker
+
+            growth_tracker.track_invite_delete(getattr(getattr(invite, "guild", None), "id", 0), invite)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Cache invite (delete) dilewati: %s", exc)
+
+    @bot.event
     async def on_member_join(member: discord.Member):
         """Menyambut member baru, memasang Auto Role, & mendeteksi lonjakan join (raid)."""
         if not getattr(member, "bot", False) and member.guild.id in autorole_guilds:
@@ -205,10 +357,30 @@ def register_events_cog(bot: commands.Bot) -> None:
             await handle_member_join_guard(bot, member)  # hanya melapor, tidak menendang
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.warning("Anti-Raid gagal memeriksa member join: %s", exc)
+
+        # Pelacakan pertumbuhan: siapa pengundangnya + statistik join (0 kuota AI)
+        try:
+            import growth_tracker
+
+            if growth_tracker.is_enabled(member.guild.id):
+                inviter_id, code = await growth_tracker.detect_inviter(member.guild, member)
+                growth_tracker.record_join(member.guild.id, member.id, inviter_id, code)
+                await growth_tracker.save_growth_to_disk()
+                await _send_growth_log(bot, member.guild, member, inviter_id, joined=True)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pelacakan pertumbuhan join dilewati: %s", exc)
+
         await trigger_member_welcome(bot, member.guild, member)
 
     @bot.event
     async def on_member_update(before: discord.Member, after: discord.Member):
+        try:
+            import audit_log
+
+            await audit_log.log_member_update(bot, before, after)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Audit log member update dilewati: %s", exc)
+
         """Mendeteksi boost server baru & mengirim pesan terima kasih (jika diaktifkan)."""
         before_boost = getattr(before, "premium_since", None)
         after_boost = getattr(after, "premium_since", None)
@@ -220,8 +392,40 @@ def register_events_cog(bot: commands.Bot) -> None:
             logger.warning("Pesan boost gagal dikirim: %s", exc)
 
     @bot.event
+    async def on_voice_state_update(member, before, after):
+        """Memulai/menghentikan hitungan XP voice (0 kuota AI)."""
+        try:
+            import voice_activity
+
+            voice_activity.handle_voice_state(member, before, after, guild=getattr(member, "guild", None))
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pelacakan XP voice dilewati: %s", exc)
+        try:
+            import audit_log
+
+            await audit_log.log_voice_change(bot, member, before, after)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Audit log voice dilewati: %s", exc)
+
+    @bot.event
     async def on_member_remove(member: discord.Member):
-        """Mengirim pesan perpisahan AI saat member keluar dari server (jika aktif)."""
+        """Audit log member keluar + pesan perpisahan AI (jika aktif)."""
+        try:
+            import audit_log
+
+            await audit_log.log_member_remove(bot, member)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Audit log member keluar dilewati: %s", exc)
+        try:
+            import growth_tracker
+
+            if growth_tracker.is_enabled(member.guild.id):
+                growth_tracker.record_leave(member.guild.id, member.id)
+                await growth_tracker.save_growth_to_disk()
+                await _send_growth_log(bot, member.guild, member, None, joined=False)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pelacakan pertumbuhan keluar dilewati: %s", exc)
+
         await trigger_member_goodbye(bot, member.guild, member)
 
     @bot.event
@@ -242,6 +446,16 @@ def register_events_cog(bot: commands.Bot) -> None:
                 await handle_message_tools(message)
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Perkakas pesan (AFK/thread) gagal: %s", exc)
+
+        # Auto-terjemahan per channel (opsional, default MATI agar kuota aman)
+        if message.guild is not None:
+            try:
+                from cogs.translate_cog import maybe_auto_translate
+
+                if await maybe_auto_translate(bot, message):
+                    return
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Auto-terjemahan dilewati: %s", exc)
 
         # Cadangan Auto-Welcome lewat pesan System Join Discord (bekerja walau Server Members Intent belum aktif)
         if message.type == discord.MessageType.new_member and message.guild is not None:
@@ -434,3 +648,35 @@ def register_events_cog(bot: commands.Bot) -> None:
                         return
 
         await bot.process_commands(message)
+
+async def _send_growth_log(bot, guild, member, inviter_id, *, joined: bool) -> None:
+    """Mengirim log join/keluar ke channel yang diatur `/tumbuh atur` (opsional)."""
+    try:
+        import growth_tracker
+
+        channel_id = (growth_tracker.get_config(guild.id) or {}).get("log_channel_id")
+        if not channel_id:
+            return
+        channel = bot.get_channel(int(channel_id)) if callable(getattr(bot, "get_channel", None)) else None
+        if channel is None:
+            return
+        if joined:
+            lines = [f"📥 **{getattr(member, 'display_name', 'Member')}** bergabung."]
+            if inviter_id:
+                lines.append(f"Diundang oleh <@{int(inviter_id)}>.")
+            created = getattr(member, "created_at", None)
+            if created is not None:
+                try:
+                    age = max(0, int((discord.utils.utcnow() - created).total_seconds() // 86400))
+                    lines.append(f"Umur akun: `{age}` hari" + (" ⚠️ baru" if age < 7 else ""))
+                except Exception:  # pragma: no cover
+                    pass
+            color = discord.Color.green()
+        else:
+            lines = [f"📤 **{getattr(member, 'display_name', 'Member')}** keluar dari server."]
+            color = discord.Color.orange()
+        embed = discord.Embed(description="\n".join(lines), color=color)
+        embed.set_footer(text="Pertumbuhan server • 0 kuota AI")
+        await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Log pertumbuhan dilewati: %s", exc)

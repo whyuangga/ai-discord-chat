@@ -30,6 +30,8 @@ from config import (
     LEVELS_FILE,
     LEVELS_MAX_MEMBERS,
     LEVELS_MAX_LEVEL,
+    LEVELS_VOICE_DAILY_CAP_MIN,
+    LEVELS_VOICE_XP_PER_MIN,
     LEVELS_XP_MAX,
     LEVELS_XP_MIN,
 )
@@ -56,6 +58,10 @@ def default_config() -> dict:
         "cooldown": int(LEVELS_COOLDOWN_SEC),
         "ignore_channels": [],
         "ignore_roles": [],
+        "voice_enabled": True,            # XP dari voice channel ikut dihitung
+        "voice_xp_per_min": int(LEVELS_VOICE_XP_PER_MIN),
+        "voice_daily_cap_min": int(LEVELS_VOICE_DAILY_CAP_MIN),
+        "voice_ignore_channels": [],      # voice channel yang tidak dihitung
         "level_roles": {},             # {"5": role_id, ...}
         "leveled_up": 0,
     }
@@ -145,6 +151,12 @@ def load_levels_from_disk() -> int:
                 "cooldown": max(0, _to_int(data.get("cooldown"), base["cooldown"])),
                 "ignore_channels": [_to_int(c) for c in (data.get("ignore_channels") or []) if _to_int(c)],
                 "ignore_roles": [_to_int(r) for r in (data.get("ignore_roles") or []) if _to_int(r)],
+                "voice_enabled": bool(data.get("voice_enabled", True)),
+                "voice_xp_per_min": max(1, _to_int(data.get("voice_xp_per_min"), base["voice_xp_per_min"])),
+                "voice_daily_cap_min": max(0, _to_int(data.get("voice_daily_cap_min"), base["voice_daily_cap_min"])),
+                "voice_ignore_channels": [
+                    _to_int(c) for c in (data.get("voice_ignore_channels") or []) if _to_int(c)
+                ],
                 "level_roles": {
                     str(max(1, _to_int(k))): _to_int(v)
                     for k, v in (data.get("level_roles") or {}).items()
@@ -171,6 +183,10 @@ def load_levels_from_disk() -> int:
             "level": max(0, _to_int(data.get("level"), level_from_total_xp(xp))),
             "messages": max(0, _to_int(data.get("messages"))),
             "last_at": float(data.get("last_at") or 0),
+            "voice_xp": max(0, _to_int(data.get("voice_xp"))),
+            "voice_sec": max(0, _to_int(data.get("voice_sec"))),
+            "voice_day": str(data.get("voice_day") or ""),
+            "voice_min_today": max(0, _to_int(data.get("voice_min_today"))),
         }
     return len(level_guilds)
 
@@ -243,6 +259,16 @@ def set_level_config(guild_id: int, **changes) -> dict | None:
     for key in ("xp_min", "xp_max", "cooldown"):
         if changes.get(key) is not None:
             cfg[key] = max(0 if key == "cooldown" else 1, int(changes[key]))
+    if changes.get("voice_enabled") is not None:
+        cfg["voice_enabled"] = bool(changes["voice_enabled"])
+    if changes.get("voice_xp_per_min") is not None:
+        cfg["voice_xp_per_min"] = max(1, int(changes["voice_xp_per_min"]))
+    if changes.get("voice_daily_cap_min") is not None:
+        cfg["voice_daily_cap_min"] = max(0, int(changes["voice_daily_cap_min"]))
+    if changes.get("voice_ignore_channels") is not None:
+        cfg["voice_ignore_channels"] = [
+            _to_int(c) for c in (changes["voice_ignore_channels"] or []) if _to_int(c)
+        ]
     if cfg["xp_max"] < cfg["xp_min"]:
         cfg["xp_max"] = cfg["xp_min"]
     for key in ("ignore_channels", "ignore_roles"):
@@ -346,6 +372,90 @@ def add_message_xp(
     }
 
 
+def _today_str(now: float) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(float(now)))
+
+
+def add_voice_minutes(
+    guild_id: int,
+    user_id: int,
+    minutes: int,
+    *,
+    channel_id: int = 0,
+    now: float | None = None,
+) -> dict | None:
+    """Memberi XP karena berada di voice channel selama `minutes` menit.
+
+    `None` bila leveling/voice XP nonaktif, channel diabaikan, atau batas harian habis.
+    Hasil berisi kunci yang sama dengan `add_message_xp` + `minutes`.
+    """
+    gid = int(guild_id)
+    cfg = level_guilds.get(gid)
+    if not cfg or not cfg.get("enabled") or not cfg.get("voice_enabled", True):
+        return None
+    if channel_id and int(channel_id) in {int(c) for c in (cfg.get("voice_ignore_channels") or [])}:
+        return None
+
+    whole = max(0, int(minutes))
+    if whole <= 0:
+        return None
+
+    current_time = time.time() if now is None else float(now)
+    key = _key(gid, user_id)
+    data = levels.get(key)
+    if data is None:
+        data = {"xp": 0, "level": 0, "messages": 0, "last_at": 0.0}
+        levels[key] = data
+
+    # Reset hitungan harian bila hari berubah
+    today = _today_str(current_time)
+    if str(data.get("voice_day") or "") != today:
+        data["voice_day"] = today
+        data["voice_min_today"] = 0
+
+    cap = max(0, int(cfg.get("voice_daily_cap_min") or 0))
+    used_today = max(0, int(data.get("voice_min_today") or 0))
+    if cap and used_today >= cap:
+        return None
+    if cap:
+        whole = min(whole, cap - used_today)
+
+    per_min = max(1, int(cfg.get("voice_xp_per_min") or LEVELS_VOICE_XP_PER_MIN))
+    gained = whole * per_min
+
+    data["voice_min_today"] = used_today + whole
+    data["voice_sec"] = int(data.get("voice_sec") or 0) + whole * 60
+    data["voice_xp"] = int(data.get("voice_xp") or 0) + gained
+    data["xp"] = int(data.get("xp") or 0) + gained
+    data["last_at"] = current_time
+
+    old_level = int(data.get("level") or 0)
+    new_level = level_from_total_xp(int(data["xp"]))
+    data["level"] = new_level
+    level_up = new_level > old_level
+
+    role_id = None
+    if level_up:
+        cfg["leveled_up"] = int(cfg.get("leveled_up") or 0) + 1
+        role_id = reward_role_for_level(cfg, new_level)
+
+    current, needed = progress_in_level(int(data["xp"]), new_level)
+    return {
+        "gained": gained,
+        "minutes": whole,
+        "xp": int(data["xp"]),
+        "level": new_level,
+        "old_level": old_level,
+        "level_up": level_up,
+        "role_id": role_id,
+        "current": current,
+        "needed": needed,
+        "voice_xp": int(data["voice_xp"]),
+        "voice_min_today": int(data["voice_min_today"]),
+        "voice_daily_cap_min": cap,
+    }
+
+
 def get_member_level(guild_id: int, user_id: int) -> dict:
     """Data level seorang member (aman walau belum pernah chat)."""
     data = levels.get(_key(guild_id, user_id)) or {"xp": 0, "level": 0, "messages": 0, "last_at": 0.0}
@@ -356,6 +466,9 @@ def get_member_level(guild_id: int, user_id: int) -> dict:
         "messages": int(data.get("messages") or 0),
         "current": current,
         "needed": needed,
+        "voice_xp": int(data.get("voice_xp") or 0),
+        "voice_min_today": int(data.get("voice_min_today") or 0),
+        "voice_day": str(data.get("voice_day") or ""),
     }
 
 
@@ -420,6 +533,9 @@ def build_level_embed(member, data: dict, cfg: dict | None = None) -> discord.Em
     )
     embed.add_field(name="💬 Pesan", value=f"`{int(data.get('messages') or 0)}`", inline=True)
     embed.add_field(name="🏅 Level", value=f"`{int(data.get('level') or 0)}`", inline=True)
+    voice_xp = int(data.get("voice_xp") or 0)
+    if voice_xp:
+        embed.add_field(name="🎙️ XP Voice", value=f"`{voice_xp}`", inline=True)
     next_role = reward_role_for_level(cfg or {}, int(data.get("level") or 0) + 1)
     if next_role:
         embed.add_field(name="🎁 Hadiah Berikutnya", value=f"<@&{next_role}>", inline=True)
@@ -429,7 +545,7 @@ def build_level_embed(member, data: dict, cfg: dict | None = None) -> discord.Em
             embed.set_thumbnail(url=avatar.url)
         except Exception:  # pragma: no cover - avatar tiruan
             pass
-    embed.set_footer(text="XP diberikan tiap pesan • ada jeda agar tidak bisa dispam")
+    embed.set_footer(text="XP dari pesan (ada jeda anti-spam) & dari menit di voice channel")
     return embed
 
 

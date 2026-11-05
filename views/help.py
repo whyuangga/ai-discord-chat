@@ -69,6 +69,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             value=(
                 "Tekan-tahan pesan siapa saja di HP *(atau Klik Kanan di PC)* ➔ **Apps**:\n"
                 "• **`🌐 Terjemahkan ke Indonesia`** — Terjemahkan pesan bahasa asing secara natural.\n"
+                "• **`/terjemah`** — Terjemahkan teks/pesan ke Indonesia/Inggris, atau pasang **reaksi bendera 🇮🇩/🇬🇧** "
+                "di channel (0 kuota sampai diminta, hasil via DM).\n"
                 "• **`💡 Jelaskan Pesan Ini`** — Bedah maksud istilah rumit, kode error, atau gambar.\n"
                 "• **`🔍 Cek Fakta / Hoaks`** — Periksa kebenaran klaim/berita berantai dengan sumber web."
             ),
@@ -169,6 +171,18 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/lockdown aktif:True alasan:raid` *(Admin)* — kunci semua text channel; "
                 "`aktif:False` membuka hanya channel yang dikunci bot.\n"
                 "• `/backup struktur` *(Admin)* — unduh JSON role/kategori/channel/izin (baca-saja, tanpa isi pesan)."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📋 Log, Ekonomi & Pertumbuhan (0 kuota AI)",
+            value=(
+                "• `/log channel channel:#bot-log` *(Admin)* — catat pesan dihapus/diedit, member join/keluar, "
+                "perubahan role, & channel baru ke satu channel. Kategori `voice` default mati.\n"
+                "• `/ekonomi atur aktif:True` *(Admin)* — koin dari chat & voice, hadiah harian ber-streak, "
+                "toko role (`/ekonomi tambah-item`), & `/ekonomi transfer`. **Default NONAKTIF.**\n"
+                "• `/tumbuh ringkas` — join/keluar, retensi, tren harian, & Top Inviter; `/tumbuh atur` untuk "
+                "channel log join-keluar (butuh izin *Manage Server*)."
             ),
             inline=False,
         )
@@ -549,15 +563,19 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
             value=(
                 "**📈 Retensi & Pelayanan**\n"
-                "• **`/level`** — kartu level, papan peringkat, & role hadiah.\n"
+                "• **`/level`** — kartu level, papan peringkat, role hadiah, & XP voice.\n"
                 "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
                 "**🎉 Keramaian Server**\n"
                 "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"
                 "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
                 "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
-                "• **`/agent keamanan`** — tingkat keamanan konten AI per server (longgar/normal/ketat).\n"
+                "• **Dashboard web** — status & `/pemakaian` dari browser (0 kuota).\n"
+                "• **`/agent keamanan`** — tingkat keamanan konten AI (longgar/normal/ketat).\n"
                 "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
+                "• **`/terjemah`** — penerjemah hemat kuota (reaksi bendera 🇮🇩/🇬🇧).\n"
+                "**🌱 Tumbuh & Ekonomi**\n"
+                "• **`/log`**, **`/tumbuh`**, **`/ekonomi`** (koin + toko role).\n"
                 "**🧩 Komunitas & Lain-lain**\n"
                 "• **`/panel-role`**, **`/poll`**, **`/ingatkan`**, **`/starboard`**, **`/sticky`**.\n"
                 "• **`/info`**, **`/perawatan`**, **`/status`**, **`/bantuan`**."
