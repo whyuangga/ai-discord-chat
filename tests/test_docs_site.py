@@ -122,6 +122,9 @@ def test_landing_yaml_punya_bagian_wajib():
     for kunci in ("hero:", "featureGrid:", "template: hero", "template: feature grid"):
         assert kunci in isi, f"landing.yaml kehilangan '{kunci}'"
     assert isi.count("    - title:") >= 6, "kartu fitur halaman depan berkurang"
+    # tema hanya merender tautan kartu dari kunci `ctaLink` (bukan `url`)
+    assert isi.count("      ctaLink:") >= 6, "kartu fitur tidak punya tautan (kunci harus ctaLink)"
+    assert "/docs/sesi/" in isi and "/docs/command/" not in isi.split("items:")[0]
 
 
 def test_konfigurasi_lotus_docs():

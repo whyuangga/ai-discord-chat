@@ -42,24 +42,36 @@ featureGrid:
     - title: Ruang AI privat
       icon: forum
       description: Private thread, 5 kepribadian, PDF, voice note, vision, generate gambar.
-      url: /docs/sesi/
+      ctaLink:
+        url: /docs/sesi/
+        text: Buka penjelasan
     - title: AI Agent publik
       icon: smart_toy
       description: Auto-chat dengan etika anti-nimbrung, digest pagi, welcome & goodbye.
-      url: /docs/agent/
+      ctaLink:
+        url: /docs/agent/
+        text: Buka penjelasan
     - title: Musik 24/7
       icon: music_note
       description: Lavalink v4, panel ala Rythm, filter audio, playlist per member.
-      url: /docs/musik/
+      ctaLink:
+        url: /docs/musik/
+        text: Buka penjelasan
     - title: Keamanan
       icon: shield
       description: Moderasi bercatatan, anti-spam, anti-nuke, raid guard otomatis.
-      url: /docs/keamanan/
+      ctaLink:
+        url: /docs/keamanan/
+        text: Buka penjelasan
     - title: Retensi & pelayanan
       icon: military_tech
       description: Level & XP, musim, prestige, tiket thread dengan SLA & rating bintang.
-      url: /docs/level/
+      ctaLink:
+        url: /docs/level/
+        text: Buka penjelasan
     - title: Hemat kuota
       icon: savings
       description: Statistik AI, cache jawaban, cap harian, 0 kuota untuk UI & panel.
-      url: /docs/pemakaian/
+      ctaLink:
+        url: /docs/pemakaian/
+        text: Buka penjelasan
