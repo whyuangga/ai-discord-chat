@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.13.1-beta"
+BOT_VERSION = "1.14.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -158,6 +158,7 @@ AI_USAGE_FILE = DATA_DIR / "ai_usage.json"
 TICKETS_FILE = DATA_DIR / "tickets.json"
 # Gambar kustom (banner sambutan/perpisahan/boost) — file biner, bukan JSON
 MEDIA_DIR = DATA_DIR / "media"
+SOCIAL_FILE = DATA_DIR / "social.json"
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
@@ -167,6 +168,11 @@ ENABLE_PHISHING_GUARD: bool = _env_bool("ENABLE_PHISHING_GUARD", True)
 # Interval pembaruan nama Voice Channel statistik (detik). Discord membatasi 2 rename / 10 menit per channel,
 # jadi nilai minimum aman adalah 600 detik (10 menit).
 SERVERSTATS_UPDATE_SEC: int = _env_int("SERVERSTATS_UPDATE_SEC", 600, minimum=600)
+# Notifikasi sosial (YouTube/Twitch/TikTok). Twitch butuh aplikasi gratis dari dev.twitch.tv;
+# YouTube & feed RSS tidak butuh kredensial apa pun. Biaya AI: 0 (pesan memakai template).
+TWITCH_CLIENT_ID: str = (os.getenv("TWITCH_CLIENT_ID") or "").strip()
+TWITCH_CLIENT_SECRET: str = (os.getenv("TWITCH_CLIENT_SECRET") or "").strip()
+SOCIAL_CHECK_SEC: int = _env_int("SOCIAL_CHECK_SEC", 300, minimum=60)
 # Jadwal default rubrik Fakta Unik Dunia: 4 slot per hari (pagi, siang, sore, malam).
 # Bisa diubah kapan saja oleh Admin lewat Discord: /fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00
 FACTS_MAX_SLOTS: int = min(8, _env_int("FACTS_MAX_SLOTS", 6, minimum=1))

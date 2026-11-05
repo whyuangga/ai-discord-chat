@@ -62,6 +62,12 @@ from music import (
     run_music_panel_check,
     save_music_settings_to_disk,
 )
+from social_notify import (
+    cleanup_social_runtime,
+    load_social_from_disk,
+    run_social_check,
+    twitch_configured,
+)
 from server_features import (
     load_server_features_from_disk,
     run_facts_check,
@@ -194,6 +200,12 @@ class GeminiDiscordBot(commands.Bot):
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_themes = load_ui_themes_from_disk()
+        loaded_social_guilds = load_social_from_disk()
+        logger.info(
+            "Notifikasi sosial dimuat: %d server | Twitch: %s.",
+            loaded_social_guilds,
+            "siap (kredensial terisi)" if twitch_configured() else "belum dikonfigurasi (YouTube/RSS tetap jalan)",
+        )
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -335,6 +347,7 @@ async def idle_chat_watcher():
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_morning_digest_check(bot, http_session=bot.http_session)
             await run_facts_check(bot, http_session=bot.http_session)
+            await run_social_check(bot, http_session=bot.http_session)  # YouTube/Twitch/TikTok (0 kuota AI)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 4 == 0:
             # Node Lavalink publik sering restart: pulihkan otomatis tanpa restart bot.
             await ensure_nodes_alive(bot)
@@ -352,6 +365,7 @@ async def idle_chat_watcher():
             cleanup_tickets_runtime()
             cleanup_insights_runtime()
             cleanup_ui_runtime()
+            cleanup_social_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:

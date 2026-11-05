@@ -2212,6 +2212,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "panel", "tampilan",
         # v1.11.0-beta (Tier 3): hemat kuota AI
         "faq", "pemakaian",
+        # v1.14.0-beta: notifikasi YouTube/Twitch/TikTok/RSS (0 kuota AI)
+        "sosial",
     }
     assert len(chat_cmds) <= 100
 
@@ -5429,3 +5431,158 @@ def test_serverstats_channel_type_switch():
     assert choice_values == {"voice", "text", "news", "stage"}
 
     sf.serverstats_guilds.pop(gid, None)
+
+
+def test_social_notify_parsers_and_crud():
+    """Notifikasi sosial: parser feed (tanpa jaringan) + CRUD langganan + template."""
+    import social_notify as sn
+
+    # 1. Login Twitch dinormalisasi dari berbagai bentuk
+    assert sn.normalize_twitch_login("https://www.twitch.tv/Ninja?x=1") == "ninja"
+    assert sn.normalize_twitch_login("@Some_Streamer") == "some_streamer"
+    assert sn.twitch_configured() is False  # tanpa kredensial → fitur Twitch dilewati
+
+    # 2. Feed YouTube (Atom)
+    atom = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+      <title>Channel Uji</title>
+      <entry>
+        <yt:videoId>abc123XYZ</yt:videoId>
+        <title>Judul Video Baru</title>
+        <published>2026-11-01T10:00:00+00:00</published>
+      </entry>
+    </feed>"""
+    items = sn.parse_atom_entries(atom)
+    assert len(items) == 1
+    assert items[0]["id"] == "abc123XYZ"
+    assert items[0]["url"].endswith("abc123XYZ")
+    assert items[0]["source"] == "Channel Uji"
+
+    # 3. RSS 2.0 (TikTok / RSSHub)
+    rss = b"""<?xml version="1.0"?>
+    <rss version="2.0"><channel><title>TikTok Uji</title>
+      <item><title>Video TikTok</title><link>https://tiktok.com/@a/video/1</link><guid>g-1</guid></item>
+    </channel></rss>"""
+    rss_items = sn.parse_rss_items(rss)
+    assert rss_items and rss_items[0]["title"] == "Video TikTok"
+    assert rss_items[0]["url"].startswith("https://tiktok.com/")
+    assert sn.parse_atom_entries(b"bukan xml") == []
+
+    # 4. Helix /streams
+    streams = sn.parse_twitch_streams(
+        {"data": [{"id": "1", "user_login": "Ninja", "user_name": "Ninja", "title": "Ranked",
+                   "game_name": "Valorant", "thumbnail_url": "https://x/{width}x{height}.jpg"}]}
+    )
+    assert streams[0]["login"] == "ninja"
+    assert streams[0]["url"] == "https://twitch.tv/ninja"
+    assert "640" in streams[0]["thumbnail"]
+
+    # 5. CRUD langganan
+    gid = 616161
+    sn.social_guilds.pop(gid, None)
+    sub = sn.add_subscription(gid, "youtube", "@NamaChannel", 700)
+    assert sub["platform"] == "youtube" and sub["seeded"] is False
+    assert sn.find_subscription(gid, sub["id"]) is sub
+    assert sub["id"] in sn.summarize_subscription(sub)
+
+    # tambah ulang target sama → memperbarui, bukan menduplikasi
+    same = sn.add_subscription(gid, "youtube", "@namachannel", 701)
+    assert same["id"] == sub["id"] and same["channel_id"] == 701
+    assert len(sn.get_subscriptions(gid)) == 1
+
+    # TikTok wajib URL feed; platform tak dikenal & target kosong ditolak
+    for bad in [
+        lambda: sn.add_subscription(gid, "tiktok", "@user", 700),
+        lambda: sn.add_subscription(gid, "myspace", "x", 700),
+        lambda: sn.add_subscription(gid, "youtube", "  ", 700),
+    ]:
+        try:
+            bad()
+        except ValueError:
+            continue
+        raise AssertionError("input tidak valid seharusnya ditolak")
+
+    assert sn.add_subscription(gid, "tiktok", "https://rsshub.app/tiktok/user/@a", 700)["platform"] == "tiktok"
+
+    # batas jumlah langganan per server
+    for i in range(sn.MAX_SUBS_PER_GUILD):
+        try:
+            sn.add_subscription(gid, "youtube", f"https://youtube.com/@kanal{i}", 700)
+        except ValueError:
+            break
+    assert len(sn.get_subscriptions(gid)) <= sn.MAX_SUBS_PER_GUILD
+
+    # 6. Template notifikasi (0 kuota AI)
+    text = sn.build_notification_text(
+        {"platform": "twitch", "template": "", "target": "ninja"},
+        {"source": "Ninja", "title": "Ranked", "url": "https://twitch.tv/ninja", "game": "Valorant"},
+    )
+    assert "Ninja" in text and "Valorant" in text and "LIVE" in text
+    custom = sn.build_notification_text(
+        {"platform": "youtube", "template": "[{source}] {title} -> {url}", "target": "@a"},
+        {"source": "Kanal", "title": "Video", "url": "https://youtu.be/x"},
+    )
+    assert custom == "[Kanal] Video -> https://youtu.be/x"
+
+    # 7. Hapus langganan
+    assert sn.remove_subscription(gid, sub["id"]) is True
+    assert sn.remove_subscription(gid, "tidakada") is False
+    sn.social_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_social_notify_seeding_and_dispatch(monkeypatch):
+    """Polling pertama tidak membanjiri channel; item baru berikutnya dikirim."""
+    import social_notify as sn
+    from cogs.social_cog import sosial_group
+
+    gid = 626262
+    sn.social_guilds.pop(gid, None)
+    sub = sn.add_subscription(gid, "youtube", "UC" + "a" * 22, 800)
+
+    sent_posts: list[dict] = []
+
+    class _Channel:
+        id = 800
+
+        async def send(self, **kwargs):
+            sent_posts.append(kwargs)
+
+    class _Guild:
+        id = gid
+
+        def get_channel(self, cid):
+            return _Channel() if int(cid) == 800 else None
+
+    feed = {"items": [{"id": "v1", "title": "Video 1", "url": "https://youtu.be/v1", "source": "Kanal"}]}
+
+    async def _fake_fetch(session, subscription):
+        return [dict(item) for item in feed["items"]]
+
+    monkeypatch.setattr(sn, "fetch_feed_items", _fake_fetch)
+
+    # polling pertama: di-seed, tidak ada pesan
+    assert await sn.check_subscription(None, _Guild(), sub, None) == 0
+    assert sub["seeded"] is True and sub["seen"] == ["v1"]
+    assert sent_posts == []
+
+    # video baru muncul → dikirim satu kali saja
+    feed["items"].insert(0, {"id": "v2", "title": "Video 2", "url": "https://youtu.be/v2", "source": "Kanal"})
+    assert await sn.check_subscription(None, _Guild(), sub, None) == 1
+    assert len(sent_posts) == 1
+    assert "Video 2" in sent_posts[0]["embed"].title
+
+    # pengecekan berikutnya tidak mengirim ulang
+    assert await sn.check_subscription(None, _Guild(), sub, None) == 0
+    assert len(sent_posts) == 1
+
+    # /sosial tes tetap memaksa kirim
+    assert await sn.check_subscription(None, _Guild(), sub, None, force=True) == 1
+
+    # command /sosial terdaftar lengkap
+    assert {c.name for c in sosial_group.commands} == {"tambah", "daftar", "hapus", "tes"}
+    tambah = next(c for c in sosial_group.commands if c.name == "tambah")
+    platform_choices = tambah.parameters[0].choices
+    assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok"}
+
+    sn.social_guilds.pop(gid, None)

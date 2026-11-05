@@ -37,6 +37,7 @@ from cogs.server_cog import (
     serverstats_group,
 )
 from cogs.session_cog import register_session_cog, sesi_group
+from cogs.social_cog import register_social_cog, sosial_group
 from cogs.tools_cog import (
     context_explain_message,
     context_fact_check_message,
@@ -64,11 +65,13 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_insights_cog(bot)
     register_music_cog(bot)
     register_panel_cog(bot)
+    register_social_cog(bot)
     register_events_cog(bot)
 
 
 __all__ = [
     "agent_group",
+    "sosial_group",
     "giveaway_group",
     "faq_group",
     "pemakaian_group",

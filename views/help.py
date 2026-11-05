@@ -205,6 +205,20 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="🔔 Notifikasi Sosial (`/sosial`)",
+            value=(
+                "• `/sosial tambah platform:🎬 YouTube target:@NamaChannel channel:#info` — beri tahu warga "
+                "tiap ada video baru (pakai RSS YouTube, **tanpa API key**).\n"
+                "• `/sosial tambah platform:🟣 Twitch target:ninja channel:#live` — notifikasi saat streamer "
+                "**mulai live** (butuh `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET`).\n"
+                "• `/sosial tambah platform:🎵 TikTok target:<URL feed RSS>` — TikTok tidak punya API feed "
+                "gratis resmi, jadi dipakai jalur RSS.\n"
+                "• `/sosial daftar`, `/sosial hapus id:...`, `/sosial tes id:...` — kelola & uji langganan.\n"
+                "• Semua pesan memakai template → **0 kuota AI**."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="👤 Profil & Perawatan (`/info`, `/perawatan`)",
             value=(
                 "• `/info user` & `/info server` — kartu profil member (umur akun & tanggal join) dan ringkasan server.\n"
