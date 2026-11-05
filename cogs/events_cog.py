@@ -176,6 +176,10 @@ def register_events_cog(bot: commands.Bot) -> None:
         if bot.user is not None and payload.user_id == bot.user.id:
             return  # abaikan reaksi bot sendiri (mis. emoji panel reaction role)
         try:
+            from cogs.translate_cog import handle_translate_reaction
+
+            if await handle_translate_reaction(bot, payload):
+                return  # reaksi bendera 🇮🇩/🇬🇧 untuk penerjemah
             if await handle_starboard_reaction(bot, payload, added=True):
                 return
             await handle_reaction_role(bot, payload, added=True)
@@ -252,6 +256,16 @@ def register_events_cog(bot: commands.Bot) -> None:
                 await handle_message_tools(message)
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Perkakas pesan (AFK/thread) gagal: %s", exc)
+
+        # Auto-terjemahan per channel (opsional, default MATI agar kuota aman)
+        if message.guild is not None:
+            try:
+                from cogs.translate_cog import maybe_auto_translate
+
+                if await maybe_auto_translate(bot, message):
+                    return
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Auto-terjemahan dilewati: %s", exc)
 
         # Cadangan Auto-Welcome lewat pesan System Join Discord (bekerja walau Server Members Intent belum aktif)
         if message.type == discord.MessageType.new_member and message.guild is not None:

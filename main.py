@@ -13,6 +13,11 @@ from cogs import (
 )
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
+from translate_tools import (
+    cleanup_translate_runtime,
+    load_translate_from_disk,
+    save_translate_to_disk,
+)
 from web_dashboard import start_dashboard, stop_dashboard
 from community_agent import (
     cleanup_stale_agent_runtime,
@@ -222,6 +227,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
+        loaded_translate_guilds = load_translate_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -294,6 +300,7 @@ class GeminiDiscordBot(commands.Bot):
             loaded_tickets,
         )
         logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
+        logger.info("Penerjemah dimuat: %d server dengan channel terpilih.", loaded_translate_guilds)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -380,6 +387,7 @@ class GeminiDiscordBot(commands.Bot):
         await stop_dashboard()
         await save_tickets_to_disk()
         await save_ai_usage_to_disk()
+        await save_translate_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -430,6 +438,7 @@ async def idle_chat_watcher():
             cleanup_tickets_runtime()
             cleanup_insights_runtime()
             cleanup_ai_guard_runtime()   # buang cache jawaban AI yang kedaluwarsa (hemat RAM)
+            cleanup_translate_runtime()  # buang cache terjemahan & rate limit lama
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

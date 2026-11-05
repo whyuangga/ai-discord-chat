@@ -45,6 +45,7 @@ from cogs.suggestions_cog import (
 )
 from cogs.social_cog import register_social_cog, sosial_group
 from cogs.tempvoice_cog import register_tempvoice_cog, tempvoice_group
+from cogs.translate_cog import register_translate_cog, terjemah_group
 from cogs.utility_cog import (
     afk_group,
     backup_group,
@@ -77,6 +78,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_engagement_cog(bot)
     register_growth_cog(bot)
     register_insights_cog(bot)
+    register_translate_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
     register_tempvoice_cog(bot)

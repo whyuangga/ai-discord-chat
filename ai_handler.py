@@ -1117,15 +1117,17 @@ async def transform_message_with_gemini(
     if not full_text and not media_parts:
         return None, "⚠️ Pesan tersebut kosong dan tidak memiliki gambar/suara/teks yang bisa diproses."
 
-    if mode == "translate_id":
+    if mode in ("translate_id", "translate_en"):
+        target_lang = "Bahasa Indonesia" if mode == "translate_id" else "Bahasa Inggris (English)"
         system_prompt = (
-            "Kamu adalah penerjemah bahasa profesional ke Bahasa Indonesia yang akurat dan luwes.\n"
+            f"Kamu adalah penerjemah bahasa profesional ke {target_lang} yang akurat dan luwes.\n"
             "TUGASMU:\n"
-            "1. Terjemahkan seluruh teks pesan (atau ucapan suara / tulisan di dalam gambar terlampir) ke Bahasa Indonesia yang alami dan mudah dipahami.\n"
+            f"1. Terjemahkan seluruh teks pesan (atau ucapan suara / tulisan di dalam gambar terlampir) ke {target_lang} yang alami dan mudah dipahami.\n"
             "2. Pertahankan format Markdown atau blok kode seperti aslinya (jangan menerjemahkan sintaks kode program, cukup komentarnya saja).\n"
-            "3. Sebutkan singkat bahasa aslinya di baris paling atas (contoh: `🌐 Bahasa Asal: Inggris`), dan jika ada istilah gaul/idiom unik, beri catatan arti singkat di bawahnya."
+            "3. Sebutkan singkat bahasa aslinya di baris paling atas (contoh: `🌐 Bahasa Asal: Inggris`), dan jika ada istilah gaul/idiom unik, beri catatan arti singkat di bawahnya.\n"
+            "4. Jangan menambahkan penjelasan panjang atau basa-basi; hasil terjemahan harus jadi isi utama balasan."
         )
-        user_prompt = full_text or "Terjemahkan isi tulisan pada gambar atau ucapan pada pesan suara ini ke Bahasa Indonesia."
+        user_prompt = full_text or f"Terjemahkan isi tulisan pada gambar atau ucapan pada pesan suara ini ke {target_lang}."
     else:
         system_prompt = (
             "Kamu adalah asisten penjelas serba tahu yang ramah, jernih, dan mudah dimengerti.\n"

@@ -69,6 +69,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             value=(
                 "Tekan-tahan pesan siapa saja di HP *(atau Klik Kanan di PC)* ➔ **Apps**:\n"
                 "• **`🌐 Terjemahkan ke Indonesia`** — Terjemahkan pesan bahasa asing secara natural.\n"
+                "• **`/terjemah`** — Terjemahkan teks/pesan ke Indonesia/Inggris, atau pasang **reaksi bendera 🇮🇩/🇬🇧** "
+                "di channel (0 kuota sampai diminta, hasil via DM).\n"
                 "• **`💡 Jelaskan Pesan Ini`** — Bedah maksud istilah rumit, kode error, atau gambar.\n"
                 "• **`🔍 Cek Fakta / Hoaks`** — Periksa kebenaran klaim/berita berantai dengan sumber web."
             ),
@@ -549,8 +551,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
             value=(
                 "**📈 Retensi & Pelayanan**\n"
-                "• **`/level`** — kartu level, papan peringkat, & role hadiah.\n"
-                "• **`/level voice`** — XP dari aktivitas voice channel (anti self-mute/AFK, 0 kuota AI).\n"
+                "• **`/level`** — kartu level, papan peringkat, role hadiah, & XP voice.\n"
                 "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
                 "**🎉 Keramaian Server**\n"
                 "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"
@@ -560,6 +561,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **Dashboard web** — pantau status & `/pemakaian` dari browser (read-only, 0 kuota).\n"
                 "• **`/agent keamanan`** — tingkat keamanan konten AI per server (longgar/normal/ketat).\n"
                 "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
+                "• **`/terjemah`** — penerjemah hemat kuota (reaksi bendera 🇮🇩/🇬🇧).\n"
                 "**🧩 Komunitas & Lain-lain**\n"
                 "• **`/panel-role`**, **`/poll`**, **`/ingatkan`**, **`/starboard`**, **`/sticky`**.\n"
                 "• **`/info`**, **`/perawatan`**, **`/status`**, **`/bantuan`**."

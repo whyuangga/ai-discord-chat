@@ -2224,6 +2224,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "saran", "embed",
         # v1.18.0-beta: perkakas server (AFK, auto-thread, lockdown, backup struktur)
         "afk", "thread-otomatis", "lockdown", "backup",
+        # v1.22.0-beta: penerjemah hemat kuota (reaksi bendera + /terjemah)
+        "terjemah",
     }
     assert len(chat_cmds) <= 100
 
@@ -6423,3 +6425,155 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     for needle in ("add_post(", "add_put(", "add_delete(", "add_patch("):
         assert needle not in src, f"dashboard seharusnya read-only: {needle}"
     assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()
+
+
+@pytest.mark.asyncio
+async def test_translate_heuristics_cache_modes_and_quota(monkeypatch, tmp_path):
+    """Penerjemah hemat kuota: heuristik, cache, rate limit, reaksi bendera, & auto-post."""
+    import cogs.translate_cog as tc
+    import translate_tools as tt
+
+    # 1. Heuristik: hanya teks yang layak yang diterjemahkan
+    assert tt.looks_translatable("hello everyone, how is your day going?") is True
+    assert tt.looks_translatable("halo semua apa kabar hari ini") is True
+    assert tt.looks_translatable("😀😀😀") is False
+    assert tt.looks_translatable("https://youtu.be/abc123") is False
+    assert tt.looks_translatable("hai") is False
+    assert tt.looks_translatable("x" * 700) is False
+
+    # 2. Cache: kalimat identik = 0 kuota, kedaluwarsa hilang
+    tt.clear_cache()
+    assert tt.cache_size() == 0
+    text = "good morning everyone, welcome to the server!"
+    assert tt.get_cached_translation(text, "id") is None
+    assert tt.store_cached_translation(text, "id", "Selamat pagi semua, selamat datang di server!") is True
+    assert tt.cache_size() == 1
+    assert tt.get_cached_translation(text.upper(), "id")
+    assert tt.get_cached_translation(text, "en") is None          # bahasa beda = entri beda
+    assert tt.get_cached_translation(text, "id", ttl=0) is None
+    assert tt.cache_size() == 0
+    assert tt.store_cached_translation("hi", "id", "hai") is False  # terlalu pendek
+
+    # 3. Rate limit per channel
+    tt.reset_rate_limits()
+    assert tt.rate_limited(555, now=1000.0) is False
+    assert tt.rate_limited(555, now=1000.5) is True
+    assert tt.rate_limited(555, now=1000.0 + tt.TRANSLATE_RATE_LIMIT_SEC + 1) is False
+    assert tt.rate_limited(556, now=1000.5) is False
+
+    # 4. Konfigurasi channel + simpan/muat JSON
+    monkeypatch.setattr(tt, "TRANSLATE_FILE", tmp_path / "translate.json")
+    tt.translate_guilds.clear()
+    assert tt.channel_config(10, 100) is None
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=False)
+    assert tt.channel_config(10, 100) == {"auto_react": True, "auto_post": False}
+    assert tt.watched_channel_ids(10) == [100]
+    await tt.save_translate_to_disk()
+    tt.translate_guilds.clear()
+    assert tt.load_translate_from_disk() == 1
+    assert tt.channel_config(10, 100)["auto_post"] is False   # default aman
+    assert tt.remove_channel_config(10, 100) is True
+    assert tt.channel_config(10, 100) is None
+
+    # 5. translate_text: panggil AI sekali, lalu dari cache; hormati kuota server
+    tt.clear_cache()
+    calls: list[str] = []
+
+    async def fake_transform(mode, message_text, **kwargs):
+        calls.append(mode)
+        return f"[{mode}] {message_text}", None
+
+    monkeypatch.setattr(tc.ai_handler, "transform_message_with_gemini", fake_transform)
+    contoh = "could someone explain the server rules please?"
+    hasil, err = await tc.translate_text(contoh, "id", guild_id=10)
+    assert err is None and hasil.startswith("[translate_id]")
+    hasil2, _ = await tc.translate_text(contoh, "id", guild_id=10)
+    assert hasil2 == hasil and len(calls) == 1      # kedua kali dari cache = 0 kuota
+    hasil3, _ = await tc.translate_text(contoh, "en", guild_id=10)
+    assert calls[-1] == "translate_en"
+    too_short, _ = await tc.translate_text("halo", "id", guild_id=10)
+    assert too_short is None   # terlalu pendek
+
+    real_cap = tc.ai_guard.check_guild_cap
+    monkeypatch.setattr(tc.ai_guard, "check_guild_cap", lambda gid, cap=None: (False, 50, 50))
+    tt.clear_cache()
+    blocked, msg = await tc.translate_text("another sentence to translate here", "id", guild_id=10)
+    assert blocked is None and "batas harian" in msg
+    monkeypatch.setattr(tc.ai_guard, "check_guild_cap", real_cap)   # pulihkan kuota normal
+
+    # 6. Reaksi bendera: hanya channel terpilih, kirim via DM, anti-banjir
+    tt.translate_guilds.clear()
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=False)
+    tt.reset_rate_limits()
+    tt.clear_cache()
+
+    class _FakeMsg:
+        def __init__(self, content):
+            self.content = content
+            self.author = type("A", (), {"bot": False})()
+            self.replied = 0
+
+        async def reply(self, **kwargs):
+            self.replied += 1
+
+    class _FakeChannel:
+        def __init__(self, msg):
+            self._msg = msg
+
+        async def fetch_message(self, mid):
+            return self._msg
+
+    class _FakeUser:
+        def __init__(self):
+            self.dms = 0
+
+        async def send(self, **kwargs):
+            self.dms += 1
+
+    msg = _FakeMsg("hey guys, is the event still happening tonight?")
+    channel = _FakeChannel(msg)
+    user = _FakeUser()
+
+    class _FakeBot:
+        def get_channel(self, cid):
+            return channel if int(cid) == 100 else None
+
+    class _FakePayload:
+        def __init__(self, emoji="🇮🇩", channel_id=100):
+            self.emoji = emoji
+            self.guild_id = 10
+            self.channel_id = channel_id
+            self.message_id = 999
+            self.user_id = 7
+            self.member = user
+
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("👍")) is False
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("🇮🇩", channel_id=404)) is False
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("🇮🇩")) is True
+    assert user.dms == 1 and msg.replied == 0        # DM diutamakan, channel tidak banjir
+    calls.clear()
+    assert await tc.handle_translate_reaction(_FakeBot(), _FakePayload("🇮🇩")) is True
+    assert calls == []                                # kena rate limit → tidak memakai kuota
+
+    # 7. Auto-post default MATI; menyala hanya bila Admin memintanya
+    tt.translate_guilds.clear()
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=False)
+    tt.reset_rate_limits()
+    plain_msg = _FakeMsg("this is an english sentence for auto translation")
+    plain_msg.guild = type("G", (), {"id": 10})()
+    plain_msg.channel = type("C", (), {"id": 100})()
+    assert await tc.maybe_auto_translate(_FakeBot(), plain_msg) is False
+    tt.set_channel_config(10, 100, enabled=True, auto_react=True, auto_post=True)
+    tt.clear_cache()
+    assert await tc.maybe_auto_translate(_FakeBot(), plain_msg) is True
+    assert plain_msg.replied == 1
+
+    # 8. Bersih-bersih runtime & audit: mode otomatis tidak pernah default aktif
+    assert tt.cleanup_translate_runtime() >= 0
+    src = open("translate_tools.py", encoding="utf-8").read()
+    assert "auto_post: bool = False" in src        # default MATI (hemat kuota)
+    assert "auto_post\", False" in src or '"auto_post": bool((ch or {}).get("auto_post", False))' in src
+    assert "TRANSLATE_RATE_LIMIT_SEC" in src
+    tt.translate_guilds.clear()
+    tt.clear_cache()
+    tt.reset_rate_limits()

@@ -3,7 +3,7 @@
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
 2. **🌐 AI Agent & Otomasi Komunitas (*Public Text Channel & Channel Forum* — `/agent`)** — Teman nongkrong virtual bergaya manusia asli dengan **etika anti-nimbrung pintar** (tidak memotong obrolan sesama member!), dilengkapi **Panel Kontrol Admin Interaktif (`/agent panel`)** dengan *Spotlight Channel* & pengelola FAQ 1-klik, **Memori Info & FAQ Resmi Server (`/agent info`)**, **Koran & Sapaan Pagi Otomatis (`/agent digest`)**, serta dukungan penuh **Channel Forum (`ForumChannel` & `MediaChannel`)** lengkap dengan **Auto-Tagging Pintar** & tombol **`✅ Tandai Selesai`**!
-3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server!
+3. **🎮 Hiburan & Pintasan Pintar Seluruh Server (`/ringkas`, `/cari`, `/terjemah`, `/game`, `/bantuan`)** — **3 Menu Tekan-Tahan Pesan (*Context Menu Apps*)** tanpa ketik command (`🌐 Terjemahkan ke Indonesia`, `💡 Jelaskan Pesan Ini`, & `🔍 Cek Fakta / Hoaks`), perangkum pintar **`/ringkas`** (`chat` & `link`), pencari info terkini **`/cari`**, ** Pusat Panduan Berkategori Interaktif (`/bantuan`)**, serta **6 Mode Mini-Game Tongkrongan AI (`/game`)** lengkap dengan Papan Skor (*Leaderboard*) server! Tambahan **`/terjemah`** + **reaksi bendera 🇮🇩/🇬🇧** di channel pilihan: terjemahan dibuat **hanya saat diminta**, dikirim via DM, dan di-cache (0 kuota untuk kalimat berulang).
 4. **🛠️ Perkakas Server Otomatis (`/serverstats`, `/autorole`, `/fakta`, `/keamanan`)** — **Statistik server** lengkap + **Voice Channel penghitung otomatis**, **Auto Role** untuk member baru, rubrik **Fakta Unik Dunia** **4x sehari** (pukul **08:00, 12:00, 16:00, & 20:00** — jadwalnya bisa diubah Admin), serta **Anti-Phishing Guard** yang menghapus link berbahaya secara otomatis tanpa API berbayar!
 5. **🧩 Fitur Komunitas Ringan — 100% Gratis & Tanpa Kuota AI (`/panel-role`, `/poll`, `/ingatkan`, `/starboard`, `/verifikasi`, `/sticky`, `/info`, `/perawatan`)** — **Reaction Role** klik-emoji, **polling native Discord**, **pengingat pribadi tahan restart**, **starboard** sorotan pesan populer, **gerbang verifikasi** anti-bot, **sticky message** yang selalu menempel di bawah channel, **kartu profil member/server**, berikut **backup konfigurasi otomatis** & **pelaporan error ke channel Discord** — semuanya **default NONAKTIF** sampai Admin menyalakannya.
 6. **🎵 Streaming Musik 24/7 (`/musik`) — Rythm Mode** — putar lagu dari **YouTube, Spotify, SoundCloud, Apple Music** & playlist tanpa membebani CPU bot, karena audio diproses **node Lavalink v4** (bukan FFmpeg lokal). Tampil seperti bot Rythm: **satu panel pemutar** yang otomatis diperbarui berisi **progress bar `▬▬🔘▬▬`**, **9 tombol kontrol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊), **antrean berhalaman**, **`/musik seek`**, **lagu sebelumnya**, **autoplay** saat antrean habis, **filter audio** (bassboost, nightcore, vaporwave, 8D, karaoke, treble), **role DJ**, dan keluar otomatis saat menganggur. **Status node dibaca langsung dari kondisi nyata** (`✅ Tersambung` / `⏳ Menyambung` / `⚠️ Belum tersambung`) lengkap dengan diagnosa, plus **`/musik node`** untuk menyambung ulang tanpa restart. **Default NONAKTIF** — cukup isi `LAVALINK_URI` & `LAVALINK_PASSWORD` untuk menyalakannya.
@@ -34,6 +34,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [H. Anti-Spam & Anti-Raid Ringan (`/keamanan spam`)](#h-anti-spam--anti-raid-ringan-keamanan-spam)
    - [I. Level & XP serta Tiket Dukungan (`/level`, `/tiket`)](#i-level--xp-serta-tiket-dukungan-level-tiket)
    - [J. Dashboard Web Read-only (status & `/pemakaian`)](#j-dashboard-web-read-only-status--pemakaian)
+   - [K. Penerjemah Hemat Kuota (`/terjemah` + reaksi bendera)](#k-penerjemah-hemat-kuota-terjemah--reaksi-bendera)
    - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
 2. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
 3. [Cara Mematikan (Disable) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
@@ -694,25 +695,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 - Sesi voice **tidak disimpan ke disk** dan di-reset saat restart, jadi tidak ada XP "hantu" dari waktu bot mati.
 - Kenaikan level dari voice tetap memakai **role hadiah** & **pengumuman** level yang sama (dikirim ke channel pengumuman, atau `system_channel` bila belum diatur).
 
-#### 2. Dashboard Web Read-only (`DASHBOARD_TOKEN`) — 0 kuota AI
-
-Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lewat Discord
-(uptime, RAM, latensi, operasi AI, token, cache hit, kuota server, papan level).
-
-| Aspek | Detail |
-| :--- | :--- |
-| **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
-| **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer`. |
-| **Endpoint** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/healthz` (tanpa token). |
-| **Read-only** | Hanya `GET`; tidak ada tombol/aksi yang bisa mengubah setelan server. Sudah diuji: `POST` ditolak 405. |
-| **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
-| **Tanpa JS** | HTML dirender di server + `meta refresh` (`DASHBOARD_REFRESH_SEC`, default 30 detik) → ringan dibuka dari HP. |
-
-> ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
-> Di Wispbyte cek tab **Network / Allocations**; bila tidak ada alokasi, dashboard otomatis
-> tidak menyala dan bot tetap berjalan normal (tidak ada error).
-
-#### 3. Tiket Dukungan (`/tiket`)
+#### 2. Tiket Dukungan (`/tiket`)
 
 | Command | Fungsi |
 | :--- | :--- |
@@ -731,6 +714,39 @@ Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lew
 5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
 
 ---
+
+### J. Dashboard Web Read-only (`DASHBOARD_TOKEN`) — 0 kuota AI
+
+Satu halaman web ringan untuk melihat angka yang biasanya hanya bisa dilihat lewat Discord
+(uptime, RAM, latensi, operasi AI, token, cache hit, kuota server, papan level).
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
+| **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer`. |
+| **Endpoint** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/healthz` (tanpa token). |
+| **Read-only** | Hanya `GET`; tidak ada tombol/aksi yang bisa mengubah setelan server. Sudah diuji: `POST` ditolak 405. |
+| **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
+| **Tanpa JS** | HTML dirender di server + `meta refresh` (`DASHBOARD_REFRESH_SEC`, default 30 detik) → ringan dibuka dari HP. |
+
+> ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
+> Di Wispbyte cek tab **Network / Allocations**; bila tidak ada alokasi, dashboard otomatis
+> tidak menyala dan bot tetap berjalan normal (tidak ada error).
+### K. Penerjemah Hemat Kuota (`/terjemah` + reaksi bendera)
+
+Tiga tingkat pemakaian kuota, dari paling hemat:
+
+| Mode | Kuota AI | Cara pakai |
+| :--- | :--- | :--- |
+| **Reaksi bendera** (disarankan, default) | hanya saat diminta | `/terjemah channel channel:#english-chat` → bot menempel 🇮🇩/🇬🇧 di pesan warga; terjemahan **baru dibuat ketika ada yang mengklik**, lalu dikirim lewat **DM** agar channel tidak banjir. |
+| **Manual** | 1 panggilan / penggunaan | `/terjemah teks teks:... ke:id` atau `/terjemah pesan pesan_id:... ke:en` (tempel ID/tautan pesan). |
+| **Auto-post** (opsional, **default mati**) | 1 panggilan / pesan | `/terjemah channel channel:#chat auto:True` — setiap pesan layak diterjemahkan otomatis (rate limit 3 detik/channel + batas kuota server). |
+
+- **Cache 6 jam:** kalimat yang sama tidak diterjemahkan dua kali (maks 300 entri) → pesan berulang **0 kuota**.
+- **Filter pintar:** hanya teks 8–600 karakter berisi kata; link/emoji-only/pesan terlalu panjang dilewati.
+- **Batas kuota dihormati:** bila `AI_DAILY_CAP_PER_GUILD` tercapai, penerjemah berhenti sementara dan memberi pesan ramah.
+- **Tercatat di `/pemakaian`** sebagai jenis operasi `Terjemah` (termasuk hitungan cache hit).
+- Perintah pendukung: `/terjemah status` (channel terpilih, ukuran cache, sisa kuota server) dan `/terjemah channel aktif:False` untuk melepas channel.
 
 ### J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal
 
@@ -1328,6 +1344,7 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `DASHBOARD_PORT` | Opsional | `0` | Port dashboard (`0` = ambil otomatis dari `SERVER_PORT`/`PORT` panel). |
 | `DASHBOARD_HOST` | Opsional | `0.0.0.0` | Alamat bind server dashboard (jangan diganti kecuali perlu). |
 | `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). |
+| `TRANSLATE_RATE_LIMIT_SEC` | — | `3` | (internal, `translate_tools.py`) Jeda minimal antar-terjemahan per channel. |
 | `TICKET_MAX_OPEN_PER_USER` | Opsional | `2` | Batas tiket aktif per member. |
 | `TICKET_MAX_TRANSCRIPT_LINES` | Opsional | `400` | Jumlah baris pesan pada transkrip tiket. |
 | `TICKET_AUTO_CLOSE_HOURS` | Opsional | `0` | Tutup otomatis tiket menggantung setelah N jam (0 = nonaktif). |
