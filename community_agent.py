@@ -11,16 +11,78 @@ import discord
 import insights
 
 
-def _record_ai_usage_safe(kind: str, *, user_id: int = 0, channel_id: int = 0) -> None:
-    """Mencatat pemakaian AI tanpa pernah menggagalkan alur utama."""
+def _record_ai_usage_safe(
+    kind: str, *, user_id: int = 0, channel_id: int = 0, guild_id: int = 0
+) -> None:
+    """Mencatat pemakaian AI (per member & per server) tanpa menggagalkan alur utama."""
     try:
-        insights.record_ai_usage(kind, user_id=user_id, channel_id=channel_id)
+        insights.record_ai_usage(
+            kind, user_id=user_id, channel_id=channel_id, guild_id=guild_id
+        )
     except Exception:
         pass
 
 
+async def _maybe_alert_guild_cap(
+    message: discord.Message, guild_id: int, used: int, limit: int
+) -> None:
+    """Memberi tahu Admin sekali saja saat pemakaian AI server melewati 80% batas.
+
+    Memakai channel log `/perawatan` bila ada, kalau tidak channel tempat bot dipanggil.
+    Tidak memakai AI sama sekali (0 kuota) & tidak pernah menggagalkan alur utama.
+    """
+    try:
+        import ai_guard
+
+        should_alert, used, limit = ai_guard.should_alert_guild_cap(guild_id)
+        if not should_alert:
+            return
+
+        import community_tools
+
+        target = None
+        log_id = int(
+            ((community_tools.maintenance_guilds.get(int(guild_id)) or {}).get("log_channel_id")) or 0
+        )
+        guild = getattr(message, "guild", None)
+        if log_id and guild is not None and hasattr(guild, "get_channel"):
+            target = guild.get_channel(log_id)
+        if target is None:
+            target = getattr(message, "channel", None)
+        if target is None:
+            return
+
+        percent = int(round((used / limit) * 100)) if limit else 0
+        await target.send(
+            "⚠️ **Kuota AI server hampir habis**\n"
+            f"Sudah terpakai `{used}` dari `{limit}` operasi hari ini ({percent}%).\n"
+            "Sisa kuota tetap bisa dipakai sampai habis, lalu pulih otomatis besok. "
+            "Naikkan `AI_DAILY_CAP_PER_GUILD` bila ingin batas lebih longgar."
+        )
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Gagal mengirim peringatan kuota AI: %s", exc)
+
+
+def get_guild_safety_level(guild_id: int) -> str:
+    """Tingkat keamanan konten AI untuk sebuah server (`longgar`/`normal`/`ketat`)."""
+    settings = guild_agent_settings.get(int(guild_id)) or {}
+    level = str(settings.get("safety_level") or "longgar").lower()
+    return level if level in {"longgar", "normal", "ketat"} else "longgar"
+
+
+def set_guild_safety_level(guild_id: int, level: str) -> str:
+    """Mengubah tingkat keamanan konten AI server."""
+    chosen = str(level or "longgar").lower()
+    if chosen not in {"longgar", "normal", "ketat"}:
+        chosen = "longgar"
+    get_guild_settings(int(guild_id))["safety_level"] = chosen
+    return chosen
+
+
+from welcome_media import CARD_MODES
 from config import (
     AGENT_CHANNEL_COOLDOWN_SEC,
+    GEMINI_API_KEY,
     AGENT_CONFIG_FILE,
     AGENT_DEFAULT_IDLE_MINUTES,
     AGENT_HISTORY_MESSAGES,
@@ -30,8 +92,8 @@ from config import (
     ENABLE_GOOGLE_SEARCH,
     ENABLE_URL_READER,
     GEMINI_API_BASE,
-    GEMINI_API_KEY,
     GEMINI_DEFAULT_MODEL,
+    GEMINI_FAST_MODEL,
     GEMINI_PAID_SEARCH_ENABLED,
     GEMINI_SEARCH_FALLBACK_CHAIN,
     GEMINI_SEARCH_MODEL,
@@ -46,10 +108,13 @@ from ai_handler import (
     _build_model_chain,
     _extract_text_from_gemini_response,
     _format_grounding_footer,
+    _record_token_usage,
     build_thinking_config,
     get_gemini_keys_rotated,
     is_gemini_key_configured,
+    mark_key_unhealthy,
     mark_model_unhealthy,
+    parse_retry_after,
 )
 from utils import (
     build_clean_search_query,
@@ -75,12 +140,14 @@ gallery_agent_channels: dict[int, dict] = {}
 youtube_agent_channels: dict[int, dict] = {}
 search_agent_channels: dict[int, dict] = {}
 welcome_agent_guilds: dict[int, dict] = {}
+boost_agent_guilds: dict[int, dict] = {}   # guild_id -> konfigurasi pesan boost server
 goodbye_agent_guilds: dict[int, dict] = {}
 digest_agent_guilds: dict[int, dict] = {}
 channel_histories: dict[int, list[dict]] = {}
 
 MAX_SERVER_KNOWLEDGE_ENTRIES = 25
 _recent_welcomed_members: dict[tuple[int, int], float] = {}
+_recent_boosted_members: dict[tuple[int, int], float] = {}   # anti-dobel pesan boost
 _recent_goodbye_members: dict[tuple[int, int], float] = {}
 _standalone_last_reply_at: dict[int, float] = {}
 _post_runtime_state: dict[int, dict] = {}
@@ -265,6 +332,7 @@ def get_guild_settings(guild_id: int) -> dict:
             "timezone": BOT_TIMEZONE,
             "quiet_hours": True,
             "knowledge_entries": [],
+            "safety_level": "longgar",
         }
         guild_agent_settings[guild_id] = settings
     elif "knowledge_entries" not in settings or not isinstance(settings["knowledge_entries"], list):
@@ -357,6 +425,11 @@ def format_server_knowledge_for_prompt(guild_id: int | None) -> str:
         if t and c:
             lines.append(f"- [{t}]: {c}")
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def has_api_key() -> bool:
+    """True bila API key Gemini tersedia (env saat impor maupun konfigurasi runtime)."""
+    return bool(GEMINI_API_KEY) or is_gemini_key_configured()
 
 
 def parse_digest_time(raw_time: str | None) -> tuple[int, int] | None:
@@ -720,10 +793,64 @@ def set_welcome_config(
         "extra_note": note,
         "persona": chosen_persona,
         "hello_language": chosen_lang,
+        "card_mode": str(existing.get("card_mode") or "mati"),
+        "dm": bool(existing.get("dm", False)),
         "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
         "recent_hellos": list(existing.get("recent_hellos") or [])[-8:],
     }
     return welcome_agent_guilds[guild_id]
+
+
+def set_welcome_card_mode(guild_id: int, mode: str) -> str:
+    """Mengatur tampilan sambutan: `mati`, `statis`, atau `dinamis`."""
+    chosen = str(mode or "mati").strip().lower()
+    if chosen not in CARD_MODES:
+        chosen = "mati"
+    cfg = welcome_agent_guilds.get(int(guild_id))
+    if cfg is None:
+        return "mati"
+    cfg["card_mode"] = chosen
+    return chosen
+
+
+def set_welcome_dm(guild_id: int, enabled: bool) -> bool:
+    """Mengaktifkan/mematikan salinan sambutan lewat DM ke member baru."""
+    cfg = welcome_agent_guilds.get(int(guild_id))
+    if cfg is None:
+        return False
+    cfg["dm"] = bool(enabled)
+    return cfg["dm"]
+
+
+def set_boost_config(
+    guild_id: int,
+    *,
+    enabled: bool = True,
+    channel_id: int | None = None,
+    message: str | None = None,
+) -> dict | None:
+    """Mengatur pesan otomatis saat ada member yang nge-boost server."""
+    if not enabled:
+        boost_agent_guilds.pop(int(guild_id), None)
+        return None
+    existing = boost_agent_guilds.get(int(guild_id)) or {}
+    target = channel_id or existing.get("channel_id")
+    if target is None:
+        return None
+    note = str(existing.get("message") or "")
+    if message is not None:
+        note = "" if message.strip() == "-" else message.strip()[:400]
+    boost_agent_guilds[int(guild_id)] = {
+        "enabled": True,
+        "channel_id": int(target),
+        "message": note,
+    }
+    return boost_agent_guilds[int(guild_id)]
+
+
+def should_process_member_boost(guild_id: int, user_id: int) -> bool:
+    """Anti-dobel: satu pesan boost per member per 10 menit."""
+    return _should_process_once(_recent_boosted_members, guild_id, user_id)
 
 
 def set_goodbye_config(
@@ -810,12 +937,17 @@ def _parse_greeting_guild_config(
     persona = str(raw.get("persona") or "hangat").strip().lower()
     if persona not in GREETING_PERSONAS:
         persona = "hangat"
+    card_mode = str(raw.get("card_mode") or "mati").strip().lower()
+    if card_mode not in {"mati", "statis", "dinamis"}:
+        card_mode = "mati"
     return {
         "enabled": True,
         "channel_id": int(raw["channel_id"]),
         "extra_note": str(raw.get("extra_note") or "").strip()[:250],
         "persona": persona,
         "hello_language": str(raw.get("hello_language") or "auto").strip().lower() or "auto",
+        "card_mode": card_mode,
+        "dm": bool(raw.get("dm", False)),
         recent_text_key: [str(x) for x in (raw.get(recent_text_key) or [])[-5:]],
         recent_word_key: [str(x) for x in (raw.get(recent_word_key) or [])[-8:]],
     }
@@ -928,6 +1060,18 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+    for gid_str, bdata in (raw.get("boost_guilds") or {}).items():
+        try:
+            if not bdata.get("enabled", True):
+                continue
+            boost_agent_guilds[int(gid_str)] = {
+                "enabled": True,
+                "channel_id": int(bdata["channel_id"]),
+                "message": str(bdata.get("message") or "")[:400],
+            }
+        except (KeyError, TypeError, ValueError):
+            continue
+
     for gid_str, gdata in (raw.get("goodbye_guilds") or {}).items():
         try:
             gid = int(gid_str)
@@ -990,6 +1134,7 @@ async def save_agent_config_to_disk() -> None:
                 "search_channels": {str(k): v for k, v in search_agent_channels.items()},
                 "welcome_guilds": {str(k): v for k, v in welcome_agent_guilds.items()},
                 "goodbye_guilds": {str(k): v for k, v in goodbye_agent_guilds.items()},
+                "boost_guilds": {str(k): v for k, v in boost_agent_guilds.items()},
                 "digest_guilds": {str(k): v for k, v in digest_agent_guilds.items()},
                 "channel_histories": {str(k): v[-AGENT_HISTORY_MESSAGES:] for k, v in recent_hist_items},
             }
@@ -1347,7 +1492,11 @@ def _build_community_system_prompt(
                 "(Jawab akurat sesuai data ini bila warga bertanya rules, link, IP, atau info komunitas):\n"
                 + "\n".join(faq_lines)
             )
-    return prompt
+
+    # Aturan anti-halusinasi berlaku untuk semua jalur agent (Auto-Chat, sambutan, galeri, digest)
+    import ai_guard
+
+    return ai_guard.with_accuracy_rules(prompt)
 
 
 async def _call_gemini_agent(
@@ -1364,6 +1513,9 @@ async def _call_gemini_agent(
     usage_kind: str | None = None,
     usage_user_id: int = 0,
     usage_channel_id: int = 0,
+    usage_guild_id: int = 0,
+    prefer_fast: bool = False,
+    safety_level: str | None = None,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
     if not active_keys:
@@ -1406,12 +1558,14 @@ async def _call_gemini_agent(
                                         usage_kind,
                                         user_id=usage_user_id,
                                         channel_id=usage_channel_id,
+                                        guild_id=usage_guild_id,
                                     )
                                 return reply_text.strip()
                 except Exception:
                     continue
 
-        models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+        primary_model = GEMINI_FAST_MODEL if prefer_fast else GEMINI_DEFAULT_MODEL
+        models_to_try = _build_model_chain(primary_model, GEMINI_TEXT_FALLBACK_CHAIN)
         for idx, model_id in enumerate(models_to_try):
             gen_config: dict = {
                 "temperature": temperature,
@@ -1426,8 +1580,12 @@ async def _call_gemini_agent(
                 "contents": contents,
                 "generationConfig": gen_config,
             }
+            import ai_guard
+
+            ai_guard.apply_safety(payload, safety_level)
+            key_for_attempt = active_keys[idx % len(active_keys)]
             headers = {
-                "x-goog-api-key": active_keys[idx % len(active_keys)],
+                "x-goog-api-key": key_for_attempt,
                 "Content-Type": "application/json",
             }
             url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
@@ -1436,6 +1594,7 @@ async def _call_gemini_agent(
                 async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, _, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text.strip()
@@ -1457,6 +1616,13 @@ async def _call_gemini_agent(
 
                     if resp.status in (429, 500, 502, 503, 504, 404):
                         mark_model_unhealthy(model_id)
+                    if resp.status == 429:
+                        # Ikuti Retry-After: cooldown per API key agar rotasi key efektif
+                        mark_key_unhealthy(key_for_attempt, parse_retry_after(resp.headers))
+                        logger.warning(
+                            "Agent Gemini model %s HTTP 429, key diistirahatkan sebentar...", model_id
+                        )
+                    elif resp.status in (500, 502, 503, 504, 404):
                         logger.warning(
                             "Agent Gemini model %s HTTP %s, pindah instan ke model cadangan...",
                             model_id,
@@ -1562,8 +1728,35 @@ async def generate_community_chat_reply(
     else:
         return None
 
-    # Bangun contents dari riwayat singkat channel publik / per-Postingan Forum
+    import ai_guard
+
     conv_id = message.channel.id
+    # ---------------------------------------------------------------
+    # AI GUARD: FAQ-first (0 kuota) & cache jawaban identik
+    # Hanya untuk pertanyaan teks (tanpa media/link) supaya tidak salah jawab.
+    # ---------------------------------------------------------------
+    can_use_local_answer = not media_parts and not yt_urls and not web_snippets
+    if can_use_local_answer and clean_text:
+        faq_hit = ai_guard.faq_first_answer(get_server_knowledge_entries(guild_id), clean_text)
+        if faq_hit and (is_direct_call or len(clean_text) >= 24):
+            logger.info("Auto-Chat dijawab dari FAQ server (0 kuota AI) di channel %s", conv_id)
+            return ai_guard.format_faq_reply(faq_hit)
+
+        cached_reply = ai_guard.get_cached_reply(conv_id, clean_text)
+        if cached_reply:
+            logger.info("Auto-Chat memakai cache jawaban (0 kuota AI) di channel %s", conv_id)
+            return cached_reply
+
+    # ---------------------------------------------------------------
+    # AI GUARD: batas harian AI per server
+    # ---------------------------------------------------------------
+    cap_ok, cap_used, cap_limit = ai_guard.check_guild_cap(guild_id)
+    if not cap_ok:
+        logger.info("Kuota AI server %s habis (%s/%s)", guild_id, cap_used, cap_limit)
+        await _maybe_alert_guild_cap(message, guild_id, cap_used, cap_limit)
+        return ai_guard.cap_message(guild_id, cap_used, cap_limit) if is_direct_call else None
+
+    # Bangun contents dari riwayat singkat channel publik / per-Postingan Forum
     contents: list[dict] = []
     for item in channel_histories.get(conv_id, []):
         role = "user" if item["role"] == "user" else "model"
@@ -1590,6 +1783,17 @@ async def generate_community_chat_reply(
         is_forum_post=is_post_thread,
     )
 
+    prefer_fast = (
+        ai_guard.route_model_key(
+            "gemini_flash",
+            clean_text,
+            has_media=bool(media_parts),
+            has_links=bool(yt_urls or web_snippets),
+            history_len=len(channel_histories.get(conv_id, [])),
+        )
+        == "gemini_fast"
+    )
+
     reply = await _call_gemini_agent(
         system_prompt,
         contents,
@@ -1603,11 +1807,16 @@ async def generate_community_chat_reply(
         usage_kind="auto_chat",
         usage_user_id=getattr(message.author, "id", 0) or 0,
         usage_channel_id=getattr(message.channel, "id", 0) or 0,
+        usage_guild_id=guild_id,
+        prefer_fast=prefer_fast,
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
         # Bersihkan awalan seperti "[NamaBot]:" jika model tidak sengaja menuliskannya
         reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip()
+        if can_use_local_answer and clean_text:
+            ai_guard.store_cached_reply(conv_id, clean_text, reply)
         _append_channel_history(conv_id, "user", user_turn_text)
         _append_channel_history(conv_id, "model", reply)
         now = time.time()
@@ -1684,6 +1893,8 @@ async def generate_idle_icebreaker(
         http_session=http_session,
         usage_kind="auto_chat",
         usage_channel_id=int(channel_id or 0),
+        usage_guild_id=int(guild_id or 0),
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
@@ -1779,6 +1990,8 @@ async def generate_gallery_comment(
         usage_kind="galeri",
         usage_user_id=getattr(message.author, "id", 0) or 0,
         usage_channel_id=getattr(message.channel, "id", 0) or 0,
+        usage_guild_id=getattr(message.guild, "id", 0) or 0,
+        safety_level=get_guild_safety_level(getattr(message.guild, "id", 0) or 0),
     )
 
     reaction = random.choice(GALLERY_REACTIONS) if gal_cfg.get("auto_reaction", True) else None
@@ -1982,6 +2195,8 @@ async def generate_welcome_greeting(
         has_media=False,
         http_session=http_session,
         usage_kind="sesi",
+        usage_guild_id=int(guild_id or 0),
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
@@ -2089,6 +2304,8 @@ async def generate_goodbye_message(
         has_media=False,
         http_session=http_session,
         usage_kind="sesi",
+        usage_guild_id=int(guild_id or 0),
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
@@ -2109,7 +2326,7 @@ async def generate_morning_digest(
     http_session: aiohttp.ClientSession | None = None,
 ) -> tuple[str | None, str | None]:
     """Menyusun Sapaan & Rangkuman Berita Pagi (Morning Digest) menggunakan live web search gratis + Gemini."""
-    if not is_gemini_key_configured():
+    if not has_api_key():
         return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
 
     guild_cfg = get_guild_settings(guild_id)
@@ -2157,6 +2374,8 @@ async def generate_morning_digest(
             has_media=False,
             http_session=session,
             usage_kind="fakta",
+            usage_guild_id=int(guild_id or 0),
+            safety_level=get_guild_safety_level(guild_id),
         )
         if not reply:
             return None, "⚠️ Gagal menyusun Morning Digest saat ini, silakan coba sesaat lagi."
@@ -2164,7 +2383,7 @@ async def generate_morning_digest(
         if live_sources:
             footer = _format_grounding_footer(live_sources)
             max_body = max(500, 3850 - len(footer))
-            clipped = reply[:max_body] + ("…" if len(reply_text := reply) > max_body else "")
+            clipped = reply[:max_body] + ("…" if len(reply) > max_body else "")
             reply = f"{clipped}{footer}"
 
         return reply, None
@@ -2258,7 +2477,7 @@ def cleanup_stale_agent_runtime(max_idle_sec: float = 21600.0) -> int:
     cutoff = now - max(60.0, float(max_idle_sec))
     cleaned = 0
 
-    for tracker in (_recent_welcomed_members, _recent_goodbye_members):
+    for tracker in (_recent_welcomed_members, _recent_goodbye_members, _recent_boosted_members):
         for key, ts in list(tracker.items()):
             if now - ts > 600.0:
                 tracker.pop(key, None)

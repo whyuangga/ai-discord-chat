@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -15,13 +16,14 @@ from music import (
     apply_filter,
     build_now_playing_embed,
     build_player_embed,
-    build_queue_embed,
-    build_queue_page_embed,
     build_search_embed,
     can_control,
     close_panel,
     enqueue_tracks,
+    ensure_nodes_alive,
     ensure_player,
+    node_diagnosis,
+    node_snapshot,
     format_duration,
     get_music_settings,
     get_player,
@@ -193,7 +195,16 @@ async def musik_putar_cmd(
 
         added, skipped = await enqueue_tracks(player, remaining, interaction.user)
     except Exception as exc:  # pragma: no cover - node mati
-        await interaction.followup.send(f"⚠️ Gagal memutar lagu: `{exc}`", ephemeral=True)
+        detail = str(exc)
+        if "CONNECTED state" in detail or "Node" in detail or "node" in detail.lower():
+            await interaction.followup.send(
+                "🎵 **Gagal memutar** — koneksi ke node musik terputus.\n" + node_diagnosis(),
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"⚠️ Gagal memutar lagu: `{detail[:200]}`", ephemeral=True
+            )
         return
 
     remember_announce_channel(interaction.guild.id, interaction.channel_id)
@@ -276,8 +287,11 @@ async def musik_antrean_cmd(interaction: discord.Interaction, halaman: int = 1):
         requester_id=interaction.user.id,
         page=max(0, int(halaman) - 1),
         now_playing=getattr(player, "current", None),
+        guild_id=interaction.guild.id,
     )
-    await interaction.response.send_message(embed=view._embed(), view=view, ephemeral=True)
+    import ui_kit
+
+    await ui_kit.send_panel(interaction, view, embed=view._embed(), ephemeral=True)
 
 
 @musik_group.command(name="sekarang", description="Lihat lagu yang sedang diputar beserta progresnya")
@@ -300,7 +314,15 @@ async def musik_sekarang_cmd(interaction: discord.Interaction):
         autoplay=bool(settings.get("autoplay", False)),
         hint="Detail lagu aktif • pakai tombol pada panel untuk kontrol cepat",
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    import ui_kit
+
+    gid = interaction.guild.id
+    await ui_kit.send_panel(
+        interaction,
+        ui_kit.build_view(gid, ui_kit.embed_to_container(gid, embed)),
+        embed=embed,
+        ephemeral=True,
+    )
 
 
 @musik_group.command(name="lewati", description="Lewati lagu saat ini dan putar lagu berikutnya")
@@ -485,19 +507,54 @@ async def musik_hentikan_cmd(interaction: discord.Interaction):
     if player is None:
         return
 
-    try:
-        player.queue.clear()
-        await player.stop()
-        await player.disconnect()
-    except Exception as exc:  # pragma: no cover - node mati
-        logger.info("Gagal menghentikan musik: %s", exc)
+    import ui_kit
+    import ui_theme
 
-    music.forget_announce_channel(interaction.guild.id)
-    await close_panel(interaction.client, interaction.guild.id)
-    await interaction.response.send_message(
-        "⏹️ Musik dihentikan, antrean dikosongkan, & bot keluar dari voice channel.",
-        ephemeral=True,
+    gid = interaction.guild.id
+
+    async def _do_stop(ix: discord.Interaction) -> None:
+        try:
+            player.queue.clear()
+            await player.stop()
+            await player.disconnect()
+        except Exception as exc:  # pragma: no cover - node mati
+            logger.info("Gagal menghentikan musik: %s", exc)
+
+        music.forget_announce_channel(gid)
+        await close_panel(ix.client, gid)
+        result_view = ui_kit.build_view(
+            gid,
+            ui_kit.card(
+                gid,
+                ui_kit.text(
+                    f"### {ui_theme.emoji(gid, 'stop', '⏹️')} Musik dihentikan\n"
+                    "Antrean dikosongkan & bot keluar dari voice channel.\n"
+                    "-# Mulai lagi dengan `/musik putar`."
+                ),
+            ),
+            timeout=None,
+        )
+        if ix.response.is_done():
+            await ix.response.edit_message(view=result_view)
+        else:
+            await ix.response.send_message(view=result_view, ephemeral=True)
+
+    confirmed = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Hentikan musik & kosongkan antrean?",
+        detail=(
+            f"Ada `{len(player.queue)}` lagu di antrean yang akan hilang dan bot keluar dari voice channel."
+            if len(player.queue)
+            else "Bot akan keluar dari voice channel."
+        ),
+        confirm_label="Ya, hentikan",
+        on_confirm=_do_stop,
     )
+    if confirmed is not None:
+        return
+
+    await _do_stop(interaction)
 
 
 @musik_group.command(name="volume", description="Atur volume pemutaran (1-150)")
@@ -659,9 +716,12 @@ async def musik_status_cmd(interaction: discord.Interaction):
 
     player = get_player(interaction.guild)
     cfg = get_music_settings(interaction.guild.id)
+    snap = node_snapshot()
+    dj_role_id = cfg.get("dj_role_id")
     lines = [
         "🎵 **Status Musik**",
         f"• **Node Lavalink:** {music_status()}",
+        f"• **Alamat node:** `{snap['uri'] or '—'}`",
         f"• **Voice channel:** {player.channel.mention if player and player.channel else '_belum bergabung_'}",
         f"• **Sedang diputar:** {track_title(player.current) if player and player.current else '_tidak ada_'}",
         f"• **Antrean:** `{len(player.queue) if player else 0}` lagu",
@@ -670,8 +730,71 @@ async def musik_status_cmd(interaction: discord.Interaction):
         f"• **Autoplay:** {'♾️ Aktif' if cfg.get('autoplay') else '➡️ Nonaktif'}",
         f"• **Pengumuman:** {'✅ Aktif' if cfg.get('announce', True) else '❌ Nonaktif'}",
         f"• **Channel pengumuman:** {f'<#{announce_channels[interaction.guild.id]}>' if interaction.guild.id in announce_channels else '_otomatis_'}",
+        f"• **Role DJ:** {f'<@&{dj_role_id}>' if dj_role_id else '_belum diatur (opsional)_'}",
     ]
+
+    # DJ hanya mengunci TOMBOL kontrol — memutar lagu tidak butuh role DJ.
+    lines.append(
+        "> Role DJ **tidak wajib untuk memutar lagu** — cukup masuk voice channel. "
+        "DJ hanya untuk mengunci tombol kontrol (⏯️⏭️⏹️)."
+    )
+    if not snap["ready"]:
+        lines.append("")
+        lines.append(node_diagnosis())
+
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+@musik_group.command(
+    name="node",
+    description="Diagnosa & sambung ulang node Lavalink tanpa restart bot (Admin)",
+)
+@app_commands.describe(sambung="True = paksa menyambung ulang node sekarang")
+@app_commands.default_permissions(administrator=True)
+async def musik_node_cmd(interaction: discord.Interaction, sambung: bool = False):
+    """Menampilkan status teknis node & (opsional) memaksa reconnect."""
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **Admin / pengelola server**.", ephemeral=True
+        )
+        return
+
+    if not music.WAVELINK_AVAILABLE or not music.MUSIC_ENABLED:
+        await interaction.response.send_message(MUSIC_SETUP_HINT, ephemeral=True)
+        return
+
+    if sambung:
+        await interaction.response.defer(ephemeral=True)
+        ok = await ensure_nodes_alive(interaction.client, force=True)
+        snap = node_snapshot()
+        head = "✅ **Node berhasil tersambung ulang.**" if ok else "⚠️ **Node masih belum tersambung.**"
+    else:
+        snap = node_snapshot()
+        head = None
+
+    rows = [
+        f"• **Alamat:** `{snap['uri'] or '—'}`",
+        f"• **Tersambung:** `{snap['connected']}` • **Menyambung:** `{snap['connecting']}` • **Terputus:** `{snap['disconnected']}`",
+    ]
+    for node in snap["nodes"]:
+        rows.append(
+            f"• `{node['identifier']}` → **{node['status']}** ({node['uri']}, {node['players']} player)"
+        )
+    if not snap["nodes"]:
+        rows.append("• _Belum ada node terdaftar di Pool._")
+
+    text = "🛰️ **Diagnosa Node Lavalink**\n" + "\n".join(rows)
+    if head:
+        text = f"{head}\n" + text
+    if not snap["ready"]:
+        text += "\n\n" + node_diagnosis()
+
+    if interaction.response.is_done():
+        await interaction.followup.send(text, ephemeral=True)
+    else:
+        await interaction.response.send_message(text, ephemeral=True)
 
 
 def register_music_cog(bot: commands.Bot) -> None:
@@ -686,10 +809,28 @@ def register_music_cog(bot: commands.Bot) -> None:
     async def on_wavelink_node_ready(payload) -> None:
         node = getattr(payload, "node", None)
         logger.info(
-            "✅ Node Lavalink siap: %s (sesi %s)",
+            "✅ Node Lavalink siap: %s (%s) | sesi %s | %s player",
             getattr(node, "identifier", "?"),
+            getattr(node, "uri", "?"),
             getattr(payload, "session_id", "?"),
+            len(getattr(node, "players", {}) or {}),
         )
+
+    @bot.event
+    async def on_wavelink_node_closed(node, players) -> None:
+        """Node terputus: beri peringatan di log + jadwalkan reconnect (tanpa loop baru)."""
+        logger.warning(
+            "⚠️ Node Lavalink terputus: %s (%s) | %s player terputus. "
+            "Mencoba menyambung ulang otomatis…",
+            getattr(node, "identifier", "?"),
+            getattr(node, "uri", "?"),
+            len(players or []),
+        )
+        try:
+            await asyncio.sleep(3)
+            await ensure_nodes_alive(bot, force=True)
+        except Exception as exc:  # pragma: no cover - reconnect gagal
+            logger.warning("Reconnect Lavalink gagal: %s", exc)
 
     @bot.event
     async def on_wavelink_track_start(payload) -> None:

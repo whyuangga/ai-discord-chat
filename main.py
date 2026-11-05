@@ -6,16 +6,10 @@ import discord
 from discord.ext import commands, tasks
 
 from cogs import (
-    agent_group,
-    game_group,
     register_all_cogs,
     ringkas_chat_cmd,
-    ringkas_group,
     ringkas_link_cmd,
-    sesi_group,
-    slash_bantuan,
     slash_cari,
-    slash_status,
 )
 from community_agent import (
     cleanup_stale_agent_runtime,
@@ -35,6 +29,8 @@ from community_tools import (
     save_community_tools_to_disk,
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
+from ai_guard import cleanup_ai_guard_runtime
+from ui_theme import cleanup_ui_runtime, load_ui_themes_from_disk, save_ui_themes_to_disk
 from antispam import (
     cleanup_antispam_runtime,
     load_antispam_from_disk,
@@ -61,10 +57,35 @@ from music import (
     WAVELINK_AVAILABLE,
     cleanup_music_runtime,
     connect_nodes,
+    ensure_nodes_alive,
     load_music_settings_from_disk,
     music_status,
     run_music_panel_check,
     save_music_settings_to_disk,
+)
+from server_tools import (
+    cleanup_server_tools_runtime,
+    load_server_tools_from_disk,
+)
+from suggestions import (
+    cleanup_suggestions_runtime,
+    load_suggestions_from_disk,
+)
+from temp_voice import (
+    cleanup_temp_voice_runtime,
+    load_temp_voice_from_disk,
+    sweep_empty_rooms,
+)
+from moderation import (
+    cleanup_moderation_runtime,
+    load_moderation_from_disk,
+)
+from social_notify import (
+    cleanup_social_runtime,
+    load_social_from_disk,
+    run_social_check,
+    social_guilds,
+    twitch_configured,
 )
 from server_features import (
     load_server_features_from_disk,
@@ -89,6 +110,7 @@ from views import (
     ForumPostSolvedView,
     ImageSettingsView,
     MainPanelControlView,
+    SuggestionVoteView,
     GiveawayJoinView,
     MusicPlayerView,
     TicketActionsView,
@@ -197,6 +219,42 @@ class GeminiDiscordBot(commands.Bot):
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
+        loaded_themes = load_ui_themes_from_disk()
+        loaded_afk, loaded_threads = load_server_tools_from_disk()
+        logger.info(
+            "Perkakas server dimuat: %d status AFK, %d channel auto-thread.", loaded_afk, loaded_threads
+        )
+        loaded_saran_guilds, loaded_saran_items = load_suggestions_from_disk()
+        logger.info(
+            "Kotak saran dimuat: %d saran di %d server.", loaded_saran_items, loaded_saran_guilds
+        )
+        loaded_hub_guilds, loaded_rooms = load_temp_voice_from_disk()
+        logger.info(
+            "Temp Voice dimuat: %d server, %d room tersimpan.", loaded_hub_guilds, loaded_rooms
+        )
+        loaded_mod_guilds, loaded_mod_cases = load_moderation_from_disk()
+        logger.info(
+            "Moderasi dimuat: %d server, %d kasus tercatat.", loaded_mod_guilds, loaded_mod_cases
+        )
+        loaded_social_guilds = load_social_from_disk()
+        logger.info(
+            "Notifikasi sosial dimuat: %d server | Twitch: %s.",
+            loaded_social_guilds,
+            "siap (kredensial terisi)" if twitch_configured() else "belum dikonfigurasi (YouTube/RSS tetap jalan)",
+        )
+        if not twitch_configured():
+            twitch_subs = sum(
+                1
+                for gid_data in social_guilds.values()
+                for sub in (gid_data.get("subs") or [])
+                if sub.get("platform") == "twitch"
+            )
+            if twitch_subs:
+                logger.warning(
+                    "⚠️ Ada %d langganan Twitch, tetapi TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET kosong. "
+                    "Isi di tab Variables Wispbyte lalu restart, atau uji dengan /sosial status.",
+                    twitch_subs,
+                )
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -233,6 +291,17 @@ class GeminiDiscordBot(commands.Bot):
             loaded_tickets,
         )
         logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
+        logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
+        try:
+            import welcome_media
+
+            logger.info(
+                "Media kustom (banner sambutan/boost) dimuat: %.2f MB di data/media | Pillow: %s",
+                welcome_media.media_footprint_mb(),
+                "tersedia" if welcome_media.pillow_available() else "tidak ada (kartu dinamis nonaktif)",
+            )
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Gagal membaca folder media: %s", exc)
         logger.info(
             "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
             loaded_panels,
@@ -251,6 +320,7 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(VerificationGateView())
         self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
         self.add_view(GiveawayJoinView())  # tombol 🎉 giveaway tetap aktif setelah restart
+        self.add_view(SuggestionVoteView())  # tombol 👍/👎 kotak saran
         self.add_view(TicketPanelView())   # panel "Buat Tiket"
         self.add_view(TicketActionsView())  # tombol klaim/tutup di dalam thread tiket
 
@@ -302,6 +372,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_levels_to_disk()
         await save_tickets_to_disk()
         await save_ai_usage_to_disk()
+        await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
         await super().close()
@@ -326,8 +397,16 @@ async def idle_chat_watcher():
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_morning_digest_check(bot, http_session=bot.http_session)
             await run_facts_check(bot, http_session=bot.http_session)
+            await run_social_check(bot, http_session=bot.http_session)  # YouTube/Twitch/TikTok (0 kuota AI)
+        if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 4 == 0:
+            # Node Lavalink publik sering restart: pulihkan otomatis tanpa restart bot.
+            await ensure_nodes_alive(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 20 == 0:
             await run_serverstats_check(bot)
+            try:
+                await sweep_empty_rooms(bot)  # bersihkan room Temp Voice yang kosong
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Pembersihan Temp Voice gagal: %s", exc)
             await run_backup_check(bot)
         if idle_chat_watcher.current_loop > 0 and idle_chat_watcher.current_loop % 240 == 0:
             if cleanup_expired_sessions() > 0:
@@ -339,6 +418,13 @@ async def idle_chat_watcher():
             cleanup_levels_runtime()
             cleanup_tickets_runtime()
             cleanup_insights_runtime()
+            cleanup_ai_guard_runtime()   # buang cache jawaban AI yang kedaluwarsa (hemat RAM)
+            cleanup_ui_runtime()
+            cleanup_social_runtime()
+            cleanup_moderation_runtime()
+            cleanup_temp_voice_runtime()
+            cleanup_suggestions_runtime()
+            cleanup_server_tools_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:

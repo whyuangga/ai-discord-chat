@@ -1,3 +1,4 @@
+import logging
 import time
 import discord
 from discord import app_commands
@@ -41,8 +42,12 @@ from engagement import announcements, auto_reply_channels, birthdays, giveaways
 from levels import level_guilds as _level_guilds, levels as _levels
 from tickets import tickets as _tickets
 import insights
+import ui_kit
+import ui_theme
 from games import active_channel_games
 from music import get_player, music_status
+
+logger = logging.getLogger("gemini_bot.tools_cog")
 from storage import image_thread_settings, thread_chats
 from utils import (
     extract_message_attachments,
@@ -523,11 +528,21 @@ async def slash_cari(
     description="Buka pusat panduan interaktif cara memakai seluruh fitur Gemini AI di server ini",
 )
 async def slash_bantuan(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        embed=build_help_embed("overview"),
-        view=HelpMenuView(interaction.user.id),
-        ephemeral=True,
-    )
+    from views import HelpPanelView
+
+    gid = interaction.guild.id if interaction.guild else None
+    try:
+        await interaction.response.send_message(
+            view=HelpPanelView(interaction.user.id, "overview", guild_id=gid),
+            ephemeral=True,
+        )
+    except (discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Panduan V2 ditolak (%s) — memakai menu embed klasik.", exc)
+        await interaction.response.send_message(
+            embed=build_help_embed("overview"),
+            view=HelpMenuView(interaction.user.id),
+            ephemeral=True,
+        )
 
 
 @app_commands.command(
@@ -639,6 +654,148 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         inline=False,
     )
     await interaction.response.send_message(embed=embed, ephemeral=not publik)
+
+
+    # ── V2: kartu diagnostik bergaya dashboard (mundur otomatis ke embed di atas) ──
+    gid = interaction.guild.id if interaction.guild else None
+    ok_key = bool(ai_handler.is_gemini_key_configured())
+    panel_lines = [
+        ui_kit.status_line("Latensi Discord", f"`{ping_ms} ms`", state="on" if ping_ms < 200 else "warn"),
+        ui_kit.status_line("Pemakaian RAM", f"`{ram_mb} MB`", state="on" if ram_mb < 200 else "warn"),
+        ui_kit.status_line("Uptime", f"`{hours}j {minutes}m {seconds}d`", state="on"),
+        ui_kit.status_line(
+            "Gemini API Key", "terpasang" if ok_key else "belum diisi", state="on" if ok_key else "off"
+        ),
+        ui_kit.status_line("Jam server", f"`{time_ctx['clock']}` ({time_ctx['day_name']})"),
+    ]
+    panel_body = [
+        ui_kit.text(ui_kit.title_line(gid, "status", "Diagnostik Bot", f"`v{BOT_VERSION}` • kesehatan semua modul")),
+        ui_kit.sep(),
+        ui_kit.text("\n".join(panel_lines)),
+        ui_kit.sep(),
+        ui_kit.text(
+            ui_kit.field_block(
+                "🤖 AI & Agent",
+                [
+                    f"• Ruang privat: `{len(thread_chats)}` chat • `{len(image_thread_settings)}` gambar",
+                    f"• Channel: chat `{len(chat_agent_channels)}` • galeri `{len(gallery_agent_channels)}` "
+                    f"• yt `{len(youtube_agent_channels)}` • cari `{len(search_agent_channels)}`",
+                    f"• Mini-game aktif: `{len(active_channel_games)}`",
+                ],
+            ).split("\n")
+        ),
+        ui_kit.text(
+            ui_kit.field_block(
+                "🧩 Komunitas",
+                [
+                    f"• Panel role `{len(reaction_role_panels)}` • pengingat `{len(reminders)}`",
+                    f"• Starboard `{len(starboard_guilds)}` • sticky `{len(sticky_channels)}` "
+                    f"• verifikasi `{len(verification_guilds)}`",
+                    f"• Giveaway `{len(giveaways)}` • ultah `{len(birthdays)}`",
+                ],
+            ).split("\n")
+        ),
+        ui_kit.text(
+            ui_kit.field_block(
+                "🎵 Musik & Lain-lain",
+                [
+                    f"• {music_status()}",
+                    f"• Voice: {music_player.channel.mention if music_player and music_player.channel else '_idle_'} "
+                    f"• antrean `{len(music_player.queue) if music_player else 0}`",
+                    f"• Level `{len(_level_guilds)}` server • tiket `{len(_tickets)}`",
+                ],
+            ).split("\n")
+        ),
+        ui_kit.sep(),
+        ui_kit.text(f"🩺 **Error terakhir**\n> {error_text[:600]}"),
+        ui_kit.action_row(
+            ui_kit.button(
+                "Muat Ulang",
+                emoji=ui_theme.emoji(gid, "refresh", "🔄"),
+                custom_id="status:refresh",
+                callback=_status_refresh_callback,
+            ),
+            ui_kit.button(
+                "Control Center",
+                emoji=ui_theme.emoji(gid, "panel", "🛰️"),
+                style=discord.ButtonStyle.primary,
+                custom_id="status:panel",
+                callback=_status_panel_callback,
+            ),
+        ),
+        ui_kit.text(
+            f"-# {ui_theme.footer_text(gid, 'Data dibaca langsung dari runtime bot') or 'Data runtime • 0 kuota AI'}"
+        ),
+    ]
+    await ui_kit.send_panel(
+        interaction,
+        ui_kit.build_view(gid, ui_kit.card(gid, *panel_body), timeout=300),
+        embed=embed,
+        ephemeral=not publik,
+    )
+
+
+async def _status_refresh_callback(interaction: discord.Interaction) -> None:
+    """Muat ulang kartu diagnostik di tempat (tanpa memanggil ulang command)."""
+    client = getattr(interaction, "client", None)
+    started_at = float(getattr(client, "started_at", time.time()))
+    uptime_sec = max(0, int(time.time() - started_at))
+    hours, rem = divmod(uptime_sec, 3600)
+    minutes, seconds = divmod(rem, 60)
+    raw_latency = float(getattr(client, "latency", 0.0) or 0.0)
+    ping_ms = round(raw_latency * 1000) if raw_latency == raw_latency else 0
+    ram_mb = get_memory_usage_mb()
+    ok_key = ai_handler.is_gemini_key_configured()
+    gid = interaction.guild.id if interaction.guild else None
+    body = ui_kit.card(
+        gid,
+        ui_kit.text(ui_kit.title_line(gid, "status", "Diagnostik Bot", f"`v{BOT_VERSION}` • baru dimuat ulang")),
+        ui_kit.sep(),
+        ui_kit.text(
+            "\n".join(
+                [
+                    ui_kit.status_line("Latensi Discord", f"`{ping_ms} ms`", state="on" if ping_ms < 200 else "warn"),
+                    ui_kit.status_line("Pemakaian RAM", f"`{ram_mb} MB`", state="on" if ram_mb < 200 else "warn"),
+                    ui_kit.status_line("Uptime", f"`{hours}j {minutes}m {seconds}d`", state="on"),
+                    ui_kit.status_line(
+                        "Gemini API Key",
+                        "terpasang" if ok_key else "belum diisi",
+                        state="on" if ok_key else "off",
+                    ),
+                    ui_kit.status_line("Musik", music_status()),
+                ]
+            )
+        ),
+        ui_kit.action_row(
+            ui_kit.button(
+                "Muat Ulang",
+                emoji=ui_theme.emoji(gid, "refresh", "🔄"),
+                custom_id="status:refresh",
+                callback=_status_refresh_callback,
+            ),
+            ui_kit.button(
+                "Control Center",
+                emoji=ui_theme.emoji(gid, "panel", "🛰️"),
+                style=discord.ButtonStyle.primary,
+                custom_id="status:panel",
+                callback=_status_panel_callback,
+            ),
+        ),
+    )
+    await ui_kit.edit_panel(interaction, ui_kit.build_view(gid, body, timeout=300))
+
+
+async def _status_panel_callback(interaction: discord.Interaction) -> None:
+    from cogs.panel_cog import dashboard_embed, make_dashboard
+
+    if interaction.guild is None:
+        await interaction.response.send_message("ℹ️ Dashboard hanya tersedia di dalam server.", ephemeral=True)
+        return
+    await ui_kit.edit_panel(
+        interaction,
+        make_dashboard(interaction.guild, "overview", interaction.user.id),
+        embed=dashboard_embed(interaction.guild, "overview"),
+    )
 
 
 async def _run_message_context_action(

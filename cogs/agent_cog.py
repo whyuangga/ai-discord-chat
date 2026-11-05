@@ -1,4 +1,6 @@
+import io
 import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -13,10 +15,16 @@ from community_agent import (
     generate_idle_icebreaker,
     generate_morning_digest,
     generate_welcome_greeting,
+    boost_agent_guilds,
     goodbye_agent_guilds,
+    set_boost_config,
+    set_welcome_card_mode,
+    set_welcome_dm,
     set_goodbye_config,
+    should_process_member_boost,
     get_agent_channel_lock,
     get_guild_search_channels,
+    get_guild_safety_level,
     get_guild_settings,
     get_guild_youtube_channels,
     parse_digest_time,
@@ -25,6 +33,7 @@ from community_agent import (
     set_chat_channel_config,
     set_digest_config,
     set_gallery_channel_config,
+    set_guild_safety_level,
     set_search_channel_config,
     set_welcome_config,
     set_youtube_channel_config,
@@ -33,17 +42,93 @@ from community_agent import (
     upsert_server_knowledge,
     welcome_agent_guilds,
 )
+import ui_kit
+import ui_theme
+import welcome_media
 from config import BOT_TIMEZONE
 from utils import get_realtime_time_context
 from cogs.helpers import get_interaction_http_session
 from views import (
     AgentAdminPanelView,
+    AgentPanelView,
     ServerFaqManagerView,
     build_agent_status_embed,
     build_faq_list_embed,
 )
 
 logger = logging.getLogger("gemini_bot.agent_cog")
+
+
+async def _avatar_bytes(member: discord.abc.User) -> bytes | None:
+    """Byte foto profil member (untuk kartu dinamis)."""
+    avatar = getattr(member, "display_avatar", None)
+    if avatar is None:
+        return None
+    try:
+        return await avatar.with_size(256).read()
+    except (discord.HTTPException, AttributeError):  # pragma: no cover - CDN lambat
+        return None
+
+
+async def build_greeting_payload(
+    guild: discord.Guild,
+    member: discord.abc.User,
+    text: str,
+    *,
+    mode: str,
+    kind: str = "welcome",
+    title: str = "👋 Selamat Datang!",
+    footer: str = "",
+    extra_lines: list[str] | None = None,
+    http_session=None,  # disimpan untuk kompatibilitas pemanggil lama
+) -> dict:
+    """Menyusun isi pesan sambutan sesuai mode tampilan server.
+
+    - `mati`    → teks biasa (tanpa embed, paling hemat)
+    - `statis`  → embed + banner unggahan Admin (`attachment://`)
+    - `dinamis` → kartu PNG (banner + foto profil + nama), mundur ke `statis`
+    """
+    clean_text = str(text or "").strip()
+    if mode == "dinamis":
+        card = await welcome_media.render_card(
+            banner_bytes=welcome_media.read_banner_bytes(guild.id, kind=kind),
+            avatar_bytes=await _avatar_bytes(member),
+            title=getattr(member, "display_name", "Member"),
+            subtitle=f"Member ke-{getattr(guild, 'member_count', 0) or 0}",
+            footer=footer or guild.name,
+        )
+        if card:
+            filename = f"sambutan-{kind}.png"
+            embed = discord.Embed(
+                title=title,
+                description=clean_text[:3900],
+                color=ui_theme.accent_color(guild.id),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.set_image(url=f"attachment://{filename}")
+            if extra_lines:
+                embed.add_field(name="ℹ️ Info", value="\n".join(extra_lines)[:1024], inline=False)
+            return {"embed": embed, "file": discord.File(io.BytesIO(card), filename=filename)}
+
+    path = welcome_media.banner_path(guild.id, kind=kind)
+    if path is not None:
+        filename = f"banner-{kind}{path.suffix.lower()}"
+        embed = discord.Embed(
+            title=title,
+            description=clean_text[:3900],
+            color=ui_theme.accent_color(guild.id),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.set_image(url=f"attachment://{filename}")
+        avatar = getattr(member, "display_avatar", None)
+        if getattr(avatar, "url", None):
+            embed.set_thumbnail(url=avatar.url)
+        if extra_lines:
+            embed.add_field(name="ℹ️ Info", value="\n".join(extra_lines)[:1024], inline=False)
+        embed.set_footer(text=(footer or guild.name)[:100])
+        return {"embed": embed, "file": discord.File(str(path), filename=filename)}
+
+    return {"content": clean_text[:1900]}
 
 
 async def trigger_member_welcome(
@@ -88,10 +173,72 @@ async def trigger_member_welcome(
                     http_session=http_session,
                 )
                 if greeting:
-                    await target_ch.send(greeting[:1900])
+                    payload = await build_greeting_payload(
+                        guild,
+                        member,
+                        greeting,
+                        mode=str(w_cfg.get("card_mode") or "mati"),
+                        kind="welcome",
+                        title="👋 Selamat Datang!",
+                        footer=f"{guild.name} • member ke-{getattr(guild, 'member_count', 0) or 0}",
+                    )
+                    await target_ch.send(**payload)
+
+                    # Salinan lewat DM (opsional, bisa dimatikan Admin)
+                    if w_cfg.get("dm"):
+                        try:
+                            await member.send(
+                                f"👋 Halo **{member.display_name}**, selamat datang di **{guild.name}**!\n"
+                                f"{greeting[:1500]}"
+                            )
+                        except (discord.Forbidden, discord.HTTPException):
+                            logger.info("DM sambutan ke %s ditutup member.", member.id)
                     return greeting
         except (discord.Forbidden, discord.HTTPException) as exc:
             logger.warning("Gagal mengirim pesan Auto-Welcome di %s: %s", target_ch.id, exc)
+    return None
+
+
+async def trigger_member_boost(
+    bot: discord.Client,
+    guild: discord.Guild,
+    member: discord.abc.User,
+) -> str | None:
+    """Pesan otomatis saat ada member yang nge-boost server (0 kuota AI)."""
+    cfg = boost_agent_guilds.get(guild.id)
+    if not cfg or not cfg.get("enabled"):
+        return None
+
+    target_ch = guild.get_channel(int(cfg["channel_id"]))
+    if not isinstance(target_ch, discord.TextChannel):
+        return None
+    if not should_process_member_boost(guild.id, member.id):
+        return None
+
+    template = str(cfg.get("message") or "").strip() or (
+        "🎉 Terima kasih **{user}** sudah nge-boost **{guild}**! "
+        "Server ini jadi lebih keren karena kamu 💜"
+    )
+    text = (
+        template.replace("{user}", member.mention)
+        .replace("{guild}", guild.name)
+        .replace("{name}", getattr(member, "display_name", "kamu"))
+    )[:1900]
+
+    try:
+        payload = await build_greeting_payload(
+            guild,
+            member,
+            text,
+            mode="statis" if welcome_media.has_banner(guild.id, kind="boost") else "mati",
+            kind="boost",
+            title="💎 Server Ter-Boost!",
+            footer=f"Total boost: {getattr(guild, 'premium_subscription_count', 0) or 0} 💎",
+        )
+        await target_ch.send(**payload)
+        return text
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning("Gagal mengirim pesan boost di %s: %s", target_ch.id, exc)
     return None
 
 
@@ -158,6 +305,14 @@ async def trigger_member_goodbye(
                 avatar_url = getattr(avatar, "url", None)
                 if avatar_url:
                     embed.set_thumbnail(url=avatar_url)
+                farewell_file = None
+                banner = welcome_media.banner_path(guild.id, kind="goodbye")
+                if banner is None:
+                    banner = welcome_media.banner_path(guild.id, kind="welcome")
+                if banner is not None:
+                    banner_name = f"banner-goodbye{banner.suffix.lower()}"
+                    embed.set_image(url=f"attachment://{banner_name}")
+                    farewell_file = discord.File(str(banner), filename=banner_name)
                 if days_in_server:
                     embed.add_field(
                         name="📅 Masa Kebersamaan",
@@ -165,7 +320,10 @@ async def trigger_member_goodbye(
                         inline=True,
                     )
                 embed.set_footer(text=f"Terima kasih sudah menjadi bagian dari {guild.name}")
-                await target_ch.send(embed=embed)
+                if farewell_file is not None:
+                    await target_ch.send(embed=embed, file=farewell_file)
+                else:
+                    await target_ch.send(embed=embed)
                 return farewell
         except (discord.Forbidden, discord.HTTPException) as exc:
             logger.warning("Gagal mengirim pesan Auto-Goodbye di %s: %s", target_ch.id, exc)
@@ -224,12 +382,19 @@ async def agent_panel_cmd(interaction: discord.Interaction):
     elif isinstance(interaction.channel, discord.Thread) and interaction.channel.parent_id:
         default_cid = interaction.channel.parent_id
 
-    view = AgentAdminPanelView(interaction.user.id, default_channel_id=default_cid)
-    await interaction.response.send_message(
-        embed=build_agent_status_embed(interaction.guild, selected_channel_id=default_cid),
-        view=view,
-        ephemeral=True,
-    )
+    # Panel V2 (kartu + tombol toggle berwarna); otomatis mundur ke panel klasik bila ditolak
+    try:
+        await interaction.response.send_message(
+            view=AgentPanelView(interaction.guild, interaction.user.id, default_channel_id=default_cid),
+            ephemeral=True,
+        )
+    except (discord.HTTPException, TypeError, ValueError) as exc:
+        logger.warning("Panel agent V2 ditolak (%s) — memakai panel klasik.", exc)
+        await interaction.response.send_message(
+            embed=build_agent_status_embed(interaction.guild, selected_channel_id=default_cid),
+            view=AgentAdminPanelView(interaction.user.id, default_channel_id=default_cid),
+            ephemeral=True,
+        )
 
 
 @agent_group.command(
@@ -239,8 +404,12 @@ async def agent_panel_cmd(interaction: discord.Interaction):
 async def agent_status_cmd(interaction: discord.Interaction):
     if interaction.guild is None:
         return
-    await interaction.response.send_message(
-        embed=build_agent_status_embed(interaction.guild),
+    gid = interaction.guild.id
+    embed = build_agent_status_embed(interaction.guild)
+    await ui_kit.send_panel(
+        interaction,
+        ui_kit.build_view(gid, ui_kit.embed_to_container(gid, embed)),
+        embed=embed,
         ephemeral=True,
     )
 
@@ -362,6 +531,69 @@ async def agent_gallery_cmd(
         f"📸 **Gallery Auto-Comment aktif di {channel.mention}!**\n"
         f"• Setiap member mengirim **foto/gambar** atau **video pendek**, AI akan mengapresiasi isinya secara visual!\n"
         f"• **Auto-Reaction Emoji:** `{react_label}`",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="keamanan",
+    description="Atur tingkat keamanan konten balasan AI (longgar / normal / ketat)",
+)
+@app_commands.describe(
+    level="Longgar = paling bebas (default), Normal = filter standar, Ketat = paling aman untuk komunitas anak/umum",
+)
+@app_commands.choices(
+    level=[
+        app_commands.Choice(name="Longgar - paling bebas (default)", value="longgar"),
+        app_commands.Choice(name="Normal - filter standar Google", value="normal"),
+        app_commands.Choice(name="Ketat - paling aman", value="ketat"),
+    ]
+)
+async def agent_keamanan_cmd(
+    interaction: discord.Interaction,
+    level: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    gid = interaction.guild.id
+    if level is None:
+        current = get_guild_safety_level(gid)
+        label = {"longgar": "Longgar (default)", "normal": "Normal", "ketat": "Ketat"}.get(
+            current, current
+        )
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid,
+                "info",
+                "🛡️ Tingkat Keamanan AI",
+                f"Saat ini: **{label}**\n\n"
+                "Ubah lewat `/agent keamanan level:...`\n"
+                "• **Longgar** — paling bebas, memakai pengaturan bawaan Google (cocok untuk server "
+                "komunitas dewasa/umum yang santai).\n"
+                "• **Normal** — memblokir konten berisiko tinggi.\n"
+                "• **Ketat** — memblokir konten berisiko sedang, paling aman untuk server umum & remaja.\n\n"
+                "-# Pengaturan ini hanya membatasi balasan AI, tidak memengaruhi moderasi server.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    chosen = set_guild_safety_level(gid, level.value)
+    await save_agent_config_to_disk()
+    label = {"longgar": "Longgar (default)", "normal": "Normal", "ketat": "Ketat"}.get(
+        chosen, chosen
+    )
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok",
+            "🛡️ Keamanan AI diperbarui",
+            f"Tingkat keamanan konten AI sekarang: **{label}**.\n"
+            "Berlaku untuk Auto-Chat, sambutan, perpisahan, galeri, dan digest.",
+        ),
         ephemeral=True,
     )
 
@@ -575,6 +807,223 @@ async def agent_welcome_cmd(
         f"• **Pesan Tambahan:** `{extra_info}`\n"
         f"• **Anti-Bosan:** kalimat & sapaan berganti otomatis tiap member baru."
         f"{test_result_note}{intent_hint}",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="banner",
+    description="Unggah banner gambar untuk sambutan, perpisahan, atau pesan boost server",
+)
+@app_commands.describe(
+    gambar="Berkas gambar (PNG/JPG/WEBP/GIF, maksimal 8 MB)",
+    jenis="Dipakai untuk pesan apa banner ini",
+    hapus="True untuk menghapus banner yang tersimpan",
+)
+@app_commands.choices(
+    jenis=[
+        app_commands.Choice(name="👋 Sambutan member baru", value="welcome"),
+        app_commands.Choice(name="👣 Pesan perpisahan", value="goodbye"),
+        app_commands.Choice(name="💎 Pesan boost server", value="boost"),
+    ]
+)
+async def agent_banner_cmd(
+    interaction: discord.Interaction,
+    gambar: discord.Attachment | None = None,
+    jenis: app_commands.Choice[str] | None = None,
+    hapus: bool = False,
+):
+    if interaction.guild is None:
+        return
+    guild_id = interaction.guild.id
+    kind = jenis.value if jenis else "welcome"
+
+    if hapus:
+        removed = welcome_media.delete_banner(guild_id, kind=kind)
+        await interaction.response.send_message(
+            (
+                f"🗑️ Banner **{kind}** dihapus. Sambutan kembali memakai teks biasa."
+                if removed
+                else "ℹ️ Tidak ada banner tersimpan untuk jenis itu."
+            ),
+            ephemeral=True,
+        )
+        return
+
+    if gambar is None:
+        path = welcome_media.banner_path(guild_id, kind=kind)
+        info = (
+            f"🖼️ Banner **{kind}** tersimpan: `{path.name}` ({path.stat().st_size // 1024} KB)."
+            if path
+            else f"ℹ️ Belum ada banner **{kind}**. Unggah dengan `/agent banner gambar:<file>`."
+        )
+        await interaction.response.send_message(
+            info
+            + f"\n💡 Mode tampilan sekarang: **{ui_theme.emoji(guild_id, 'agent', '⚙️')} "
+            f"{(welcome_agent_guilds.get(guild_id) or {}).get('card_mode', 'mati')}** "
+            "(ubah lewat `/agent kartu`).",
+            ephemeral=True,
+        )
+        return
+
+    if gambar.size > welcome_media.MAX_BANNER_BYTES:
+        await interaction.response.send_message(
+            "⚠️ Gambar melebihi **8 MB**. Perkecil dulu (mis. 1024×420 px) lalu unggah lagi.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        data = await gambar.read()
+        welcome_media.save_banner(guild_id, data, gambar.filename, kind=kind)
+    except (ValueError, discord.HTTPException) as exc:
+        await interaction.followup.send(f"⚠️ Gagal menyimpan banner: {exc}", ephemeral=True)
+        return
+
+    preview = discord.Embed(
+        title=f"✅ Banner {kind} tersimpan",
+        description=(
+            "Gambar dipakai saat mengirim pesan. Aktifkan tampilan lewat `/agent kartu`:\n"
+            "• **statis** — banner + teks sambutan\n"
+            "• **dinamis** — kartu berisi foto profil & nama member"
+        ),
+        color=ui_theme.accent_color(guild_id),
+    )
+    preview.set_image(url=f"attachment://{gambar.filename or 'banner.png'}")
+    preview.set_footer(text="Disimpan di data/media/ agar tidak kedaluwarsa seperti URL Discord")
+    await interaction.followup.send(
+        embed=preview,
+        file=discord.File(io.BytesIO(data), filename=gambar.filename or "banner.png"),
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="kartu",
+    description="Pilih tampilan sambutan: teks saja, banner statis, atau kartu dinamis",
+)
+@app_commands.describe(mode="Mode tampilan sambutan member baru")
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="💬 Teks saja (paling hemat)", value="mati"),
+        app_commands.Choice(name="🖼️ Banner dari Admin (statis)", value="statis"),
+        app_commands.Choice(name="✨ Kartu dinamis (avatar + nama)", value="dinamis"),
+    ]
+)
+async def agent_kartu_cmd(interaction: discord.Interaction, mode: app_commands.Choice[str]):
+    if interaction.guild is None:
+        return
+    guild_id = interaction.guild.id
+    if guild_id not in welcome_agent_guilds:
+        await interaction.response.send_message(
+            "⚠️ Aktifkan dulu sambutan dengan `/agent welcome`, baru atur tampilannya.",
+            ephemeral=True,
+        )
+        return
+
+    chosen = set_welcome_card_mode(guild_id, mode.value)
+    await save_agent_config_to_disk()
+
+    notes = {
+        "mati": "Sambutan dikirim sebagai teks biasa — paling hemat RAM & kuota.",
+        "statis": "Sambutan memakai banner unggahan Admin (`/agent banner`).",
+        "dinamis": "Kartu PNG: banner + foto profil + nama member (butuh Pillow).",
+    }
+    warning = ""
+    if chosen == "dinamis" and not welcome_media.pillow_available():
+        warning = (
+            "\n⚠️ **Pillow belum terpasang** di host — kartu dinamis otomatis mundur ke "
+            "banner statis. Tambahkan `Pillow` ke `requirements.txt` lalu restart."
+        )
+    elif chosen == "dinamis":
+        warning = "\n💾 Mode ini memakai +10–15 MB RAM saat merender. Matikan bila host Free Tier sesak."
+    if chosen in {"statis", "dinamis"} and not welcome_media.has_banner(guild_id):
+        warning += "\n🖼️ Belum ada banner — unggah lewat `/agent banner gambar:<file>` agar gambarnya muncul."
+
+    await interaction.response.send_message(
+        f"✅ Tampilan sambutan sekarang: **{welcome_media.CARD_MODES[chosen]['label']}**\n{notes[chosen]}{warning}",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="dm",
+    description="Kirim salinan sambutan lewat DM ke setiap member baru (opsional)",
+)
+@app_commands.describe(aktif="True untuk mengaktifkan DM sambutan, False untuk mematikan")
+async def agent_dm_cmd(interaction: discord.Interaction, aktif: bool = True):
+    if interaction.guild is None:
+        return
+    guild_id = interaction.guild.id
+    if guild_id not in welcome_agent_guilds:
+        await interaction.response.send_message(
+            "⚠️ Aktifkan dulu sambutan dengan `/agent welcome`, baru atur DM-nya.",
+            ephemeral=True,
+        )
+        return
+
+    enabled = set_welcome_dm(guild_id, aktif)
+    await save_agent_config_to_disk()
+    await interaction.response.send_message(
+        (
+            "📬 **DM sambutan aktif.** Member baru akan menerima sambutan yang sama lewat DM "
+            "(gagal senyap bila DM-nya ditutup)."
+            if enabled
+            else "📭 **DM sambutan dimatikan.**"
+        ),
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="boost",
+    description="Pesan otomatis saat ada member yang nge-boost server (0 kuota AI)",
+)
+@app_commands.describe(
+    channel="Channel tempat pesan boost dikirim",
+    aktif="True untuk mengaktifkan, False untuk mematikan",
+    pesan="Teks kustom — pakai {user}, {name}, atau {guild} (ketik - untuk kembali ke bawaan)",
+)
+async def agent_boost_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel | None = None,
+    aktif: bool = True,
+    pesan: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    guild_id = interaction.guild.id
+
+    if not aktif:
+        set_boost_config(guild_id, enabled=False)
+        await save_agent_config_to_disk()
+        await interaction.response.send_message(
+            "🛑 **Pesan Boost Server dinonaktifkan.**", ephemeral=True
+        )
+        return
+
+    if channel is None and guild_id not in boost_agent_guilds:
+        await interaction.response.send_message(
+            "⚠️ Pilih `channel` terlebih dahulu untuk mengaktifkan pesan boost.", ephemeral=True
+        )
+        return
+
+    cfg = set_boost_config(guild_id, enabled=True, channel_id=channel.id if channel else None, message=pesan)
+    if cfg is None:
+        await interaction.response.send_message("⚠️ Gagal menyimpan pengaturan boost.", ephemeral=True)
+        return
+    await save_agent_config_to_disk()
+
+    banner_note = (
+        "🖼️ Banner boost terpasang."
+        if welcome_media.has_banner(guild_id, kind="boost")
+        else "💡 Unggah banner khusus boost lewat `/agent banner jenis:💎 Pesan boost server`."
+    )
+    await interaction.response.send_message(
+        f"💎 **Pesan Boost aktif** di <#{cfg['channel_id']}>.\n"
+        f"• Teks: {('`' + cfg['message'][:120] + '`') if cfg['message'] else '_bawaan (terima kasih + mention boosternya)_'}\n"
+        f"{banner_note}",
         ephemeral=True,
     )
 

@@ -199,10 +199,6 @@ def set_spam_config(guild_id: int, **changes) -> dict | None:
     return cfg
 
 
-def disable_spam_guard(guild_id: int) -> bool:
-    return spam_guilds.pop(int(guild_id), None) is not None
-
-
 def _clear_runtime_guild(guild_id: int) -> None:
     gid = int(guild_id)
     for store in (_recent_messages, _recent_texts):
@@ -237,10 +233,6 @@ def normalize_text(text: str) -> str:
     lowered = str(text or "").lower()
     lowered = re.sub(r"(?i)https?://\S+", "<link>", lowered)
     return re.sub(r"\s+", " ", lowered).strip(" !?.,~")
-
-
-def count_links(text: str) -> int:
-    return len(_URL_RE.findall(str(text or "")))
 
 
 def extract_links(text: str) -> list[str]:

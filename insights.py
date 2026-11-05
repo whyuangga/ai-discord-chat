@@ -88,7 +88,15 @@ def today_key(*, now: float | None = None) -> str:
 # PERSISTENSI
 # ==============================================================================
 def _empty_bucket() -> dict:
-    return {"total": 0, "cache_hits": 0, "kinds": {}, "users": {}, "channels": {}}
+    return {
+        "total": 0,
+        "cache_hits": 0,
+        "kinds": {},
+        "users": {},
+        "channels": {},
+        "tokens_in": 0,
+        "tokens_out": 0,
+    }
 
 
 def load_ai_usage_from_disk() -> int:
@@ -108,6 +116,8 @@ def load_ai_usage_from_disk() -> int:
         bucket = _empty_bucket()
         bucket["total"] = max(0, int(data.get("total") or 0))
         bucket["cache_hits"] = max(0, int(data.get("cache_hits") or 0))
+        bucket["tokens_in"] = max(0, int(data.get("tokens_in") or 0))
+        bucket["tokens_out"] = max(0, int(data.get("tokens_out") or 0))
         for field in ("kinds", "users", "channels"):
             bucket[field] = {
                 str(key): max(0, int(value))
@@ -115,6 +125,15 @@ def load_ai_usage_from_disk() -> int:
                 if str(key)
             }
         ai_usage[str(day)] = bucket
+
+    # Pemakaian per server disimpan terpisah (lihat ai_guard) agar ringkasan tetap ringkas
+    try:
+        import ai_guard
+
+        ai_guard.load_guild_usage_from_disk(raw.get("guild_days") or {})
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Gagal memuat pemakaian per server: %s", exc)
+
     _prune_days()
     return len(ai_usage)
 
@@ -126,6 +145,12 @@ async def save_ai_usage_to_disk() -> None:
             _prune_days()
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             payload = {"days": ai_usage}
+            try:
+                import ai_guard
+
+                payload["guild_days"] = ai_guard.guild_usage_payload()
+            except Exception:  # pragma: no cover - jaring aman
+                pass
             tmp_file = Path(str(AI_USAGE_FILE) + ".tmp")
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
@@ -150,6 +175,7 @@ def record_ai_usage(
     *,
     user_id: int = 0,
     channel_id: int = 0,
+    guild_id: int = 0,
     cache_hit: bool = False,
     now: float | None = None,
 ) -> dict:
@@ -173,7 +199,30 @@ def record_ai_usage(
         channels = bucket.setdefault("channels", {})
         channels[str(int(channel_id))] = int(channels.get(str(int(channel_id))) or 0) + 1
         _trim_counter(channels)
+    if guild_id:
+        # Batas harian per server (ai_guard) ikut dihitung dari sini
+        try:
+            import ai_guard
+
+            ai_guard.record_guild_usage(int(guild_id))
+        except Exception:  # pragma: no cover - jaring aman
+            pass
     return bucket
+
+
+def add_token_usage(prompt_tokens: int = 0, output_tokens: int = 0, *, now: float | None = None) -> dict:
+    """Mencatat token nyata dari `usageMetadata` Gemini (untuk /pemakaian)."""
+    day = today_key(now=now)
+    bucket = ai_usage.setdefault(day, _empty_bucket())
+    bucket["tokens_in"] = int(bucket.get("tokens_in") or 0) + max(0, int(prompt_tokens))
+    bucket["tokens_out"] = int(bucket.get("tokens_out") or 0) + max(0, int(output_tokens))
+    return bucket
+
+
+def token_totals(*, day: str | None = None) -> tuple[int, int]:
+    """`(token masuk, token keluar)` pada satu hari."""
+    bucket = ai_usage.get(day or today_key()) or {}
+    return int(bucket.get("tokens_in") or 0), int(bucket.get("tokens_out") or 0)
 
 
 def _trim_counter(counter: dict, limit: int = MAX_TRACKED_PER_DAY) -> None:
@@ -264,11 +313,6 @@ def rekap_message_limit() -> int:
     return max(20, int(REKAP_MAX_MESSAGES))
 
 
-def reset_usage(*, day: str | None = None) -> dict:
-    """Menghapus catatan pemakaian satu hari (default hari ini)."""
-    return ai_usage.pop(day or today_key(), None) or _empty_bucket()
-
-
 def reset_all_usage() -> int:
     """Menghapus seluruh catatan pemakaian. Mengembalikan jumlah hari yang dihapus."""
     count = len(ai_usage)
@@ -292,22 +336,61 @@ def _top_items(mapping: dict, limit: int = 5) -> list[tuple[str, int]]:
     return rows[:limit]
 
 
-def build_usage_embed(*, day: str | None = None, now: float | None = None) -> discord.Embed:
-    """Embed laporan pemakaian AI hari ini (tanpa memanggil Gemini)."""
+def build_usage_embed(
+    *, day: str | None = None, now: float | None = None, guild_id: int = 0
+) -> discord.Embed:
+    """Embed laporan pemakaian AI hari ini (tanpa memanggil Gemini).
+
+    Bila `guild_id` diisi, ikut ditampilkan pemakaian & sisa kuota harian server
+    serta penghematan dari FAQ lokal + cache jawaban.
+    """
     key = day or today_key(now=now)
     bucket = ai_usage.get(key) or _empty_bucket()
     total = int(bucket.get("total") or 0)
     hits = int(bucket.get("cache_hits") or 0)
+    tokens_in = int(bucket.get("tokens_in") or 0)
+    tokens_out = int(bucket.get("tokens_out") or 0)
+
+    token_line = (
+        f"Token: **{tokens_in + tokens_out:,}** (masuk {tokens_in:,} • keluar {tokens_out:,})\n"
+        if (tokens_in or tokens_out)
+        else "Token: _belum tercatat hari ini_\n"
+    )
 
     embed = discord.Embed(
         title="📊 Pemakaian AI Hari Ini",
         color=discord.Color.blurple(),
         description=(
             f"**{total}** operasi AI • **{hits}** cache hit (hemat kuota)\n"
+            f"{token_line}"
             f"Tanggal: `{key}` • batas per member: "
             + (f"`{AI_DAILY_CAP_PER_USER}` operasi/hari" if AI_DAILY_CAP_PER_USER > 0 else "_tanpa batas_")
         ),
     )
+
+    if guild_id:
+        try:
+            import ai_guard
+
+            _cap_ok, cap_used, cap_limit = ai_guard.check_guild_cap(int(guild_id))
+            savings = ai_guard.savings_stats()
+            guild_line = (
+                f"• Kuota server hari ini: **{cap_used}** / `{cap_limit}` operasi"
+                if cap_limit > 0
+                else f"• Kuota server hari ini: **{cap_used}** operasi (_tanpa batas_)"
+            )
+            embed.add_field(
+                name="🏠 Kuota Server & Penghematan",
+                value=(
+                    f"{guild_line}\n"
+                    f"• Dijawab dari FAQ lokal: **{int(savings.get('faq_hits') or 0)}** (0 kuota)\n"
+                    f"• Dijawab dari cache: **{int(savings.get('cache_hits') or 0)}** (0 kuota)\n"
+                    "-# Angka penghematan dihitung sejak bot terakhir restart."
+                )[:1024],
+                inline=False,
+            )
+        except Exception:  # pragma: no cover - laporan tidak boleh gagal
+            pass
 
     kinds = _top_items(bucket.get("kinds") or {}, limit=8)
     if kinds:
@@ -339,8 +422,8 @@ def build_usage_embed(*, day: str | None = None, now: float | None = None) -> di
 
     embed.set_footer(
         text=(
-            "Hemat kuota: /ringkas channel memakai cache • /faq tanya menjawab tanpa AI • "
-            "cache rekap aktif"
+            "Hemat kuota: FAQ lokal & cache jawaban otomatis dipakai lebih dulu • "
+            "/faq tanya menjawab tanpa AI"
         )
     )
     return embed
@@ -516,16 +599,3 @@ def build_faq_list_embed(
     return embed
 
 
-async def send_usage_to_log(bot, embed: discord.Embed, channel_id: int) -> bool:
-    """(Opsional) mengirim laporan pemakaian ke channel tertentu."""
-    channel = None
-    get_channel = getattr(bot, "get_channel", None)
-    if callable(get_channel) and channel_id:
-        channel = get_channel(int(channel_id))
-    if channel is None:
-        return False
-    try:
-        await channel.send(embed=embed)
-        return True
-    except (discord.Forbidden, discord.HTTPException):  # pragma: no cover
-        return False

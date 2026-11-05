@@ -27,7 +27,9 @@ from cogs.insights_cog import (
 )
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
+from cogs.moderation_cog import mod_group, register_moderation_cog
 from cogs.music_cog import musik_group, register_music_cog
+from cogs.panel_cog import panel_group, register_panel_cog, tampilan_group
 from cogs.server_cog import (
     autorole_group,
     fakta_group,
@@ -36,6 +38,20 @@ from cogs.server_cog import (
     serverstats_group,
 )
 from cogs.session_cog import register_session_cog, sesi_group
+from cogs.suggestions_cog import (
+    embed_group,
+    register_suggestions_cog,
+    saran_group,
+)
+from cogs.social_cog import register_social_cog, sosial_group
+from cogs.tempvoice_cog import register_tempvoice_cog, tempvoice_group
+from cogs.utility_cog import (
+    afk_group,
+    backup_group,
+    lockdown_group,
+    register_utility_cog,
+    thread_group,
+)
 from cogs.tools_cog import (
     context_explain_message,
     context_fact_check_message,
@@ -62,11 +78,26 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_growth_cog(bot)
     register_insights_cog(bot)
     register_music_cog(bot)
+    register_moderation_cog(bot)
+    register_tempvoice_cog(bot)
+    register_suggestions_cog(bot)
+    register_utility_cog(bot)
+    register_panel_cog(bot)
+    register_social_cog(bot)
     register_events_cog(bot)
 
 
 __all__ = [
     "agent_group",
+    "mod_group",
+    "tempvoice_group",
+    "saran_group",
+    "embed_group",
+    "afk_group",
+    "thread_group",
+    "lockdown_group",
+    "backup_group",
+    "sosial_group",
     "giveaway_group",
     "faq_group",
     "pemakaian_group",
@@ -79,6 +110,8 @@ __all__ = [
     "info_group",
     "ingatkan_group",
     "musik_group",
+    "panel_group",
+    "tampilan_group",
     "panelrole_group",
     "perawatan_group",
     "slash_poll",

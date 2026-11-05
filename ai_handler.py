@@ -60,19 +60,48 @@ MEDIA_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_MEDIA_TASKS)
 
 MODEL_COOLDOWN_SECONDS = 180.0
 _model_cooldown_until: dict[str, float] = {}
+_key_cooldown_until: dict[str, float] = {}   # batas kuota per API key (dari header Retry-After)
 _key_rotation_counter = 0
 _paid_google_search_available = True
 
 
+def mark_key_unhealthy(api_key: str, cooldown_sec: float) -> None:
+    """Menandai satu API key sedang kena batas kuota (mengikuti header Retry-After)."""
+    if api_key:
+        _key_cooldown_until[api_key] = time.time() + max(1.0, float(cooldown_sec))
+
+
+def key_cooldown_left(api_key: str) -> float:
+    """Sisa detik cooldown satu API key (0 bila sehat)."""
+    return max(0.0, _key_cooldown_until.get(api_key, 0.0) - time.time())
+
+
+def parse_retry_after(headers, default: float = 20.0) -> float:
+    """Membaca `Retry-After` (detik) dari respons 429/503 dengan batas aman 120 detik."""
+    raw = ""
+    try:
+        raw = str(headers.get("Retry-After") or headers.get("retry-after") or "").strip()
+    except Exception:  # pragma: no cover - header aneh
+        raw = ""
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        value = default
+    return min(120.0, max(1.0, value))
+
+
 def get_gemini_keys_rotated() -> list[str]:
-    """Mengembalikan daftar API Key Gemini dengan urutan rotasi (mendukung 1 atau banyak key)."""
+    """Daftar API Key Gemini urut rotasi; key yang sedang kena limit ditaruh paling akhir."""
     global _key_rotation_counter
     keys = parse_gemini_keys(GEMINI_API_KEY)
     if len(keys) <= 1:
         return keys
     start = _key_rotation_counter % len(keys)
     _key_rotation_counter += 1
-    return keys[start:] + keys[:start]
+    rotated = keys[start:] + keys[:start]
+    healthy = [k for k in rotated if key_cooldown_left(k) <= 0]
+    cooling = [k for k in rotated if key_cooldown_left(k) > 0]
+    return healthy + cooling
 
 
 def is_gemini_key_configured() -> bool:
@@ -212,6 +241,21 @@ def _extract_text_from_gemini_response(data: dict) -> tuple[str | None, str | No
     return None, f"⚠️ Respons Gemini kosong (status akhir: `{finish_reason or 'UNKNOWN'}`).", True
 
 
+def _record_token_usage(data: dict) -> tuple[int, int]:
+    """Membaca `usageMetadata` Gemini lalu mencatat token nyata ke /pemakaian."""
+    meta = (data or {}).get("usageMetadata") or {}
+    prompt_tokens = int(meta.get("promptTokenCount") or 0)
+    output_tokens = int(meta.get("candidatesTokenCount") or 0) + int(meta.get("thoughtsTokenCount") or 0)
+    if prompt_tokens or output_tokens:
+        try:
+            import insights
+
+            insights.add_token_usage(prompt_tokens, output_tokens)
+        except Exception:  # pragma: no cover - jaring aman
+            pass
+    return prompt_tokens, output_tokens
+
+
 def _extract_grounding_sources(data: dict, max_sources: int = 4) -> list[tuple[str, str]]:
     """Mengekstrak daftar sumber web unik (judul, url) dari groundingMetadata Google Search."""
     candidates = data.get("candidates") or []
@@ -271,6 +315,7 @@ async def get_ai_response(
     thread: discord.Thread | None = None,
     bot_user_id: int | None = None,
     server_knowledge: str = "",
+    safety_level: str | None = None,
 ) -> str:
     """Mendapatkan balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search) dari Google Gemini API."""
     global _paid_google_search_available
@@ -384,10 +429,21 @@ async def get_ai_response(
 
     time_ctx = get_realtime_time_context()
     knowledge_section = f"\n\n{server_knowledge.strip()}" if server_knowledge and server_knowledge.strip() else ""
-    system_text = (
+    import ai_guard
+
+    history_summary = str(session_data.get("history_summary") or "").strip()
+    summary_section = (
+        f"\n[Ringkasan percakapan sebelumnya (konteks lama yang sudah dipangkas):\n"
+        f"{history_summary[:1200]}]"
+        if history_summary
+        else ""
+    )
+
+    system_text = ai_guard.with_accuracy_rules(
         f"{model_info['system_prompt']}\n"
         f"[Informasi Waktu Saat Ini: {time_ctx['summary']}]"
         f"{knowledge_section}"
+        f"{summary_section}"
     )
 
     desired_thinking = model_info.get("thinking_level", "low")
@@ -439,6 +495,7 @@ async def get_ai_response(
                     async with session.post(s_url, headers=s_headers, json=s_payload, timeout=CHAT_TIMEOUT) as resp:
                         data = await resp.json(content_type=None)
                         if resp.status == 200 and isinstance(data, dict):
+                            _record_token_usage(data)
                             reply_text, _, _ = _extract_text_from_gemini_response(data)
                             if reply_text:
                                 sources = _extract_grounding_sources(data)
@@ -490,6 +547,7 @@ async def get_ai_response(
                 "contents": contents,
                 "generationConfig": gen_config,
             }
+            ai_guard.apply_safety(payload, safety_level)
 
             api_key_for_attempt = active_keys[attempt_idx % len(active_keys)]
             headers = {
@@ -503,6 +561,7 @@ async def get_ai_response(
                     data = await resp.json(content_type=None)
 
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             if free_search_sources:
@@ -539,6 +598,14 @@ async def get_ai_response(
 
                     if resp.status in (429, 500, 502, 503, 504, 404):
                         mark_model_unhealthy(candidate_model)
+                    if resp.status == 429:
+                        # Hormati header Retry-After: cooldown per KEY, bukan hanya per model
+                        wait_s = parse_retry_after(resp.headers)
+                        mark_key_unhealthy(api_key_for_attempt, wait_s)
+                        logger.info(
+                            "API key Gemini kena batas kuota (429) — cooldown %.0f detik, lanjut key/model lain.",
+                            wait_s,
+                        )
 
                     last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
                     logger.warning("Gemini model %s gagal (%s). Pindah instan ke cadangan...", candidate_model, last_error_msg)
@@ -826,6 +893,7 @@ async def search_web_with_gemini(
                     async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
                         data = await resp.json(content_type=None)
                         if resp.status == 200 and isinstance(data, dict):
+                            _record_token_usage(data)
                             reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                             if reply_text:
                                 if include_sources_footer:
@@ -892,6 +960,7 @@ async def search_web_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             if include_sources_footer and live_sources:
@@ -1001,6 +1070,7 @@ async def analyze_link_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=req_link_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text, None
@@ -1091,6 +1161,7 @@ async def transform_message_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text, None
@@ -1188,6 +1259,7 @@ async def fact_check_message_with_gemini(
                 async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             if live_sources:

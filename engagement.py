@@ -743,15 +743,6 @@ def remove_auto_reply(channel_id: int, trigger: str) -> bool:
     return True
 
 
-def disable_auto_reply(channel_id: int) -> bool:
-    """Menonaktifkan auto-responder di sebuah channel tanpa menghapus aturannya."""
-    cfg = auto_reply_channels.get(int(channel_id))
-    if cfg is None:
-        return False
-    cfg["enabled"] = False
-    return True
-
-
 def source_has_invite_or_link(content: str) -> bool:
     """Mendeteksi link/undangan agar auto-responder tidak dipakai menyebarkan spam."""
     return bool(re.search(r"(?i)(https?://|discord\.gg/|www\.)", str(content or "")))

@@ -475,6 +475,13 @@ def test_agent_command_group_registered():
         "digest",
         "panel",
         "goodbye",
+        # v1.13.0-beta: banner sambutan, mode kartu, DM, & pesan boost
+        "banner",
+        "kartu",
+        "dm",
+        "boost",
+        # v1.19.0-beta: tingkat keamanan konten AI per server
+        "keamanan",
     } == sub_names
 
 
@@ -2203,8 +2210,20 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "giveaway", "ultah", "jawab-otomatis", "pengumuman",
         # v1.10.0-beta (Tier 2C): leveling & tiket dukungan
         "level", "tiket",
+        # v1.12.0-beta: Control Center & editor tema (Components V2)
+        "panel", "tampilan",
         # v1.11.0-beta (Tier 3): hemat kuota AI
         "faq", "pemakaian",
+        # v1.14.0-beta: notifikasi YouTube/Twitch/TikTok/RSS (0 kuota AI)
+        "sosial",
+        # v1.15.0-beta: moderasi bercatatan (warn/timeout/kick/ban/purge + kasus)
+        "mod",
+        # v1.16.0-beta: voice room sementara (join-to-create)
+        "tempvoice",
+        # v1.17.0-beta: kotak saran + pembuat embed
+        "saran", "embed",
+        # v1.18.0-beta: perkakas server (AFK, auto-thread, lockdown, backup struktur)
+        "afk", "thread-otomatis", "lockdown", "backup",
     }
     assert len(chat_cmds) <= 100
 
@@ -3442,9 +3461,11 @@ async def test_music_rythm_panel_progress_seek_filters_and_pagination():
         "music:panel:vol_up",
     ]
     queue_view = views.QueuePaginationView(tracks, requester_id=501, page=1)
-    assert len(queue_view.children) == 3
-    assert "Halaman 2/3" in queue_view.children[1].label
-    assert queue_view.children[0].disabled is False
+    queue_items = list(queue_view.walk_children())
+    queue_buttons = [i for i in queue_items if isinstance(i, discord.ui.Button)]
+    assert len(queue_buttons) == 4
+    assert "Halaman 2/3" in queue_buttons[1].label
+    assert queue_buttons[0].disabled is False
 
     # 8. Lagu sebelumnya dari riwayat antrean
     player2 = _FakePlayer(volume=50)
@@ -3546,6 +3567,8 @@ async def test_music_command_structure_and_setup_guard(monkeypatch):
         "hentikan", "volume", "ulang", "acak", "pengaturan", "status",
         # v1.7.0-beta+ (Rythm Mode): seek, lagu sebelumnya, filter, autoplay, panel
         "seek", "sebelumnya", "filter", "autoplay", "panel",
+        # v1.11.1-beta: diagnosa & sambung ulang node Lavalink
+        "node",
     }
     for sub in musik.commands:
         assert 1 <= len(sub.description) <= 100
@@ -4457,7 +4480,11 @@ async def test_growth_commands_views_and_help():
 
     panel = views.TicketPanelView()
     assert panel.is_persistent() is True
-    assert [c.custom_id for c in panel.children] == ["ticket:panel:open"]
+    # Panel tiket kini berupa kartu Components V2 → tombol berada di dalam Container
+    assert panel.to_components()[0]["type"] == 17
+    assert [
+        item.custom_id for item in panel.walk_children() if isinstance(item, discord.ui.Button)
+    ] == ["ticket:panel:open"]
     actions = views.TicketActionsView()
     assert actions.is_persistent() is True
     assert [c.custom_id for c in actions.children] == ["ticket:panel:claim", "ticket:panel:close"]
@@ -4598,8 +4625,7 @@ async def test_growth_message_xp_hook_and_ticket_panel_smoke(monkeypatch):
         },
     )()
 
-    view = views.TicketPanelView()
-    await view.open_btn.callback(ix)
+    await views.handle_ticket_open(ix)
     assert ix.response.deferred is True
     assert thread.added_users == [501]
     assert tickets.tickets, "tiket harus tercatat"
@@ -4624,7 +4650,7 @@ async def test_growth_message_xp_hook_and_ticket_panel_smoke(monkeypatch):
         },
     )()
     tickets.register_ticket(720, 10, 501)
-    await view.open_btn.callback(ix2)
+    await views.handle_ticket_open(ix2)
     assert "2 tiket aktif" in ix2.response.sent[0]["content"]
 
 
@@ -4757,3 +4783,1429 @@ async def test_insights_commands_and_daily_cap_guard(monkeypatch):
     assert await enforce_member_cooldown(_Interaction(), "uji_kapasitas_tier3_c") is True
     assert sent == []
     insights.ai_usage.clear()
+
+
+@pytest.mark.asyncio
+async def test_music_node_diagnostics_and_reconnect(monkeypatch):
+    """v1.11.1-beta: status node Lavalink nyata, diagnosa, & penyambungan ulang otomatis."""
+    import music
+    import cogs.music_cog as music_cog
+
+    class _Status:
+        def __init__(self, name):
+            self.name = name
+
+    class _Node:
+        def __init__(self, identifier, uri, status, players=0):
+            self.identifier = identifier
+            self.uri = uri
+            self.status = _Status(status)
+            self.players = {i: object() for i in range(players)}
+            self.closed = False
+
+        async def close(self):
+            self.closed = True
+            self.status = _Status("DISCONNECTED")
+
+    class _Pool:
+        nodes: dict = {}
+
+    class _FakeWavelink:
+        Pool = _Pool
+
+    class _FakeSession:
+        def __init__(self):
+            class _Resp:
+                status = 200
+
+                async def json(self, content_type=None):
+                    return {"version": {"semver": "4.0.8"}}
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *exc):
+                    return False
+
+            self._resp = _Resp()
+
+        def post(self, *a, **kw):
+            return self._resp
+
+    monkeypatch.setattr(music, "wavelink", _FakeWavelink)
+    monkeypatch.setattr(music, "WAVELINK_AVAILABLE", True)
+    monkeypatch.setattr(music, "MUSIC_ENABLED", True)
+    monkeypatch.setattr(music, "LAVALINK_URI", "wss://lavalink.contoh.net:443")
+
+    # 1. Pool kosong → tidak siap, pesan jujur, diagnosa menyebut node tidak terdaftar
+    _Pool.nodes = {}
+    snap = music.node_snapshot()
+    assert snap["ready"] is False and snap["nodes"] == []
+    assert "Belum tersambung" in music.music_status()
+    diagnosis = music.node_diagnosis()
+    assert "tidak ada node yang terdaftar" in diagnosis
+    assert "/v4/info" in diagnosis
+
+    # 2. Node CONNECTING (kasus nyata: handshake sukses tapi 'ready' tak pernah datang)
+    _Pool.nodes = {"utama": _Node("utama", "wss://lavalink.contoh.net:443", "CONNECTING")}
+    snap = music.node_snapshot()
+    assert snap["connecting"] == 1 and snap["ready"] is False
+    assert "⏳" in music.music_status()
+    assert "belum mengirim sinyal `ready`" in music.node_diagnosis()
+
+    # 3. Node CONNECTED → status jelas + jumlah player
+    _Pool.nodes = {"utama": _Node("utama", "wss://lavalink.contoh.net:443", "CONNECTED", players=3)}
+    snap = music.node_snapshot()
+    assert snap["ready"] is True and snap["connected"] == 1
+    status = music.music_status()
+    assert "Tersambung" in status and "3 player" in status
+    assert "tersambung" in music.node_diagnosis()
+
+    # 4. Hint TLS: ws:// + port 443 & wss:// + port non-443
+    monkeypatch.setattr(music, "LAVALINK_URI", "lavalink.contoh.net:443")
+    _Pool.nodes = {}
+    assert "tanpa awalan `wss://`" in music.node_diagnosis()
+    monkeypatch.setattr(music, "LAVALINK_URI", "wss://lavalink.contoh.net:13592")
+    assert "hanya untuk port **443**" in music.node_diagnosis()
+
+    # 5. search_tracks tanpa node → pesan ramah (bukan error mentah wavelink)
+    monkeypatch.setattr(music, "LAVALINK_URI", "wss://lavalink.contoh.net:443")
+    _Pool.nodes = {}
+    with pytest.raises(music.MusicUnavailable) as err:
+        await music.search_tracks("lagu uji")
+    assert "belum tersambung" in str(err.value)
+    assert "Pool in a CONNECTED state" not in str(err.value).split("Detail")[0]
+
+    # 6. ensure_nodes_alive: menyambung ulang node yang tertutup/stuck
+    node = _Node("utama", "wss://lavalink.contoh.net:443", "CONNECTING")
+    _Pool.nodes = {"utama": node}
+
+    async def _fake_reconnect():
+        node.status = _Status("CONNECTED")
+        return _Pool.nodes
+
+    monkeypatch.setattr(_FakeWavelink.Pool, "reconnect", staticmethod(_fake_reconnect), raising=False)
+    assert await music.ensure_nodes_alive(force=True) is True
+    assert node.closed is True  # node yang belum CONNECTED ditutup dulu
+
+    # 7. /musik status tetap informatif & tidak error meski node mati
+    _Pool.nodes = {}
+    sent = []
+
+    class _Resp:
+        def async_send(self):
+            class _R:
+                async def send_message(self, content=None, embed=None, ephemeral=False, **kw):
+                    sent.append(content)
+            return _R()
+
+        def __init__(self):
+            self._inner = self.async_send()
+
+        async def send_message(self, content=None, **kw):
+            sent.append(content)
+
+        def is_done(self):
+            return True
+
+    class _Follow:
+        async def send(self, content=None, **kw):
+            sent.append(content)
+
+    class _Ix:
+        guild = type("G", (), {"id": 10, "voice_client": None, "me": None})()
+        response = _Resp()
+        followup = _Follow()
+        user = type("U", (), {"id": 501, "display_name": "Warga", "voice": None,
+                              "guild_permissions": type("P", (), {"administrator": False,
+                                                                  "manage_guild": False})()})()
+
+    await music_cog.musik_status_cmd.callback(_Ix())
+    assert sent and "Status Musik" in sent[0]
+    assert "Role DJ" in sent[0] and "tidak wajib" in sent[0]
+    assert "Lavalink belum tersambung" in sent[0]
+
+
+# ==============================================================================
+# v1.12.0-beta: Tema UI (ui_theme), Komponen V2 (ui_kit), & Control Center (/panel)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_ui_theme_defaults_customisation_and_persistence():
+    """Tema per server: default ungu, validasi nilai, simpan & muat dari disk."""
+    import ui_theme
+
+    ui_theme.ui_themes.clear()
+    theme = ui_theme.get_theme(4242)
+    assert theme["accent"] == "purple"
+    assert theme["density"] in ui_theme.DENSITIES
+    assert ui_theme.accent_color(4242).value == ui_theme.ACCENTS["purple"]["color"]
+    assert isinstance(ui_theme.emoji(4242, "panel", "🛰️"), str)
+
+    # nilai tidak valid diabaikan, nilai valid diterapkan
+    ui_theme.set_theme(4242, accent="tidak-ada", density="nyaman", refresh=9999, footer=False)
+    theme = ui_theme.get_theme(4242)
+    assert theme["accent"] == "purple"          # ditolak → tetap default
+    assert theme["density"] == "nyaman"         # diterima
+    assert theme["refresh"] in ui_theme.REFRESH_CHOICES  # dijepit ke pilihan sah
+    assert theme["footer"] is False
+    assert ui_theme.is_customized(4242)
+    assert ui_theme.footer_text(4242) is None
+
+    await ui_theme.save_ui_themes_to_disk()
+    ui_theme.ui_themes.clear()
+    loaded = ui_theme.load_ui_themes_from_disk()
+    assert loaded >= 1
+    assert ui_theme.get_theme(4242)["density"] == "nyaman"
+
+    ui_theme.reset_theme(4242)
+    assert not ui_theme.is_customized(4242)
+    assert ui_theme.get_theme(4242)["accent"] == "purple"
+
+
+def test_ui_kit_builds_valid_components_v2():
+    """Kartu V2, baris status, progress bar, tombol, dropdown, & konfirmasi bisa dirender."""
+    import ui_kit
+
+    gid = 7777
+    assert "00:00" in ui_kit.human_uptime(0) or "0" in ui_kit.human_uptime(0)
+    assert "🔘" in ui_kit.progress_bar(5, 10)
+    assert ui_kit.progress_bar(0, 0)  # tidak boleh ZeroDivisionError
+    assert ui_kit.field_block("Judul", []) == ""
+    assert "Judul" in ui_kit.field_block("Judul", ["• satu"])
+
+    async def _noop(interaction):  # pragma: no cover - hanya syarat callback async
+        return None
+
+    view = ui_kit.build_view(
+        gid,
+        ui_kit.card(
+            gid,
+            ui_kit.text("### Halo"),
+            ui_kit.sep(),
+            ui_kit.action_row(
+                ui_kit.button("OK", custom_id="t:ok", callback=_noop),
+                ui_kit.toggle_button(gid, "Fitur", True, custom_id="t:on", callback=_noop),
+            ),
+            ui_kit.action_row(
+                ui_kit.select_menu("t:sel", "Pilih…", [ui_kit.option("A", "a")], callback=_noop)
+            ),
+        ),
+    )
+    comps = view.to_components()
+    assert comps and comps[0]["type"] == 17  # Container
+    assert isinstance(ui_kit.fallback_embed(gid, "Judul", "Isi"), discord.Embed)
+
+    confirm = ui_kit.ConfirmView(gid, title="Hapus?", detail="Tidak bisa dibatalkan.")
+    assert confirm.to_components()[0]["type"] == 17
+
+
+@pytest.mark.asyncio
+async def test_panel_dashboard_and_theme_editor_render():
+    """/panel: setiap tab menghasilkan embed cadangan + kartu V2 tanpa error."""
+    from cogs import panel_cog
+
+    class _FakeGuild:
+        id = 8888
+        name = "Server Uji"
+        member_count = 12
+
+    guild = _FakeGuild()
+    for tab in panel_cog.TABS:
+        embed = panel_cog.dashboard_embed(guild, tab)
+        assert isinstance(embed, discord.Embed)
+        assert len(embed.description or "") <= 4096
+        view = panel_cog.make_dashboard(guild, tab, 100)
+        comps = view.to_components()
+        assert comps and comps[0]["type"] == 17
+
+    editor = panel_cog.make_theme_editor(guild, 100)
+    assert len(editor.to_components()) >= 2
+    assert isinstance(panel_cog.theme_embed(guild), discord.Embed)
+
+    # command terdaftar pada tree
+    names = {c.name for c in bot_main.bot.tree.get_commands(type=discord.AppCommandType.chat_input)}
+    assert {"panel", "tampilan"} <= names
+
+
+@pytest.mark.asyncio
+async def test_components_v2_panels_agent_ticket_queue_and_confirm():
+    """Panel V2: AI Agent (toggle berwarna), tiket, antrean musik, & dialog konfirmasi tema."""
+    import ui_kit
+    import ui_theme
+
+    class _FakeGuild:
+        id = 9191
+        name = "Server V2"
+        member_count = 5
+
+        def get_channel(self, cid):
+            return None
+
+    guild = _FakeGuild()
+    ui_theme.reset_theme(guild.id)
+
+    # 1. Panel AI Agent: 2 kartu, 8 tombol toggle + 5 tombol aksi + 1 dropdown channel
+    panel = views.AgentPanelView(guild, 123, default_channel_id=555)
+    assert [c["type"] for c in panel.to_components()] == [17, 17]
+    btns = [i for i in panel.walk_children() if isinstance(i, discord.ui.Button)]
+    toggle_ids = {"agent:v2:" + a for a, _, _ in views.AGENT_FEATURES}
+    toggles = [b for b in btns if b.custom_id in toggle_ids]
+    assert len(toggles) == 8
+    assert all(b.style is discord.ButtonStyle.danger for b in toggles)  # semua OFF → merah
+    assert len(btns) == 13
+    from discord.ui.select import BaseSelect
+
+    selects = [i for i in panel.walk_children() if isinstance(i, BaseSelect)]
+    assert len(selects) == 1 and selects[0].custom_id == "agent:v2:channel"
+
+    # 2. Panel tiket V2 memakai warna aksen tema server
+    ticket_panel = views.TicketPanelView(guild.id)
+    comp = ticket_panel.to_components()[0]
+    assert comp["type"] == 17
+    assert comp.get("accent_color") == ui_theme.accent_int(guild.id)
+
+    # 3. Antrean musik V2: tombol navigasi + tombol tutup
+    class _T:
+        def __init__(self, title):
+            self.title = title
+            self.length = 60_000
+            self.author = "Artis"
+            self.uri = ""
+
+    import music
+    tracks = [_T(f"Lagu {i}") for i in range(25)]
+    queue_view = views.QueuePaginationView(tracks, requester_id=9, page=0, guild_id=guild.id)
+    q_buttons = [i for i in queue_view.walk_children() if isinstance(i, discord.ui.Button)]
+    assert len(q_buttons) == 4
+    assert q_buttons[3].style is discord.ButtonStyle.danger  # tombol Tutup
+
+    # 4. Dialog konfirmasi mengikuti setelan tema server
+    ui_theme.set_theme(guild.id, confirm=False)
+    assert ui_theme.confirm_enabled(guild.id) is False
+    confirm_view = ui_kit.ConfirmView(guild.id, title="Uji?", detail="Detail uji")
+    assert confirm_view.to_components()[0]["type"] == 17
+    ui_theme.reset_theme(guild.id)
+
+
+@pytest.mark.asyncio
+async def test_embed_to_container_help_panel_and_music_panel_v2():
+    """Konversi embed → kartu V2, panel /bantuan V2, & panel pemutar musik V2."""
+    import ui_kit
+    import ui_theme
+
+    gid = 3131
+    ui_theme.reset_theme(gid)
+
+    # 1. embed_to_container: judul, field panjang dipecah, footer tema dipakai
+    embed = discord.Embed(title="Judul Uji", description="Deskripsi", color=discord.Color.purple())
+    embed.add_field(name="Panjang", value="x" * 4500, inline=False)
+    embed.set_footer(text="Kaki asli")
+    container = ui_kit.embed_to_container(gid, embed)
+    blocks = [c for c in container.children if isinstance(c, discord.ui.TextDisplay)]
+    assert blocks, "harus ada blok teks"
+    assert all(len(b.content) <= ui_kit.MAX_TEXT for b in blocks)
+    joined = "".join(b.content for b in blocks)
+    assert "Judul Uji" in joined and "x" * 100 in joined
+
+    # 2. Panel /bantuan V2: kartu + dropdown 11 kategori, bisa ganti halaman
+    help_panel = views.HelpPanelView(requester_id=77, category="overview", guild_id=gid)
+    assert help_panel.to_components()[0]["type"] == 17
+    from discord.ui.select import BaseSelect
+
+    hp_select = [i for i in help_panel.walk_children() if isinstance(i, BaseSelect)][0]
+    assert len(hp_select.options) == len(views.HELP_CATEGORIES)
+    assert {"overview", "musik", "admin"} <= {o.value for o in hp_select.options}
+    help_panel.category = "musik"
+    help_panel._build()
+    text_all = "".join(
+        str(c.get("content") or "") for c in help_panel.to_components()[0]["components"] if c["type"] == 10
+    )
+    assert "Streaming Musik" in text_all
+
+    # 3. Panel pemutar musik V2: 9 tombol asli tersusun 2 baris di dalam kartu
+    class _Track:
+        title = "Lagu Uji"
+        author = "Artis"
+        length = 215_000
+        uri = "https://youtu.be/uji"
+        is_stream = False
+        artwork = None
+        requester = None
+
+    class _Player:
+        current = _Track()
+        queue = [_Track(), _Track()]
+        paused = False
+        volume = 60
+        position = 60_000
+        channel = None
+
+    panel = views.build_music_panel_view(_Player(), guild_id=gid, filter_name="off", autoplay=False)
+    assert panel is not None and panel.to_components()[0]["type"] == 17
+    m_buttons = [i for i in panel.walk_children() if isinstance(i, discord.ui.Button)]
+    assert [b.custom_id for b in m_buttons] == views.MUSIC_PANEL_ORDER
+    m_rows = [i for i in panel.walk_children() if isinstance(i, discord.ui.ActionRow)]
+    assert len(m_rows) == 2 and len(m_rows[0].children) == 5
+
+
+@pytest.mark.asyncio
+async def test_theme_settings_actually_apply(monkeypatch):
+    """Setelan /tampilan benar-benar berefek: kepadatan, thumbnail, interval refresh, emoji aksen."""
+    import types
+
+    import music as music_mod
+    import ui_kit
+    import ui_theme
+    from cogs import panel_cog
+
+    gid = 6262
+    ui_theme.reset_theme(gid)
+
+    class _FakeGuild:
+        id = gid
+        name = "Server Tema"
+        member_count = 7
+        icon = types.SimpleNamespace(url="https://cdn.discordapp.com/icons/1/abc.png")
+
+        def get_channel(self, cid):
+            return None
+
+    guild = _FakeGuild()
+
+    def collect_text(view) -> str:
+        parts = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get("type") == 10:
+                    parts.append(str(node.get("content") or ""))
+                for child in node.get("components") or []:
+                    walk(child)
+
+        for comp in view.to_components():
+            walk(comp)
+        return "\n".join(parts)
+
+    # 1. Kepadatan: mode ringkas menyembunyikan baris penjelas, nyaman menampilkannya
+    ui_theme.set_theme(gid, density="ringkas")
+    assert ui_theme.is_compact(gid) is True
+    ringkas_text = collect_text(panel_cog.make_dashboard(guild, "music", 1))
+    ui_theme.set_theme(gid, density="nyaman")
+    assert ui_theme.is_compact(gid) is False
+    nyaman_text = collect_text(panel_cog.make_dashboard(guild, "music", 1))
+    assert "tidak wajib" not in ringkas_text
+    assert "tidak wajib" in nyaman_text
+
+    # 2. Thumbnail: ikon server muncul sebagai Section+Thumbnail saat mode "ikon"
+    ui_theme.set_theme(gid, thumbnail="ikon")
+    types_in_view = [c["type"] for c in panel_cog.make_dashboard(guild, "overview", 1).to_components()[0]["components"]]
+    assert 9 in types_in_view  # Section
+    ui_theme.set_theme(gid, thumbnail="tanpa")
+    types_no_thumb = [
+        c["type"] for c in panel_cog.make_dashboard(guild, "overview", 1).to_components()[0]["components"]
+    ]
+    assert 9 not in types_no_thumb
+
+    # 3. Interval refresh dipakai panel musik
+    ui_theme.set_theme(gid, refresh=60)
+    assert ui_theme.refresh_interval(gid) == 60
+    assert music_mod._refresh_interval(gid) == 60
+    ui_theme.set_theme(gid, refresh=10)
+    assert music_mod._refresh_interval(gid) == 10
+
+    # 4. Emoji aksen ikut di footer & embed cadangan
+    ui_theme.set_theme(gid, accent="teal")
+    footer = ui_theme.footer_text(gid, "uji")
+    assert ui_theme.ACCENTS["teal"]["emoji"] in footer and "uji" in footer
+    embed = ui_theme.apply_embed_theme(ui_kit.fallback_embed(gid, "Judul", "Isi"), gid, footer="x")
+    assert embed.color.value == ui_theme.ACCENTS["teal"]["color"]
+    assert ui_theme.ACCENTS["teal"]["emoji"] in (embed.footer.text or "")
+    dashboard_embed = panel_cog.dashboard_embed(guild, "overview")
+    assert ui_theme.ACCENTS["teal"]["emoji"] in (dashboard_embed.footer.text or "")
+
+    # 5. Hanya opsi refresh yang sah yang disimpan
+    ui_theme.set_theme(gid, refresh=7)
+    assert ui_theme.refresh_interval(gid) == 10  # jatuh kembali ke default
+
+    ui_theme.reset_theme(gid)
+
+
+def test_serverstats_icon_customisation():
+    """`/serverstats ikon`: emoji channel statistik bisa diganti/dihapus & direset."""
+    import server_features as sf
+    from cogs.server_cog import serverstats_group
+
+    gid = 4747
+    sf.serverstats_guilds.pop(gid, None)
+    sf.set_serverstats_config(gid, enabled=True)
+
+    # 1. default mengikuti STATS_CHANNEL_SPECS
+    assert sf.stats_emojis(gid)["members"] == "👥"
+
+    # 2. ganti sebagian + hapus ikon dengan "-"
+    sf.set_serverstats_emojis(gid, {"members": "📈", "humans": "-", "bots": "🤖"})
+    emojis = sf.stats_emojis(gid)
+    assert emojis["members"] == "📈"
+    assert emojis["humans"] == ""
+    assert emojis["online"] == "🟢"  # tidak diubah
+
+    # 3. nama channel menyesuaikan (dengan & tanpa ikon)
+    assert sf._stats_channel_name("", "Manusia", "5") == "Manusia: 5"
+    assert sf._stats_channel_name("📈", "Total Member", "9") == "📈 Total Member: 9"
+
+    # 4. nama kategori & reset
+    assert sf.set_serverstats_category_name(gid, "-") == "Statistik Server"
+    sf.reset_serverstats_appearance(gid)
+    assert sf.stats_emojis(gid)["members"] == "👥"
+    assert sf.serverstats_guilds[gid]["category_name"] == sf.STATS_CATEGORY_NAME
+
+    # 5. command terdaftar
+    assert {"lihat", "otomatis", "ikon"} <= {c.name for c in serverstats_group.commands}
+
+    sf.serverstats_guilds.pop(gid, None)
+
+
+def test_welcome_media_storage_and_render():
+    """Banner sambutan disimpan di data/media (bukan URL) & kartu dinamis bisa dirender."""
+    import asyncio
+    import io
+
+    import welcome_media as wm
+
+    gid = 818181
+    wm.delete_banner(gid, kind="welcome")
+    wm.delete_banner(gid, kind="boost")
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1280, 640), (90, 40, 160)).save(buf, format="PNG")
+    payload = buf.getvalue()
+
+    path = wm.save_banner(gid, payload, "banner.png")
+    assert path.exists() and path.suffix == ".png"
+    assert wm.has_banner(gid) is True
+    assert wm.read_banner_bytes(gid) == payload
+
+    # jenis berbeda tidak saling menimpa
+    assert wm.has_banner(gid, kind="boost") is False
+    wm.save_banner(gid, payload, "boost.jpg", kind="boost")
+    assert wm.banner_path(gid, kind="boost").suffix == ".jpg"
+
+    # ekstensi tak dikenal → .png, berkas lama ikut dihapus
+    wm.save_banner(gid, payload, "aneh.exe")
+    assert wm.banner_path(gid).suffix == ".png"
+    assert len(list(wm.media_dir().glob(f"welcome_{gid}.*"))) == 1
+
+    # batas ukuran
+    with pytest.raises(ValueError):
+        wm.save_banner(gid, b"x" * (wm.MAX_BANNER_BYTES + 1))
+
+    # kartu dinamis (butuh Pillow)
+    if wm.pillow_available():
+        abuf = io.BytesIO()
+        Image.new("RGB", (256, 256), (240, 200, 120)).save(abuf, format="JPEG")
+        card = asyncio.run(
+            wm.render_card(
+                banner_bytes=payload,
+                avatar_bytes=abuf.getvalue(),
+                title="Whas",
+                subtitle="Member ke-2",
+                footer="Server Uji",
+            )
+        )
+        assert card and card.startswith(b"\x89PNG")
+
+    assert wm.delete_banner(gid) is True
+    assert wm.delete_banner(gid) is False
+    wm.delete_banner(gid, kind="boost")
+
+
+@pytest.mark.asyncio
+async def test_greeting_payload_modes_boost_and_commands():
+    """Payload sambutan mengikuti mode (teks/banner/kartu) + command baru terdaftar."""
+    import io
+
+    import community_agent as ca
+    import welcome_media as wm
+    from cogs.agent_cog import agent_group, build_greeting_payload, trigger_member_boost
+
+    gid = 828282
+    wm.delete_banner(gid)
+
+    class _Avatar:
+        url = "https://cdn.discordapp.com/avatars/1/a.png"
+
+        async def read(self):
+            return b""
+
+    class _Member:
+        id = 501
+        display_name = "Whas"
+        mention = "<@501>"
+        display_avatar = _Avatar()
+
+    class _Guild:
+        id = gid
+        name = "Server Uji"
+        member_count = 2
+
+    guild, member = _Guild(), _Member()
+
+    # 1. mode mati → teks biasa
+    payload = await build_greeting_payload(guild, member, "Halo semua", mode="mati")
+    assert payload == {"content": "Halo semua"}
+
+    # 2. mode statis tanpa banner → tetap teks
+    assert (await build_greeting_payload(guild, member, "Hai", mode="statis"))["content"] == "Hai"
+
+    # 3. mode statis dengan banner → embed + file lokal
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1024, 420), (120, 60, 200)).save(buf, format="PNG")
+    wm.save_banner(gid, buf.getvalue())
+    payload = await build_greeting_payload(guild, member, "Hai", mode="statis")
+    assert "embed" in payload and payload["file"].filename.startswith("banner-welcome")
+    assert payload["embed"].image.url.startswith("attachment://")
+
+    # 4. mode dinamis → kartu PNG (atau mundur ke banner bila Pillow tak ada)
+    payload = await build_greeting_payload(guild, member, "Hai", mode="dinamis")
+    assert "embed" in payload and payload["file"] is not None
+
+    # 5. konfigurasi boost: pesan & anti-dobel
+    ca.boost_agent_guilds.pop(gid, None)
+    assert ca.set_boost_config(gid, enabled=True, channel_id=700, message="Hai {user}") is not None
+    assert ca.boost_agent_guilds[gid]["message"] == "Hai {user}"
+    assert ca.should_process_member_boost(gid, 501) is True
+    ca.should_process_member_boost(gid, 501)  # dicatat
+    ca.boost_agent_guilds.pop(gid, None)
+
+    # 6. command baru terdaftar di /agent
+    names = {c.name for c in agent_group.commands}
+    assert {"banner", "kartu", "dm", "boost", "welcome", "goodbye"} <= names
+
+    # 7. mode kartu & DM tersimpan di konfigurasi sambutan
+    ca.set_welcome_config(gid, 600, enabled=True)
+    assert ca.set_welcome_card_mode(gid, "dinamis") == "dinamis"
+    assert ca.set_welcome_dm(gid, True) is True
+    assert ca.welcome_agent_guilds[gid]["card_mode"] == "dinamis"
+    assert ca.set_welcome_card_mode(gid, "ngawur") == "mati"
+    ca.welcome_agent_guilds.pop(gid, None)
+    wm.delete_banner(gid)
+
+
+def test_serverstats_channel_type_switch():
+    """`/serverstats tipe`: counter bisa jadi text/announcement/stage, bukan hanya voice."""
+    import discord as _discord
+
+    import server_features as sf
+    from cogs.server_cog import serverstats_group
+
+    gid = 515151
+    sf.serverstats_guilds.pop(gid, None)
+
+    # 1. default voice
+    sf.set_serverstats_config(gid, enabled=True)
+    assert sf.stats_channel_type(gid) == "voice"
+
+    # 2. ganti tipe tersimpan & nilai aneh ditolak
+    assert sf.set_serverstats_channel_type(gid, "text") == "text"
+    assert sf.stats_channel_type(gid) == "text"
+    assert sf.set_serverstats_channel_type(gid, "ngawur") == "voice"
+    sf.set_serverstats_channel_type(gid, "news")
+    assert sf.stats_channel_type(gid) == "news"
+
+    # 3. izin berbeda per jenis: voice tidak bisa di-connect, teks tidak bisa dikirimi pesan
+    class _Guild:
+        default_role = object()
+
+    voice_ow = sf._stats_overwrites(_Guild(), "voice")[_Guild.default_role]
+    assert voice_ow.connect is False and voice_ow.view_channel is True
+    text_ow = sf._stats_overwrites(_Guild(), "text")[_Guild.default_role]
+    assert text_ow.send_messages is False and text_ow.view_channel is True
+    assert text_ow.create_public_threads is False
+
+    # 4. deteksi tipe channel yang sudah ada
+    bare_voice = object.__new__(_discord.VoiceChannel)
+    assert sf._stats_channel_is_type(bare_voice, "voice") is True
+    assert sf._stats_channel_is_type(bare_voice, "text") is False
+    assert sf._stats_channel_is_type(None, "voice") is False
+
+    # 5. daftar tipe & command tersedia
+    assert set(sf.STATS_CHANNEL_TYPES) == {"voice", "text", "news", "stage"}
+    cmds = {c.name for c in serverstats_group.commands}
+    assert {"lihat", "otomatis", "ikon", "tipe"} <= cmds
+    tipe_cmd = next(c for c in serverstats_group.commands if c.name == "tipe")
+    choice_values = {ch.value for ch in tipe_cmd.parameters[0].choices}
+    assert choice_values == {"voice", "text", "news", "stage"}
+
+    sf.serverstats_guilds.pop(gid, None)
+
+
+def test_social_notify_parsers_and_crud():
+    """Notifikasi sosial: parser feed (tanpa jaringan) + CRUD langganan + template."""
+    import social_notify as sn
+
+    # 1. Login Twitch dinormalisasi dari berbagai bentuk
+    assert sn.normalize_twitch_login("https://www.twitch.tv/Ninja?x=1") == "ninja"
+    assert sn.normalize_twitch_login("@Some_Streamer") == "some_streamer"
+    assert sn.twitch_configured() is False  # tanpa kredensial → fitur Twitch dilewati
+
+    # 2. Feed YouTube (Atom)
+    atom = b"""<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+      <title>Channel Uji</title>
+      <entry>
+        <yt:videoId>abc123XYZ</yt:videoId>
+        <title>Judul Video Baru</title>
+        <published>2026-11-01T10:00:00+00:00</published>
+      </entry>
+    </feed>"""
+    items = sn.parse_atom_entries(atom)
+    assert len(items) == 1
+    assert items[0]["id"] == "abc123XYZ"
+    assert items[0]["url"].endswith("abc123XYZ")
+    assert items[0]["source"] == "Channel Uji"
+
+    # 3. RSS 2.0 (TikTok / RSSHub)
+    rss = b"""<?xml version="1.0"?>
+    <rss version="2.0"><channel><title>TikTok Uji</title>
+      <item><title>Video TikTok</title><link>https://tiktok.com/@a/video/1</link><guid>g-1</guid></item>
+    </channel></rss>"""
+    rss_items = sn.parse_rss_items(rss)
+    assert rss_items and rss_items[0]["title"] == "Video TikTok"
+    assert rss_items[0]["url"].startswith("https://tiktok.com/")
+    assert sn.parse_atom_entries(b"bukan xml") == []
+
+    # 4. Helix /streams
+    streams = sn.parse_twitch_streams(
+        {"data": [{"id": "1", "user_login": "Ninja", "user_name": "Ninja", "title": "Ranked",
+                   "game_name": "Valorant", "thumbnail_url": "https://x/{width}x{height}.jpg"}]}
+    )
+    assert streams[0]["login"] == "ninja"
+    assert streams[0]["url"] == "https://twitch.tv/ninja"
+    assert "640" in streams[0]["thumbnail"]
+
+    # 5. CRUD langganan
+    gid = 616161
+    sn.social_guilds.pop(gid, None)
+    sub = sn.add_subscription(gid, "youtube", "@NamaChannel", 700)
+    assert sub["platform"] == "youtube" and sub["seeded"] is False
+    assert sn.find_subscription(gid, sub["id"]) is sub
+    assert sub["id"] in sn.summarize_subscription(sub)
+
+    # tambah ulang target sama → memperbarui, bukan menduplikasi
+    same = sn.add_subscription(gid, "youtube", "@namachannel", 701)
+    assert same["id"] == sub["id"] and same["channel_id"] == 701
+    assert len(sn.get_subscriptions(gid)) == 1
+
+    # TikTok wajib URL feed; platform tak dikenal & target kosong ditolak
+    for bad in [
+        lambda: sn.add_subscription(gid, "tiktok", "@user", 700),
+        lambda: sn.add_subscription(gid, "myspace", "x", 700),
+        lambda: sn.add_subscription(gid, "youtube", "  ", 700),
+    ]:
+        try:
+            bad()
+        except ValueError:
+            continue
+        raise AssertionError("input tidak valid seharusnya ditolak")
+
+    assert sn.add_subscription(gid, "tiktok", "https://rsshub.app/tiktok/user/@a", 700)["platform"] == "tiktok"
+
+    # batas jumlah langganan per server
+    for i in range(sn.MAX_SUBS_PER_GUILD):
+        try:
+            sn.add_subscription(gid, "youtube", f"https://youtube.com/@kanal{i}", 700)
+        except ValueError:
+            break
+    assert len(sn.get_subscriptions(gid)) <= sn.MAX_SUBS_PER_GUILD
+
+    # 6. Template notifikasi (0 kuota AI)
+    text = sn.build_notification_text(
+        {"platform": "twitch", "template": "", "target": "ninja"},
+        {"source": "Ninja", "title": "Ranked", "url": "https://twitch.tv/ninja", "game": "Valorant"},
+    )
+    assert "Ninja" in text and "Valorant" in text and "LIVE" in text
+    custom = sn.build_notification_text(
+        {"platform": "youtube", "template": "[{source}] {title} -> {url}", "target": "@a"},
+        {"source": "Kanal", "title": "Video", "url": "https://youtu.be/x"},
+    )
+    assert custom == "[Kanal] Video -> https://youtu.be/x"
+
+    # 7. Hapus langganan
+    assert sn.remove_subscription(gid, sub["id"]) is True
+    assert sn.remove_subscription(gid, "tidakada") is False
+    sn.social_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_social_notify_seeding_and_dispatch(monkeypatch):
+    """Polling pertama tidak membanjiri channel; item baru berikutnya dikirim."""
+    import social_notify as sn
+    from cogs.social_cog import sosial_group
+
+    gid = 626262
+    sn.social_guilds.pop(gid, None)
+    sub = sn.add_subscription(gid, "youtube", "UC" + "a" * 22, 800)
+
+    sent_posts: list[dict] = []
+
+    class _Channel:
+        id = 800
+
+        async def send(self, **kwargs):
+            sent_posts.append(kwargs)
+
+    class _Guild:
+        id = gid
+
+        def get_channel(self, cid):
+            return _Channel() if int(cid) == 800 else None
+
+    feed = {"items": [{"id": "v1", "title": "Video 1", "url": "https://youtu.be/v1", "source": "Kanal"}]}
+
+    async def _fake_fetch(session, subscription):
+        return [dict(item) for item in feed["items"]]
+
+    monkeypatch.setattr(sn, "fetch_feed_items", _fake_fetch)
+
+    # polling pertama: di-seed, tidak ada pesan
+    assert await sn.check_subscription(None, _Guild(), sub, None) == 0
+    assert sub["seeded"] is True and sub["seen"] == ["v1"]
+    assert sent_posts == []
+
+    # video baru muncul → dikirim satu kali saja
+    feed["items"].insert(0, {"id": "v2", "title": "Video 2", "url": "https://youtu.be/v2", "source": "Kanal"})
+    assert await sn.check_subscription(None, _Guild(), sub, None) == 1
+    assert len(sent_posts) == 1
+    assert "Video 2" in sent_posts[0]["embed"].title
+
+    # pengecekan berikutnya tidak mengirim ulang
+    assert await sn.check_subscription(None, _Guild(), sub, None) == 0
+    assert len(sent_posts) == 1
+
+    # /sosial tes tetap memaksa kirim
+    assert await sn.check_subscription(None, _Guild(), sub, None, force=True) == 1
+
+    # command /sosial terdaftar lengkap
+    assert {c.name for c in sosial_group.commands} == {"tambah", "daftar", "hapus", "tes", "status"}
+
+    # diagnosa kesiapan: tanpa kredensial Twitch → fitur Twitch ditandai belum aktif
+    info = await sn.diagnose(None)
+    assert info["twitch_configured"] is False
+    assert info["twitch_token_ok"] is False
+    assert set(info["counts"]) == {"youtube", "twitch", "tiktok"}
+    assert info["total"] == len(sn.get_subscriptions(gid))
+    tambah = next(c for c in sosial_group.commands if c.name == "tambah")
+    platform_choices = tambah.parameters[0].choices
+    assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok"}
+
+    sn.social_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_moderation_cases_auto_punish_and_persistence():
+    """Moderasi: kasus bernomor, hitung warn dalam jendela, auto-punish, & simpan-muat."""
+    import moderation as md
+    from cogs.moderation_cog import mod_group
+
+    gid = 717171
+    md.mod_cases.pop(gid, None)
+    md.mod_settings.pop(gid, None)
+
+    # 1. Parsing & format durasi
+    assert md.parse_duration("10m") == 600
+    assert md.parse_duration("1h30m") == 5400
+    assert md.parse_duration("2d") == 172800
+    assert md.parse_duration("45") == 45
+    assert md.parse_duration("") == 600
+    assert md.parse_duration("ngawur", default_sec=90) == 90
+    assert md.format_duration(5400) == "1 jam 30 menit"
+    assert md.format_duration(None) == "permanen"
+
+    # 2. Kasus bernomor berurutan + urutan tampilan terbaru dulu
+    first = md.add_case(gid, 900, 1, "warn", "spam link")
+    second = md.add_case(gid, 900, 1, "timeout", "melanjutkan spam", duration_sec=600)
+    assert (first["id"], second["id"]) == (1, 2)
+    assert md.list_cases(gid)[0]["id"] == 2
+    assert md.get_case(gid, 1)["reason"] == "spam link"
+    assert "spam link" in md.summarize_case(first)
+
+    # 3. Hitung warn & ambang auto-punish (default 3)
+    md.add_case(gid, 900, 1, "warn", "warn kedua")
+    assert md.count_warns(gid, 900) == 2
+    assert md.should_auto_punish(gid, 900) == (False, 0)
+    md.add_case(gid, 900, 1, "warn", "warn ketiga")
+    assert md.should_auto_punish(gid, 900) == (True, 60)
+
+    # ambang 0 → auto-punish mati
+    md.set_settings(gid, warn_threshold=0)
+    assert md.should_auto_punish(gid, 900) == (False, 0)
+    md.set_settings(gid, warn_threshold=3, auto_timeout_min=120)
+    assert md.should_auto_punish(gid, 900) == (True, 120)
+
+    # warn di luar jendela waktu tidak dihitung
+    old_case = md.add_case(gid, 901, 1, "warn", "warn lama")
+    old_case["created_at"] -= 40 * 86400
+    assert md.count_warns(gid, 901) == 0
+    assert md.count_warns(gid, 901, days=365) == 1
+
+    # 4. Pengaturan: nilai dibatasi & kunci asing diabaikan
+    settings = md.set_settings(gid, log_channel=123, dm_user=False, warn_threshold=99, ngawur=1)
+    assert settings["log_channel"] == 123
+    assert settings["dm_user"] is False
+    assert settings["warn_threshold"] == 10          # clamp maksimum
+    assert "ngawur" not in settings
+
+    # 5. Hapus kasus (tidak menghapus lainnya)
+    assert md.delete_case(gid, 1) is True
+    assert md.delete_case(gid, 999) is False
+    assert md.get_case(gid, 1) is None and md.get_case(gid, 2) is not None
+
+    # 6. Simpan → muat ulang dari disk
+    await md.save_moderation_to_disk()
+    md.mod_cases.clear()
+    md.mod_settings.clear()
+    loaded_guilds, loaded_cases = md.load_moderation_from_disk()
+    assert loaded_guilds >= 1 and loaded_cases >= 2
+    assert md.get_case(gid, 2) is not None
+    assert md.get_settings(gid)["log_channel"] == 123
+
+    # 7. Command /mod terdaftar lengkap
+    names = {c.name for c in mod_group.commands}
+    assert {"warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur"} == names
+
+    md.mod_cases.pop(gid, None)
+    md.mod_settings.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_temp_voice_config_rooms_and_persistence():
+    """Temp Voice: template nama, pendaftaran room, kepemilikan, batas, & simpan-muat."""
+    import temp_voice as tv
+    from cogs.tempvoice_cog import tempvoice_group
+
+    gid = 727272
+    tv.temp_voice_guilds.pop(gid, None)
+    for cid in list(tv.temp_rooms):
+        if tv.temp_rooms[cid].get("guild_id") == gid:
+            tv.temp_rooms.pop(cid, None)
+
+    # 1. Sebelum diatur: tidak ada konfigurasi
+    assert tv.get_config(gid) is None
+
+    # 2. Aktifkan hub + template nama
+    config = tv.set_hub(gid, 500, name_template="🔊 Room {user}", user_limit=5)
+    assert config["hub_id"] == 500 and config["user_limit"] == 5
+    assert tv.get_config(gid)["name_template"] == "🔊 Room {user}"
+
+    class _Member:
+        display_name = "Whas"
+        name = "whas"
+
+    assert tv.room_name_for(config, _Member()) == "🔊 Room Whas"
+    # template kosong → kembali ke bawaan
+    tv.set_hub(gid, 500, name_template="")
+    assert tv.get_config(gid)["name_template"] == tv.DEFAULT_NAME_TEMPLATE
+    assert tv.room_name_for(tv.get_config(gid), _Member()) == "🔊 Whas"
+
+    # 3. Room: daftar, kepemilikan, kunci, nama
+    tv.register_room(9001, gid, 1111, "Room Whas")
+    assert tv.get_room(9001)["owner_id"] == 1111
+    assert tv.is_owner(9001, 1111) is True
+    assert tv.is_owner(9001, 2222) is False
+    assert tv.guild_room_count(gid) == 1
+    assert tv.set_room_locked(9001, True) is True
+    assert tv.get_room(9001)["locked"] is True
+    assert tv.set_room_name(9001, "Room Baru") is True
+    assert tv.get_room(9001)["name"] == "Room Baru"
+    assert tv.set_room_locked(12345, True) is False
+
+    # 4. Sanitasi nama
+    assert tv.sanitize_room_name("  Room   Anime  ") == "Room Anime"
+    assert tv.sanitize_room_name("x" * 300) == "x" * 100
+
+    # 5. Simpan → muat ulang
+    await tv.save_temp_voice_to_disk()
+    tv.temp_voice_guilds.clear()
+    tv.temp_rooms.clear()
+    loaded_guilds, loaded_rooms = tv.load_temp_voice_from_disk()
+    assert loaded_guilds >= 1 and loaded_rooms >= 1
+    assert tv.get_config(gid)["hub_id"] == 500
+    assert tv.get_room(9001)["name"] == "Room Baru"
+
+    # 6. Nonaktifkan → konfigurasi hilang, room tetap terdaftar (dihapus saat kosong)
+    assert tv.set_hub(gid, 0, enabled=False) is None
+    assert tv.get_config(gid) is None
+
+    # 7. Command /tempvoice terdaftar
+    assert {c.name for c in tempvoice_group.commands} == {
+        "atur", "status", "kunci", "nama", "limit", "tendang"
+    }
+
+    tv.unregister_room(9001)
+    tv.temp_voice_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_suggestions_voting_status_and_persistence():
+    """Kotak saran: voting berganti, status, penghapusan, simpan-muat, & command."""
+    import suggestions as sg
+    from cogs.suggestions_cog import embed_group, parse_color, saran_group
+
+    gid = 737373
+    sg.suggestion_settings.pop(gid, None)
+    sg.suggestion_items.pop(gid, None)
+
+    # 1. Channel kotak saran
+    assert sg.get_channel(gid) is None
+    assert sg.set_channel(gid, 900) == 900
+    assert sg.get_channel(gid) == 900
+    assert sg.set_channel(gid, None) is None
+    sg.set_channel(gid, 900)
+
+    # 2. Saran baru + validasi
+    item = sg.add_suggestion(gid, 4001, "Tambah channel meme dong")
+    assert item["id"] == 1 and item["status"] == "baru"
+    try:
+        sg.add_suggestion(gid, 4001, "   ")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("saran kosong harus ditolak")
+
+    # 3. Voting: baru → duplikat → berganti → duplikat
+    sg.bind_message(gid, item["id"], 555)
+    assert sg.vote(555, 1, "up")[0] == "baru"
+    assert sg.vote(555, 1, "up")[0] == "duplikat"
+    assert sg.vote(555, 1, "down")[0] == "berganti"
+    assert sg.vote(555, 2, "down")[0] == "baru"
+    assert sg.vote(999, 1, "up")[0] == "tidak_ada"
+    item = sg.get_by_message(555)
+    assert len(item["up"]) == 0 and len(item["down"]) == 2
+    assert sg.score(item) == -2
+
+    # 4. Status & validasi status asing
+    assert sg.set_status(gid, 1, "diterima")["status"] == "diterima"
+    assert sg.set_status(gid, 1, "ngawur") is None
+    assert sg.set_status(gid, 99, "diterima") is None
+
+    # 5. Embed saran memuat status & hitungan
+    embed = sg.build_suggestion_embed(gid, item)
+    assert "Diterima" in embed.title
+    assert any("Tidak setuju" in f.name for f in embed.fields)
+
+    # 6. Daftar & filter
+    second = sg.add_suggestion(gid, 4002, "Adakan event mingguan")
+    assert [i["id"] for i in sg.list_suggestions(gid)][0] == second["id"]
+    assert len(sg.list_suggestions(gid, status="diterima")) == 1
+
+    # 7. Simpan → muat ulang (termasuk pemetaan tombol pesan)
+    await sg.save_suggestions_to_disk()
+    sg.suggestion_items.clear()
+    sg.suggestion_settings.clear()
+    sg._by_message.clear()
+    loaded_guilds, loaded_items = sg.load_suggestions_from_disk()
+    assert loaded_guilds >= 1 and loaded_items >= 2
+    assert sg.get_channel(gid) == 900
+    assert sg.get_by_message(555) is not None
+
+    # 8. Hapus saran
+    assert sg.delete_suggestion(gid, 1) is True
+    assert sg.delete_suggestion(gid, 1) is False
+    assert sg.get_by_message(555) is None
+
+    # 9. Warna embed: hex, nama Indonesia, & fallback
+    assert str(parse_color("#9B59B6")) == str(discord.Colour(0x9B59B6))
+    assert str(parse_color("biru")) == str(discord.Colour(0x3498DB))
+    assert str(parse_color("ngawur")) == str(discord.Colour(0x9B59B6))
+
+    # 10. Command terdaftar
+    assert {c.name for c in saran_group.commands} == {"pasang", "kirim", "daftar", "status", "hapus"}
+    assert {c.name for c in embed_group.commands} == {"buat", "cepat"}
+
+    sg.suggestion_settings.pop(gid, None)
+    sg.suggestion_items.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_server_tools_afk_threads_lockdown_backup():
+    """Perkakas server: AFK, auto-thread, lockdown state, & snapshot backup struktur."""
+    import server_tools as st
+    from cogs.utility_cog import afk_group, backup_group, build_server_backup, lockdown_group, thread_group
+
+    gid = 747474
+    st.afk_users.pop(gid, None)
+    st.auto_thread_channels.pop(gid, None)
+    st.lockdown_state.pop(gid, None)
+
+    # 1. AFK: set, deteksi mention (format <@id> & <@!id>), lalu dilepas
+    entry = st.set_afk(gid, 1234, "tidur dulu")
+    assert entry["reason"] == "tidur dulu"
+    assert st.get_afk(gid, 1234) is not None
+    found = st.afk_mentions(gid, "halo <@1234> dan <@!1234> apa kabar <@9999>")
+    assert len(found) == 1 and found[0][0] == 1234
+    assert "detik" in st.afk_since_text(entry) or "menit" in st.afk_since_text(entry)
+    assert st.pop_afk(gid, 1234) is not None
+    assert st.pop_afk(gid, 1234) is None
+    st.set_afk(gid, 1234, "")
+
+    # 2. Auto-thread config
+    config = st.enable_auto_thread(gid, 800, archive_minutes=120)
+    assert config["archive"] == 120
+    assert st.auto_thread_config(gid, 800)["archive"] == 120
+    assert 800 in st.list_auto_threads(gid)
+    assert st.disable_auto_thread(gid, 800) is True
+    assert st.disable_auto_thread(gid, 800) is False
+
+    # 3. Nama thread dari isi pesan
+    class _Msg:
+        content = "  Ini   judul   diskusi panjang " + "x" * 200
+        attachments = []
+
+    name = st.thread_name_for(_Msg())
+    assert name.startswith("Ini judul diskusi") and len(name) <= 100
+
+    # 4. Lockdown: status awal kosong
+    assert st.lockdown_active(gid) is None
+
+    # 5. Simpan → muat ulang AFK & thread
+    st.enable_auto_thread(gid, 801, archive_minutes=1440)
+    await st.save_server_tools_to_disk()
+    st.afk_users.clear()
+    st.auto_thread_channels.clear()
+    loaded_afk, loaded_threads = st.load_server_tools_from_disk()
+    assert loaded_afk >= 1 and loaded_threads >= 1
+    assert st.get_afk(gid, 1234)["reason"] == "tanpa alasan"
+    assert st.auto_thread_config(gid, 801)["archive"] == 1440
+
+    # 6. Backup struktur server (snapshot baca-saja)
+    class _Perms:
+        def __init__(self, value=0):
+            self.value = value
+
+    class _Role:
+        def __init__(self, rid, name):
+            self.id = rid
+            self.name = name
+            self.permissions = _Perms(8)
+            self.colour = type("C", (), {"value": 0x9B59B6})()
+            self.hoist = True
+            self.mentionable = False
+            self.position = 2
+
+        def is_default(self):
+            return False
+
+    class _Category:
+        id = 1
+        name = "Umum"
+        position = 0
+        overwrites = {}
+        text_channels = []
+
+    class _TextChannel:
+        id = 10
+        name = "umum"
+        type = discord.ChannelType.text
+        position = 1
+        category = _Category()
+        overwrites = {}
+        topic = "ngobrol"
+        nsfw = False
+        slowmode_delay = 0
+
+    class _Guild:
+        id = gid
+        name = "Server Uji"
+        member_count = 42
+        roles = [type("R", (), {"is_default": lambda self: True})()] + [_Role(2, "Staff")]
+        categories = [_Category()]
+        channels = [_TextChannel()]
+
+    snapshot = build_server_backup(_Guild())
+    assert snapshot["meta"]["guild_id"] == gid
+    assert len(snapshot["roles"]) == 1                      # role @everyone tidak ikut
+    assert snapshot["channels"][0]["topic"] == "ngobrol"
+    assert snapshot["channels"][0]["category_id"] == 1
+    assert "messages" not in snapshot                       # baca-saja, tanpa isi pesan
+
+    # 7. Command terdaftar
+    assert {"atur", "daftar", "hapus"} == {c.name for c in afk_group.commands}
+    assert {"aktifkan", "matikan", "status"} == {c.name for c in thread_group.commands}
+    assert {"aktif", "status"} == {c.name for c in lockdown_group.commands}
+    assert {"struktur"} == {c.name for c in backup_group.commands}
+
+    st.afk_users.pop(gid, None)
+    st.auto_thread_channels.pop(gid, None)
+
+def test_visual_polish_status_embeds_and_panel_tabs():
+    """Konsistensi visual: status_embed (warna semantik) & tab /panel memuat fitur baru."""
+    import ui_theme
+    from cogs.panel_cog import _gather
+
+    gid = 757575
+    # 1. status_embed: emoji judul + warna semantik per jenis
+    ok = ui_theme.status_embed(gid, "ok", "Selesai", "isi")
+    warn = ui_theme.status_embed(gid, "warn", "Hati-hati")
+    err = ui_theme.status_embed(gid, "error", "Gagal")
+    info = ui_theme.status_embed(gid, "info", "Info")
+    lock = ui_theme.status_embed(gid, "lock", "Terkunci")
+    assert ok.title.startswith("✅") and warn.title.startswith("⚠️")
+    assert err.title.startswith("⛔") and info.title.startswith("ℹ️")
+    assert lock.title.startswith("🔒")
+    assert {ok.colour.value, warn.colour.value, err.colour.value, lock.colour.value} == {
+        0x2ECC71, 0xF1C40F, 0xE74C3C, 0xE67E22
+    }
+    # "info" ikut warna aksen server (bisa diubah tema)
+    assert info.colour.value == ui_theme.accent_int(gid)
+    # judul/description dipotong aman & footer tema terpasang
+    long_embed = ui_theme.status_embed(gid, "ok", "x" * 400, "y" * 5000)
+    assert len(long_embed.title) <= 256 and len(long_embed.description) <= 4096
+    assert long_embed.footer.text
+
+    # 2. Semua tab /panel ter-render (tanpa error) & memuat fitur baru
+    class _Guild:
+        id = gid
+        name = "Server Uji"
+        member_count = 42
+        premium_subscription_count = 0
+        me = None
+
+        def get_channel(self, cid):
+            return None
+
+        def get_role(self, rid):
+            return None
+
+    rendered = {}
+    for tab in ("overview", "ai", "server", "community", "music", "insights"):
+        title, lines = _gather(_Guild(), tab)
+        assert title and lines
+        rendered[tab] = "\n".join(lines)
+
+    assert "Moderasi" in rendered["server"] and "Lockdown" in rendered["server"]
+    for keyword in ("Temp Voice", "Kotak saran", "Notifikasi sosial", "Status AFK", "Thread otomatis"):
+        assert keyword in rendered["community"], f"{keyword} belum tampil di tab Komunitas"
+
+
+
+@pytest.mark.asyncio
+async def test_send_status_uses_components_v2_with_embed_fallback():
+    """Semua balasan konfirmasi dikirim sebagai kartu V2, dengan embed tetap tersedia."""
+    import ui_kit
+    import ui_theme
+
+    calls: list[dict] = []
+
+    class _Response:
+        async def send_message(self, **kwargs):
+            if "view" in kwargs and FAIL_VIEW:
+                raise TypeError("V2 ditolak klien")
+            calls.append(kwargs)
+
+    class _Followup:
+        async def send(self, **kwargs):
+            if "view" in kwargs and FAIL_VIEW:
+                raise TypeError("V2 ditolak klien")
+            calls.append(kwargs)
+
+    class _Interaction:
+        guild = None
+
+        def __init__(self):
+            self.response = _Response()
+            self.followup = _Followup()
+
+    embed = ui_theme.status_embed(999, "ok", "Selesai", "Contoh isi")
+    interaction = _Interaction()
+
+    # 1. Jalur utama: kartu Components V2
+    FAIL_VIEW = False
+    assert await ui_kit.send_status(interaction, embed=embed) is True
+    sent = calls[-1]
+    assert isinstance(sent["view"], discord.ui.LayoutView)
+    container = sent["view"].children[0]
+    assert isinstance(container, discord.ui.Container)
+    joined = " ".join(getattr(child, "content", "") for child in container.children)
+    assert "Selesai" in joined and "Contoh isi" in joined
+
+    # 2. Jalur followup (setelah defer) juga memakai kartu V2
+    assert await ui_kit.send_status(interaction, embed=embed, follow=True) is True
+    assert isinstance(calls[-1]["view"], discord.ui.LayoutView)
+
+    # 3. Bila klien/server menolak V2 → otomatis kirim embed klasik
+    FAIL_VIEW = True
+    assert await ui_kit.send_status(interaction, embed=embed) is False
+    assert calls[-1]["embed"] is embed and "view" not in calls[-1]
+    assert await ui_kit.send_status(interaction, embed=embed, follow=True) is False
+    assert calls[-1]["embed"] is embed
+
+    # 4. Seluruh balasan konfirmasi cog baru memakai helper ini
+    for path in (
+        "cogs/moderation_cog.py",
+        "cogs/tempvoice_cog.py",
+        "cogs/suggestions_cog.py",
+        "cogs/utility_cog.py",
+    ):
+        source = open(path, encoding="utf-8").read()
+        assert "ui_kit.send_status(" in source, f"{path} belum memakai kartu V2"
+
+
+def test_ai_guard_faq_cache_guild_cap_and_savings(monkeypatch):
+    """AI Guard: FAQ-first, cache jawaban, batas harian per server, & penghematan."""
+    import ai_guard
+    import insights
+
+    # 1. FAQ-first: dijawab dari catatan lokal tanpa memanggil AI
+    entries = [
+        {"topic": "Cara Verifikasi", "content": "Klik tombol verifikasi di channel verifikasi."},
+        {"topic": "Jam Event", "content": "Event mingguan setiap Sabtu pukul 20.00 WIB."},
+    ]
+    ai_guard.reset_savings()
+    hit = ai_guard.faq_first_answer(entries, "bagaimana cara verifikasi akun?")
+    assert hit and hit["topic"] == "Cara Verifikasi"
+    reply = ai_guard.format_faq_reply(hit)
+    assert "Cara Verifikasi" in reply and "0 kuota" in reply
+    assert ai_guard.faq_first_answer(entries, "zzz qqq") is None
+    assert ai_guard.faq_first_answer([], "bagaimana cara verifikasi akun?") is None
+    assert ai_guard.savings_stats()["faq_hits"] == 1
+
+    # 2. Cache jawaban identik (TTL) — pertanyaan sama tidak memakai kuota lagi
+    ai_guard.clear_reply_cache()
+    question = "Bagaimana cara verifikasi akun di server ini?"
+    answer = "Klik tombol verifikasi di channel verifikasi, lalu ikuti langkahnya."
+    assert ai_guard.get_cached_reply(77, question) is None
+    assert ai_guard.store_cached_reply(77, question, answer) is True
+    assert ai_guard.reply_cache_size() == 1
+    assert ai_guard.get_cached_reply(77, question.upper()) == answer
+    assert ai_guard.get_cached_reply(77, question, ttl=0) is None   # TTL 0 = kedaluwarsa
+    assert ai_guard.reply_cache_size() == 0
+    assert ai_guard.store_cached_reply(78, "oke", answer) is False
+    assert ai_guard.savings_stats()["cache_hits"] >= 1
+    assert ai_guard.clear_reply_cache() >= 0
+    assert ai_guard.cleanup_ai_guard_runtime() >= 0
+
+    # 3. Batas harian per server + peringatan 80% hanya sekali per hari
+    ai_guard.guild_ai_usage.clear()
+    ai_guard._guild_alerted.clear()
+    assert ai_guard.check_guild_cap(1234, cap=0) == (True, 0, 0)
+    for _ in range(4):
+        ai_guard.record_guild_usage(1234)
+    allowed, used, limit = ai_guard.check_guild_cap(1234, cap=5)
+    assert allowed is True and used == 4 and limit == 5
+    ai_guard.record_guild_usage(1234)
+    assert ai_guard.check_guild_cap(1234, cap=5)[0] is False
+    assert "batas harian" in ai_guard.cap_message(1234, 5, 5)
+
+    monkeypatch.setattr(ai_guard, "AI_DAILY_CAP_PER_GUILD", 5)
+    assert ai_guard.should_alert_guild_cap(1234)[0] is True
+    assert ai_guard.should_alert_guild_cap(1234)[0] is False  # tidak spam
+    assert ai_guard.guild_usage_today(1234) == 5
+
+    # 4. Pemakaian per server tersimpan & termuat kembali dari JSON
+    payload = ai_guard.guild_usage_payload()
+    assert str(1234) in payload[ai_guard._today()]
+    ai_guard.guild_ai_usage.clear()
+    assert ai_guard.load_guild_usage_from_disk(payload) >= 1
+    assert ai_guard.guild_usage_today(1234) == 5
+    ai_guard.guild_ai_usage.clear()
+    ai_guard.guild_ai_usage[insights.today_key()] = {1234: 2}
+    insights.record_ai_usage("chat", user_id=1, guild_id=1234)
+    assert ai_guard.guild_usage_today(1234) == 3
+
+
+def test_ai_guard_routing_safety_resilience_and_tokens(monkeypatch):
+    """AI Guard: router model hemat, safetySettings, Retry-After, anti-halusinasi, & token."""
+    import ai_guard
+    import insights
+
+    # 1. Router: pertanyaan ringan → model hemat, pertanyaan berat tetap model utama
+    assert ai_guard.route_model_key("gemini_flash", "halo bot apa kabar hari ini") == "gemini_fast"
+    assert ai_guard.route_model_key("gemini_flash", "tolong debug script python ini") == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "halo", has_media=True) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "halo", has_links=True) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "halo", history_len=20) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "x" * 400) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_logic", "halo") == "gemini_logic"
+
+    # 2. Safety settings per server
+    payload: dict = {}
+    ai_guard.apply_safety(payload, "longgar")
+    assert "safetySettings" not in payload          # default Google
+    assert ai_guard.safety_settings_for("ngawur") is None
+    ai_guard.apply_safety(payload, "ketat")
+    assert payload["safetySettings"][0]["threshold"] == "BLOCK_MEDIUM_AND_ABOVE"
+    assert len(payload["safetySettings"]) == 5
+    ai_guard.apply_safety(payload, "normal")
+    assert payload["safetySettings"][0]["threshold"] == "BLOCK_ONLY_HIGH"
+
+    # 3. Retry-After dibaca & key diberi cooldown (bukan dihukum selamanya)
+    assert ai_handler.parse_retry_after({"Retry-After": "42"}) == 42.0
+    assert ai_handler.parse_retry_after({"retry-after": "1"}) == 1.0
+    assert ai_handler.parse_retry_after({}) == 20.0
+    assert ai_handler.parse_retry_after({"Retry-After": "99999"}) == 120.0
+    assert ai_handler.parse_retry_after({"Retry-After": "0"}) == 1.0
+    assert ai_handler.parse_retry_after({"Retry-After": "abc"}) == 20.0
+    ai_handler.mark_key_unhealthy("kunci-uji", 30)
+    assert ai_handler.key_cooldown_left("kunci-uji") > 25
+    assert ai_handler.key_cooldown_left("kunci-lain") == 0.0
+    ai_handler._key_cooldown_until.clear()
+
+    # 4. Anti-halusinasi (idempoten) & ringkasan riwayat terpangkas
+    prompt = ai_guard.with_accuracy_rules("Kamu teman komunitas.")
+    assert "[ATURAN AKURASI]" in prompt
+    assert ai_guard.with_accuracy_rules(prompt).count("[ATURAN AKURASI]") == 1
+    assert ai_guard.with_accuracy_rules("x", enabled=False) == "x"
+    dropped = [
+        {"role": "user", "content": "Aku mau bikin server Minecraft"},
+        {"role": "model", "content": "Wah seru, mau tema apa?"},
+    ]
+    summary = ai_guard.compress_dropped_history(dropped)
+    assert "Minecraft" in summary and "RINGKASAN OBROLAN" in summary
+    merged = ai_guard.merge_history_summary("Ringkasan lama.", dropped)
+    assert "Ringkasan lama." in merged and "Minecraft" in merged
+    assert ai_guard.merge_history_summary("Ringkasan lama.", []) == "Ringkasan lama."
+    assert ai_guard.compress_dropped_history([]) == ""
+
+    # 5. Token dari usageMetadata ikut tercatat (bukan cuma jumlah operasi)
+    before_in, before_out = insights.token_totals()
+    ai_handler._record_token_usage(
+        {"usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 45}}
+    )
+    after_in, after_out = insights.token_totals()
+    assert after_in >= before_in + 120 and after_out >= before_out + 45
+    ai_handler._record_token_usage({})  # payload tanpa usageMetadata tidak boleh error
+
+    # 6. /pemakaian menampilkan token & kuota server
+    embed = insights.build_usage_embed(guild_id=1234)
+    assert "Token" in embed.description
+    assert any("Kuota Server" in field.name for field in embed.fields)
+
+    # 7. Jalur utama benar-benar memakai pengaman baru ini (audit statis)
+    agent_src = open("community_agent.py", encoding="utf-8").read()
+    for needle in (
+        "ai_guard.faq_first_answer(",
+        "ai_guard.get_cached_reply(",
+        "ai_guard.store_cached_reply(",
+        "ai_guard.check_guild_cap(",
+        "usage_guild_id=guild_id",
+        "safety_level=get_guild_safety_level(guild_id)",
+    ):
+        assert needle in agent_src, f"community_agent.py belum memakai {needle}"
+    handler_src = open("ai_handler.py", encoding="utf-8").read()
+    for needle in ("ai_guard.apply_safety(", "ai_guard.with_accuracy_rules("):
+        assert needle in handler_src, f"ai_handler.py belum memakai {needle}"
+    # token dicatat di seluruh jalur teks (chat, rekap, cari, link, transformasi, fakta)
+    assert handler_src.count("_record_token_usage(data)") >= 5
+    assert "history_summary" in open("storage.py", encoding="utf-8").read()
+
+    # 8. System prompt agent ikut membawa aturan anti-halusinasi
+    prompt = community_agent._build_community_system_prompt(
+        {"nickname": "Teman", "style_preset": "akrab", "knowledge_entries": []},
+        "Teman",
+        {"summary": "Senin siang", "clock": "12.00"},
+    )
+    assert "[ATURAN AKURASI]" in prompt
