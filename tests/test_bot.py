@@ -3581,9 +3581,14 @@ async def test_music_command_structure_and_setup_guard(monkeypatch):
         "seek", "sebelumnya", "filter", "autoplay", "panel",
         # v1.11.1-beta: diagnosa & sambung ulang node Lavalink
         "node",
+        # v1.32.0-beta: playlist per member
+        "playlist",
     }
     for sub in musik.commands:
         assert 1 <= len(sub.description) <= 100
+        if isinstance(sub, discord.app_commands.Group):
+            for child in sub.commands:
+                assert 1 <= len(child.description) <= 100
 
     # Tanpa konfigurasi Lavalink, bot tetap hidup & command memberi panduan setup
     monkeypatch.setattr(music, "MUSIC_ENABLED", False)
@@ -8144,3 +8149,80 @@ async def test_raid_guard_detection_actions_and_auto_end(monkeypatch):
     raid_guard.raid_configs.clear()
     raid_guard.raid_states.clear()
     raid_guard.reset_runtime()
+
+
+# ==============================================================================
+# PLAYLIST MUSIK PER MEMBER (v1.32.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_music_playlists_per_member():
+    """Playlist pribadi: simpan, batas kuota, ubah nama, hapus lagu, & persistensi."""
+    import music_playlists as pl
+
+    pl.guild_playlists.clear()
+
+    def _track(title, uri=None, ident="ytsearch"):
+        return {"title": title, "query": uri or title, "identifier": ident}
+
+    # 1. Simpan playlist pertama (menimpa)
+    ok, msg = pl.save_playlist(1, 10, "  Favorit  Nya ", [_track("Lagu A"), _track("Lagu B")])
+    assert ok and "Favorit Nya" in msg
+    assert len(pl.member_playlists(1, 10)) == 1
+    data = pl.get_playlist(1, 10, "favorit nya")
+    assert data is not None and len(data["tracks"]) == 2
+
+    # 2. Duplikat nama (tanpa peka huruf) tidak membuat playlist baru
+    ok, _ = pl.save_playlist(1, 10, "FAVORIT NYA", [_track("Lagu A"), _track("Lagu C")], replace=False)
+    assert ok
+    names = [item["name"] for item in pl.member_playlists(1, 10)]
+    assert names == ["Favorit Nya"]
+    # replace=False menambahkan lagu baru tanpa menghapus yang lama
+    assert [t["title"] for t in pl.get_playlist(1, 10, "favorit nya")["tracks"]] == ["Lagu A", "Lagu B", "Lagu C"]
+
+    # 3. Validasi nama
+    assert pl.save_playlist(1, 10, "   ", [_track("X")])[0] is False
+    assert "32" in pl.save_playlist(1, 10, "x" * 40, [_track("X")])[1]
+    assert pl.save_playlist(1, 10, "semua", [_track("X")])[0] is False
+
+    # 4. Batas playlist per member
+    for i in range(4):
+        assert pl.save_playlist(1, 10, f"Set {i}", [_track(f"Lagu {i}")])[0] is True
+    assert len(pl.member_playlists(1, 10)) == pl.MAX_PLAYLISTS_PER_MEMBER
+    ok, msg = pl.save_playlist(1, 10, "Set Baru", [_track("Lagu Z")])
+    assert ok is False and str(pl.MAX_PLAYLISTS_PER_MEMBER) in msg
+
+    # 5. Dokumen lagu dirapikan & dideduplikasi
+    entries = pl.tracks_from_queue([_track("A"), _track("A"), {"title": "B"}, {"query": ""}])
+    assert [e["title"] for e in entries] == ["A", "B"]
+
+    # 6. Batas lagu per playlist
+    many = [_track(f"Juara {i}") for i in range(pl.MAX_TRACKS_PER_PLAYLIST + 20)]
+    ok, _ = pl.save_playlist(1, 11, "Panjang", many)
+    assert ok and len(pl.get_playlist(1, 11, "panjang")["tracks"]) == pl.MAX_TRACKS_PER_PLAYLIST
+
+    # 7. Ubah nama
+    ok, msg = pl.rename_playlist(1, 10, "Set 0", "Favorit Baru")
+    assert ok and pl.get_playlist(1, 10, "favorit baru") is not None
+    assert pl.get_playlist(1, 10, "set 0") is None
+    assert pl.rename_playlist(1, 10, "Favorit Baru", "Set 1")[0] is False       # sudah dipakai
+    assert pl.rename_playlist(1, 10, "tidak ada", "Apa")[0] is False
+
+    # 8. Hapus lagu berdasarkan nomor (playlist kosong otomatis dihapus)
+    assert pl.remove_track(1, 10, "Favorit Baru", 99)[0] is False
+    assert pl.remove_track(1, 10, "Favorit Baru", 1)[0] is True
+    assert pl.get_playlist(1, 10, "Favorit Baru") is None
+
+    # 9. Hapus playlist terakhir ikut menghapus entri member
+    ok, _ = pl.delete_playlist(1, 11, "Panjang")
+    assert ok and pl.get_playlist(1, 11, "panjang") is None
+    assert pl.delete_playlist(1, 11, "Panjang")[0] is False
+
+    # 10. Persistensi & pembersihan
+    await pl.save_playlists_to_disk()
+    pl.guild_playlists.clear()
+    assert pl.load_playlists_from_disk() >= 1
+    assert pl.get_playlist(1, 10, "Set 1") is not None
+    pl.get_playlist(1, 10, "Set 1")["tracks"] = []
+    assert pl.cleanup_music_playlist_runtime() >= 1
+    pl.guild_playlists.clear()
+    await pl.save_playlists_to_disk()

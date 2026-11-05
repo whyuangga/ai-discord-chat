@@ -465,6 +465,18 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="💾 Playlist Pribadi (0 kuota AI)",
+            value=(
+                "• `/musik playlist simpan nama:Favorit` — simpan **antrean** (atau `dari:sekarang` untuk "
+                "lagu yang sedang diputar) jadi playlist milikmu.\n"
+                "• `/musik playlist daftar` & `/musik playlist lihat nama:...` — cek koleksimu.\n"
+                "• `/musik playlist putar nama:Favorit` — mainkan lagi kapan saja (bisa `berikutnya:True`).\n"
+                "• `/musik playlist hapus-lagu`, `ganti-nama`, `hapus` — kelola isinya.\n"
+                "• Batas ramah Free Tier: **5 playlist/member**, **50 lagu/playlist**."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🎛️ Kontrol Pemutaran",
             value=(
                 "• `/musik sekarang` — lagu aktif + progres bar & volume.\n"

@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.31.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.32.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -602,6 +602,10 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/musik pengaturan`** *(Admin)* | Pengumuman Now Playing, **role DJ**, & volume default. |
 | **`/musik status`** | Cek **kondisi nyata node Lavalink**, antrean, volume, role DJ, & channel pengumuman. |
 | **`/musik node sambung:True`** *(Admin)* | Diagnosa teknis node (status per node, jumlah player) & **sambung ulang paksa** tanpa restart. |
+| **`/musik playlist simpan nama:Favorit`** | Simpan antrean (atau `dari:sekarang`) sebagai **playlist pribadi** — tersimpan permanen per member. |
+| **`/musik playlist daftar`** / **`lihat`** | Lihat semua playlistmu & isinya (nomor lagu untuk hapus-lagu). |
+| **`/musik playlist putar nama:Favorit`** | Mainkan playlist pribadi ke voice channel (`berikutnya:True` untuk menambah tanpa memotong). |
+| **`/musik playlist hapus-lagu` / `ganti-nama` / `hapus`** | Kelola isi playlist (hapus pakai dialog konfirmasi). |
 
 #### 3. Perilaku & Pengamanan
 - **Anti-nimbrung voice:** bot hanya bisa dikontrol member yang **berada di voice channel yang sama**, punya **role DJ**, atau Admin. Bot juga menolak berpindah channel kalau sedang memutar di channel lain.
@@ -1449,6 +1453,7 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/musik hentikan` | — | Stop, kosongkan antrean, & keluar dari voice. |
 | `/musik pengaturan` | `pengumuman`, `role_dj`, `volume_default` | *(Admin)* Pengumuman Now Playing, role DJ, volume default. |
 | `/musik status` | — | Kesehatan node Lavalink & status pemutaran. |
+| `/musik playlist` | `simpan`/`daftar`/`lihat`/`putar`/`hapus-lagu`/`ganti-nama`/`hapus` | Playlist pribadi per member (5 playlist × 50 lagu, tersimpan permanen). |
 
 ### 7. Slash Commands Keramaian Server (`/giveaway`, `/ultah`, `/jawab-otomatis`, `/pengumuman`)
 
@@ -1821,6 +1826,7 @@ ai-discord-chat/
 ├── menu_builder.py     # Menu Builder: panel tombol/dropdown role, link, & command (data/menus.json)
 ├── antinuke.py         # Anti-Nuke: deteksi audit log, tindakan bertingkat, & pemulihan (data/antinuke.json)
 ├── raid_guard.py       # Raid Guard: mode darurat otomatis saat lonjakan join (data/raid.json)
+├── music_playlists.py  # Playlist musik per member (data/music_playlists.json)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)

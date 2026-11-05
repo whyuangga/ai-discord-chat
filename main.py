@@ -13,6 +13,11 @@ from cogs import (
 )
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
+from music_playlists import (
+    cleanup_music_playlist_runtime,
+    load_playlists_from_disk,
+    save_playlists_to_disk,
+)
 from raid_guard import (
     cleanup_raid_runtime,
     load_raid_from_disk,
@@ -265,6 +270,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_menus = load_menus_from_disk()
         loaded_antinuke = load_antinuke_from_disk()
         loaded_raid = load_raid_from_disk()
+        loaded_playlists = load_playlists_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -346,6 +352,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Panel menu dimuat: %d panel.", loaded_menus)
         logger.info("Anti-Nuke dimuat: %d server.", loaded_antinuke)
         logger.info("Raid Guard dimuat: %d server.", loaded_raid)
+        logger.info("Playlist musik dimuat: %d member.", loaded_playlists)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -439,6 +446,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_menus_to_disk()
         await save_antinuke_to_disk()
         await save_raid_to_disk()
+        await save_playlists_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -497,6 +505,7 @@ async def idle_chat_watcher():
             cleanup_menu_runtime()       # bersihkan cooldown self role menu
             cleanup_antinuke_runtime()   # pangkas catatan kejadian anti-nuke
             cleanup_raid_runtime()       # buang catatan join raid yang kedaluwarsa
+            cleanup_music_playlist_runtime()  # buang playlist kosong
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

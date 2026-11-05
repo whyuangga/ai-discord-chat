@@ -6,6 +6,8 @@ from discord import app_commands
 from discord.ext import commands
 
 import music
+import music_playlists as playlists
+import ui_kit
 from music import (
     FILTER_PRESETS,
     LOOP_MODES,
@@ -796,6 +798,262 @@ async def musik_node_cmd(interaction: discord.Interaction, sambung: bool = False
     else:
         await interaction.response.send_message(text, ephemeral=True)
 
+
+# ==============================================================================
+# PLAYLIST PER MEMBER (v1.32.0-beta) — 0 kuota AI
+# ==============================================================================
+playlist_group = app_commands.Group(
+    name="playlist",
+    description="Playlist pribadi: simpan lagu favoritmu lalu putar kapan saja (0 kuota AI)",
+    parent=musik_group,
+)
+
+_DARI_CHOICES = [
+    app_commands.Choice(name="📥 Antrean saat ini", value="antrean"),
+    app_commands.Choice(name="🎧 Lagu yang sedang diputar", value="sekarang"),
+]
+
+
+def _playlist_embed(interaction: discord.Interaction, name: str, data: dict) -> discord.Embed:
+    tracks = data.get("tracks") or []
+    lines = []
+    for index, entry in enumerate(tracks[:20], start=1):
+        title = str(entry.get("title") or entry.get("query") or "")[:80]
+        lines.append(f"`{index:02d}.` {title}")
+    if len(tracks) > 20:
+        lines.append(f"… dan `{len(tracks) - 20}` lagu lainnya.")
+    embed = discord.Embed(
+        title=f"🎵 Playlist: {name}"[:256],
+        description="\n".join(lines) or "_Playlist masih kosong._",
+        color=discord.Color.purple(),
+    )
+    embed.set_footer(
+        text=f"{len(tracks)}/{playlists.MAX_TRACKS_PER_PLAYLIST} lagu • milik {interaction.user.display_name}"[:200]
+    )
+    return embed
+
+
+@playlist_group.command(name="simpan", description="Simpan antrean/lagu yang sedang diputar ke playlist pribadimu")
+@app_commands.describe(
+    nama="Nama playlist (maksimal 32 karakter)",
+    dari="Sumber lagu yang disimpan",
+    timpa="True untuk menimpa isi playlist dengan lagu ini",
+)
+@app_commands.choices(dari=_DARI_CHOICES)
+async def playlist_simpan_cmd(
+    interaction: discord.Interaction,
+    nama: str,
+    dari: app_commands.Choice[str] | None = None,
+    timpa: bool = True,
+):
+    if interaction.guild is None:
+        return
+    source = (dari.value if dari else "antrean") or "antrean"
+    player = get_player(interaction.guild)
+
+    collected: list = []
+    if source == "sekarang":
+        current = getattr(player, "current", None) if player else None
+        if current is None:
+            await interaction.response.send_message(
+                "🎧 Tidak ada lagu yang sedang diputar saat ini.", ephemeral=True
+            )
+            return
+        collected = [current]
+    else:
+        if player is not None:
+            collected = list(getattr(player, "queue", []) or [])
+        if not collected:
+            await interaction.response.send_message(
+                "📥 Antrean masih kosong — pakai `dari:sekarang` untuk menyimpan lagu yang sedang diputar.",
+                ephemeral=True,
+            )
+            return
+
+    ok, message = playlists.save_playlist(
+        interaction.guild.id, interaction.user.id, nama, collected, replace=timpa
+    )
+    if ok:
+        await playlists.save_playlists_to_disk()
+    await interaction.response.send_message(message, ephemeral=True)
+
+
+@playlist_group.command(name="daftar", description="Lihat semua playlist pribadimu")
+async def playlist_daftar_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    items = playlists.member_playlists(interaction.guild.id, interaction.user.id)
+    if not items:
+        await interaction.response.send_message(
+            "🎵 Kamu belum punya playlist. Simpan antrean dengan "
+            "`/musik playlist simpan nama:Favorit` lalu putar lagi kapan saja.",
+            ephemeral=True,
+        )
+        return
+
+    lines = [
+        f"`{i}.` **{item['name']}** — `{len(item.get('tracks') or [])}` lagu"
+        for i, item in enumerate(items, start=1)
+    ]
+    embed = discord.Embed(
+        title="🎵 Playlist Pribadimu",
+        description="\n".join(lines),
+        color=discord.Color.purple(),
+    )
+    embed.set_footer(
+        text=f"{len(items)}/{playlists.MAX_PLAYLISTS_PER_MEMBER} playlist • putar: /musik playlist putar"
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@playlist_group.command(name="lihat", description="Lihat isi satu playlist pribadimu")
+@app_commands.describe(nama="Nama playlist")
+async def playlist_lihat_cmd(interaction: discord.Interaction, nama: str):
+    if interaction.guild is None:
+        return
+    data = playlists.get_playlist(interaction.guild.id, interaction.user.id, nama)
+    if data is None:
+        await interaction.response.send_message(
+            f"❌ Playlist **{nama[:32]}** tidak ditemukan. Lihat daftarnya di `/musik playlist daftar`.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.send_message(embed=_playlist_embed(interaction, data["name"], data), ephemeral=True)
+
+
+@playlist_group.command(name="putar", description="Putar playlist pribadimu ke voice channel")
+@app_commands.describe(nama="Nama playlist", berikutnya="True untuk menambahkan tanpa memotong lagu saat ini")
+async def playlist_putar_cmd(interaction: discord.Interaction, nama: str, berikutnya: bool = False):
+    if interaction.guild is None:
+        return
+    data = playlists.get_playlist(interaction.guild.id, interaction.user.id, nama)
+    if data is None:
+        await interaction.response.send_message(
+            f"❌ Playlist **{nama[:32]}** tidak ditemukan. Simpan dulu dengan `/musik playlist simpan`.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=False)
+    entries = (data.get("tracks") or [])[:30]
+    resolved: list = []
+    failed = 0
+    for entry in entries:
+        try:
+            tracks, _ = await search_tracks(entry.get("query") or entry.get("title") or "")
+        except MusicUnavailable as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        except Exception:  # pragma: no cover - node bermasalah
+            failed += 1
+            continue
+        if tracks:
+            resolved.append(tracks[0])
+        else:
+            failed += 1
+
+    if not resolved:
+        await interaction.followup.send(
+            "⚠️ Tidak ada lagu di playlist ini yang bisa diputar sekarang. Coba lagi nanti.",
+            ephemeral=True,
+        )
+        return
+
+    player, error = await ensure_player(interaction)
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+
+    try:
+        started = False
+        remaining = resolved
+        if not berikutnya:
+            started = await play_first_if_idle(player, resolved, interaction.user)
+            remaining = resolved[1:] if started else resolved
+        added, skipped = await enqueue_tracks(player, remaining, interaction.user)
+    except Exception as exc:  # pragma: no cover - node mati
+        await interaction.followup.send(f"⚠️ Gagal memutar playlist: `{str(exc)[:200]}`", ephemeral=True)
+        return
+
+    remember_announce_channel(interaction.guild.id, interaction.channel_id)
+    if get_music_settings(interaction.guild.id).get("announce", True):
+        await send_or_update_panel(
+            interaction.client,
+            interaction.guild.id,
+            channel=interaction.channel,
+            view=MusicPlayerView(),
+        )
+
+    note = f"\n⚠️ `{failed}` lagu tidak ditemukan." if failed else ""
+    note += f"\n⚠️ `{skipped}` lagu dilewati karena batas antrean **{MUSIC_MAX_QUEUE}**." if skipped else ""
+    await interaction.followup.send(
+        f"▶️ Playlist **{data['name']}** dimasukkan — `{added + (1 if started else 0)}` lagu "
+        f"(`{len(entries)}` dicoba).{note}",
+        ephemeral=True,
+    )
+
+
+@playlist_group.command(name="hapus-lagu", description="Hapus satu lagu dari playlist pribadimu")
+@app_commands.describe(nama="Nama playlist", nomor="Nomor lagu (lihat /musik playlist lihat)")
+async def playlist_hapus_lagu_cmd(interaction: discord.Interaction, nama: str, nomor: int):
+    if interaction.guild is None:
+        return
+    ok, message = playlists.remove_track(interaction.guild.id, interaction.user.id, nama, nomor)
+    if ok:
+        await playlists.save_playlists_to_disk()
+    await interaction.response.send_message(message, ephemeral=True)
+
+
+@playlist_group.command(name="ganti-nama", description="Ganti nama playlist pribadimu")
+@app_commands.describe(nama="Nama playlist sekarang", nama_baru="Nama baru")
+async def playlist_ganti_nama_cmd(interaction: discord.Interaction, nama: str, nama_baru: str):
+    if interaction.guild is None:
+        return
+    ok, message = playlists.rename_playlist(interaction.guild.id, interaction.user.id, nama, nama_baru)
+    if ok:
+        await playlists.save_playlists_to_disk()
+    await interaction.response.send_message(message, ephemeral=True)
+
+
+@playlist_group.command(name="hapus", description="Hapus playlist pribadimu")
+@app_commands.describe(nama="Nama playlist yang dihapus")
+async def playlist_hapus_cmd(interaction: discord.Interaction, nama: str):
+    if interaction.guild is None:
+        return
+    data = playlists.get_playlist(interaction.guild.id, interaction.user.id, nama)
+    if data is None:
+        await interaction.response.send_message(f"❌ Playlist **{nama[:32]}** tidak ditemukan.", ephemeral=True)
+        return
+
+    detail = (
+        f"Playlist **{data['name']}** berisi `{len(data.get('tracks') or [])}` lagu. "
+        "Tindakan ini tidak bisa dibatalkan."
+    )
+    view = await ui_kit.ask_confirm(
+        interaction,
+        interaction.guild.id,
+        title="Hapus playlist pribadi?",
+        detail=detail,
+        confirm_label="Ya, hapus playlist",
+    )
+    if view is not None:
+        await view.wait()
+        if not view.result:
+            return
+
+    ok, message = playlists.delete_playlist(interaction.guild.id, interaction.user.id, nama)
+    if ok:
+        await playlists.save_playlists_to_disk()
+    if view is None:
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        try:
+            await interaction.edit_original_response(
+                embed=ui_kit.fallback_embed(interaction.guild.id, "🗑️ Playlist dihapus", message),
+                view=None,
+            )
+        except discord.HTTPException:  # pragma: no cover
+            pass
 
 def register_music_cog(bot: commands.Bot) -> None:
     """Mendaftarkan `/musik` beserta listener event Lavalink (bila library tersedia)."""
