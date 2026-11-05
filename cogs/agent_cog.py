@@ -24,6 +24,7 @@ from community_agent import (
     should_process_member_boost,
     get_agent_channel_lock,
     get_guild_search_channels,
+    get_guild_safety_level,
     get_guild_settings,
     get_guild_youtube_channels,
     parse_digest_time,
@@ -32,6 +33,7 @@ from community_agent import (
     set_chat_channel_config,
     set_digest_config,
     set_gallery_channel_config,
+    set_guild_safety_level,
     set_search_channel_config,
     set_welcome_config,
     set_youtube_channel_config,
@@ -529,6 +531,69 @@ async def agent_gallery_cmd(
         f"📸 **Gallery Auto-Comment aktif di {channel.mention}!**\n"
         f"• Setiap member mengirim **foto/gambar** atau **video pendek**, AI akan mengapresiasi isinya secara visual!\n"
         f"• **Auto-Reaction Emoji:** `{react_label}`",
+        ephemeral=True,
+    )
+
+
+@agent_group.command(
+    name="keamanan",
+    description="Atur tingkat keamanan konten balasan AI (longgar / normal / ketat)",
+)
+@app_commands.describe(
+    level="Longgar = paling bebas (default), Normal = filter standar, Ketat = paling aman untuk komunitas anak/umum",
+)
+@app_commands.choices(
+    level=[
+        app_commands.Choice(name="Longgar - paling bebas (default)", value="longgar"),
+        app_commands.Choice(name="Normal - filter standar Google", value="normal"),
+        app_commands.Choice(name="Ketat - paling aman", value="ketat"),
+    ]
+)
+async def agent_keamanan_cmd(
+    interaction: discord.Interaction,
+    level: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    gid = interaction.guild.id
+    if level is None:
+        current = get_guild_safety_level(gid)
+        label = {"longgar": "Longgar (default)", "normal": "Normal", "ketat": "Ketat"}.get(
+            current, current
+        )
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid,
+                "info",
+                "🛡️ Tingkat Keamanan AI",
+                f"Saat ini: **{label}**\n\n"
+                "Ubah lewat `/agent keamanan level:...`\n"
+                "• **Longgar** — paling bebas, memakai pengaturan bawaan Google (cocok untuk server "
+                "komunitas dewasa/umum yang santai).\n"
+                "• **Normal** — memblokir konten berisiko tinggi.\n"
+                "• **Ketat** — memblokir konten berisiko sedang, paling aman untuk server umum & remaja.\n\n"
+                "-# Pengaturan ini hanya membatasi balasan AI, tidak memengaruhi moderasi server.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    chosen = set_guild_safety_level(gid, level.value)
+    await save_agent_config_to_disk()
+    label = {"longgar": "Longgar (default)", "normal": "Normal", "ketat": "Ketat"}.get(
+        chosen, chosen
+    )
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok",
+            "🛡️ Keamanan AI diperbarui",
+            f"Tingkat keamanan konten AI sekarang: **{label}**.\n"
+            "Berlaku untuk Auto-Chat, sambutan, perpisahan, galeri, dan digest.",
+        ),
         ephemeral=True,
     )
 

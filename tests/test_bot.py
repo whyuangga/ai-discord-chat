@@ -480,6 +480,8 @@ def test_agent_command_group_registered():
         "kartu",
         "dm",
         "boost",
+        # v1.19.0-beta: tingkat keamanan konten AI per server
+        "keamanan",
     } == sub_names
 
 
@@ -6050,3 +6052,150 @@ async def test_send_status_uses_components_v2_with_embed_fallback():
     ):
         source = open(path, encoding="utf-8").read()
         assert "ui_kit.send_status(" in source, f"{path} belum memakai kartu V2"
+
+
+def test_ai_guard_faq_cache_guild_cap_and_savings(monkeypatch):
+    """AI Guard: FAQ-first, cache jawaban, batas harian per server, & penghematan."""
+    import ai_guard
+    import insights
+
+    # 1. FAQ-first: dijawab dari catatan lokal tanpa memanggil AI
+    entries = [
+        {"topic": "Cara Verifikasi", "content": "Klik tombol verifikasi di channel verifikasi."},
+        {"topic": "Jam Event", "content": "Event mingguan setiap Sabtu pukul 20.00 WIB."},
+    ]
+    ai_guard.reset_savings()
+    hit = ai_guard.faq_first_answer(entries, "bagaimana cara verifikasi akun?")
+    assert hit and hit["topic"] == "Cara Verifikasi"
+    reply = ai_guard.format_faq_reply(hit)
+    assert "Cara Verifikasi" in reply and "0 kuota" in reply
+    assert ai_guard.faq_first_answer(entries, "zzz qqq") is None
+    assert ai_guard.faq_first_answer([], "bagaimana cara verifikasi akun?") is None
+    assert ai_guard.savings_stats()["faq_hits"] == 1
+
+    # 2. Cache jawaban identik (TTL) — pertanyaan sama tidak memakai kuota lagi
+    ai_guard.clear_reply_cache()
+    question = "Bagaimana cara verifikasi akun di server ini?"
+    answer = "Klik tombol verifikasi di channel verifikasi, lalu ikuti langkahnya."
+    assert ai_guard.get_cached_reply(77, question) is None
+    assert ai_guard.store_cached_reply(77, question, answer) is True
+    assert ai_guard.reply_cache_size() == 1
+    assert ai_guard.get_cached_reply(77, question.upper()) == answer
+    assert ai_guard.get_cached_reply(77, question, ttl=0) is None   # TTL 0 = kedaluwarsa
+    assert ai_guard.reply_cache_size() == 0
+    assert ai_guard.store_cached_reply(78, "oke", answer) is False
+    assert ai_guard.savings_stats()["cache_hits"] >= 1
+    assert ai_guard.clear_reply_cache() >= 0
+    assert ai_guard.cleanup_ai_guard_runtime() >= 0
+
+    # 3. Batas harian per server + peringatan 80% hanya sekali per hari
+    ai_guard.guild_ai_usage.clear()
+    ai_guard._guild_alerted.clear()
+    assert ai_guard.check_guild_cap(1234, cap=0) == (True, 0, 0)
+    for _ in range(4):
+        ai_guard.record_guild_usage(1234)
+    allowed, used, limit = ai_guard.check_guild_cap(1234, cap=5)
+    assert allowed is True and used == 4 and limit == 5
+    ai_guard.record_guild_usage(1234)
+    assert ai_guard.check_guild_cap(1234, cap=5)[0] is False
+    assert "batas harian" in ai_guard.cap_message(1234, 5, 5)
+
+    monkeypatch.setattr(ai_guard, "AI_DAILY_CAP_PER_GUILD", 5)
+    assert ai_guard.should_alert_guild_cap(1234)[0] is True
+    assert ai_guard.should_alert_guild_cap(1234)[0] is False  # tidak spam
+    assert ai_guard.guild_usage_today(1234) == 5
+
+    # 4. Pemakaian per server tersimpan & termuat kembali dari JSON
+    payload = ai_guard.guild_usage_payload()
+    assert str(1234) in payload[ai_guard._today()]
+    ai_guard.guild_ai_usage.clear()
+    assert ai_guard.load_guild_usage_from_disk(payload) >= 1
+    assert ai_guard.guild_usage_today(1234) == 5
+    ai_guard.guild_ai_usage.clear()
+    ai_guard.guild_ai_usage[insights.today_key()] = {1234: 2}
+    insights.record_ai_usage("chat", user_id=1, guild_id=1234)
+    assert ai_guard.guild_usage_today(1234) == 3
+
+
+def test_ai_guard_routing_safety_resilience_and_tokens(monkeypatch):
+    """AI Guard: router model hemat, safetySettings, Retry-After, anti-halusinasi, & token."""
+    import ai_guard
+    import insights
+
+    # 1. Router: pertanyaan ringan → model hemat, pertanyaan berat tetap model utama
+    assert ai_guard.route_model_key("gemini_flash", "halo bot apa kabar hari ini") == "gemini_fast"
+    assert ai_guard.route_model_key("gemini_flash", "tolong debug script python ini") == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "halo", has_media=True) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "halo", has_links=True) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "halo", history_len=20) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_flash", "x" * 400) == "gemini_flash"
+    assert ai_guard.route_model_key("gemini_logic", "halo") == "gemini_logic"
+
+    # 2. Safety settings per server
+    payload: dict = {}
+    ai_guard.apply_safety(payload, "longgar")
+    assert "safetySettings" not in payload          # default Google
+    assert ai_guard.safety_settings_for("ngawur") is None
+    ai_guard.apply_safety(payload, "ketat")
+    assert payload["safetySettings"][0]["threshold"] == "BLOCK_MEDIUM_AND_ABOVE"
+    assert len(payload["safetySettings"]) == 5
+    ai_guard.apply_safety(payload, "normal")
+    assert payload["safetySettings"][0]["threshold"] == "BLOCK_ONLY_HIGH"
+
+    # 3. Retry-After dibaca & key diberi cooldown (bukan dihukum selamanya)
+    assert ai_handler.parse_retry_after({"Retry-After": "42"}) == 42.0
+    assert ai_handler.parse_retry_after({"retry-after": "1"}) == 1.0
+    assert ai_handler.parse_retry_after({}) == 20.0
+    assert ai_handler.parse_retry_after({"Retry-After": "99999"}) == 120.0
+    assert ai_handler.parse_retry_after({"Retry-After": "0"}) == 1.0
+    assert ai_handler.parse_retry_after({"Retry-After": "abc"}) == 20.0
+    ai_handler.mark_key_unhealthy("kunci-uji", 30)
+    assert ai_handler.key_cooldown_left("kunci-uji") > 25
+    assert ai_handler.key_cooldown_left("kunci-lain") == 0.0
+    ai_handler._key_cooldown_until.clear()
+
+    # 4. Anti-halusinasi (idempoten) & ringkasan riwayat terpangkas
+    prompt = ai_guard.with_accuracy_rules("Kamu teman komunitas.")
+    assert "[ATURAN AKURASI]" in prompt
+    assert ai_guard.with_accuracy_rules(prompt).count("[ATURAN AKURASI]") == 1
+    assert ai_guard.with_accuracy_rules("x", enabled=False) == "x"
+    dropped = [
+        {"role": "user", "content": "Aku mau bikin server Minecraft"},
+        {"role": "model", "content": "Wah seru, mau tema apa?"},
+    ]
+    summary = ai_guard.compress_dropped_history(dropped)
+    assert "Minecraft" in summary and "RINGKASAN OBROLAN" in summary
+    merged = ai_guard.merge_history_summary("Ringkasan lama.", dropped)
+    assert "Ringkasan lama." in merged and "Minecraft" in merged
+    assert ai_guard.merge_history_summary("Ringkasan lama.", []) == "Ringkasan lama."
+    assert ai_guard.compress_dropped_history([]) == ""
+
+    # 5. Token dari usageMetadata ikut tercatat (bukan cuma jumlah operasi)
+    before_in, before_out = insights.token_totals()
+    ai_handler._record_token_usage(
+        {"usageMetadata": {"promptTokenCount": 120, "candidatesTokenCount": 45}}
+    )
+    after_in, after_out = insights.token_totals()
+    assert after_in >= before_in + 120 and after_out >= before_out + 45
+    ai_handler._record_token_usage({})  # payload tanpa usageMetadata tidak boleh error
+
+    # 6. /pemakaian menampilkan token & kuota server
+    embed = insights.build_usage_embed(guild_id=1234)
+    assert "Token" in embed.description
+    assert any("Kuota Server" in field.name for field in embed.fields)
+
+    # 7. Jalur utama benar-benar memakai pengaman baru ini (audit statis)
+    agent_src = open("community_agent.py", encoding="utf-8").read()
+    for needle in (
+        "ai_guard.faq_first_answer(",
+        "ai_guard.get_cached_reply(",
+        "ai_guard.store_cached_reply(",
+        "ai_guard.check_guild_cap(",
+        "usage_guild_id=guild_id",
+        "safety_level=get_guild_safety_level(guild_id)",
+    ):
+        assert needle in agent_src, f"community_agent.py belum memakai {needle}"
+    handler_src = open("ai_handler.py", encoding="utf-8").read()
+    for needle in ("ai_guard.apply_safety(", "ai_guard.with_accuracy_rules(", "_record_token_usage(data)"):
+        assert needle in handler_src, f"ai_handler.py belum memakai {needle}"
+    assert "history_summary" in open("storage.py", encoding="utf-8").read()

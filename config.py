@@ -44,7 +44,7 @@ def _env_time_slots(name: str, default: list[str], max_slots: int = 6) -> list[s
     return cleaned or list(default)
 
 
-BOT_VERSION = "1.18.2-beta"
+BOT_VERSION = "1.19.0-beta"
 
 # ==============================================================================
 # KREDENSIAL UTAMA (Mendukung nama variabel standar maupun template Wispbyte)
@@ -202,6 +202,12 @@ STICKY_MIN_INTERVAL_SEC: int = _env_int("STICKY_MIN_INTERVAL_SEC", 5, minimum=1)
 # Batas operasi AI per member per hari (0 = tanpa batas). Hanya menghitung
 # operasi yang benar-benar memanggil Gemini; cache hit & FAQ lokal tidak dihitung.
 AI_DAILY_CAP_PER_USER: int = _env_int("AI_DAILY_CAP_PER_USER", 0, minimum=0)
+# Batas harian per SERVER (0 = tanpa batas). Melindungi kuota bersama Free Tier:
+# satu member yang spam tidak bisa menghabiskan kuota seluruh server.
+AI_DAILY_CAP_PER_GUILD: int = _env_int("AI_DAILY_CAP_PER_GUILD", 0, minimum=0)
+# Cache jawaban untuk pertanyaan identik di channel yang sama (detik). 0 = matikan.
+AI_REPLY_CACHE_TTL_SEC: int = _env_int("AI_REPLY_CACHE_TTL_SEC", 900, minimum=0)
+AI_REPLY_CACHE_MAX: int = _env_int("AI_REPLY_CACHE_MAX", 200, minimum=10)
 # Berapa hari catatan pemakaian disimpan (agar file JSON tetap kecil)
 AI_USAGE_KEEP_DAYS: int = _env_int("AI_USAGE_KEEP_DAYS", 7, minimum=1)
 # Cache hasil `/ringkas channel` (detik). 0 = cache dimatikan.

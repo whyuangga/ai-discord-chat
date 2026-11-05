@@ -296,10 +296,11 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="📊 Pemakaian AI (`/pemakaian`)",
             value=(
-                "• `/pemakaian lihat` — operasi AI hari ini: jenis, member teraktif, channel tersibuk.\n"
+                "• `/pemakaian lihat` — operasi AI hari ini: jenis, member teraktif, channel tersibuk, "
+                "**total token**, **kuota server**, & **penghematan** (FAQ lokal + cache jawaban).\n"
                 "• `/pemakaian tren hari:7` — grafik tren harian (total vs cache hit).\n"
                 "• `/pemakaian status` — ringkasan penghematan: cache rekap, FAQ lokal, & batas harian.\n"
-                "• Contoh isi: `Chat 34`, `Cari 5`, `Rekap 2`, `Cache hit 12`."
+                "• Contoh isi: `Chat 34`, `Cari 5`, `Rekap 2`, `Cache hit 12`, `Token 48.210`."
             ),
             inline=False,
         )
@@ -554,7 +555,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"
                 "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
-                "• **`/pemakaian`** — statistik operasi AI, tren, & penghematan cache.\n"
+                "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
+                "• **`/agent keamanan`** — tingkat keamanan konten AI per server (longgar/normal/ketat).\n"
                 "• **`/faq`** — jawaban info server **tanpa AI** (0 kuota) + kelola entri (Admin).\n"
                 "**🧩 Komunitas & Lain-lain**\n"
                 "• **`/panel-role`**, **`/poll`**, **`/ingatkan`**, **`/starboard`**, **`/sticky`**.\n"

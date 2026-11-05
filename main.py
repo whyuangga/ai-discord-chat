@@ -29,6 +29,7 @@ from community_tools import (
     save_community_tools_to_disk,
 )
 from config import DISCORD_BOT_TOKEN, DISCORD_GUILD_ID
+from ai_guard import cleanup_ai_guard_runtime
 from ui_theme import cleanup_ui_runtime, load_ui_themes_from_disk, save_ui_themes_to_disk
 from antispam import (
     cleanup_antispam_runtime,
@@ -417,6 +418,7 @@ async def idle_chat_watcher():
             cleanup_levels_runtime()
             cleanup_tickets_runtime()
             cleanup_insights_runtime()
+            cleanup_ai_guard_runtime()   # buang cache jawaban AI yang kedaluwarsa (hemat RAM)
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

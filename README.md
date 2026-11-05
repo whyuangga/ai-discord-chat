@@ -15,7 +15,7 @@ Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektu
 7. **🎉 Fitur Keramaian Server Tanpa Kuota AI (Tier 2A)** — **`/giveaway`** undian berhadiah bertombol yang tahan restart, **`/ultah`** daftar & ucapan ulang tahun otomatis tiap hari, **`/jawab-otomatis`** balasan kata kunci per channel dengan jeda aman, dan **`/pengumuman`** pengumuman terjadwal (harian / mingguan / sekali). Semua **0 request Gemini**, data lokal di `data/engagement.json`, dan **default NONAKTIF** sampai Admin menyalakannya.
 8. **🚨 Anti-Spam & Anti-Raid Ringan (Tier 2B)** — `/keamanan spam` mendeteksi **banjir pesan**, **pesan berulang**, **mention massal**, **link beruntun**, dan **HURUF KAPITAL** (opsional). Mode bawaan **`lapor`** (hanya mencatat ke channel log, **tidak menghapus apa pun**), bisa dinaikkan ke `hapus` atau `timeout`. **Admin, pengurus, bot, & role pengecualian tidak pernah diperiksa**, dan lonjakan member join (raid) hanya **diperingatkan** — bot tidak pernah menendang/ban otomatis. 0 kuota Gemini, data di `data/antispam.json`.
 9. **📈 Level & 🎟️ Tiket Dukungan (Tier 2C)** — **`/level`** memberi XP tiap pesan dengan **jeda anti-farming** (default 60 dtk), **kartu level + progress bar**, **papan peringkat**, dan **role hadiah otomatis** per level. **`/tiket`** membuat **private thread** bantuan (tidak memakai slot channel) lengkap dengan tombol **🙋 Klaim** & **🔒 Tutup**, batas tiket per member, dan **transkrip `.txt` otomatis** ke channel log. Keduanya **0 kuota Gemini**, default NONAKTIF, data di `data/levels.json` & `data/tickets.json`.
-10. **📊 Hemat Kuota AI (Tier 3)** — **`/pemakaian`** melaporkan berapa operasi AI hari ini (per jenis, member teraktif, channel tersibuk) berikut trennya; **`/ringkas channel`** membuat rekap obrolan per periode yang **disimpan 30 menit** sehingga permintaan berulang **0 kuota**; dan **`/faq`** menjawab pertanyaan info server secara **lokal tanpa memanggil Gemini sama sekali**. Ada juga batas harian opsional **`AI_DAILY_CAP_PER_USER`**. Data di `data/ai_usage.json` (auto-dipangkas 7 hari).
+10. **📊 Hemat Kuota AI (Tier 3)** — **`/pemakaian`** melaporkan berapa operasi AI hari ini (per jenis, member teraktif, channel tersibuk) berikut trennya; **`/ringkas channel`** membuat rekap obrolan per periode yang **disimpan 30 menit** sehingga permintaan berulang **0 kuota**; dan **`/faq`** menjawab pertanyaan info server secara **lokal tanpa memanggil Gemini sama sekali**. Ada juga batas harian opsional **`AI_DAILY_CAP_PER_USER`** & **`AI_DAILY_CAP_PER_GUILD`**, cache jawaban pertanyaan identik, router model hemat, **token nyata** dari Gemini, `/agent keamanan` (longgar/normal/ketat), serta rotasi API key yang mengikuti `Retry-After`. Data di `data/ai_usage.json` (auto-dipangkas 7 hari).
 
 Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron murni sehingga lancar dijalankan 24/7 di **Wispbyte**, VPS, maupun komputer lokal — serta sudah dioptimalkan khusus agar **100% berjalan lancar pada akun Gemini *Free Tier* (bebas antrean `503` & bebas error `exceeded your current quota`)**.
 
@@ -758,6 +758,24 @@ saat AI menjawab di Auto-Chat (`/agent`), sehingga AI tidak menebak-nebak info s
   member & staf biasa tetap dibatasi.
 - Data disimpan di `data/ai_usage.json` dan otomatis **dipangkas** menyisakan `AI_USAGE_KEEP_DAYS` (default **7 hari**).
 
+#### 4b. Batas Harian AI per Server & Keamanan Konten (opsional)
+
+- `AI_DAILY_CAP_PER_GUILD=0` → **tanpa batas** (bawaan). Isi misalnya `300` agar satu server tidak menghabiskan
+  kuota gratis bersama; setelah batas tercapai, AI berhenti menjawab sementara **semua fitur non-AI tetap jalan**
+  (FAQ lokal, musik, moderasi, giveaway, tiket, dll.).
+- Saat pemakaian server melewati **80%**, bot mengirim peringatan **sekali per hari** ke channel log `/perawatan`
+  (atau channel tempat bot dipanggil) — tanpa memakai kuota AI.
+- **`/agent keamanan`** *(Admin)* mengatur `safetySettings` Gemini per server: `longgar` (bawaan, pengaturan Google),
+  `normal` (blokir konten berisiko tinggi), `ketat` (blokir risiko sedang — cocok untuk server keluarga/remaja).
+- Penghemat kuota yang berjalan **otomatis tanpa setting apa pun**:
+  - **FAQ-first** — pertanyaan yang cocok dengan entri `/agent info` dijawab lokal oleh Auto-Chat (**0 kuota**).
+  - **Cache jawaban** — pertanyaan identik di channel yang sama dalam `AI_REPLY_CACHE_TTL_SEC` (default 15 menit)
+    dijawab dari cache (**0 kuota**), maksimal `AI_REPLY_CACHE_MAX` entri (RAM kecil).
+  - **Router model hemat** — pertanyaan pendek tanpa media/link diarahkan ke model Flash-Lite.
+  - **Token nyata** dari `usageMetadata` Gemini dicatat & tampil di `/pemakaian lihat` (bukan hanya jumlah operasi).
+  - **Rotasi API key sehat** — key yang kena `429` diistirahatkan mengikuti header `Retry-After` (1–120 detik)
+    dan key sehat dipakai lebih dulu; ada juga aturan anti-halusinasi di setiap system prompt.
+
 #### 5. Urutan Paling Hemat Kuota
 
 1. **`/faq tanya`** → 0 kuota (info server, aturan, jam event, dsb).
@@ -1278,6 +1296,9 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `TICKET_MAX_TRANSCRIPT_LINES` | Opsional | `400` | Jumlah baris pesan pada transkrip tiket. |
 | `TICKET_AUTO_CLOSE_HOURS` | Opsional | `0` | Tutup otomatis tiket menggantung setelah N jam (0 = nonaktif). |
 | `AI_DAILY_CAP_PER_USER` | Opsional | `0` | Batas operasi AI per member per hari (`0` = tanpa batas). |
+| `AI_DAILY_CAP_PER_GUILD` | Opsional | `0` | Batas operasi AI **per server** per hari (`0` = tanpa batas) + peringatan 80% ke Admin. |
+| `AI_REPLY_CACHE_TTL_SEC` | Opsional | `900` | Umur cache jawaban AI untuk pertanyaan identik, per channel (`0` = cache mati). |
+| `AI_REPLY_CACHE_MAX` | Opsional | `200` | Jumlah maksimal entri cache jawaban AI di RAM (hemat memori Free Tier). |
 | `AI_USAGE_KEEP_DAYS` | Opsional | `7` | Berapa hari catatan `data/ai_usage.json` disimpan sebelum dipangkas. |
 | `REKAP_CACHE_TTL_SEC` | Opsional | `1800` | Umur cache `/ringkas channel` dalam detik (`0` = cache mati). |
 | `REKAP_MAX_MESSAGES` | Opsional | `400` | Maksimal pesan yang dianalisis saat membuat rekap berperiode. |

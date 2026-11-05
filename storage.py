@@ -99,6 +99,7 @@ def init_thread_session(
         "model_key": resolved_key,
         "owner_id": effective_owner,
         "history": [],
+        "history_summary": "",
         "updated_at": time.time(),
     }
     return thread_chats[thread_id]
@@ -136,7 +137,19 @@ def append_conversation_turn(thread_id: int, user_text: str, model_reply: str) -
 
     session["history"].append({"role": "user", "content": user_text})
     session["history"].append({"role": "model", "content": model_reply})
+    before = list(session["history"])
     session["history"] = trim_history(session["history"])
+    # Pesan yang terpotong diringkas (bukan langsung dibuang) supaya konteks lama tetap terpakai
+    dropped = before[: max(0, len(before) - len(session["history"]))]
+    if dropped:
+        try:
+            import ai_guard
+
+            session["history_summary"] = ai_guard.merge_history_summary(
+                str(session.get("history_summary") or ""), dropped
+            )
+        except Exception:  # pragma: no cover - ringkasan tidak boleh menggagalkan chat
+            pass
     session["updated_at"] = time.time()
 
 
@@ -225,6 +238,7 @@ def load_sessions_from_disk() -> tuple[int, int]:
                 "model_key": model_key,
                 "owner_id": data.get("owner_id"),
                 "history": history,
+                "history_summary": str(data.get("history_summary") or "")[:1200],
                 "updated_at": float(data.get("updated_at") or time.time()),
             }
             loaded_chats += 1

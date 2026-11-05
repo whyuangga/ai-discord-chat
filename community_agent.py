@@ -11,12 +11,72 @@ import discord
 import insights
 
 
-def _record_ai_usage_safe(kind: str, *, user_id: int = 0, channel_id: int = 0) -> None:
-    """Mencatat pemakaian AI tanpa pernah menggagalkan alur utama."""
+def _record_ai_usage_safe(
+    kind: str, *, user_id: int = 0, channel_id: int = 0, guild_id: int = 0
+) -> None:
+    """Mencatat pemakaian AI (per member & per server) tanpa menggagalkan alur utama."""
     try:
-        insights.record_ai_usage(kind, user_id=user_id, channel_id=channel_id)
+        insights.record_ai_usage(
+            kind, user_id=user_id, channel_id=channel_id, guild_id=guild_id
+        )
     except Exception:
         pass
+
+
+async def _maybe_alert_guild_cap(
+    message: discord.Message, guild_id: int, used: int, limit: int
+) -> None:
+    """Memberi tahu Admin sekali saja saat pemakaian AI server melewati 80% batas.
+
+    Memakai channel log `/perawatan` bila ada, kalau tidak channel tempat bot dipanggil.
+    Tidak memakai AI sama sekali (0 kuota) & tidak pernah menggagalkan alur utama.
+    """
+    try:
+        import ai_guard
+
+        should_alert, used, limit = ai_guard.should_alert_guild_cap(guild_id)
+        if not should_alert:
+            return
+
+        import community_tools
+
+        target = None
+        log_id = int(
+            ((community_tools.maintenance_guilds.get(int(guild_id)) or {}).get("log_channel_id")) or 0
+        )
+        guild = getattr(message, "guild", None)
+        if log_id and guild is not None and hasattr(guild, "get_channel"):
+            target = guild.get_channel(log_id)
+        if target is None:
+            target = getattr(message, "channel", None)
+        if target is None:
+            return
+
+        percent = int(round((used / limit) * 100)) if limit else 0
+        await target.send(
+            "⚠️ **Kuota AI server hampir habis**\n"
+            f"Sudah terpakai `{used}` dari `{limit}` operasi hari ini ({percent}%).\n"
+            "Sisa kuota tetap bisa dipakai sampai habis, lalu pulih otomatis besok. "
+            "Naikkan `AI_DAILY_CAP_PER_GUILD` bila ingin batas lebih longgar."
+        )
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Gagal mengirim peringatan kuota AI: %s", exc)
+
+
+def get_guild_safety_level(guild_id: int) -> str:
+    """Tingkat keamanan konten AI untuk sebuah server (`longgar`/`normal`/`ketat`)."""
+    settings = guild_agent_settings.get(int(guild_id)) or {}
+    level = str(settings.get("safety_level") or "longgar").lower()
+    return level if level in {"longgar", "normal", "ketat"} else "longgar"
+
+
+def set_guild_safety_level(guild_id: int, level: str) -> str:
+    """Mengubah tingkat keamanan konten AI server."""
+    chosen = str(level or "longgar").lower()
+    if chosen not in {"longgar", "normal", "ketat"}:
+        chosen = "longgar"
+    get_guild_settings(int(guild_id))["safety_level"] = chosen
+    return chosen
 
 
 from welcome_media import CARD_MODES
@@ -33,6 +93,7 @@ from config import (
     ENABLE_URL_READER,
     GEMINI_API_BASE,
     GEMINI_DEFAULT_MODEL,
+    GEMINI_FAST_MODEL,
     GEMINI_PAID_SEARCH_ENABLED,
     GEMINI_SEARCH_FALLBACK_CHAIN,
     GEMINI_SEARCH_MODEL,
@@ -47,10 +108,13 @@ from ai_handler import (
     _build_model_chain,
     _extract_text_from_gemini_response,
     _format_grounding_footer,
+    _record_token_usage,
     build_thinking_config,
     get_gemini_keys_rotated,
     is_gemini_key_configured,
+    mark_key_unhealthy,
     mark_model_unhealthy,
+    parse_retry_after,
 )
 from utils import (
     build_clean_search_query,
@@ -268,6 +332,7 @@ def get_guild_settings(guild_id: int) -> dict:
             "timezone": BOT_TIMEZONE,
             "quiet_hours": True,
             "knowledge_entries": [],
+            "safety_level": "longgar",
         }
         guild_agent_settings[guild_id] = settings
     elif "knowledge_entries" not in settings or not isinstance(settings["knowledge_entries"], list):
@@ -1444,6 +1509,9 @@ async def _call_gemini_agent(
     usage_kind: str | None = None,
     usage_user_id: int = 0,
     usage_channel_id: int = 0,
+    usage_guild_id: int = 0,
+    prefer_fast: bool = False,
+    safety_level: str | None = None,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
     if not active_keys:
@@ -1486,12 +1554,14 @@ async def _call_gemini_agent(
                                         usage_kind,
                                         user_id=usage_user_id,
                                         channel_id=usage_channel_id,
+                                        guild_id=usage_guild_id,
                                     )
                                 return reply_text.strip()
                 except Exception:
                     continue
 
-        models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+        primary_model = GEMINI_FAST_MODEL if prefer_fast else GEMINI_DEFAULT_MODEL
+        models_to_try = _build_model_chain(primary_model, GEMINI_TEXT_FALLBACK_CHAIN)
         for idx, model_id in enumerate(models_to_try):
             gen_config: dict = {
                 "temperature": temperature,
@@ -1506,8 +1576,12 @@ async def _call_gemini_agent(
                 "contents": contents,
                 "generationConfig": gen_config,
             }
+            import ai_guard
+
+            ai_guard.apply_safety(payload, safety_level)
+            key_for_attempt = active_keys[idx % len(active_keys)]
             headers = {
-                "x-goog-api-key": active_keys[idx % len(active_keys)],
+                "x-goog-api-key": key_for_attempt,
                 "Content-Type": "application/json",
             }
             url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
@@ -1516,6 +1590,7 @@ async def _call_gemini_agent(
                 async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
                     data = await resp.json(content_type=None)
                     if resp.status == 200 and isinstance(data, dict):
+                        _record_token_usage(data)
                         reply_text, _, should_retry = _extract_text_from_gemini_response(data)
                         if reply_text:
                             return reply_text.strip()
@@ -1537,6 +1612,13 @@ async def _call_gemini_agent(
 
                     if resp.status in (429, 500, 502, 503, 504, 404):
                         mark_model_unhealthy(model_id)
+                    if resp.status == 429:
+                        # Ikuti Retry-After: cooldown per API key agar rotasi key efektif
+                        mark_key_unhealthy(key_for_attempt, parse_retry_after(resp.headers))
+                        logger.warning(
+                            "Agent Gemini model %s HTTP 429, key diistirahatkan sebentar...", model_id
+                        )
+                    elif resp.status in (500, 502, 503, 504, 404):
                         logger.warning(
                             "Agent Gemini model %s HTTP %s, pindah instan ke model cadangan...",
                             model_id,
@@ -1642,8 +1724,35 @@ async def generate_community_chat_reply(
     else:
         return None
 
-    # Bangun contents dari riwayat singkat channel publik / per-Postingan Forum
+    import ai_guard
+
     conv_id = message.channel.id
+    # ---------------------------------------------------------------
+    # AI GUARD: FAQ-first (0 kuota) & cache jawaban identik
+    # Hanya untuk pertanyaan teks (tanpa media/link) supaya tidak salah jawab.
+    # ---------------------------------------------------------------
+    can_use_local_answer = not media_parts and not yt_urls and not web_snippets
+    if can_use_local_answer and clean_text:
+        faq_hit = ai_guard.faq_first_answer(get_server_knowledge_entries(guild_id), clean_text)
+        if faq_hit and (is_direct_call or len(clean_text) >= 24):
+            logger.info("Auto-Chat dijawab dari FAQ server (0 kuota AI) di channel %s", conv_id)
+            return ai_guard.format_faq_reply(faq_hit)
+
+        cached_reply = ai_guard.get_cached_reply(conv_id, clean_text)
+        if cached_reply:
+            logger.info("Auto-Chat memakai cache jawaban (0 kuota AI) di channel %s", conv_id)
+            return cached_reply
+
+    # ---------------------------------------------------------------
+    # AI GUARD: batas harian AI per server
+    # ---------------------------------------------------------------
+    cap_ok, cap_used, cap_limit = ai_guard.check_guild_cap(guild_id)
+    if not cap_ok:
+        logger.info("Kuota AI server %s habis (%s/%s)", guild_id, cap_used, cap_limit)
+        await _maybe_alert_guild_cap(message, guild_id, cap_used, cap_limit)
+        return ai_guard.cap_message(guild_id, cap_used, cap_limit) if is_direct_call else None
+
+    # Bangun contents dari riwayat singkat channel publik / per-Postingan Forum
     contents: list[dict] = []
     for item in channel_histories.get(conv_id, []):
         role = "user" if item["role"] == "user" else "model"
@@ -1670,6 +1779,17 @@ async def generate_community_chat_reply(
         is_forum_post=is_post_thread,
     )
 
+    prefer_fast = (
+        ai_guard.route_model_key(
+            "gemini_flash",
+            clean_text,
+            has_media=bool(media_parts),
+            has_links=bool(yt_urls or web_snippets),
+            history_len=len(channel_histories.get(conv_id, [])),
+        )
+        == "gemini_fast"
+    )
+
     reply = await _call_gemini_agent(
         system_prompt,
         contents,
@@ -1683,11 +1803,16 @@ async def generate_community_chat_reply(
         usage_kind="auto_chat",
         usage_user_id=getattr(message.author, "id", 0) or 0,
         usage_channel_id=getattr(message.channel, "id", 0) or 0,
+        usage_guild_id=guild_id,
+        prefer_fast=prefer_fast,
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
         # Bersihkan awalan seperti "[NamaBot]:" jika model tidak sengaja menuliskannya
         reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip()
+        if can_use_local_answer and clean_text:
+            ai_guard.store_cached_reply(conv_id, clean_text, reply)
         _append_channel_history(conv_id, "user", user_turn_text)
         _append_channel_history(conv_id, "model", reply)
         now = time.time()
@@ -1764,6 +1889,8 @@ async def generate_idle_icebreaker(
         http_session=http_session,
         usage_kind="auto_chat",
         usage_channel_id=int(channel_id or 0),
+        usage_guild_id=int(guild_id or 0),
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
@@ -1859,6 +1986,8 @@ async def generate_gallery_comment(
         usage_kind="galeri",
         usage_user_id=getattr(message.author, "id", 0) or 0,
         usage_channel_id=getattr(message.channel, "id", 0) or 0,
+        usage_guild_id=getattr(message.guild, "id", 0) or 0,
+        safety_level=get_guild_safety_level(getattr(message.guild, "id", 0) or 0),
     )
 
     reaction = random.choice(GALLERY_REACTIONS) if gal_cfg.get("auto_reaction", True) else None
@@ -2062,6 +2191,8 @@ async def generate_welcome_greeting(
         has_media=False,
         http_session=http_session,
         usage_kind="sesi",
+        usage_guild_id=int(guild_id or 0),
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
@@ -2169,6 +2300,8 @@ async def generate_goodbye_message(
         has_media=False,
         http_session=http_session,
         usage_kind="sesi",
+        usage_guild_id=int(guild_id or 0),
+        safety_level=get_guild_safety_level(guild_id),
     )
 
     if reply:
@@ -2237,6 +2370,8 @@ async def generate_morning_digest(
             has_media=False,
             http_session=session,
             usage_kind="fakta",
+            usage_guild_id=int(guild_id or 0),
+            safety_level=get_guild_safety_level(guild_id),
         )
         if not reply:
             return None, "⚠️ Gagal menyusun Morning Digest saat ini, silakan coba sesaat lagi."

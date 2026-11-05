@@ -264,7 +264,7 @@ async def pemakaian_lihat_cmd(interaction: discord.Interaction):
     await ui_kit.send_panel(
         interaction,
         build_usage_panel(guild_id),
-        embed=insights.build_usage_embed(),
+        embed=insights.build_usage_embed(guild_id=guild_id or 0),
         ephemeral=True,
     )
 
