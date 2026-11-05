@@ -2,6 +2,9 @@
 
 import discord
 from config import BOT_VERSION
+
+# Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
+TOP_LEVEL_COUNT = 52
 import ui_kit
 
 
@@ -612,23 +615,42 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.blurple(),
         )
         embed.add_field(
-            name="⚡ AI, Server & Hiburan (30 Menu Utama)",
+            name=f"⚡ AI, Server & Hiburan ({TOP_LEVEL_COUNT} Menu Utama)",
             value=(
                 "**🤖 AI & Hiburan**\n"
                 "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
                 "• **`/ringkas`** — Rangkum obrolan (`chat`), per periode (`channel`), atau link/YouTube (`link`).\n"
                 "• **`/cari`** — Cari berita, skor, cuaca, atau info terbaru hari ini.\n"
                 "• **`/game`** — 6 mode Mini-Game Tongkrongan & Papan Skor.\n"
-                "• **`/musik`** — streaming YouTube/Spotify via Lavalink (putar, antrean, volume, DJ).\n"
+                "• **`/musik`** — streaming Lavalink (antrean, volume, DJ, playlist).\n"
                 "**🎨 Tampilan & Pusat Kontrol**\n"
                 "• **`/panel`** — **Control Center**: kartu status semua modul + pindah tab lewat dropdown.\n"
                 "• **`/tampilan`** *(Admin)* — ubah warna aksen, emoji, kepadatan, & branding panel server.\n"
                 "**🛠️ Pengelolaan Server**\n"
-                "• **`/agent`** *(Admin)* — Panel kontrol AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
+                "• **`/agent`** *(Admin)* — AI Agent, Welcome, Goodbye, Digest, & FAQ.\n"
                 "• **`/serverstats`** — Statistik server + channel penghitung otomatis.\n"
                 "• **`/autorole`**, **`/verifikasi`** *(Admin)* — Role otomatis & gerbang verifikasi.\n"
                 "• **`/fakta`** — Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
-                "• **`/keamanan`** — Anti-phishing, anti-spam, & cek keamanan link."
+                "• **`/keamanan`**, **`/nuke`**, **`/raid`** — anti-phishing, anti-spam, anti-nuke, "
+                "& mode darurat (0 kuota)."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🆕 Terbaru (v1.28 → v1.39) — Cek Cepat",
+            value=(
+                "**🛡️ Keamanan & Pemulihan**\n"
+                "• **`/raid`** — mode darurat otomatis: tahan Auto Role, minta verifikasi, lockdown opsional.\n"
+                "• **`/nuke`** — anti-nuke, **keluarkan bot asing**, & **`/nuke beku`** (ambang 1 aksi).\n"
+                "• **`/backup pulihkan`** — bangun ulang role/kategori/channel dari JSON (dry-run dulu).\n"
+                "**📈 Retensi & Pelayanan**\n"
+                "• **`/level musim`** & **`/level prestise`** — musim level + trofi permanen.\n"
+                "• **`/musik playlist`** — playlist pribadi per member.\n"
+                "• **`/tiket atur`** & **`/tiket rating`** — SLA respons pertama, auto-close, rating bintang.\n"
+                "**🧰 Admin & Diagnosa**\n"
+                "• **`/mod`** — slowmode, role, role-massal, nickname.\n"
+                "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
+                "• **Dashboard web** — pantau + **kontrol** fitur dari browser dengan token."
             ),
             inline=False,
         )

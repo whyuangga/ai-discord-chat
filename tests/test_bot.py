@@ -8968,3 +8968,36 @@ async def test_memory_audit_snapshot_and_report(monkeypatch):
     levels.levels.clear()
     tickets.tickets.clear()
     music_playlists.guild_playlists.clear()
+
+
+# ==============================================================================
+# /bantuan DIPERBARUI: RINGKASAN VERSI TERBARU (v1.40.0-beta)
+# ==============================================================================
+def test_help_overview_shows_latest_features():
+    """Halaman depan `/bantuan` memuat ringkasan fitur terbaru & tetap dalam batas Discord."""
+    from views.help import TOP_LEVEL_COUNT, build_help_embed
+
+    embed = build_help_embed("overview")
+    names = [field.name for field in embed.fields]
+    assert len(embed.fields) == 4
+    assert any("Menu Utama" in name for name in names)
+    assert any("Terbaru" in name for name in names)
+
+    # Semua field aman dari batas Discord (1024) & total embed < 6000
+    assert all(len(field.value) <= 1024 for field in embed.fields)
+    assert sum(len(field.value) for field in embed.fields) <= 6000
+
+    isi = "\n".join(field.value for field in embed.fields)
+    for fitur in ("/raid", "/nuke", "/backup pulihkan", "/level musim", "/musik playlist", "/tiket rating",
+                  "/bahasa", "/prefix", "/analitik", "/perawatan memori"):
+        assert fitur in isi, fitur
+
+    # Angka menu utama harus sama dengan jumlah command tingkat atas yang benar-benar terdaftar
+    assert TOP_LEVEL_COUNT == len(bot_main.bot.tree.get_commands())
+
+    # Kategori lain tetap sehat
+    for key in ("sesi", "tools", "games", "server", "growth", "insights", "engagement", "musik",
+                "komunitas", "admin"):
+        kategori = build_help_embed(key)
+        assert kategori.fields
+        assert all(len(field.value) <= 1024 for field in kategori.fields), key

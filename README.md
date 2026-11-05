@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.39.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.40.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -956,7 +956,7 @@ aksen, baris status, badge ON/OFF, dan navigasi tab — **tanpa kuota AI sama se
 | `/musik antrean` | Antrean berhalaman sebagai kartu: judul, total durasi, tombol **◀ Sebelumnya / Berikutnya ▶ / Tutup**. |
 | `/musik panel` & panel pemutar otomatis | Panel Rythm versi kartu: progress bar, volume, filter, autoplay, plus **9 tombol kontrol** dalam 2 baris (⏮ ⏯ ⏭ ⏹ 🔁 / 🔀 🔉 🔊 📜). |
 | `/musik sekarang` | Kartu Now Playing bertema (progres, sumber, antrean, diminta oleh). |
-| `/bantuan` | Pusat panduan sebagai kartu + **dropdown 11 kategori** yang langsung berganti halaman. |
+| `/bantuan` | Pusat panduan sebagai kartu + **dropdown 11 kategori** yang langsung berganti halaman. Halaman depan kini memuat panel **🆕 Terbaru (v1.28 → v1.39)** berisi ringkasan fitur terbaru (`/raid`, `/nuke`, `/backup pulihkan`, `/level musim`, `/musik playlist`, `/tiket rating`, `/bahasa`, `/prefix`, `/analitik`, `/perawatan memori`) dan jumlah menu utama dihitung dari command yang benar-benar terdaftar. |
 | `/agent status` | Ringkasan seluruh channel AI Agent sebagai kartu bertema. |
 | `/giveaway daftar` | Daftar giveaway aktif & riwayat sebagai kartu. |
 | `/pemakaian reset`, `/musik hentikan`, `/tampilan reset` | Dialog **konfirmasi bergaya kartu** sebelum aksi merusak (bisa dimatikan Admin lewat `/tampilan atur`). |
@@ -1482,7 +1482,7 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/game papan_skor` | Semua Member | Menampilkan Top 10 Klasemen Papan Skor Mini-Game server beserta peringkat Anda. |
 | `/game stop` | Pemulai / Moderator | Menghentikan ronde Mini-Game yang sedang berjalan di channel saat ini. |
 | `/game reset_skor` | Administrator | Mereset seluruh Papan Skor Mini-Game server kembali ke `0` untuk musim baru. |
-| `/bantuan` | Semua Member | Membuka **Pusat Panduan Interaktif** dengan menu *dropdown* 5 kategori fitur. |
+| `/bantuan` | Semua Member | Membuka **Pusat Panduan Interaktif** dengan menu *dropdown* 11 kategori fitur + panel **🆕 Terbaru**. |
 | `/status` | Semua Member | Menampilkan ping Discord, pemakaian RAM (MB), uptime, jam AI, model aktif, & jumlah sesi. |
 
 ### 3. Slash Commands Admin untuk AI Agent Komunitas (`/agent`)
