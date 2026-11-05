@@ -13,6 +13,11 @@ from cogs import (
 )
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
+from menu_builder import (
+    cleanup_menu_runtime,
+    load_menus_from_disk,
+    save_menus_to_disk,
+)
 from growth_tracker import (
     cleanup_growth_runtime,
     load_growth_from_disk,
@@ -246,6 +251,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_audit_guilds = load_audit_from_disk()
         loaded_econ_guilds, loaded_econ_balances = load_economy_from_disk()
         loaded_growth_guilds = load_growth_from_disk()
+        loaded_menus = load_menus_from_disk()
         loaded_themes = load_ui_themes_from_disk()
         loaded_afk, loaded_threads = load_server_tools_from_disk()
         logger.info(
@@ -324,6 +330,7 @@ class GeminiDiscordBot(commands.Bot):
             "Ekonomi dimuat: %d server, %d saldo member.", loaded_econ_guilds, loaded_econ_balances
         )
         logger.info("Pelacak pertumbuhan dimuat: %d server.", loaded_growth_guilds)
+        logger.info("Panel menu dimuat: %d panel.", loaded_menus)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
         try:
             import welcome_media
@@ -414,6 +421,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_audit_to_disk()
         await save_economy_to_disk()
         await save_growth_to_disk()
+        await save_menus_to_disk()
         await save_ui_themes_to_disk()
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
@@ -468,6 +476,7 @@ async def idle_chat_watcher():
             cleanup_audit_runtime()      # buang konfigurasi audit log tanpa channel
             cleanup_economy_runtime()    # bersihkan rate-limit transfer ekonomi
             cleanup_growth_runtime()     # pangkas data pertumbuhan lama
+            cleanup_menu_runtime()       # bersihkan cooldown self role menu
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()

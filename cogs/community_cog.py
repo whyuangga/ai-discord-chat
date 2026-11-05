@@ -7,6 +7,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import menu_builder
+import ui_kit
+import ui_theme
 from cogs.helpers import get_memory_usage_mb
 from community_tools import (
     add_reaction_role_option,
@@ -146,9 +149,145 @@ panelrole_group = app_commands.Group(
 )
 
 
+
+_SELF_ROLE_GAYA = [
+    app_commands.Choice(name="Emoji reaction (bawaan lama)", value="reaksi"),
+    app_commands.Choice(name="Tombol (klik = ambil/lepas role)", value="tombol"),
+    app_commands.Choice(name="Dropdown (maks 25 role)", value="dropdown"),
+    app_commands.Choice(name="Campuran (banner + tombol + dropdown)", value="campuran"),
+]
+
+
+async def _panelrole_v2(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    judul: str,
+    deskripsi: str | None,
+    pairs: list[tuple[discord.Role, str]],
+    gaya: str,
+    banner: discord.Attachment | None,
+    banner_url: str | None,
+) -> None:
+    """Self Roles v2: panel tombol/dropdown memakai mesin `menu_builder` (0 kuota AI)."""
+    guild = interaction.guild
+    if guild is None:
+        return
+
+    usable: list[tuple[discord.Role, str]] = []
+    rejected: list[str] = []
+    for role, emoji in pairs:
+        ok, reason = menu_builder.check_role_usable(guild, role.id)
+        if ok:
+            usable.append((role, emoji))
+        else:
+            rejected.append(f"{role.mention} ({reason})")
+    if not usable:
+        await interaction.response.send_message(
+            "⚠️ Tidak ada role yang bisa diberikan bot:\n" + "\n".join(rejected[:5]),
+            ephemeral=True,
+        )
+        return
+
+    menu = menu_builder.create_menu(
+        guild.id,
+        judul,
+        description=deskripsi or "Klik tombol atau pilih dari menu di bawah untuk mengambil / melepas role.",
+        kind=menu_builder.MENU_KIND_ROLES,
+        banner_url=str(banner_url) if banner_url else None,
+        channel_id=channel.id,
+    )
+    if menu is None:
+        await interaction.response.send_message(
+            f"⚠️ Batas panel per server **{menu_builder.MAX_MENUS_PER_GUILD}** sudah tercapai. "
+            "Hapus panel lama lewat `/menu hapus`.",
+            ephemeral=True,
+        )
+        return
+
+    if gaya in ("tombol", "campuran"):
+        for role, emoji in usable:
+            menu_builder.add_role_button(menu, role.id, role.name, emoji=emoji or None)
+    if gaya in ("dropdown", "campuran"):
+        menu_builder.add_dropdown(
+            menu,
+            "Pilih role kamu di sini…",
+            [
+                {"role_id": role.id, "label": role.name, "emoji": emoji or None}
+                for role, emoji in usable
+            ],
+            exclusive=False,
+            group=f"panel-{menu['id']}",
+        )
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    file = None
+    ref = None
+    if banner is not None and menu_builder.is_image_attachment(banner):
+        try:
+            data = await banner.read()
+            file, ref = menu_builder.banner_file_from_attachment(banner, data)
+        except (discord.HTTPException, AttributeError):
+            file = None
+    elif banner is not None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                guild.id, "warn", "Banner diabaikan", "Banner harus gambar PNG/JPG/WebP maksimal 8 MB."
+            ),
+            follow=True,
+            ephemeral=True,
+        )
+
+    message = await menu_builder.send_panel(
+        interaction.client, menu, channel, banner_file=file, banner_ref=ref
+    )
+    if message is None:
+        menu_builder.delete_menu(guild.id, menu["id"])
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                guild.id, "error", "Gagal mengirim panel",
+                f"Cek izin **Send Messages** & **Embed Links** di {channel.mention}.",
+            ),
+            follow=True,
+            ephemeral=True,
+        )
+        return
+
+    await menu_builder.save_menus_to_disk()
+    note = f"\n⚠️ Dilewati: {'; '.join(rejected[:3])}" if rejected else ""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            guild.id,
+            "ok",
+            "Panel Self Roles terpasang",
+            f"Gaya **{gaya}** dengan **{len(usable)} role** di {channel.mention}.{note}\n"
+            "Member kini bisa mengambil role dengan klik tombol atau memilih dari dropdown "
+            "(klik lagi = role dilepas).\n"
+            f"-# Panel ID `{menu['id']}` • tambah role: `/menu tombol-role menu:{menu['id']} role:@Role`",
+        ),
+        follow=True,
+        ephemeral=True,
+    )
+    try:
+        import audit_log
+
+        await audit_log.log_event(
+            interaction.client,
+            guild,
+            "role",
+            "Panel self role dipasang",
+            f"{len(usable)} role • gaya {gaya} • channel {channel.mention}",
+        )
+    except Exception:  # pragma: no cover - audit opsional
+        pass
+
+
 @panelrole_group.command(
     name="pasang",
-    description="Pasang panel role baru (bisa langsung dengan maksimal 3 role sekaligus)",
+    description="Pasang panel role (emoji reaction, tombol, dropdown, atau campuran + banner)",
 )
 @app_commands.describe(
     channel="Channel tempat panel role dipasang",
@@ -160,7 +299,11 @@ panelrole_group = app_commands.Group(
     emoji2="Emoji pemicu untuk role kedua (opsional)",
     role3="Role ketiga (opsional)",
     emoji3="Emoji pemicu untuk role ketiga (opsional)",
+    gaya="Bentuk panel: reaksi (lama), tombol, dropdown, atau campuran",
+    banner="Unggah gambar banner .png/.jpg (opsional, untuk gaya selain reaksi)",
+    banner_url="Atau tempel URL gambar banner (opsional)",
 )
+@app_commands.choices(gaya=_SELF_ROLE_GAYA)
 async def panelrole_pasang_cmd(
     interaction: discord.Interaction,
     channel: discord.TextChannel,
@@ -172,6 +315,9 @@ async def panelrole_pasang_cmd(
     emoji2: str | None = None,
     role3: discord.Role | None = None,
     emoji3: str | None = None,
+    gaya: app_commands.Choice[str] | None = None,
+    banner: discord.Attachment | None = None,
+    banner_url: str | None = None,
 ):
     if interaction.guild is None:
         return
@@ -184,6 +330,11 @@ async def panelrole_pasang_cmd(
         pairs.append((role2, emoji2))
     if role3 is not None and emoji3:
         pairs.append((role3, emoji3))
+
+    # Self Roles v2 (tombol/dropdown/campuran + banner) memakai mesin menu_builder
+    if gaya is not None and gaya.value != "reaksi":
+        await _panelrole_v2(interaction, channel, judul, deskripsi, pairs, gaya.value, banner, banner_url)
+        return
 
     bot_member = interaction.guild.me
     ignored = [r.mention for r, _ in pairs if bot_member and r >= bot_member.top_role]

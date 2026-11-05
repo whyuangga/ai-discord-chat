@@ -100,6 +100,16 @@ def register_events_cog(bot: commands.Bot) -> None:
         if not ai_handler.is_gemini_key_configured():
             logger.warning("⚠️ GEMINI_API_KEY belum diisi! Isi di .env atau panel Variables Wispbyte.")
 
+        # Pasang kembali panel menu persisten (tombol/dropdown buatan Admin)
+        try:
+            import menu_builder
+
+            restored = menu_builder.register_menus(bot)
+            if restored:
+                logger.info("Panel menu interaktif dipulihkan: %d panel.", restored)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pemulihan panel menu dilewati: %s", exc)
+
         # Sinkronkan cache invite sekali saat start agar pelacakan pengundang akurat
         try:
             import growth_tracker
@@ -213,6 +223,13 @@ def register_events_cog(bot: commands.Bot) -> None:
             await save_levels_to_disk()
         if handle_tickets_channel_delete(channel):
             await save_tickets_to_disk()
+        try:
+            import menu_builder
+
+            if menu_builder.handle_channel_delete(getattr(channel, "id", 0)):
+                await menu_builder.save_menus_to_disk()
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Pembersihan panel menu dilewati: %s", exc)
         cancel_channel_game(channel.id)
         remove_agent_thread_runtime(channel.id)
         if removed:

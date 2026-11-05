@@ -2230,6 +2230,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "log", "ekonomi",
         # v1.25.0-beta: statistik pertumbuhan & invite tracker (0 kuota AI)
         "tumbuh",
+        # v1.26.0-beta: menu builder (tombol role/link/command + dropdown)
+        "menu",
     }
     assert len(chat_cmds) <= 100
 
@@ -6959,3 +6961,305 @@ async def test_new_guild_gets_instant_commands_and_checklist():
     assert "/log" in sent[-1]["embed"].description
     assert "/tumbuh" in sent[-1]["embed"].description
     assert sent[-1]["allowed_mentions"].everyone is False
+
+
+# ==============================================================================
+# MENU BUILDER & SELF ROLES v2 (v1.26.0-beta)
+# ==============================================================================
+class _MBRole:
+    """Role tiruan dengan perbandingan berbasis `position` (hierarki)."""
+
+    def __init__(self, rid, name="Role", position=1, *, default=False, managed=False):
+        self.id = rid
+        self.name = name
+        self.position = position
+        self.mention = f"<@&{rid}>"
+        self._default = default
+        self.managed = managed
+
+    def is_default(self):
+        return self._default
+
+    def __ge__(self, other):
+        return self.position >= getattr(other, "position", -1)
+
+    def __lt__(self, other):
+        return self.position < getattr(other, "position", 0)
+
+    def __hash__(self):
+        return hash(self.id)
+
+    def __eq__(self, other):
+        return getattr(other, "id", None) == self.id
+
+
+class _MBPerms:
+    def __init__(self, manage_roles=True, administrator=False, manage_guild=False):
+        self.manage_roles = manage_roles
+        self.administrator = administrator
+        self.manage_guild = manage_guild
+
+
+class _MBMember:
+    def __init__(self, uid=501, roles=None):
+        self.id = uid
+        self.mention = f"<@{uid}>"
+        self.roles = list(roles or [])
+        self.display_name = f"Member{uid}"
+        self.guild_permissions = _MBPerms(administrator=True)
+
+    async def add_roles(self, *roles, reason=None):
+        for role in roles:
+            if role not in self.roles:
+                self.roles.append(role)
+
+    async def remove_roles(self, *roles, reason=None):
+        for role in roles:
+            self.roles = [r for r in self.roles if r.id != role.id]
+
+
+class _MBGuild:
+    def __init__(self, gid=77, roles=None):
+        self.id = gid
+        self.name = "Server Uji"
+        self._roles = {r.id: r for r in (roles or [])}
+        self.me = _MBMember(999, [])
+        self.me.guild_permissions = _MBPerms(manage_roles=True)
+        self.me.top_role = _MBRole(900, "Bot", position=50)
+
+    def get_role(self, rid):
+        return self._roles.get(int(rid))
+
+
+class _MBResp:
+    def __init__(self):
+        self.sent = []
+        self.deferred = []
+        self._done = False
+
+    def is_done(self):
+        return self._done
+
+    async def send_message(self, *args, **kwargs):
+        self._done = True
+        self.sent.append(kwargs)
+
+    async def defer(self, *args, **kwargs):
+        self._done = True
+        self.deferred.append(kwargs)
+
+    async def edit_message(self, *args, **kwargs):
+        self._done = True
+
+
+class _MBFollow:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append(kwargs)
+
+
+class _MBInteraction:
+    def __init__(self, guild, member, client=None):
+        self.guild = guild
+        self.user = member
+        self.client = client
+        self.channel = type("C", (), {"id": 700, "mention": "#umum"})()
+        self.response = _MBResp()
+        self.followup = _MBFollow()
+        self.data = {}
+
+
+@pytest.mark.asyncio
+async def test_menu_builder_role_toggle_exclusive_and_limits():
+    """Menu Builder: tombol role toggle, dropdown eksklusif, batas item, & persistensi."""
+    import menu_builder
+
+    menu_builder.menus.clear()
+    menu_builder._role_cooldown.clear()
+
+    role_a = _MBRole(1, "Gamer", position=10)
+    role_b = _MBRole(2, "Musik", position=11)
+    role_old = _MBRole(3, "13-17", position=12)
+    role_new = _MBRole(4, "18-24", position=13)
+    guild = _MBGuild(77, [role_a, role_b, role_old, role_new])
+    member = _MBMember(501, [role_old])
+
+    # 1. Buat menu + tombol role + tombol link + dropdown eksklusif
+    menu = menu_builder.create_menu(guild.id, "Pusat Role", description="Ambil role kamu")
+    assert menu and menu["kind"] == menu_builder.MENU_KIND_MENU
+    assert menu_builder.create_menu(guild.id, "") is None       # judul kosong ditolak
+
+    assert menu_builder.add_role_button(menu, 1, "Gamer", emoji="🎮") is not None
+    assert menu_builder.add_role_button(menu, 1, "Duplikat") is None        # role sama ditolak
+    assert menu_builder.add_link_button(menu, "Support", "https://example.com") is not None
+    assert menu_builder.add_link_button(menu, "Rusak", "bukan-url") is None
+    assert menu_builder.add_command_button(menu, "serverstats") is not None
+    assert menu_builder.add_command_button(menu, "ngawur") is None          # di luar whitelist
+
+    dropdown = menu_builder.add_dropdown(
+        menu,
+        "Pilih kelompok usia…",
+        [{"role_id": 3, "label": "13-17"}, {"role_id": 4, "label": "18-24"}],
+        exclusive=True,
+        group="usia",
+    )
+    assert dropdown and dropdown["exclusive"] is True
+    assert menu_builder.add_dropdown(menu, "x", [{"role_id": 1, "label": "a"}]) is not None
+    assert menu_builder.add_dropdown(menu, "y", [{"role_id": 1, "label": "a"}]) is None  # maks 2
+
+    # 2. Toggle role: klik pertama memberi, klik kedua melepas
+    ix = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix, 1) is True
+    assert role_a in member.roles
+    menu_builder._role_cooldown.clear()      # lewati jeda 3 detik untuk pengujian
+    ix2 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix2, 1) is True
+    assert role_a not in member.roles
+
+    # 3. Jeda anti double-click
+    menu_builder._role_cooldown.clear()
+    ix3 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix3, 2) is True
+    ix4 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix4, 2) is False    # masih dalam jeda
+    assert role_b in member.roles
+
+    # 4. Role di atas role bot / @everyone ditolak
+    guild._roles[5] = _MBRole(5, "Admin", position=99)
+    guild._roles[6] = _MBRole(6, "@everyone", position=0, default=True)
+    ok, reason = menu_builder.check_role_usable(guild, 5)
+    assert ok is False and "di atas role bot" in reason
+    ok2, _ = menu_builder.check_role_usable(guild, 6)
+    assert ok2 is False
+    ok3, _ = menu_builder.check_role_usable(guild, 424242)
+    assert ok3 is False
+
+    # 5. Dropdown eksklusif: role grup dilepas otomatis
+    menu_builder._role_cooldown.clear()
+    exclusive_ids = menu_builder.role_ids_in_group(menu, "usia")
+    assert sorted(exclusive_ids) == [3, 4]
+    member.roles = [role_old]
+    ix5 = _MBInteraction(guild, member)
+    assert await menu_builder.toggle_role(ix5, 4, exclusive_role_ids=exclusive_ids) is True
+    assert role_new in member.roles and role_old not in member.roles
+
+    # 6. Batas jumlah tombol per panel
+    limited = menu_builder.create_menu(guild.id, "Penuh")
+    for idx in range(menu_builder.MAX_BUTTONS):
+        assert menu_builder.add_link_button(limited, f"L{idx}", f"https://x{idx}.test") is not None
+    assert menu_builder.add_link_button(limited, "Lebih", "https://lebih.test") is None
+    assert menu_builder.delete_menu(guild.id, limited["id"]) is True
+
+    # 7. Hapus item berdasarkan nomor & label
+    assert menu_builder.remove_item(menu, "1") is not None
+    assert menu_builder.remove_item(menu, "Tidak Ada") is None
+    assert menu_builder.count_items(menu) >= 1
+
+    # 8. Dispatch tombol: menu tidak dikenal → balasan sopan (tanpa crash)
+    ix6 = _MBInteraction(guild, member)
+    await menu_builder.handle_button(ix6, "tidak-ada", "x")
+    assert ix6.response.sent or ix6.followup.sent
+
+    # Dropdown tidak dikenal: diam saja, tanpa error
+    ix7 = _MBInteraction(guild, member)
+    await menu_builder.handle_select(ix7, menu["id"], "dropdown-tidak-ada")
+    assert ix7.response.sent == [] and ix7.followup.sent == []
+
+    # Dropdown valid: memilih opsi = role diberikan (atau dilepas)
+    menu_builder._role_cooldown.clear()
+    member.roles = []
+    ix8 = _MBInteraction(guild, member)
+    ix8.data = {"values": ["4"]}
+    await menu_builder.handle_select(ix8, menu["id"], dropdown["id"])
+    assert role_new in member.roles
+
+    # 9. Persistensi
+    menu_builder.menus.clear()
+    assert menu_builder.load_menus_from_disk() >= 0
+    assert isinstance(menu_builder.cleanup_menu_runtime(), int)
+    menu_builder.menus.clear()
+
+
+@pytest.mark.asyncio
+async def test_menu_builder_command_buttons_and_visibility(monkeypatch):
+    """Tombol command: whitelist, jalan atas nama pengklik, & paksa visibilitas."""
+    import menu_builder
+
+    menu_builder.menus.clear()
+    menu_builder._role_cooldown.clear()
+
+    calls: list[dict] = []
+
+    async def _fake_command(interaction):
+        calls.append({"ephemeral": None})
+        await interaction.response.send_message(content="hasil info", ephemeral=True)
+
+    class _Command:
+        callback = staticmethod(_fake_command)
+
+    class _Group:
+        def __init__(self):
+            self._children = {"lihat": _Command()}
+
+        def get_command(self, name):
+            return self._children.get(name)
+
+    class _Tree:
+        def __init__(self):
+            self._top = {"serverstats": _Group()}
+
+        def get_command(self, name):
+            return self._top.get(name)
+
+    class _Client:
+        def __init__(self):
+            self.tree = _Tree()
+
+    guild = _MBGuild(88, [_MBRole(1, "Gamer", position=10)])
+    member = _MBMember(601)
+    client = _Client()
+    ix = _MBInteraction(guild, member, client=client)
+
+    # 1. Command ada di whitelist → berhasil dipanggil
+    assert await menu_builder.run_command_item(ix, "serverstats", menu_builder.VIS_AUTO) is True
+    assert calls
+
+    # 2. Visibilitas publik memaksa `ephemeral=False`
+    ix_pub = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_pub, "serverstats", menu_builder.VIS_PUBLIK) is True
+    assert ix_pub.response.sent[-1]["ephemeral"] is False
+
+    # 3. Visibilitas ephemeral memaksa `ephemeral=True`
+    ix_eph = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_eph, "serverstats", menu_builder.VIS_EPHEMERAL) is True
+    assert ix_eph.response.sent[-1]["ephemeral"] is True
+
+    # 4. Command di luar whitelist / tidak tersedia → ditolak tanpa crash
+    ix_bad = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_bad, "serverstats", menu_builder.VIS_AUTO) is True
+    ix_missing = _MBInteraction(guild, member, client=client)
+    assert await menu_builder.run_command_item(ix_missing, "level", menu_builder.VIS_AUTO) is False
+
+    # 5. Menu dasar & tombol command terpasang benar
+    menu = menu_builder.create_menu(guild.id, "Pusat Info")
+    item = menu_builder.add_command_button(menu, "serverstats", visibility=menu_builder.VIS_PUBLIK)
+    assert item and item["kind"] == menu_builder.KIND_COMMAND
+    assert menu_builder.SAFE_COMMANDS["serverstats"]["path"] == ("serverstats", "lihat")
+    # Command berbahaya tidak terdaftar
+    for forbidden in ("ban", "purge", "lockdown", "backup", "mod", "ekonomi_atur"):
+        assert forbidden not in menu_builder.SAFE_COMMANDS
+
+    # 6. Handler tombol command memakai visibilitas tersimpan
+    ix_btn = _MBInteraction(guild, member, client=client)
+    await menu_builder.handle_button(ix_btn, menu["id"], item["id"])
+    assert ix_btn.response.sent[-1]["ephemeral"] is False
+
+    # 7. Panel dapat dirender (V2) & fallback embed
+    view = menu_builder.build_view(menu)
+    assert view is not None
+    embed = menu_builder.build_fallback_embed(menu)
+    assert "Pusat Info" in (embed.title or "")
+
+    menu_builder.menus.clear()

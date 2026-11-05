@@ -196,11 +196,15 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             color=discord.Color.purple(),
         )
         embed.add_field(
-            name="🎭 Reaction Role (`/panel-role`)",
+            name="🎭 Self Roles (`/panel-role`) + 🧱 Menu Builder (`/menu`)",
             value=(
-                "• `/panel-role pasang channel:#ambil-role judul:Ambil Role role1:@Gamer emoji1:🎮` — member klik emoji untuk mengambil role sendiri.\n"
-                "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel yang sudah ada.\n"
-                "• `/panel-role daftar` — lihat seluruh panel di server ini."
+                "• `/panel-role pasang … gaya:campuran banner:<gambar>` — panel **Self Roles** ala Discohook: "
+                "**banner + tombol + dropdown** (klik = ambil role, klik lagi = lepas). Gaya lain: `reaksi` (lama), `tombol`, `dropdown`.\n"
+                "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel reaksi.\n"
+                "• `/menu buat judul:Pusat Info [banner]` — panel sendiri berisi **tombol role, tombol link, & tombol command**.\n"
+                "• `/menu tombol-command aksi:serverstats` — tombol yang **menjalankan command**, mis. `/serverstats lihat`, "
+                "`/level lihat`, `/tumbuh ringkas`, `/bantuan`. Visibilitas: `auto`/`ephemeral`/`publik`.\n"
+                "• `/menu tombol-role`, `/menu tombol-link`, `/menu dropdown-role`, `/menu hapus-item`, `/menu daftar`."
             ),
             inline=False,
         )
