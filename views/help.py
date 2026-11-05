@@ -205,6 +205,17 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
+            name="💡 Kotak Saran & 📝 Pembuat Embed (`/saran`, `/embed`)",
+            value=(
+                "• `/saran pasang channel:#saran` *(Admin)* lalu member memakai `/saran kirim teks:...`.\n"
+                "• Saran tampil dengan tombol **👍/👎** (tahan restart), satu member satu suara.\n"
+                "• `/saran status id:3 status:diterima` *(Staff)* — pengusul otomatis diberi tahu.\n"
+                "• `/embed buat channel:#pengumuman` — formulir pengumuman; `/embed cepat` untuk kirim langsung.\n"
+                "• Warna: `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. **0 kuota AI.**"
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🔔 Notifikasi Sosial (`/sosial`)",
             value=(
                 "• `/sosial tambah platform:🎬 YouTube target:@NamaChannel channel:#info` — beri tahu warga "

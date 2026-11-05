@@ -2218,6 +2218,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "mod",
         # v1.16.0-beta: voice room sementara (join-to-create)
         "tempvoice",
+        # v1.17.0-beta: kotak saran + pembuat embed
+        "saran", "embed",
     }
     assert len(chat_cmds) <= 100
 
@@ -5741,3 +5743,84 @@ async def test_temp_voice_config_rooms_and_persistence():
 
     tv.unregister_room(9001)
     tv.temp_voice_guilds.pop(gid, None)
+
+
+@pytest.mark.asyncio
+async def test_suggestions_voting_status_and_persistence():
+    """Kotak saran: voting berganti, status, penghapusan, simpan-muat, & command."""
+    import suggestions as sg
+    from cogs.suggestions_cog import embed_group, parse_color, saran_group
+
+    gid = 737373
+    sg.suggestion_settings.pop(gid, None)
+    sg.suggestion_items.pop(gid, None)
+
+    # 1. Channel kotak saran
+    assert sg.get_channel(gid) is None
+    assert sg.set_channel(gid, 900) == 900
+    assert sg.get_channel(gid) == 900
+    assert sg.set_channel(gid, None) is None
+    sg.set_channel(gid, 900)
+
+    # 2. Saran baru + validasi
+    item = sg.add_suggestion(gid, 4001, "Tambah channel meme dong")
+    assert item["id"] == 1 and item["status"] == "baru"
+    try:
+        sg.add_suggestion(gid, 4001, "   ")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("saran kosong harus ditolak")
+
+    # 3. Voting: baru → duplikat → berganti → duplikat
+    sg.bind_message(gid, item["id"], 555)
+    assert sg.vote(555, 1, "up")[0] == "baru"
+    assert sg.vote(555, 1, "up")[0] == "duplikat"
+    assert sg.vote(555, 1, "down")[0] == "berganti"
+    assert sg.vote(555, 2, "down")[0] == "baru"
+    assert sg.vote(999, 1, "up")[0] == "tidak_ada"
+    item = sg.get_by_message(555)
+    assert len(item["up"]) == 0 and len(item["down"]) == 2
+    assert sg.score(item) == -2
+
+    # 4. Status & validasi status asing
+    assert sg.set_status(gid, 1, "diterima")["status"] == "diterima"
+    assert sg.set_status(gid, 1, "ngawur") is None
+    assert sg.set_status(gid, 99, "diterima") is None
+
+    # 5. Embed saran memuat status & hitungan
+    embed = sg.build_suggestion_embed(gid, item)
+    assert "Diterima" in embed.title
+    assert any("Tidak setuju" in f.name for f in embed.fields)
+
+    # 6. Daftar & filter
+    second = sg.add_suggestion(gid, 4002, "Adakan event mingguan")
+    assert [i["id"] for i in sg.list_suggestions(gid)][0] == second["id"]
+    assert len(sg.list_suggestions(gid, status="diterima")) == 1
+
+    # 7. Simpan → muat ulang (termasuk pemetaan tombol pesan)
+    await sg.save_suggestions_to_disk()
+    sg.suggestion_items.clear()
+    sg.suggestion_settings.clear()
+    sg._by_message.clear()
+    loaded_guilds, loaded_items = sg.load_suggestions_from_disk()
+    assert loaded_guilds >= 1 and loaded_items >= 2
+    assert sg.get_channel(gid) == 900
+    assert sg.get_by_message(555) is not None
+
+    # 8. Hapus saran
+    assert sg.delete_suggestion(gid, 1) is True
+    assert sg.delete_suggestion(gid, 1) is False
+    assert sg.get_by_message(555) is None
+
+    # 9. Warna embed: hex, nama Indonesia, & fallback
+    assert str(parse_color("#9B59B6")) == str(discord.Colour(0x9B59B6))
+    assert str(parse_color("biru")) == str(discord.Colour(0x3498DB))
+    assert str(parse_color("ngawur")) == str(discord.Colour(0x9B59B6))
+
+    # 10. Command terdaftar
+    assert {c.name for c in saran_group.commands} == {"pasang", "kirim", "daftar", "status", "hapus"}
+    assert {c.name for c in embed_group.commands} == {"buat", "cepat"}
+
+    sg.suggestion_settings.pop(gid, None)
+    sg.suggestion_items.pop(gid, None)

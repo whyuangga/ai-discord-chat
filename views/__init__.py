@@ -29,6 +29,7 @@ from .tickets import (  # noqa: F401
 )
 from .engagement import (  # noqa: F401
     GiveawayJoinView,
+    SuggestionVoteView,
 )
 from .music import (  # noqa: F401
     QueuePaginationView,
@@ -68,6 +69,7 @@ __all__ = [
     "EndSessionView",
     "ForumPostSolvedView",
     "GiveawayJoinView",
+    "SuggestionVoteView",
     "HELP_CATEGORIES",
     "HelpMenuView",
     "HelpPanelView",

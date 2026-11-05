@@ -38,6 +38,11 @@ from cogs.server_cog import (
     serverstats_group,
 )
 from cogs.session_cog import register_session_cog, sesi_group
+from cogs.suggestions_cog import (
+    embed_group,
+    register_suggestions_cog,
+    saran_group,
+)
 from cogs.social_cog import register_social_cog, sosial_group
 from cogs.tempvoice_cog import register_tempvoice_cog, tempvoice_group
 from cogs.tools_cog import (
@@ -68,6 +73,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_music_cog(bot)
     register_moderation_cog(bot)
     register_tempvoice_cog(bot)
+    register_suggestions_cog(bot)
     register_panel_cog(bot)
     register_social_cog(bot)
     register_events_cog(bot)
@@ -77,6 +83,8 @@ __all__ = [
     "agent_group",
     "mod_group",
     "tempvoice_group",
+    "saran_group",
+    "embed_group",
     "sosial_group",
     "giveaway_group",
     "faq_group",

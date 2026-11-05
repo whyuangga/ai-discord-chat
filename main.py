@@ -62,6 +62,10 @@ from music import (
     run_music_panel_check,
     save_music_settings_to_disk,
 )
+from suggestions import (
+    cleanup_suggestions_runtime,
+    load_suggestions_from_disk,
+)
 from temp_voice import (
     cleanup_temp_voice_runtime,
     load_temp_voice_from_disk,
@@ -101,6 +105,7 @@ from views import (
     ForumPostSolvedView,
     ImageSettingsView,
     MainPanelControlView,
+    SuggestionVoteView,
     GiveawayJoinView,
     MusicPlayerView,
     TicketActionsView,
@@ -210,6 +215,10 @@ class GeminiDiscordBot(commands.Bot):
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_themes = load_ui_themes_from_disk()
+        loaded_saran_guilds, loaded_saran_items = load_suggestions_from_disk()
+        logger.info(
+            "Kotak saran dimuat: %d saran di %d server.", loaded_saran_items, loaded_saran_guilds
+        )
         loaded_hub_guilds, loaded_rooms = load_temp_voice_from_disk()
         logger.info(
             "Temp Voice dimuat: %d server, %d room tersimpan.", loaded_hub_guilds, loaded_rooms
@@ -302,6 +311,7 @@ class GeminiDiscordBot(commands.Bot):
         self.add_view(VerificationGateView())
         self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
         self.add_view(GiveawayJoinView())  # tombol 🎉 giveaway tetap aktif setelah restart
+        self.add_view(SuggestionVoteView())  # tombol 👍/👎 kotak saran
         self.add_view(TicketPanelView())   # panel "Buat Tiket"
         self.add_view(TicketActionsView())  # tombol klaim/tutup di dalam thread tiket
 
@@ -403,6 +413,7 @@ async def idle_chat_watcher():
             cleanup_social_runtime()
             cleanup_moderation_runtime()
             cleanup_temp_voice_runtime()
+            cleanup_suggestions_runtime()
             await save_ai_usage_to_disk()
             prune_expired_user_cooldowns()
     except Exception as exc:
