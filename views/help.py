@@ -323,6 +323,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/level atur aktif:True jeda:60 xp_minimal:15 xp_maksimal:25` *(Admin)*.\n"
                 "• `/level role level:5 role:@Aktif` *(Admin)* — hadiah role otomatis.\n"
                 "• `/level status` — statistik & konfigurasi leveling.\n"
+                "• `/level musim status` & `/level prestise` — **musim level** (reset berkala, "
+                "juara musim disimpan) & **Prestige** (level max → trofi permanen, XP kembali 0).\n"
                 "• XP dibatasi jeda (default 60 detik) & bisa dikecualikan per channel/role."
             ),
             inline=False,

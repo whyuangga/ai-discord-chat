@@ -4487,6 +4487,8 @@ async def test_growth_commands_views_and_help():
     assert level_group.name == "level"
     assert {c.name for c in level_group.commands} == {
         "lihat", "papan", "atur", "role", "status", "voice",
+        # v1.34.0-beta: musim & prestige
+        "musim", "prestise",
     }
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {
@@ -8356,3 +8358,129 @@ async def test_ticket_rating_sla_and_auto_close(monkeypatch):
     tickets.tickets.clear()
     tickets._ticket_seq.clear()
     await tickets.save_tickets_to_disk()
+
+
+# ==============================================================================
+# MUSIM LEVEL & PRESTIGE (v1.34.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_level_season_reset_and_prestige():
+    """Musim level: snapshot juara, reset XP, prestige permanen, & reset otomatis."""
+    import levels as lv
+
+    lv.level_guilds.clear()
+    lv.levels.clear()
+
+    gid = 9090
+    lv.set_level_config(gid, aktif=True)
+    lv.set_level_config(gid, season_auto_hari=30, prestige_min_level=3)
+
+    now = time.time()
+    lv.levels[lv._key(gid, 1)] = {"xp": 500, "level": 5, "messages": 40, "prestige": 1}
+    lv.levels[lv._key(gid, 2)] = {"xp": 300, "level": 3, "messages": 20}
+    lv.levels[lv._key(gid, 3)] = {"xp": 100, "level": 1, "messages": 5}
+
+    # 1. Status musim awal
+    info = lv.season_info(gid, now=now)
+    assert info["season"] == 1 and info["auto_hari"] == 30 and info["sisa_hari"] == 30
+    assert info["last"] is None
+
+    # 2. Prestige: syarat level minimum
+    ok, reason = lv.can_prestige(gid, 3)
+    assert ok is False and "level 3" in reason
+    ok, reason = lv.can_prestige(gid, 1)
+    assert ok is True
+
+    ok, data = lv.apply_prestige(gid, 1)
+    assert ok and data["prestige"] == 2
+    member = lv.get_member_level(gid, 1)
+    assert member["level"] == 0 and member["xp"] == 0 and member["prestige"] == 2
+    assert lv.get_level_config(gid)["prestige_count"] == 1
+
+    # 3. Prestige bisa dimatikan admin
+    lv.set_level_config(gid, prestige_aktif=False)
+    assert lv.can_prestige(gid, 2)[0] is False
+    lv.set_level_config(gid, prestige_aktif=True)
+
+    # 4. Reset musim: snapshot juara, XP direset, prestige disimpan
+    snapshot = lv.reset_season(gid, by_id=42, now=now)
+    assert snapshot["season"] == 1 and snapshot["participants"] == 3
+    assert snapshot["top"][0]["user_id"] == 2         # juara = XP tertinggi saat reset
+    assert snapshot["by"] == 42
+    cfg = lv.get_level_config(gid)
+    assert cfg["season"] == 2
+    assert len(cfg["season_history"]) == 1
+    assert lv.get_member_level(gid, 2)["xp"] == 0
+    assert lv.get_member_level(gid, 1)["prestige"] == 2     # trofi tetap ada
+    assert lv.season_info(gid, now=now + 86400)["days_elapsed"] == 1
+
+    # 5. Riwayat dibatasi 12 musim
+    for _ in range(13):
+        lv.reset_season(gid, now=now)
+    assert len(lv.get_level_config(gid)["season_history"]) == 12
+    assert lv.get_level_config(gid)["season"] == 15
+
+    # 6. Reset otomatis sesuai jadwal
+    lv.set_level_config(gid, season_auto_hari=7)
+    cfg = lv.get_level_config(gid)
+    cfg["season_started_at"] = now - 8 * 86400
+    assert lv.season_due(gid, now=now) is True
+    cfg["season_started_at"] = now
+    assert lv.season_due(gid, now=now) is False
+    lv.set_level_config(gid, season_auto_hari=0)
+    cfg["season_started_at"] = now - 400 * 86400
+    assert lv.season_due(gid, now=now) is False      # manual saja
+
+    # 7. Embed pengumuman & pengawas
+    lv.set_level_config(gid, season_auto_hari=1)
+    lv.get_level_config(gid)["season_started_at"] = now - 2 * 86400
+    lv.levels[lv._key(gid, 7)] = {"xp": 50, "level": 1, "messages": 2}
+
+    class _Chan:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, *args, **kwargs):
+            self.sent.append(kwargs)
+
+    channel = _Chan()
+
+    class _Guild:
+        id = gid
+        name = "Server Musim"
+
+    class _Bot:
+        def get_guild(self, gid_arg):
+            return _Guild() if int(gid_arg) == gid else None
+
+        def get_channel(self, cid):
+            return channel
+
+    lv.get_level_config(gid)["announce_channel_id"] = 1234
+    assert await lv.run_level_season_check(_Bot()) == 1
+    assert channel.sent and "Musim" in channel.sent[0]["embed"].title
+
+    # 8. Kartu level & papan peringkat menampilkan prestige
+    class _Member:
+        display_name = "Budi"
+        display_avatar = None
+
+    lv.levels[lv._key(gid, 8)] = {"xp": 20, "level": 1, "messages": 1, "prestige": 3}
+    card = lv.build_level_embed(_Member(), lv.get_member_level(gid, 8), lv.get_level_config(gid))
+    assert any("Prestige" in f.name for f in card.fields)
+    board = lv.build_leaderboard_embed(
+        _Guild(), [(8, lv.levels[lv._key(gid, 8)])], page=0, total_pages=1, total_members=1
+    )
+    assert "🌟`3×`" in board.fields[0].value
+
+    # 9. Persistensi musim & prestige
+    await lv.save_levels_to_disk()
+    lv.level_guilds.clear()
+    lv.levels.clear()
+    assert lv.load_levels_from_disk() >= 1
+    assert lv.get_level_config(gid)["season"] >= 2
+    assert lv.get_member_level(gid, 8)["prestige"] == 3
+
+    lv.level_guilds.clear()
+    lv.levels.clear()
+    await lv.save_levels_to_disk()

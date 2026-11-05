@@ -64,6 +64,15 @@ def default_config() -> dict:
         "voice_ignore_channels": [],      # voice channel yang tidak dihitung
         "level_roles": {},             # {"5": role_id, ...}
         "leveled_up": 0,
+        # v1.34.0-beta: musim & prestige
+        "season": 1,
+        "season_started_at": 0.0,
+        "season_auto_hari": 0,          # 0 = reset musim manual saja (default aman)
+        "season_announce": True,
+        "season_history": [],           # ringkasan beberapa musim terakhir
+        "prestige_aktif": True,
+        "prestige_min_level": 0,        # 0 = pakai LEVELS_MAX_LEVEL
+        "prestige_count": 0,
     }
 
 
@@ -163,6 +172,18 @@ def load_levels_from_disk() -> int:
                     if _to_int(v)
                 },
                 "leveled_up": max(0, _to_int(data.get("leveled_up"))),
+                "season": max(1, _to_int(data.get("season"), 1)),
+                "season_started_at": float(data.get("season_started_at") or 0),
+                "season_auto_hari": max(0, min(365, _to_int(data.get("season_auto_hari")))),
+                "season_announce": bool(data.get("season_announce", True)),
+                "season_history": [
+                    dict(item)
+                    for item in (data.get("season_history") or [])
+                    if isinstance(item, dict)
+                ][-12:],
+                "prestige_aktif": bool(data.get("prestige_aktif", True)),
+                "prestige_min_level": max(0, _to_int(data.get("prestige_min_level"))),
+                "prestige_count": max(0, _to_int(data.get("prestige_count"))),
             }
         )
         if base["xp_max"] < base["xp_min"]:
@@ -187,6 +208,7 @@ def load_levels_from_disk() -> int:
             "voice_sec": max(0, _to_int(data.get("voice_sec"))),
             "voice_day": str(data.get("voice_day") or ""),
             "voice_min_today": max(0, _to_int(data.get("voice_min_today"))),
+            "prestige": max(0, _to_int(data.get("prestige"))),
         }
     return len(level_guilds)
 
@@ -274,6 +296,14 @@ def set_level_config(guild_id: int, **changes) -> dict | None:
     for key in ("ignore_channels", "ignore_roles"):
         if changes.get(key) is not None:
             cfg[key] = sorted({int(v) for v in changes[key]})
+    if changes.get("season_auto_hari") is not None:
+        cfg["season_auto_hari"] = max(0, min(365, int(changes["season_auto_hari"])))
+    if changes.get("season_announce") is not None:
+        cfg["season_announce"] = bool(changes["season_announce"])
+    if changes.get("prestige_aktif") is not None:
+        cfg["prestige_aktif"] = bool(changes["prestige_aktif"])
+    if changes.get("prestige_min_level") is not None:
+        cfg["prestige_min_level"] = max(0, int(changes["prestige_min_level"]))
     return cfg
 
 
@@ -469,6 +499,7 @@ def get_member_level(guild_id: int, user_id: int) -> dict:
         "voice_xp": int(data.get("voice_xp") or 0),
         "voice_min_today": int(data.get("voice_min_today") or 0),
         "voice_day": str(data.get("voice_day") or ""),
+        "prestige": int(data.get("prestige") or 0),
     }
 
 
@@ -519,6 +550,198 @@ async def apply_level_role(member, role_id: int) -> bool:
 # ==============================================================================
 # TAMPILAN
 # ==============================================================================
+# ==============================================================================
+# MUSIM & PRESTIGE (v1.34.0-beta) — 0 kuota AI
+# ==============================================================================
+def season_info(guild_id: int, *, now: float | None = None) -> dict:
+    """Informasi musim level server: nomor, mulai, sisa hari, & juara musim lalu."""
+    cfg = get_level_config(guild_id)
+    current = time.time() if now is None else float(now)
+    started = float(cfg.get("season_started_at") or 0) or current
+    auto_days = _to_int(cfg.get("season_auto_hari"))
+    remaining = 0
+    if auto_days > 0:
+        remaining = max(0, int((started + auto_days * 86400 - current) // 86400))
+    history = cfg.get("season_history") or []
+    return {
+        "season": max(1, _to_int(cfg.get("season"), 1)),
+        "started_at": started,
+        "days_elapsed": max(0, int((current - started) // 86400)),
+        "auto_hari": auto_days,
+        "sisa_hari": remaining,
+        "history": history,
+        "last": history[-1] if history else None,
+    }
+
+
+def season_top(guild_id: int, limit: int = 3) -> list[dict]:
+    """Peringkat teratas musim berjalan (untuk snapshot saat reset)."""
+    rows, _page, _total = leaderboard(guild_id, limit=limit)
+    return [
+        {
+            "user_id": int(uid),
+            "level": int(data.get("level") or 0),
+            "xp": int(data.get("xp") or 0),
+            "messages": int(data.get("messages") or 0),
+        }
+        for uid, data in rows
+    ]
+
+
+def reset_season(guild_id: int, *, by_id: int = 0, now: float | None = None) -> dict:
+    """Menutup musim berjalan & memulai musim baru (XP direset, prestige disimpan)."""
+    gid = int(guild_id)
+    cfg = get_level_config(gid)
+    current = time.time() if now is None else float(now)
+
+    top = season_top(gid, limit=3)
+    members_before = 0
+    for key in list(levels.keys()):
+        try:
+            key_gid = int(key.split(":", 1)[0])
+        except (TypeError, ValueError):
+            continue
+        if key_gid != gid:
+            continue
+        members_before += 1
+        # Prestige tetap tersimpan sebagai trofi permanen
+        prestige = max(0, _to_int(levels[key].get("prestige")))
+        if prestige:
+            levels[key] = {"xp": 0, "level": 0, "messages": 0, "last_at": 0.0, "prestige": prestige}
+        else:
+            levels.pop(key, None)
+
+    closed = max(1, _to_int(cfg.get("season"), 1))
+    snapshot = {
+        "season": closed,
+        "ended_at": current,
+        "participants": members_before,
+        "top": top,
+        "by": int(by_id) if by_id else 0,
+    }
+    history = list(cfg.get("season_history") or [])
+    history.append(snapshot)
+    cfg["season_history"] = history[-12:]
+    cfg["season"] = closed + 1
+    cfg["season_started_at"] = current
+    return snapshot
+
+
+def season_due(guild_id: int, *, now: float | None = None) -> bool:
+    """Apakah musim sudah waktunya direset otomatis."""
+    cfg = get_level_config(guild_id)
+    auto_days = _to_int(cfg.get("season_auto_hari"))
+    if auto_days <= 0:
+        return False
+    current = time.time() if now is None else float(now)
+    started = float(cfg.get("season_started_at") or 0)
+    if started <= 0:
+        cfg["season_started_at"] = current
+        return False
+    return current - started >= auto_days * 86400
+
+
+def prestige_min_level(guild_id: int) -> int:
+    cfg = get_level_config(guild_id)
+    return _to_int(cfg.get("prestige_min_level")) or int(LEVELS_MAX_LEVEL)
+
+
+def can_prestige(guild_id: int, user_id: int) -> tuple[bool, str]:
+    """Syarat prestige: fitur aktif & level sudah mencapai batas."""
+    cfg = get_level_config(guild_id)
+    if not cfg.get("prestige_aktif", True):
+        return False, "Fitur **prestige** dimatikan di server ini."
+    data = get_member_level(guild_id, user_id)
+    need = prestige_min_level(guild_id)
+    if int(data.get("level") or 0) < need:
+        return False, (
+            f"Prestige butuh **level {need}**. Levelmu sekarang `{int(data.get('level') or 0)}` — "
+            "terus aktif ya!"
+        )
+    return True, ""
+
+
+def apply_prestige(guild_id: int, user_id: int) -> tuple[bool, dict]:
+    """Menandai prestige: XP kembali 0, jumlah prestige bertambah (permanen)."""
+    gid, uid = int(guild_id), int(user_id)
+    ok, reason = can_prestige(gid, uid)
+    if not ok:
+        return False, {"reason": reason}
+    key = _key(gid, uid)
+    data = levels.get(key) or {}
+    prestige = max(0, _to_int(data.get("prestige"))) + 1
+    levels[key] = {
+        "xp": 0,
+        "level": 0,
+        "messages": max(0, _to_int(data.get("messages"))),
+        "last_at": 0.0,
+        "voice_xp": 0,
+        "voice_sec": max(0, _to_int(data.get("voice_sec"))),
+        "voice_day": "",
+        "voice_min_today": 0,
+        "prestige": prestige,
+    }
+    cfg = get_level_config(gid)
+    cfg["prestige_count"] = _to_int(cfg.get("prestige_count")) + 1
+    return True, {"prestige": prestige, "reason": ""}
+
+
+def build_season_announce_embed(guild, snapshot: dict, *, next_season: int) -> discord.Embed:
+    """Pengumuman pergantian musim level."""
+    lines = ["XP semua member direset — mulai lembaran baru! 🎉"]
+    top = snapshot.get("top") or []
+    if top:
+        medals = ["🥇", "🥈", "🥉"]
+        lines.append("")
+        lines.append(f"**Juara Musim {snapshot.get('season')}**")
+        for index, row in enumerate(top[:3]):
+            lines.append(
+                f"{medals[index]} <@{row['user_id']}> — level `{row.get('level', 0)}` "
+                f"(`{row.get('xp', 0)}` XP)"
+            )
+    lines.append("")
+    lines.append(f"**Musim {next_season}** dimulai sekarang. Prestige tetap tersimpan.")
+    embed = discord.Embed(
+        title=f"🏁 Musim {snapshot.get('season')} Berakhir — Musim {next_season} Dimulai",
+        description="\n".join(lines)[:4096],
+        color=discord.Color.purple(),
+    )
+    guild_name = getattr(guild, "name", None)
+    embed.set_footer(
+        text=f"{guild_name} • /level lihat untuk progres barumu" if guild_name else "/level lihat"
+    )
+    return embed
+
+
+async def run_level_season_check(bot) -> int:
+    """Dipanggil berkala: reset musim otomatis untuk server yang mengaktifkannya."""
+    reset_count = 0
+    for gid, cfg in list(level_guilds.items()):
+        if not season_due(gid):
+            continue
+        guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+        snapshot = reset_season(gid)
+        reset_count += 1
+        channel_id = _to_int(cfg.get("announce_channel_id"))
+        if guild is None or not channel_id or not cfg.get("season_announce", True):
+            continue
+        channel = bot.get_channel(channel_id) if callable(getattr(bot, "get_channel", None)) else None
+        if channel is None:
+            continue
+        try:
+            await channel.send(
+                embed=build_season_announce_embed(
+                    guild, snapshot, next_season=_to_int(cfg.get("season"), 1)
+                ),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except Exception:  # pragma: no cover - izin kurang
+            continue
+    if reset_count:
+        await save_levels_to_disk()
+    return reset_count
+
+
 def build_level_embed(member, data: dict, cfg: dict | None = None) -> discord.Embed:
     """Kartu level seorang member."""
     name = getattr(member, "display_name", None) or str(member)
@@ -533,6 +756,9 @@ def build_level_embed(member, data: dict, cfg: dict | None = None) -> discord.Em
     )
     embed.add_field(name="💬 Pesan", value=f"`{int(data.get('messages') or 0)}`", inline=True)
     embed.add_field(name="🏅 Level", value=f"`{int(data.get('level') or 0)}`", inline=True)
+    prestige = int(data.get("prestige") or 0)
+    if prestige:
+        embed.add_field(name="🌟 Prestige", value=f"`{prestige}×`", inline=True)
     voice_xp = int(data.get("voice_xp") or 0)
     if voice_xp:
         embed.add_field(name="🎙️ XP Voice", value=f"`{voice_xp}`", inline=True)
@@ -574,8 +800,10 @@ def build_leaderboard_embed(
     for idx, (uid, data) in enumerate(rows):
         rank = offset + idx + 1
         badge = medals.get(rank - 1, f"`{rank}.`")
+        prestige = int(data.get("prestige") or 0)
+        star = f" 🌟`{prestige}×`" if prestige else ""
         lines.append(
-            f"{badge} <@{uid}> — level `{int(data.get('level') or 0)}` "
+            f"{badge} <@{uid}> — level `{int(data.get('level') or 0)}`{star} "
             f"(`{int(data.get('xp') or 0)}` XP • `{int(data.get('messages') or 0)}` pesan)"
         )
     embed.add_field(name="Peringkat", value="\n".join(lines)[:1024], inline=False)

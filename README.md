@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.33.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.34.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -744,11 +744,23 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/level voice`** *(tanpa argumen)* | Lihat setelan XP Voice server ini. |
 | **`/level status`** | Statistik: member terdata, XP tertinggi, total level-up, peta hadiah, & status XP Voice. |
 | **`/level atur aktif:False`** | Matikan (data XP tetap tersimpan). |
+| **`/level musim status`** | Musim berjalan, sisa hari, peringkat sementara, & juara musim lalu. |
+| **`/level musim ulang konfirmasi:True reset_otomatis_hari:90`** *(Admin)* | Tutup musim & mulai musim baru (XP direset, prestige disimpan). |
+| **`/level prestise`** | Tukar level maksimum menjadi **1× Prestige** (XP kembali 0, trofi permanen). |
 
 **Rumus & batas:**
 - XP per pesan acak `LEVELS_XP_MIN`–`LEVELS_XP_MAX` (default **15–25**), dengan **jeda `LEVELS_COOLDOWN_SEC`** (default **60 detik**) per member → tidak bisa di-*farming*.
 - Kebutuhan XP level: `5·L² + 50·L + 100` (level 0→1 = 100 XP, 1→2 = 155 XP, 5→6 = 475 XP).
-- Data per member hanya `xp`, `level`, `messages`, `voice_xp`, `voice_sec`, & waktu terakhir; disimpan **maksimal 500 member teratas per server** (`LEVELS_MAX_MEMBERS`) agar JSON tetap kecil.
+- Data per member hanya `xp`, `level`, `messages`, `voice_xp`, `voice_sec`, `prestige`, & waktu terakhir; disimpan **maksimal 500 member teratas per server** (`LEVELS_MAX_MEMBERS`) agar JSON tetap kecil.
+
+**🏁 Musim Level & 🌟 Prestige (0 kuota AI):**
+
+| Fitur | Detail |
+| :--- | :--- |
+| **Musim** | Setiap server punya nomor musim. `/level musim ulang konfirmasi:True` menutup musim: XP semua member direset, **3 juara teratas** disimpan sebagai riwayat (maks 12 musim), lalu musim baru dimulai. |
+| **Reset otomatis** | `reset_otomatis_hari:N` (1–365) membuat bot mereset musim otomatis setiap N hari. **Default nonaktif** (manual saja) supaya tidak mengejutkan member. |
+| **Prestige** | Member yang mencapai `LEVELS_MAX_LEVEL` bisa `/level prestise`: level & XP kembali 0, dapat **1× Prestige** permanen yang tampil di kartu level & papan peringkat. Bisa dimatikan Admin (`prestige_aktif`) atau syaratnya diturunkan. |
+| **Pengumuman** | Saat musim berganti, bot mengumumkan juara musim ke channel pengumuman level (bila diatur). 0 kuota AI — semua dihitung lokal. |
 
 **🎙️ XP Voice (`/level voice`) — 0 kuota AI:**
 - Member dapat `LEVELS_VOICE_XP_PER_MIN` XP (default **2**) untuk setiap **menit penuh** berada di voice channel, dan XP masuk ke total yang sama seperti XP pesan (kurva level tidak berubah).
@@ -1497,6 +1509,8 @@ Seluruh Slash Command kini dikelompokkan rapi menjadi **9 kelompok tingkat atas*
 | `/level role` | `level`, `role` | *(Admin)* Hadiah role otomatis per level. |
 | `/level voice` | `aktif`, `xp_per_menit`, `batas_menit_harian`, `abaikan_channel` | *(Admin)* XP dari voice channel (0 kuota AI). |
 | `/level status` | — | Statistik & konfigurasi leveling. |
+| `/level musim` | `status`/`ulang` (`konfirmasi`, `reset_otomatis_hari`) | Musim level: status & reset musim baru. |
+| `/level prestise` | — | Tukar level maksimum jadi Prestige (XP→0, trofi permanen). |
 | `/tiket panel` | `channel`, `staff_role`, `log_channel`, `max_open` | *(Admin)* Pasang panel **🎟️ Buat Tiket**. |
 | `/tiket status` | — | Konfigurasi, statistik, & tiket aktif. |
 | `/tiket daftar` | `hanya_milikku` | Daftar tiket aktif. |

@@ -251,6 +251,188 @@ async def level_status_cmd(interaction: discord.Interaction):
     )
 
 
+season_group = app_commands.Group(
+    name="musim",
+    description="Musim level: status musim berjalan & reset musim baru (0 kuota AI)",
+    parent=level_group,
+)
+
+
+@level_group.command(
+    name="prestise",
+    description="Tukar level maksimummu menjadi 1× Prestige (XP kembali 0, trofi permanen)",
+)
+async def level_prestise_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    ok, reason = levels.can_prestige(gid, interaction.user.id)
+    if not ok:
+        await interaction.response.send_message(f"ℹ️ {reason}", ephemeral=True)
+        return
+
+    data = levels.get_member_level(gid, interaction.user.id)
+    min_level = levels.prestige_min_level(gid)
+    view = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Prestige sekarang?",
+        detail=(
+            f"Level **{data['level']}** dan **{data['xp']} XP** akan kembali ke **0** "
+            f"(syukur: kamu dapat **1× Prestige** permanen).\n"
+            f"Prestige saat ini: `{data['prestige']}×`.\n"
+            f"XP hanya diberikan lagi setelah prestige — syarat level **{min_level}** tetap terpenuhi."
+        ),
+        confirm_label="Ya, tukar jadi Prestige",
+    )
+    if view is not None:
+        await view.wait()
+        if not view.result:
+            return
+
+    ok2, result = levels.apply_prestige(gid, interaction.user.id)
+    if not ok2:
+        message = f"ℹ️ {result.get('reason')}"
+    else:
+        await levels.save_levels_to_disk()
+        message = (
+            f"🌟 **Prestige {result['prestige']}×!** Levelmu kembali ke 0 dan XP direset. "
+            "Trofi prestige tersimpan permanen di kartu level & papan peringkat."
+        )
+
+    if view is None:
+        await interaction.response.send_message(message, ephemeral=True)
+    else:
+        try:
+            await interaction.edit_original_response(
+                embed=ui_theme.status_embed(gid, "ok" if ok2 else "info", "🌟 Prestige", message),
+                view=None,
+            )
+        except discord.HTTPException:  # pragma: no cover
+            pass
+
+
+@season_group.command(name="status", description="Lihat musim level berjalan, sisa hari, & juara musim lalu")
+async def level_musim_status_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    cfg = levels.get_level_config(gid)
+    info = levels.season_info(gid)
+    top = levels.season_top(gid, limit=5)
+
+    lines = [
+        f"🏁 **Musim {info['season']}** • berjalan `{info['days_elapsed']}` hari",
+        (
+            f"• Reset otomatis: setiap **{info['auto_hari']} hari** (sisa `{info['sisa_hari']}` hari)"
+            if info["auto_hari"]
+            else "• Reset otomatis: ⛔ nonaktif (Admin bisa `/level musim ulang`)"
+        ),
+        f"• Prestige: {'✅ aktif' if cfg.get('prestige_aktif', True) else '⛔ nonaktif'} "
+        f"(syarat level `{levels.prestige_min_level(gid)}`)",
+        f"• Total prestige server: `{cfg.get('prestige_count', 0)}`",
+    ]
+    if top:
+        lines.append("")
+        lines.append("**Peringkat sementara**")
+        lines.extend(
+            f"`{i}.` <@{row['user_id']}> — level `{row['level']}` (`{row['xp']}` XP)"
+            for i, row in enumerate(top, start=1)
+        )
+
+    last = info["last"]
+    if last:
+        medals = ["🥇", "🥈", "🥉"]
+        lines.append("")
+        lines.append(f"**Juara Musim {last.get('season')}** (`{last.get('participants', 0)}` peserta)")
+        for index, row in enumerate((last.get("top") or [])[:3]):
+            lines.append(
+                f"{medals[index]} <@{row['user_id']}> — level `{row.get('level', 0)}` "
+                f"(`{row.get('xp', 0)}` XP)"
+            )
+
+    await interaction.response.send_message(
+        embed=ui_theme.status_embed(
+            gid, "info", "🏁 Musim Level", "\n".join(lines)[:3800]
+        ),
+        ephemeral=True,
+    )
+
+
+@season_group.command(
+    name="ulang",
+    description="Tutup musim sekarang & mulai musim baru (XP direset, prestige disimpan) — Admin",
+)
+@app_commands.describe(
+    konfirmasi="Wajib True — reset XP seluruh member musim ini",
+    reset_otomatis_hari="Aktifkan reset otomatis tiap N hari (0 = manual)",
+)
+async def level_musim_ulang_cmd(
+    interaction: discord.Interaction,
+    konfirmasi: bool = False,
+    reset_otomatis_hari: app_commands.Range[int, 0, 365] | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    gid = interaction.guild.id
+    if not konfirmasi:
+        info = levels.season_info(gid)
+        await interaction.response.send_message(
+            f"⚠️ **Reset musim {info['season']}?** Semua XP member akan kembali ke 0 "
+            "(prestige tetap tersimpan). Jalankan ulang dengan `konfirmasi:True`.",
+            ephemeral=True,
+        )
+        return
+
+    if reset_otomatis_hari is not None:
+        levels.set_level_config(gid, season_auto_hari=int(reset_otomatis_hari))
+
+    view = await ui_kit.ask_confirm(
+        interaction,
+        gid,
+        title="Reset musim level sekarang?",
+        detail=(
+            "Semua XP & level member di musim ini akan direset. "
+            "Juara musim ini disimpan sebagai riwayat, dan **prestige tetap permanen**."
+        ),
+        confirm_label="Ya, mulai musim baru",
+    )
+    if view is not None:
+        await view.wait()
+        if not view.result:
+            return
+
+    snapshot = levels.reset_season(gid, by_id=interaction.user.id)
+    await levels.save_levels_to_disk()
+    cfg = levels.get_level_config(gid)
+    new_season = int(cfg.get("season") or 1)
+
+    embed = levels.build_season_announce_embed(interaction.guild, snapshot, next_season=new_season)
+    if view is None:
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    else:
+        try:
+            await interaction.edit_original_response(embed=embed, view=None)
+        except discord.HTTPException:  # pragma: no cover
+            pass
+
+    # Umumkan ke channel pengumuman level bila diatur
+    channel_id = int(cfg.get("announce_channel_id") or 0)
+    if channel_id and cfg.get("season_announce", True):
+        channel = interaction.guild.get_channel(channel_id)
+        if channel is not None:
+            try:
+                await channel.send(
+                    embed=embed, allowed_mentions=discord.AllowedMentions.none()
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+
 @level_group.command(name="voice", description="Atur XP dari aktivitas voice channel (0 kuota AI)")
 @app_commands.describe(
     aktif="True untuk menghitung XP voice, False untuk mematikan",
