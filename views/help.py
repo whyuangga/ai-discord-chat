@@ -587,11 +587,18 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• `/agent goodbye` — Kartu perpisahan hangat saat member keluar, plus masa kebersamaan.\n"
 
                 "• `/agent digest` — Kirim **Koran & Sapaan Pagi** terjadwal setiap hari.\n"
-                "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI.\n"
-                "• `/bahasa atur kode:en` *(Admin)* — bahasa **teks kerangka** (tombol, status, izin) ID/EN.\n"
-                "• `/prefix atur` *(Admin)* — prefix command teks per server; bawaan `!` tetap sah.\n"
-                "• `/analitik ekspor` / `webhook` *(Admin)* — CSV level/moderasi/tiket/pemakaian, "
-                "bisa dikirim otomatis ke webhook."
+                "• `/agent info` & `/agent persona` — Simpan memori FAQ resmi server & gaya bahasa AI."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🧠 Perawatan, Diagnosa & Tampilan",
+            value=(
+                "• `/perawatan status` — backup terakhir, channel log error, ukuran backup, & RAM.\n"
+                "• `/perawatan memori` — audit RAM **nyata**, ukuran `data/`, cache terbesar, & saran hemat.\n"
+                "• `/perawatan backup` & `/perawatan atur` — backup konfigurasi manual/otomatis.\n"
+                "• `/analitik ekspor` & `/analitik webhook` *(Admin)* — CSV level/moderasi/tiket/pemakaian.\n"
+                "• `/bahasa atur` *(Admin)* — bahasa teks kerangka ID/EN; `/prefix atur` *(Admin)* — prefix server."
             ),
             inline=False,
         )

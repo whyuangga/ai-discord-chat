@@ -9,6 +9,7 @@ from discord.ext import commands
 
 import menu_builder
 import ui_kit
+import memory_audit
 import ui_theme
 from cogs.helpers import get_memory_usage_mb
 from community_tools import (
@@ -1193,6 +1194,27 @@ async def perawatan_status_cmd(interaction: discord.Interaction):
         f"• **Log error:** {log_channel}\n"
         f"• **Ukuran backup saat ini:** `{size_kb:.1f} KB` (`{filename}`)\n"
         f"• **RAM bot:** `{get_memory_usage_mb()} MB`",
+        ephemeral=True,
+    )
+
+
+@perawatan_group.command(
+    name="memori",
+    description="Audit RAM & cache bot (angka nyata dari hosting ini) — 0 kuota AI",
+)
+async def perawatan_memori_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+
+    snap = memory_audit.snapshot()
+    await interaction.response.send_message(
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "info",
+            "🧠 Audit RAM & Cache",
+            memory_audit.format_report(snap),
+            footer="Angka dari proses bot ini sendiri • tanpa AI • tanpa dependency baru",
+        ),
         ephemeral=True,
     )
 

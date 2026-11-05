@@ -1,4 +1,4 @@
-# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.38.0-beta`)
+# 🤖 AI Discord Chat & Community Agent — Google Gemini Edition (`v1.39.0-beta`)
 
 Bot Discord modular berbasis **100% Google Gemini API terbaru** dengan arsitektur **`cogs/`** yang rapi, menggabungkan **empat sistem pintar dalam satu bot super ringan**:
 1. **🔒 Panel Ruang Sesi Privat (*Private Thread* — `/sesi`)** — Ruang pribadi khusus tiap member untuk konsultasi AI 5 kepribadian, membaca dokumen **`.pdf`** langsung, mendengar **Voice Note (🎤)**, merangkum **video YouTube & link web**, cek **berita & info terbaru hari ini (*Live Web & News Search* Gratis)**, analisis gambar (*Vision*), review file kode, serta pembuatan & pengeditan gambar AI.
@@ -47,6 +47,7 @@ Dirancang sangat ringan (~35–55 MB RAM) menggunakan koneksi `aiohttp` asinkron
    - [O2. Bahasa Antarmuka (`/bahasa`)](#o2-bahasa-antarmuka-bahasa--i18n-inti-0-kuota-ai)
    - [O3. Prefix Command per Server (`/prefix`)](#o3-prefix-command-per-server-prefix--0-kuota-ai)
    - [O4. Ekspor Analitik CSV & Webhook (`/analitik`)](#o4-ekspor-analitik-csv--webhook-analitik--0-kuota-ai)
+   - [O5. Audit RAM & Cache (`/perawatan memori`)](#o5-audit-ram--cache-perawatan-memori--0-kuota-ai)
    - [Catatan Parkir: Dashboard, BYOK & Isi Sendiri API Key (docs/)](docs/catatan-dashboard-dan-kunci-api.md)
    - [P. Anti-Nuke (`/nuke`)](#p-anti-nuke-nuke)
    - [J. Hemat Kuota AI — Pemakaian, Rekap Ber-cache & FAQ Lokal](#j-hemat-kuota-ai--pemakaian-rekap-ber-cache--faq-lokal)
@@ -1149,6 +1150,42 @@ dan **prefix bawaan `!` tetap diterima** sebagai cadangan agar member lama tidak
 Hanya server yang diubah yang disimpan di `data/prefixes.json` (hemat I/O & RAM).
 Command AI di channel tetap tidak terpengaruh: prefix hanya untuk command teks, bukan obrolan.
 
+### O5. Audit RAM & Cache (`/perawatan memori`) — 0 Kuota AI
+
+Free Tier itu soal **RAM**, jadi bot bisa melaporkan angka nyata dari hosting yang sedang
+dipakainya sendiri: `/perawatan memori` *(semua member boleh, jawabannya ephemeral).*
+
+Hasil pengukuran di mesin uji (Python 3.11, tanpa guild aktif):
+
+| Komponen | RAM |
+| :--- | :--- |
+| Python kosong | ±8.9 MB |
+| `discord.py` + `aiohttp` (impor wajib) | ±43.3 MB |
+| `wavelink` (klien musik) | ±+0.9 MB |
+| `Pillow` (dimuat hanya saat kartu gambar dipakai) | ±+1.7 MB |
+| **Bot ini saat diam (import `main`)** | **±53 MB** |
+| Beban data ekstrem (5 server × 500 member level + 1000 tiket + 1000 kasus + playlist) | ±+3–4 MB |
+
+**Artinya:** biaya terbesarnya adalah pustaka Discord itu sendiri (±43 MB), bukan fitur kita.
+Fitur-fitur baru (raid, playlist, rating tiket, musim, i18n, prefix, ekspor) menambah
+**hitungan byte**, bukan megabyte.
+
+**Batas per cache** (semua dipangkas otomatis oleh watcher yang sudah ada):
+
+| Cache | Batas |
+| :--- | :--- |
+| XP & level | 500 member / server (yang XP-nya tertinggi) |
+| Tiket | 200 tiket selesai total |
+| Kasus moderasi | 200 kasus / server |
+| Riwayat anti-nuke | 20 kejadian / server |
+| Playlist musik | 500 lagu / server • 5 playlist × 50 lagu per member |
+| Sesi chat/gambar | kedaluwarsa `SESSION_EXPIRE_DAYS` |
+| Cache bahasa/prefix/ekspor | 1 entri kecil per server, entri kosong dibuang |
+
+Laporan `/perawatan memori` menampilkan: RAM proses, ukuran `data/`, 6 cache terbesar beserta
+batasnya, 5 berkas `data/` terbesar, dan **saran otomatis** (mis. matikan gambar dinamis bila
+RAM sudah >200 MB, atau minta member merapikan playlist bila >2000 lagu).
+
 ### O4. Ekspor Analitik CSV & Webhook (`/analitik`) — 0 Kuota AI
 
 Data yang bot sudah punya bisa **diunduh** atau **dikirim otomatis** ke webhook Discord
@@ -1968,6 +2005,7 @@ ai-discord-chat/
 ├── i18n.py             # Terjemahan teks kerangka ID/EN per server (data/i18n.json)
 ├── prefixes.py         # Prefix command teks per server (data/prefixes.json)
 ├── analytics_export.py # Ekspor CSV (level/moderasi/tiket/pemakaian) & kirim webhook (data/analytics.json)
+├── memory_audit.py     # Audit RAM, ukuran data/, & jumlah entri cache (/perawatan memori)
 ├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
 ├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
 ├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)

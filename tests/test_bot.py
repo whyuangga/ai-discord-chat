@@ -3180,7 +3180,7 @@ def test_community_command_and_view_limits():
         "verifikasi": {"pasang", "status", "matikan"},
         "sticky": {"pasang", "lepas", "status"},
         "info": {"user", "server"},
-        "perawatan": {"backup", "atur", "status"},
+        "perawatan": {"backup", "atur", "status", "memori"},
     }
     for group_name, subs in expected_subs.items():
         assert {c.name for c in tree_cmds[group_name].commands} == subs
@@ -8887,3 +8887,84 @@ async def test_analytics_export_csv_webhook_and_schedule(monkeypatch):
     tickets.tickets.clear()
     insights.ai_usage.clear()
     await ax.save_analytics_to_disk()
+
+
+# ==============================================================================
+# AUDIT RAM & CACHE (v1.39.0-beta)
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_memory_audit_snapshot_and_report(monkeypatch):
+    """`/perawatan memori`: angka nyata, cache terhitung, & saran otomatis."""
+    import memory_audit
+
+    # 1. Snapshot dasar
+    snap = memory_audit.snapshot()
+    assert snap["rss_mb"] > 0
+    assert isinstance(snap["data_kb"], float)
+    assert snap["files"] >= 0
+    assert snap["total_entries"] >= 0
+    assert {item["label"] for item in snap["caches"]} >= {"XP & level member", "Tiket dukungan"}
+
+    # 2. Cache terhitung dari modul asli
+    import levels
+    import tickets
+
+    levels.level_guilds.clear()
+    levels.levels.clear()
+    tickets.tickets.clear()
+    levels.levels["1234:1"] = {"xp": 10, "level": 1, "messages": 1}
+    levels.levels["1234:2"] = {"xp": 20, "level": 1, "messages": 2}
+    tickets.tickets[555] = {"thread_id": 555, "guild_id": 1234, "status": "selesai"}
+
+    snap = memory_audit.snapshot()
+    by_label = {item["label"]: item for item in snap["caches"]}
+    assert by_label["XP & level member"]["entries"] == 2
+    assert by_label["Tiket dukungan"]["entries"] == 1
+    assert by_label["XP & level member"]["cap"] == "500 member / server"
+
+    # 3. Playlist terhitung terpisah
+    import music_playlists
+
+    music_playlists.guild_playlists.clear()
+    music_playlists.guild_playlists[1] = {
+        10: {
+            "favorit": {
+                "name": "Favorit",
+                "tracks": [{"title": "A", "query": "A"}, {"title": "B", "query": "B"}],
+            }
+        }
+    }
+    assert memory_audit.playlist_track_total() == 2
+
+    # 4. Laporan teks memuat angka & saran
+    report = memory_audit.format_report()
+    assert "RAM proses" in report and "Cache terbesar" in report
+    assert "Saran" in report and len(report) <= 1900
+    assert memory_audit.short_line().startswith("RAM `")
+
+    # 5. Saran menyesuaikan angka besar
+    fake = memory_audit.snapshot()
+    fake["rss_mb"] = 420.0
+    fake["data_kb"] = 9000.0
+    fake["playlist_tracks"] = 2400
+    tips = memory_audit.suggestions(fake)
+    assert any("RAM sudah tinggi" in tip for tip in tips)
+    assert any("Playlist member besar" in tip for tip in tips)
+    assert any("8 MB" in tip for tip in tips)
+    assert len(tips) <= 4
+
+    # 6. Data dir & path_size_kb tidak melempar
+    assert memory_audit.data_dir_kb() >= 0
+    assert memory_audit.path_size_kb("/tidak/ada") == 0.0
+    assert memory_audit.path_size_kb("config.py") > 0
+
+    # 7. Cache yang tidak ada tidak membuat error
+    assert memory_audit._count_entries(None) == 0
+    assert memory_audit._count_entries({"a": 1}) == 1
+    assert memory_audit._count_entries([1, 2, 3]) == 3
+    assert memory_audit._resolve("modul_tidak_ada_xyz", "apa") is None
+
+    levels.level_guilds.clear()
+    levels.levels.clear()
+    tickets.tickets.clear()
+    music_playlists.guild_playlists.clear()
