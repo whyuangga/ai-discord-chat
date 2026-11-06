@@ -53,6 +53,20 @@ async def _ambil_channel(bot, guild_id: int, channel_id: int):
     return channel
 
 
+def _ambil_channel_sync(bot, guild_id: int, channel_id: int):
+    """Cari channel dari cache saja (tanpa await) — untuk pratinjau."""
+    if channel_id <= 0:
+        return None
+    getter = getattr(bot, "get_channel", None)
+    channel = getter(channel_id) if callable(getter) else None
+    if channel is None:
+        return None
+    guild = getattr(channel, "guild", None)
+    if guild is not None and _to_int(getattr(guild, "id", 0)) != _to_int(guild_id):
+        return None
+    return channel
+
+
 def _guild_dari(bot, guild_id: int):
     getter = getattr(bot, "get_guild", None)
     if callable(getter):
@@ -169,6 +183,85 @@ async def kirim(bot, guild_id: int, data: dict, banner=None) -> tuple[bool, str]
         logger.warning("Kirim dari dashboard gagal: %s", exc)
         return False, "Discord menolak pesan itu (embed tidak valid atau channel terkunci)."
     return True, f"Terkirim ke {getattr(channel, 'mention', 'channel')}."
+
+
+def pratinjau(bot, guild_id: int, data: dict, banner=None) -> dict:
+    """Siapkan tampilan embed **tanpa mengirim** (dipakai tombol “Pratinjau”).
+
+    Kembalikan dict berisi isian yang sudah dirender (variabel pesan diganti),
+    label channel tujuan, nama banner, dan daftar `peringatan` yang perlu dicek.
+    """
+    import message_template
+
+    gid = _to_int(guild_id)
+    channel_id = _to_int((data or {}).get("channel"))
+    channel = _ambil_channel_sync(bot, gid, channel_id)
+    channel_label = (
+        f"#{getattr(channel, 'name', channel_id)}" if channel is not None else "channel tidak ditemukan"
+    )
+
+    judul = _bersih(data, "judul", 256)
+    isi = _bersih(data, "isi", MAX_ISI)
+    footer = _bersih(data, "footer", 200)
+    gambar = _bersih(data, "gambar", 400)
+    identitas = _bersih(data, "identitas", 80)
+    avatar = _bersih(data, "avatar", 400)
+    tombol_label = _bersih(data, "tombol_label", 80)
+    tombol_url = _bersih(data, "tombol_url", 400)
+    warna_teks = _bersih(data, "warna", 20)
+    nama_banner = str(getattr(banner, "filename", "") or "") if banner is not None else ""
+
+    peringatan: list[str] = []
+    guild = _guild_dari(bot, gid)
+    if guild is not None:
+        judul = message_template.render(judul, guild=guild, channel=channel)
+        isi = message_template.render(isi, guild=guild, channel=channel)
+
+    if channel is None:
+        peringatan.append("Channel tujuan belum dipilih atau bot tidak punya akses.")
+    if not judul and not isi:
+        peringatan.append("Isi pesan atau judul embed masih kosong.")
+    if len(judul) > 256:
+        peringatan.append("Judul lebih dari 256 karakter — Discord akan memotongnya.")
+    if len(isi) > 4000:
+        peringatan.append("Isi lebih dari 4000 karakter — sisanya tidak terkirim.")
+
+    warna = _warna(warna_teks)
+    if warna_teks and warna is None:
+        peringatan.append("Warna tidak valid — pakai `#5865F2` atau nama seperti `blurple`.")
+
+    for token in (message_template.unknown_tokens(judul) + message_template.unknown_tokens(isi)):
+        peringatan.append(f"Variabel `{{{token}}}` tidak dikenal, jadi ditampilkan apa adanya.")
+
+    if gambar and not gambar.lower().startswith(("http://", "https://")):
+        peringatan.append("URL gambar harus dimulai `http://` atau `https://`.")
+    if tombol_url and not tombol_url.lower().startswith(("http://", "https://")):
+        peringatan.append("URL tombol harus dimulai `http://` atau `https://`.")
+    if bool(tombol_label) != bool(tombol_url):
+        peringatan.append("Tombol butuh label **dan** URL sekaligus.")
+    if identitas and tombol_label:
+        peringatan.append("Tombol link tidak bisa dipakai saat mengirim lewat webhook.")
+    if identitas and len(identitas) > 80:
+        peringatan.append("Nama identitas webhook maksimal 80 karakter.")
+
+    return {
+        "judul": judul,
+        "isi": isi,
+        "warna": warna_teks,
+        "footer": footer,
+        "gambar": (
+            f"attachment://{nama_banner}" if nama_banner
+            else gambar
+        ),
+        "identitas": identitas,
+        "avatar": avatar,
+        "tombol_label": tombol_label,
+        "tombol_url": tombol_url,
+        "channel": channel_id,
+        "channel_label": channel_label,
+        "banner": nama_banner,
+        "peringatan": peringatan,
+    }
 
 
 # ==============================================================================
@@ -603,6 +696,7 @@ async def hapus(bot, guild_id: int, jenis: str, ref: str) -> tuple[bool, str]:
 
 __all__ = [
     "JENIS_KONTEN",
+    "pratinjau",
     "buat_panel",
     "ganti_banner_panel",
     "daftar_konten",

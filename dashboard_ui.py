@@ -242,9 +242,11 @@ def render_kirim_block(bot, guild_id: int, token: str) -> str:
   {_medan_berkas("Unggah banner/gambar (opsional)")}
   <div class="medan"><label for="k-banner-tersimpan">…atau pakai banner tersimpan</label>
     <select name="banner_tersimpan" id="k-banner-tersimpan">{opsi_banner(guild_id)}</select></div>
+  <button type="submit" class="ghost" name="pratinjau" value="1">👀 Pratinjau dulu</button>
   <button type="submit">Kirim sekarang</button>
 </form>
-<p class="muted">Kalau “Identitas webhook” diisi, pesan dikirim lewat webhook channel itu
+<p class="muted">Tombol <b>Pratinjau dulu</b> menampilkan hasilnya (termasuk peringatan variabel/warna)
+tanpa mengirim apa pun. Kalau “Identitas webhook” diisi, pesan dikirim lewat webhook channel itu
 (nama &amp; avatar boleh beda dari bot). Tombol link hanya dipakai saat mengirim sebagai bot.
 Banner yang diunggah disimpan ke <code>data/uploads/</code> sehingga bisa dipakai lagi.</p>
 """
@@ -425,9 +427,208 @@ def render_konten_block(guild_id: int, konten: dict, token: str) -> str:
         ]
     )
 
+# ==============================================================================
+# PEMILIH SERVER (tanpa login — cukup token pemilik instance)
+# ==============================================================================
+def daftar_server(bot) -> list[tuple[str, str]]:
+    """Semua server tempat bot berada: `[(guild_id, nama)]`, urut nama."""
+    daftar: list[tuple[str, str]] = []
+    for guild in getattr(bot, "guilds", []) or []:
+        try:
+            daftar.append((str(int(getattr(guild, "id", 0))), str(getattr(guild, "name", "") or "-")))
+        except Exception:  # pragma: no cover - jaring aman
+            continue
+    return sorted(daftar, key=lambda item: item[1].lower())
+
+
+def render_guild_picker(bot, guild_id: int, token: str) -> str:
+    """Dropdown pilih server (form GET biasa, tanpa JavaScript)."""
+    daftar = daftar_server(bot)
+    if not daftar:
+        return '<div class="muted">Bot belum berada di server mana pun.</div>'
+    if len(daftar) == 1:
+        return f'<span class="muted">Server: <b>{_esc(daftar[0][1])}</b></span>'
+    opsi = "".join(
+        f'<option value="{_esc(gid)}"{" selected" if str(gid) == str(guild_id) else ""}>'
+        f"{_esc(nama)}</option>"
+        for gid, nama in daftar
+    )
+    return (
+        '<form method="get" action="/" class="pemilih-server">'
+        f'<input type="hidden" name="token" value="{_esc(token)}">'
+        '<label for="pilih-server">Server</label>'
+        f'<select name="guild" id="pilih-server">{opsi}</select>'
+        '<button type="submit">Buka</button></form>'
+    )
+
+
+# ==============================================================================
+# GRAFIK TREN (SVG server-side, tanpa JavaScript)
+# ==============================================================================
+def render_tren_svg(rows: list[dict], *, judul: str = "Operasi AI", tinggi: int = 150) -> str:
+    """Grafik batang sederhana dari `[{label, total, cache_hits}]`."""
+    data = [row for row in (rows or []) if isinstance(row, dict)]
+    if not data:
+        return '<div class="muted">Belum ada data tren.</div>'
+    puncak = max([max(int(r.get("total") or 0), int(r.get("cache_hits") or 0)) for r in data] + [1])
+    lebar = 640
+    padding_bawah = 26
+    area = tinggi - padding_bawah
+    lebar_bar = lebar / max(1, len(data))
+    batang: list[str] = []
+    for index, row in enumerate(data):
+        total = int(row.get("total") or 0)
+        cache = int(row.get("cache_hits") or 0)
+        x = index * lebar_bar + 6
+        w = max(6, lebar_bar - 18)
+        h_total = max(0, round(total / puncak * (area - 14)))
+        h_cache = max(0, round(cache / puncak * (area - 14)))
+        y_total = area - h_total
+        y_cache = area - h_cache
+        belakang = ""
+        if cache:
+            belakang = (
+                f'<rect x="{x + w / 2 - 3:.1f}" y="{y_cache}" width="6" height="{h_cache}" '
+                'rx="3" fill="#58d68d" opacity="0.85"/>'
+            )
+        batang.append(
+            belakang
+            + f'<rect x="{x}" y="{y_total}" width="{w:.1f}" height="{h_total}" '
+            'rx="4" fill="#5865f2"/>'
+            + (f'<text x="{x + w / 2:.1f}" y="{y_total - 4}" class="nilai">{total}</text>'
+               if total else "")
+            + f'<text x="{x + w / 2:.1f}" y="{tinggi - 8}" class="sumbu">'
+            f'{_esc(str(row.get("label") or ""))}</text>'
+        )
+    return (
+        f'<div class="grafik"><div class="muted">{_esc(judul)} · puncak {puncak}/hari · '
+        '<span style="color:#5865f2">■</span> operasi '
+        '<span style="color:#58d68d">■</span> cache</div>'
+        f'<svg viewBox="0 0 {lebar} {tinggi}" role="img" aria-label="Grafik {_esc(judul)}" '
+        'preserveAspectRatio="none">'
+        '<style>.grafik text{font-size:11px;fill:#8b90a3;font-family:system-ui,sans-serif}'
+        '.grafik text.nilai{fill:#cbd0e0;font-size:10px}.grafik text.sumbu{text-anchor:middle}'
+        '.grafik rect{x:0}</style>'
+        f'<line x1="0" y1="{area}" x2="{lebar}" y2="{area}" stroke="#2a2f3d" stroke-width="1"/>'
+        + "".join(batang)
+        + "</svg></div>"
+    )
+
+
+# ==============================================================================
+# PRATINJAU EMBED (sebelum dikirim)
+# ==============================================================================
+def _gaya_warna(hex_warna: str) -> str:
+    teks = str(hex_warna or "").strip()
+    if teks.startswith("#") and len(teks) in (4, 7):
+        return _esc(teks)
+    return "#5865f2"
+
+
+def render_pratinjau_html(
+    *,
+    pratinjau: dict,
+    token: str,
+    guild_id: int,
+    fields: dict,
+    base: str = "",
+) -> str:
+    """Halaman pratinjau: tampilan mirip Discord + tombol “Kirim sekarang”.
+
+    `fields` = isian form asli yang dikirim balik lewat input tersembunyi sehingga
+    pengguna tidak perlu mengetik ulang.
+    """
+    data = pratinjau or {}
+    warna = _gaya_warna(str(data.get("warna") or ""))
+    identitas = str(data.get("identitas") or "").strip()
+    judul = str(data.get("judul") or "").strip()
+    isi = str(data.get("isi") or "").strip()
+    footer = str(data.get("footer") or "").strip()
+    gambar = str(data.get("gambar") or "").strip()
+    tombol = str(data.get("tombol_label") or "").strip()
+    tombol_url = str(data.get("tombol_url") or "").strip()
+
+    bagian: list[str] = []
+    if judul:
+        bagian.append(f'<div class="p-judul">{_esc(judul)}</div>')
+    if isi:
+        bagian.append(f'<div class="p-isi">{_esc(isi)}</div>')
+    if gambar:
+        bagian.append(
+            f'<img class="p-gambar" src="{_esc(gambar)}" alt="gambar embed">'
+        )
+    if footer:
+        bagian.append(f'<div class="p-footer">{_esc(footer)}</div>')
+    if tombol and tombol_url:
+        bagian.append(
+            f'<div class="p-tombol">{_esc(tombol)}</div>'
+        )
+
+    kartu = (
+        f'<div class="p-kartu" style="border-left-color:{warna}">'
+        + ("".join(bagian) or '<div class="muted">(kosong)</div>')
+        + "</div>"
+    )
+    pengirim = (
+        f'<div class="p-pengirim">{_esc(identitas)} <span class="muted">via webhook</span></div>'
+        if identitas else '<div class="p-pengirim">Bot <span class="muted">via bot</span></div>'
+    )
+    peringatan = data.get("peringatan") or []
+    blok_peringatan = ""
+    if peringatan:
+        butir = "".join(f"<li>{_esc(p)}</li>" for p in peringatan)
+        blok_peringatan = f'<div class="p-peringatan"><b>Perlu diperiksa:</b><ul>{butir}</ul></div>'
+
+    rahasia = "".join(
+        f'<input type="hidden" name="{_esc(kunci)}" value="{_esc(nilai)}">'
+        for kunci, nilai in (fields or {}).items()
+    )
+    tujuan = _esc(str(data.get("channel_label") or "channel"))
+
+    return f"""<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pratinjau embed — dashboard</title>
+<style>
+ body {{ margin:0; padding:20px; font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+        background:#0f1117; color:#e6e6f0; }}
+ h1 {{ font-size:18px; margin:0 0 4px; }}
+ .muted {{ color:#8b90a3; font-size:12px; }}
+ .p-pengirim {{ font-size:13px; margin:18px 0 6px; color:#cbd0e0; }}
+ .p-kartu {{ background:#2b2d31; border-left:4px solid #5865f2; border-radius:6px;
+            padding:12px 14px; max-width:520px; }}
+ .p-judul {{ font-weight:600; margin-bottom:6px; }}
+ .p-isi {{ white-space:pre-wrap; font-size:14px; line-height:1.45; }}
+ .p-gambar {{ width:100%; border-radius:6px; margin-top:8px; }}
+ .p-footer {{ font-size:11px; color:#b5bac1; margin-top:8px; }}
+ .p-tombol {{ margin-top:10px; display:inline-block; background:#4e5058; color:#fff;
+             padding:6px 12px; border-radius:4px; font-size:13px; }}
+ .p-peringatan {{ margin:14px 0; background:#3a2d17; border:1px solid #6b4d17;
+                 border-radius:8px; padding:10px 12px; font-size:13px; }}
+ .p-peringatan ul {{ margin:6px 0 0 18px; }}
+ .aksi {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }}
+ button, a.tombol {{ padding:9px 16px; border-radius:8px; border:1px solid #5865f2;
+      background:#5865f2; color:#fff; font-size:14px; text-decoration:none; cursor:pointer; }}
+ a.kembali {{ background:transparent; border-color:#3a4152; color:#cbd0e0; }}
+</style></head><body>
+<h1>👀 Pratinjau embed</h1>
+<div class="muted">Tujuan: {tujuan} · belum ada yang dikirim</div>
+{pengirim}
+{kartu}
+{blok_peringatan}
+<form method="post" action="/api/kirim">
+  {rahasia}
+  <div class="aksi">
+    <button type="submit">Kirim sekarang</button>
+    <a class="tombol kembali" href="/?token={_esc(token)}&amp;guild={int(guild_id or 0)}">Kembali ubah</a>
+  </div>
+</form>
+</body></html>"""
+
 
 
 __all__ = [
+    "daftar_server",
     "kontrol_html",
     "opsi_banner",
     "opsi_untuk",
@@ -436,7 +637,10 @@ __all__ = [
     "render_audit_block",
     "render_banner_block",
     "render_buat_block",
+    "render_guild_picker",
     "render_konten_block",
     "render_kirim_block",
+    "render_pratinjau_html",
     "render_setelan_block",
+    "render_tren_svg",
 ]

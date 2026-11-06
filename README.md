@@ -31,7 +31,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **48 setelan** + kirim embed/webhook dari browser | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **48 setelan**, kirim embed/webhook + pratinjau, unggah banner, grafik tren | 0 |
 
 ---
 
@@ -83,6 +83,10 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 15. [Lisensi](#-lisensi)
 
 > 📌 **Catatan terpisah:** [rencana dashboard web, BYOK, & “isi sendiri API key” yang masih diparkir](docs/catatan-dashboard-dan-kunci-api.md).
+>
+> 🛰️ **Dashboard untuk instance sendiri:** jalankan `python tools/dashboard_token.py --tulis`
+> (membuat token & mengisi `.env`), lalu `python tools/dashboard_token.py --periksa` untuk cek
+> kesiapan dan melihat alamat yang dibuka. Tanpa login OAuth — tiap orang memakai tokannya sendiri.
 
 ---
 

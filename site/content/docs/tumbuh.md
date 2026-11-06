@@ -29,11 +29,13 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 
 | Bagian | Isi |
 | :--- | :--- |
+| **Pemilih server** | dropdown server di pojok atas (muncul otomatis bila bot ada di lebih dari satu server) — tanpa login, cukup token |
 | **Status & pemakaian** | uptime, RAM, latensi, server/member, status Gemini, token masuk/keluar, cache hit, FAQ lokal |
+| **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | 5 sakelar lama: level, ekonomi, pertumbuhan, anti-spam, anti-nuke |
 | **Setelan server** | **48 setelan** dalam 5 grup (lihat tabel di bawah) |
-| **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri) |
+| **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
@@ -59,6 +61,27 @@ label+URL tombol, serta **identitas webhook** (nama & avatar). Kalau kolom ident
 pesan dikirim lewat webhook channel itu sehingga nama pengirim bisa berbeda dari bot —
 praktis untuk "📢 Pengumuman Server". Isi boleh memakai variabel pesan
 (`{server.name}`, `{now_long}`) yang diisi otomatis saat dikirim.
+
+### Pratinjau sebelum kirim (seperti Discohook)
+
+Form kirim punya dua tombol: **👀 Pratinjau dulu** dan **Kirim sekarang**.
+
+| Tombol | Yang terjadi |
+| :--- | :--- |
+| **Pratinjau dulu** | bot merender embed mirip Discord (judul, isi, warna, gambar, footer, identitas webhook) + daftar **peringatan** — **tidak ada yang dikirim** |
+| **Kirim sekarang** | dari halaman pratinjau, isian diteruskan apa adanya ke channel tujuan |
+
+Yang diperiksa saat pratinjau (semuanya muncul sebagai daftar “Perlu diperiksa”):
+
+- channel tujuan belum dipilih / bot tidak punya akses,
+- judul & isi masih kosong, atau melebihi batas Discord (256 / 4000 karakter),
+- warna tidak valid (`#5865F2` atau nama seperti `blurple`),
+- **variabel tidak dikenal** seperti `{member.nama}` (ditampilkan apa adanya, jadi kelihatan),
+- URL gambar/tombol bukan `http(s)`, tombol hanya terisi label atau hanya URL,
+- tombol link dipakai bersamaan dengan identitas webhook (tidak didukung).
+
+Pratinjau juga tersedia sebagai JSON untuk otomasi: kirim `pratinjau: true` ke `POST /api/kirim`
+dengan header `Content-Type: application/json`.
 
 ### Unggah banner & gambar
 
@@ -105,8 +128,9 @@ Batasan & pengamanan:
 | `GET /` | halaman HTML lengkap (butuh token) |
 | `GET /api/status` · `/api/pemakaian` · `/api/level` · `/api/kontrol` · `/api/fitur` | data JSON |
 | `GET /api/setelan` | semua nilai setelan + ringkasan grup + riwayat |
+| `GET /api/tren?hari=7` | tren operasi AI & cache per hari (JSON) |
 | `POST /api/aksi` | ubah setelan: `action=set.<kunci>` (token boleh lewat body form) |
-| `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar` |
+| `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar`; tambahkan `pratinjau=1` untuk pratinjau tanpa kirim |
 | `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` / `banner.panel:<id>` / `hapusbanner.panel:<id>` |
 | `POST /api/unggah` | `action=unggah.simpan` (multipart, field `banner`) / `hapus.banner:<nama>` |
 | `GET /api/unggahan/<nama>?guild=<id>` | pratinjau banner tersimpan (wajib token) |
@@ -130,3 +154,32 @@ percakapan interaktif di Discord (karena perlu pratinjau langsung):
 >
 > ⚠️ Token dashboard berlaku **satu bot penuh** (bukan per server). Rahasiakan, dan ganti
 > bila pernah ikut terlihat di tangkapan layar/percakapan.
+
+### Menyalakan dashboard untuk instance sendiri (self-host)
+
+Dashboard ini dirancang untuk **satu pemilik instance**, tanpa login OAuth — jadi setiap orang
+yang memakai proyek ini menjalankan dashboard-nya sendiri dengan tokannya sendiri.
+
+```bash
+# 1. Buat token & tulis otomatis ke .env (buat DASHBOARD_PORT bila belum ada)
+python tools/dashboard_token.py --tulis
+
+# 2. Cek kesiapan konfigurasi (token, port, host, auto-refresh)
+python tools/dashboard_token.py --periksa
+
+# 3. Jalankan bot seperti biasa, lalu buka alamat yang dicetak
+python main.py
+```
+
+| Langkah | Catatan |
+| :--- | :--- |
+| **Token** | 43 karakter acak, hanya huruf/angka/`_`/`-` → aman di `.env` dan URL |
+| **Port** | di panel hosting biarkan `DASHBOARD_PORT=0`; di VPS/Termux isi angka (mis. `8080`) |
+| **Alamat** | panel hosting: **IP node + port allocation** (bukan `0.0.0.0`) |
+| **Akses** | `http://IP:PORT/?token=TOKEN` — atau lewat header `X-Dashboard-Token` |
+| **Banyak server** | pakai dropdown **Server** di pojok atas halaman |
+| **Keamanan** | `DASHBOARD_HOST=127.0.0.1` + SSH tunnel, atau Cloudflare Tunnel untuk HTTPS |
+| **Nyaman mengetik** | `DASHBOARD_REFRESH_SEC=0` agar isian form tidak ter-reset |
+
+> 💡 Karena tiap instance punya token sendiri, kamu **tidak perlu** membagikan token ke siapa pun.
+> Pemakai lain menjalankan bot mereka sendiri dan membuat token mereka sendiri lewat perintah di atas.

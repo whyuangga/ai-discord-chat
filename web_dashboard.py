@@ -267,6 +267,37 @@ def render_features_block(guild_id: int) -> str:
     )
 
 
+def collect_tren(hari: int = 7) -> dict:
+    """Tren pemakaian AI per hari (dari `insights.ai_usage`) — 0 kuota AI."""
+    import datetime
+
+    jumlah = max(2, min(30, int(hari or 7)))
+    rows: list[dict] = []
+    total = cache = 0
+    try:
+        data = insights.ai_usage or {}
+    except Exception:  # pragma: no cover - jaring aman
+        data = {}
+    hari_ini = datetime.date.today()
+    for mundur in range(jumlah - 1, -1, -1):
+        tanggal = hari_ini - datetime.timedelta(days=mundur)
+        kunci = tanggal.strftime("%Y-%m-%d")
+        bucket = data.get(kunci) or {}
+        operasi = int(bucket.get("total") or 0)
+        cache_hari = int(bucket.get("cache_hits") or 0)
+        total += operasi
+        cache += cache_hari
+        rows.append(
+            {
+                "tanggal": kunci,
+                "label": tanggal.strftime("%d/%m"),
+                "total": operasi,
+                "cache_hits": cache_hari,
+            }
+        )
+    return {"hari": jumlah, "rows": rows, "total": total, "cache_hits": cache}
+
+
 def collect_levels(guild_id: int, *, limit: int = 10) -> dict:
     """Papan peringkat level server (0 kuota AI)."""
     import levels
@@ -346,6 +377,14 @@ _PAGE_TEMPLATE = """<!doctype html>
                        background: #0f1117; }}
   .kartu-banner code.kecil {{ font-size: 10px; color: #8b90a3; overflow-wrap: anywhere; }}
   input[type=file] {{ width: 100%; font-size: 12px; color: #cbd0e0; }}
+  .pemilih-server {{ display: flex; gap: 8px; align-items: center; margin: 10px 0 4px;
+      flex-wrap: wrap; }}
+  .pemilih-server label {{ font-size: 12px; color: #9aa0b5; }}
+  .pemilih-server select, .pemilih-server button {{ padding: 6px 10px; border-radius: 8px;
+      border: 1px solid #2a2f3d; background: #171b25; color: #e6e6f0; font-size: 13px; }}
+  .pemilih-server button {{ background: #5865f2; border-color: #5865f2; cursor: pointer; }}
+  .grafik {{ margin: 4px 0 8px; }}
+  .grafik svg {{ width: 100%; height: 150px; }}
   .aksi-banner {{ display: grid; gap: 6px; margin-top: 8px; }}
   form.banner-form {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
   form.banner-form input[type=file] {{ width: auto; max-width: 190px; }}
@@ -358,6 +397,7 @@ _PAGE_TEMPLATE = """<!doctype html>
 </head>
 <body>
   <h1>{heading}</h1>
+  {guild_picker}
   <div class="muted">v{version} • panel admin • tanpa kuota AI • diperbarui {checked_at}{refresh_info}</div>
 
   <div class="grid">
@@ -381,6 +421,11 @@ _PAGE_TEMPLATE = """<!doctype html>
   <div class="panel">
     <h2>🧩 Jenis Operasi</h2>
     {kinds_table}
+  </div>
+
+  <div class="panel">
+    <h2>📈 Tren {tren_hari} hari</h2>
+    {tren_block}
   </div>
 
   <div class="panel">
@@ -487,6 +532,9 @@ def render_dashboard_html(
     konten_block: str = "",
     audit_block: str = "",
     banner_block: str = "",
+    guild_picker: str = "",
+    tren_block: str = "",
+    tren_hari: int = 7,
 ) -> str:
     """Merender halaman HTML dashboard (string). Aman untuk data kosong."""
     guild_limit = int(usage.get("guild_limit") or 0)
@@ -538,6 +586,9 @@ def render_dashboard_html(
         konten_block=konten_block,
         audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
         banner_block=banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
+        guild_picker=guild_picker,
+        tren_block=tren_block or '<div class="muted">Belum ada data tren.</div>',
+        tren_hari=int(tren_hari or 7),
     )
 
 
@@ -809,6 +860,16 @@ async def start_dashboard(bot) -> bool:
             '<div class="muted">Riwayat tidak tersedia.</div>',
         )
 
+        guild_picker = _blok(
+            lambda: dashboard_ui.render_guild_picker(bot, gid, token),
+            "",
+        )
+        tren = collect_tren(7)
+        tren_block = _blok(
+            lambda: dashboard_ui.render_tren_svg(tren["rows"], judul="Operasi AI"),
+            '<div class="muted">Belum ada data tren.</div>',
+        )
+
         page = render_dashboard_html(
             status=collect_status(bot),
             usage=collect_usage(gid),
@@ -823,6 +884,9 @@ async def start_dashboard(bot) -> bool:
             konten_block=konten_block,
             audit_block=audit_block,
             banner_block=banner_block,
+            guild_picker=guild_picker,
+            tren_block=tren_block,
+            tren_hari=tren["hari"],
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8")
 
@@ -891,11 +955,29 @@ async def start_dashboard(bot) -> bool:
 
         raw_guild = str(payload.get("guild") or "").strip()
         gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
-        banner, galat_banner, _nama = dashboard_unggah.siapkan(
+        banner, galat_banner, nama_banner = dashboard_unggah.siapkan(
             gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
         )
         if galat_banner:
             return _halaman_hasil(False, galat_banner)
+
+        # Tombol "Pratinjau" (name=pratinjau) menampilkan hasil tanpa mengirim.
+        if str(payload.get("pratinjau") or "").strip():
+            data = dashboard_pesan.pratinjau(bot, gid, payload, banner=banner)
+            logger.info("Dashboard pratinjau embed (server %s) ke %s", gid, data.get("channel_label"))
+            if str(request.content_type or "").startswith("application/json"):
+                return web.json_response({"ok": True, "pratinjau": data, "guild": gid})
+            isian = {k: str(v) for k, v in payload.items() if k not in ("token", "pratinjau")}
+            isian["token"] = cfg["token"]
+            isian["guild"] = str(gid)
+            isian["action"] = "kirim"
+            if nama_banner:
+                isian["banner_tersimpan"] = nama_banner
+            halaman = dashboard_ui.render_pratinjau_html(
+                pratinjau=data, token=cfg["token"], guild_id=gid, fields=isian
+            )
+            return web.Response(text=halaman, content_type="text/html", charset="utf-8")
+
         ok, message = await dashboard_pesan.kirim(bot, gid, payload, banner=banner)
         logger.info("Dashboard kirim (server %s): %s", gid, message)
 
@@ -1034,6 +1116,11 @@ async def start_dashboard(bot) -> bool:
             headers={"Cache-Control": "private, max-age=300"},
         )
 
+    async def handle_tren(request):
+        if not _authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        return web.json_response(collect_tren(int(request.query.get("hari") or 7)))
+
     async def handle_setelan(request):
         """JSON semua setelan + nilai sekarang (untuk otomasi/tes)."""
         if not _authorized(request):
@@ -1059,6 +1146,7 @@ async def start_dashboard(bot) -> bool:
 
     app.router.add_get("/api/fitur", handle_features)
     app.router.add_get("/api/setelan", handle_setelan)
+    app.router.add_get("/api/tren", handle_tren)
     app.router.add_post("/api/aksi", handle_aksi)
     app.router.add_post("/api/kirim", handle_kirim)
     app.router.add_post("/api/konten", handle_konten)
