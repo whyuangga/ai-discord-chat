@@ -244,8 +244,9 @@ def test_render_kirim_dan_konten_block():
     assert "# umum" in kirim
 
     buat = dashboard_ui.render_buat_block(_Bot(), 1234, "tok")
-    assert buat.count('action="/api/konten"') == 3
-    assert "buat.pengumuman" in buat and "buat.tautan" in buat and "buat.panel" in buat
+    assert buat.count('action="/api/konten"') == 5
+    for aksi in ("buat.pengumuman", "buat.tautan", "buat.panel", "buat.formulir", "buat.pemicu"):
+        assert aksi in buat, f"form {aksi} hilang"
 
     konten = dashboard_ui.render_konten_block(
         1234,

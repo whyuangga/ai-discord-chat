@@ -269,3 +269,72 @@ def test_daftar_konten_menggabungkan_semua_jenis(monkeypatch):
     assert data["panel"][0]["judul"] == "Panel" and "2" in data["panel"][0]["ringkas"]
     assert data["webhook"][0]["id"] == "11"
     assert dp.daftar_konten(9999)["webhook"] == []
+
+
+# ==============================================================================
+# FORMULIR & PEMICU GABUNG
+# ==============================================================================
+async def test_tambah_formulir_validasi_dan_sukses(monkeypatch):
+    import modal_forms
+
+    monkeypatch.setattr(modal_forms, "save_to_disk", _tanpa_disk)
+
+    ok, pesan = await dp.tambah_formulir(1234, {"kolom": "Nama|teks"})
+    assert ok is False and "Nama formulir" in pesan
+
+    ok, pesan = await dp.tambah_formulir(
+        950001, {"judul": "Pendaftaran", "kolom": "Nama | Asal kota | Alasan:panjang?"}
+    )
+    assert ok is True and "3 kolom" in pesan
+    assert modal_forms.get_form(950001, "Pendaftaran") is not None
+
+
+async def test_pasang_dan_hapus_pemicu(monkeypatch):
+    import flow_triggers
+
+    monkeypatch.setattr(flow_triggers, "save_to_disk", _tanpa_disk)
+    gid = 960001
+
+    ok, pesan = await dp.pasang_pemicu(gid, {"alur": "+role:5"})
+    assert ok is False and "channel" in pesan.lower()
+
+    ok, pesan = await dp.pasang_pemicu(gid, {"channel": "11"})
+    assert ok is False and "Alur wajib" in pesan
+
+    ok, pesan = await dp.pasang_pemicu(gid, {"channel": "11", "alur": "aksi-ngawur"})
+    assert ok is False and "tidak dikenal" in pesan
+
+    ok, pesan = await dp.pasang_pemicu(
+        gid, {"channel": "11", "alur": "+role:5 > umum:Halo {member.mention}", "umur_akun": "7"}
+    )
+    assert ok is True and "2 langkah" in pesan
+    assert flow_triggers.get_trigger(gid)["min_age_days"] == 7
+
+    ok, pesan = await dp.hapus_pemicu(gid)
+    assert ok is True and "dihapus" in pesan
+    assert flow_triggers.get_trigger(gid) is None
+
+    ok, pesan = await dp.hapus_pemicu(gid)
+    assert ok is False and "belum dipasang" in pesan
+
+
+async def test_daftar_konten_memuat_pemicu(monkeypatch):
+    import flow_triggers
+
+    monkeypatch.setattr(
+        flow_triggers, "get_trigger", lambda gid: {"steps": [{"action": "role_add"}], "min_age_days": 3}
+        if gid == 970001 else None
+    )
+    data = dp.daftar_konten(970001)
+    assert data["pemicu"][0]["ringkas"].startswith("1 langkah")
+    assert dp.daftar_konten(970002)["pemicu"] == []
+
+
+async def test_hapus_pemicu_lewat_dispatch(monkeypatch):
+    import flow_triggers
+
+    monkeypatch.setattr(flow_triggers, "save_to_disk", _tanpa_disk)
+    bot, _ch = _bot_uji()
+    await dp.pasang_pemicu(980001, {"channel": "11", "alur": "+role:5"})
+    ok, pesan = await dp.hapus(bot, 980001, "pemicu", "aktif")
+    assert ok is True and "dihapus" in pesan

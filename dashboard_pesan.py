@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger("gemini_bot.dashboard_pesan")
 
-JENIS_KONTEN = ("pengumuman", "tautan", "panel", "formulir", "webhook")
+JENIS_KONTEN = ("pengumuman", "tautan", "panel", "formulir", "webhook", "pemicu")
 MAX_ISI = 3500
 
 
@@ -260,12 +260,83 @@ async def buat_panel(bot, guild_id: int, data: dict) -> tuple[bool, str]:
 
 
 # ==============================================================================
+# FORMULIR (MODAL)
+# ==============================================================================
+async def tambah_formulir(guild_id: int, data: dict) -> tuple[bool, str]:
+    """Buat formulir (modal) dari kolom teks; tombolnya dipasang lewat `/menu form tombol`."""
+    import modal_forms
+
+    gid = _to_int(guild_id)
+    nama = _bersih(data, "judul", 100)
+    kolom = _bersih(data, "kolom", 900)
+    if not nama:
+        return False, "Nama formulir wajib diisi."
+    if not kolom:
+        return False, "Daftar kolom wajib diisi, mis. `Nama | Umur | Alasan:panjang?`."
+    form, galat = modal_forms.create_form(
+        gid,
+        nama,
+        kolom,
+        description=_bersih(data, "isi", 500),
+        channel_id=_to_int((data or {}).get("channel")) or None,
+        color=_bersih(data, "warna", 20) or None,
+    )
+    if form is None:
+        return False, " ".join(galat) or "Formulir gagal dibuat."
+    await modal_forms.save_to_disk()
+    pesan = f"Formulir **{form.get('name')}** dibuat dengan {len(form.get('fields') or [])} kolom."
+    if galat:
+        pesan += " Catatan: " + " ".join(galat)
+    return True, pesan
+
+
+# ==============================================================================
+# PEMICU SAAT MEMBER BERGABUNG
+# ==============================================================================
+async def pasang_pemicu(guild_id: int, data: dict) -> tuple[bool, str]:
+    """Pasang alur otomatis saat member baru bergabung."""
+    import flows
+    import flow_triggers
+
+    gid = _to_int(guild_id)
+    channel_id = _to_int((data or {}).get("channel"))
+    teks = _bersih(data, "alur", 900)
+    umur = max(0, _to_int((data or {}).get("umur_akun")))
+    if channel_id <= 0:
+        return False, "Pilih channel untuk pesan/thread sambutan."
+    if not teks:
+        return False, "Alur wajib diisi, mis. `+role:123 > umum:Selamat datang {member.mention}`."
+    langkah, galat = flows.parse(teks)
+    if not langkah:
+        return False, " ".join(galat) or "Alur tidak valid."
+    trigger, galat2 = flow_triggers.set_trigger(
+        gid, langkah, channel_id=channel_id, min_age_days=umur
+    )
+    if trigger is None:
+        return False, " ".join(galat2) or "Pemicu gagal dipasang."
+    await flow_triggers.save_to_disk()
+    return True, f"Pemicu gabung dipasang: {len(trigger.get('steps') or [])} langkah."
+
+
+async def hapus_pemicu(guild_id: int) -> tuple[bool, str]:
+    """Hapus alur pemicu gabung server."""
+    import flow_triggers
+
+    if not flow_triggers.remove_trigger(_to_int(guild_id)):
+        return False, "Pemicu gabung belum dipasang."
+    await flow_triggers.save_to_disk()
+    return True, "Pemicu gabung dihapus."
+
+
+# ==============================================================================
 # DAFTAR & HAPUS KONTEN
 # ==============================================================================
 def daftar_konten(guild_id: int, bot=None) -> dict:
     """Ringkasan konten server untuk ditampilkan di dashboard."""
     gid = _to_int(guild_id)
-    hasil: dict = {"pengumuman": [], "tautan": [], "panel": [], "formulir": [], "webhook": []}
+    hasil: dict = {
+        "pengumuman": [], "tautan": [], "panel": [], "formulir": [], "webhook": [], "pemicu": []
+    }
 
     try:
         import engagement
@@ -350,6 +421,22 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
     except Exception:  # pragma: no cover
         pass
 
+    try:
+        import flow_triggers
+
+        alur = flow_triggers.get_trigger(gid)
+        if alur:
+            hasil["pemicu"].append(
+                {
+                    "id": "aktif",
+                    "judul": "Alur saat member bergabung",
+                    "ringkas": f"{len(alur.get('steps') or [])} langkah • "
+                               f"umur akun ≥ {int(alur.get('min_age_days') or 0)} hari",
+                }
+            )
+    except Exception:  # pragma: no cover
+        pass
+
     return hasil
 
 
@@ -386,6 +473,9 @@ async def hapus(bot, guild_id: int, jenis: str, ref: str) -> tuple[bool, str]:
             return False, "Panel tidak ditemukan."
         await menu_builder.save_menus_to_disk()
         return True, f"Panel {acuan} dihapus (pesan lama di Discord tidak ikut terhapus)."
+
+    if kunci == "pemicu":
+        return await hapus_pemicu(gid)
 
     if kunci == "formulir":
         import modal_forms

@@ -264,6 +264,70 @@ def _set_boost_channel(guild_id: int, nilai: str) -> tuple[bool, str]:
 
 
 # ==============================================================================
+# FITUR: AGENT AI (gaya, keamanan, jam tenang, zona waktu)
+# ==============================================================================
+def _baca_agent(key: str, bawaan=None):
+    def baca(guild_id: int) -> str:
+        return str(_mod("community_agent").get_guild_settings(int(guild_id)).get(key, bawaan))
+
+    return baca
+
+
+def _baca_agent_saklar(key: str, bawaan: bool = True):
+    def baca(guild_id: int) -> str:
+        nilai = _mod("community_agent").get_guild_settings(int(guild_id)).get(key, bawaan)
+        return "on" if nilai else "off"
+
+    return baca
+
+
+def _set_agent_teks(key: str, label: str, validasi=None):
+    def simpan(guild_id: int, nilai: str) -> tuple[bool, str]:
+        bersih = nilai.strip()[:180]
+        if validasi is not None:
+            galat = validasi(bersih)
+            if galat:
+                return False, galat
+        _mod("community_agent").get_guild_settings(int(guild_id))[key] = bersih
+        return True, f"{label} diset ke **{bersih}**."
+
+    return simpan
+
+
+def _set_agent_saklar(key: str, label: str):
+    def simpan(guild_id: int, nilai: str) -> tuple[bool, str]:
+        _mod("community_agent").get_guild_settings(int(guild_id))[key] = nilai == "on"
+        return _pesan(label, nilai == "on")
+
+    return simpan
+
+
+def _set_agent_gaya(guild_id: int, nilai: str) -> tuple[bool, str]:
+    ca = _mod("community_agent")
+    if nilai not in ca.STYLE_DESCRIPTIONS:
+        return False, "Gaya bahasa tidak dikenal."
+    ca.get_guild_settings(int(guild_id))["style_preset"] = nilai
+    return True, f"Gaya bahasa Auto-Chat diset ke **{nilai}**."
+
+
+def _set_agent_keamanan(guild_id: int, nilai: str) -> tuple[bool, str]:
+    hasil = _mod("community_agent").set_guild_safety_level(int(guild_id), nilai)
+    return True, f"Tingkat keamanan konten AI: **{hasil}**."
+
+
+def _cek_zona(nilai: str) -> str | None:
+    if not nilai:
+        return "Zona waktu tidak boleh kosong (contoh: `Asia/Jakarta`)."
+    try:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(nilai)
+    except Exception:
+        return "Zona waktu tidak dikenal. Contoh yang benar: `Asia/Jakarta`, `Asia/Makassar`."
+    return None
+
+
+# ==============================================================================
 # FITUR: KEAMANAN
 # ==============================================================================
 def _baca_antispam(key: str, bawaan=None):
@@ -285,6 +349,15 @@ def _set_antispam_mode(guild_id: int, nilai: str) -> tuple[bool, str]:
         return False, "Mode anti-spam tidak dikenal."
     mod.set_spam_config(int(guild_id), enabled=True, mode=nilai)
     return True, f"Anti-spam aktif dengan mode **{nilai}**."
+
+
+def _baca_antispam_caps(guild_id: int) -> str:
+    return "on" if _cfg("antispam", guild_id, "get_spam_config").get("caps_enabled") else "off"
+
+
+def _set_antispam_caps(guild_id: int, nilai: str) -> tuple[bool, str]:
+    _mod("antispam").set_spam_config(int(guild_id), caps_enabled=nilai == "on")
+    return _pesan("Deteksi HURUF KAPITAL berlebihan", nilai == "on")
 
 
 def _set_antispam_log(guild_id: int, nilai: str) -> tuple[bool, str]:
@@ -410,6 +483,22 @@ def _set_tiket_aktif(guild_id: int, nilai: str) -> tuple[bool, str]:
     return _pesan("Sistem tiket", nilai == "on")
 
 
+def _baca_tiket_flag(key: str, bawaan: bool = True):
+    def baca(guild_id: int) -> str:
+        cfg = _cfg("tickets", guild_id, "get_ticket_config")
+        return "on" if cfg.get(key, bawaan) else "off"
+
+    return baca
+
+
+def _set_tiket_flag(key: str, label: str):
+    def simpan(guild_id: int, nilai: str) -> tuple[bool, str]:
+        _mod("tickets").set_ticket_config(int(guild_id), **{key: nilai == "on"})
+        return _pesan(label, nilai == "on")
+
+    return simpan
+
+
 def _set_tiket_angka(key: str, label: str):
     def simpan(guild_id: int, nilai: str) -> tuple[bool, str]:
         angka = _to_int(nilai)
@@ -472,6 +561,19 @@ def _set_starboard_channel(guild_id: int, nilai: str) -> tuple[bool, str]:
         return _hapus_keterangan("Starboard", "dimatikan")
     mod.set_starboard_config(int(guild_id), channel_id=cid, enabled=True)
     return True, f"Starboard memakai channel `{cid}`."
+
+
+def _baca_starboard_ambang(guild_id: int) -> str:
+    cfg = (_mod("community_tools").starboard_guilds or {}).get(int(guild_id)) or {}
+    return str(_to_int(cfg.get("threshold") or 3))
+
+
+def _set_starboard_ambang(guild_id: int, nilai: str) -> tuple[bool, str]:
+    angka = _to_int(nilai)
+    if angka < 1 or angka > 25:
+        return False, "Ambang starboard harus 1–25 bintang."
+    _mod("community_tools").set_starboard_config(int(guild_id), threshold=angka)
+    return True, f"Ambang starboard diset ke **{angka}** bintang."
 
 
 def _baca_saran(guild_id: int) -> str:
@@ -656,6 +758,10 @@ FITUR_LIST = [
     _f("sambutan.kartu", "Kartu sambutan", "pilihan", _baca_sambutan("card_mode", "mati"),
        _set_sambutan_kartu, "community_agent",
        opsi=(("mati", "Mati"), ("statis", "Statis"), ("dinamis", "Dinamis"))),
+    _f("sambutan.persona", "Persona sambutan", "pilihan", _baca_sambutan("persona", "hangat"),
+       _set_sambutan_persona, "community_agent",
+       opsi=(("hangat", "🤗 Hangat"), ("lucu", "😄 Lucu"), ("santai", "😎 Santai"),
+             ("normal", "🙂 Normal"))),
     _f("pamit.channel", "Channel pesan pamit", "channel", _baca_pamit(), _set_pamit_channel,
        "community_agent"),
     _f("boost.channel", "Channel ucapan boost", "channel", _baca_boost(), _set_boost_channel,
@@ -665,6 +771,8 @@ FITUR_LIST = [
        _set_antispam_mode, "antispam",
        opsi=(("off", "Mati"), ("lapor", "Lapor"), ("hapus", "Hapus pesan"),
              ("timeout", "Timeout member"))),
+    _f("antispam.caps", "Deteksi HURUF KAPITAL", "saklar", _baca_antispam_caps,
+       _set_antispam_caps, "antispam"),
     _f("antispam.log", "Log anti-spam", "channel",
        lambda g: str(_to_int(_cfg("antispam", g, "get_spam_config").get("log_channel_id"))),
        _set_antispam_log, "antispam"),
@@ -697,11 +805,17 @@ FITUR_LIST = [
        _set_tiket_id("log_channel_id", "Log tiket"), "tickets"),
     _f("tiket.maks", "Maksimal tiket terbuka", "angka", _baca_tiket("max_open", 2),
        _set_tiket_angka("max_open", "Maksimal tiket terbuka"), "tickets"),
+    _f("tiket.ping", "Ping staf saat tiket dibuka", "saklar", _baca_tiket_flag("ping_staff"),
+       _set_tiket_flag("ping_staff", "Ping staf"), "tickets"),
+    _f("tiket.rating", "Rating setelah tiket ditutup", "saklar", _baca_tiket_flag("rating_aktif"),
+       _set_tiket_flag("rating_aktif", "Rating tiket"), "tickets"),
     _f("ultah.channel", "Channel ucapan ulang tahun", "channel", _baca_ultah(),
        _set_ultah_channel, "engagement"),
     # --- Konten & interaksi -------------------------------------------------
     _f("starboard.channel", "Channel starboard", "channel", _baca_starboard("channel_id"),
        _set_starboard_channel, "community_tools"),
+    _f("starboard.ambang", "Ambang bintang starboard", "angka", _baca_starboard_ambang,
+       _set_starboard_ambang, "community_tools"),
     _f("saran.channel", "Channel kotak saran", "channel", _baca_saran, _set_saran,
        "suggestions"),
     _f("chat.channel", "Channel Auto-Chat AI", "channel",
@@ -729,6 +843,19 @@ FITUR_LIST = [
        "server_features"),
     _f("backup.channel", "Channel backup otomatis", "channel", _baca_backup, _set_backup,
        "community_tools"),
+    # --- Agen AI ------------------------------------------------------------
+    _f("agent.gaya", "Gaya bahasa Auto-Chat", "pilihan", _baca_agent("style_preset", "akrab"),
+       _set_agent_gaya, "community_agent",
+       opsi=(("akrab", "Akrab"), ("gaul", "Gaul"), ("ramah", "Ramah & sopan")),
+       bantuan="Hanya untuk Auto-Chat AI; persona sambutan diatur terpisah."),
+    _f("agent.keamanan", "Tingkat keamanan konten AI", "pilihan", _baca_agent("safety_level", "longgar"),
+       _set_agent_keamanan, "community_agent",
+       opsi=(("longgar", "Longgar"), ("normal", "Normal"), ("ketat", "Ketat"))),
+    _f("agent.tenang", "Jam tenang (tanpa balasan malam)", "saklar", _baca_agent_saklar("quiet_hours"),
+       _set_agent_saklar("quiet_hours", "Jam tenang"), "community_agent"),
+    _f("agent.zona", "Zona waktu bot", "teks", _baca_agent("timezone", "Asia/Jakarta"),
+       _set_agent_teks("timezone", "Zona waktu", validasi=_cek_zona), "community_agent",
+       bantuan="Contoh: `Asia/Jakarta`, `Asia/Makassar`, `Asia/Jayapura`."),
 ]
 
 FITUR: dict[str, dict] = {item["kunci"]: item for item in FITUR_LIST}
@@ -745,31 +872,32 @@ GRUP: tuple[dict, ...] = (
         "kunci": "sambutan",
         "judul": "👋 Sambutan & pamit",
         "keterangan": "Pilih channel; pilih “— tidak dipakai —” untuk mematikan.",
-        "fitur": ("sambutan.channel", "sambutan.dm", "sambutan.kartu", "pamit.channel",
-                  "boost.channel"),
+        "fitur": ("sambutan.channel", "sambutan.dm", "sambutan.kartu", "sambutan.persona",
+                  "pamit.channel", "boost.channel"),
     },
     {
         "kunci": "keamanan",
         "judul": "🛡️ Keamanan",
         "keterangan": "Mode “Lapor” hanya mencatat — paling aman untuk memulai.",
-        "fitur": ("antispam.mode", "antispam.log", "antinuke.aksi", "antinuke.log",
-                  "raid.aktif", "raid.aksi", "verifikasi.channel", "verifikasi.role",
-                  "keamanan.aktif"),
+        "fitur": ("antispam.mode", "antispam.caps", "antispam.log", "antinuke.aksi",
+                  "antinuke.log", "raid.aktif", "raid.aksi", "verifikasi.channel",
+                  "verifikasi.role", "keamanan.aktif"),
     },
     {
         "kunci": "bantuan",
         "judul": "🎫 Tiket & sapaan harian",
         "keterangan": "Setelah menyalakan tiket, kirim panelnya lewat /tiket panel di Discord.",
         "fitur": ("tiket.aktif", "tiket.staff", "tiket.kategori", "tiket.log", "tiket.maks",
-                  "ultah.channel"),
+                  "tiket.ping", "tiket.rating", "ultah.channel"),
     },
     {
         "kunci": "konten",
         "judul": "🧩 Konten & interaksi",
         "keterangan": "Fitur AI per channel & utilitas server.",
-        "fitur": ("starboard.channel", "saran.channel", "chat.channel", "digest.channel",
-                  "galeri.channel", "youtube.channel", "cari.channel", "terjemah.channel",
-                  "statistik.aktif", "fakta.channel", "backup.channel"),
+        "fitur": ("starboard.channel", "starboard.ambang", "saran.channel", "chat.channel",
+                  "digest.channel", "galeri.channel", "youtube.channel", "cari.channel",
+                  "terjemah.channel", "statistik.aktif", "fakta.channel", "backup.channel",
+                  "agent.gaya", "agent.keamanan", "agent.tenang", "agent.zona"),
     },
 )
 

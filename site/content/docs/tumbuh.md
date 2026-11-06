@@ -32,21 +32,21 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Status & pemakaian** | uptime, RAM, latensi, server/member, status Gemini, token masuk/keluar, cache hit, FAQ lokal |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | 5 sakelar lama: level, ekonomi, pertumbuhan, anti-spam, anti-nuke |
-| **Setelan server** | **39 setelan** dalam 5 grup (lihat tabel di bawah) |
+| **Setelan server** | **48 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri) |
-| **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim) |
+| **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Riwayat perubahan** | 8 perubahan terakhir dari dashboard (siapa-waktu-nilai-hasil) |
 
-### Setelan yang bisa diubah dari web (39 fitur)
+### Setelan yang bisa diubah dari web (48 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
 | 🧭 **Inti, level, & ekonomi** (8) | Level & XP, pengumuman naik level, channel pengumuman level, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
-| 👋 **Sambutan & pamit** (5) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), channel pamit, channel ucapan boost |
-| 🛡️ **Keamanan** (9) | mode anti-spam (+log), aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
-| 🎫 **Tiket & sapaan harian** (6) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, channel ucapan ulang tahun |
-| 🧩 **Konten & interaksi** (11) | starboard, kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup |
+| 👋 **Sambutan & pamit** (6) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, channel pamit, channel ucapan boost |
+| 🛡️ **Keamanan** (10) | mode anti-spam, deteksi huruf kapital, log anti-spam, aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
+| 🎫 **Tiket & sapaan harian** (8) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, ping staf, rating tiket, channel ucapan ulang tahun |
+| 🧩 **Konten & interaksi** (16) | starboard (+ambang bintang), kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup, gaya bahasa AI, keamanan konten AI, jam tenang, zona waktu |
 
 Pilih nilai di dropdown → **Simpan**. Perubahan langsung tersimpan ke JSON bot (tanpa
 restart), dan setiap perubahan dicatat di `data/dashboard_audit.json` (maksimal 300 entri).
@@ -64,7 +64,7 @@ praktis untuk "📢 Pengumuman Server". Isi boleh memakai variabel pesan
 | Lapis | Jaminan |
 | :--- | :--- |
 | **Token** | semua endpoint baca & tulis wajib token (`?token=`, `X-Dashboard-Token`, `Bearer`, atau field tersembunyi pada form HTML) |
-| **Whitelist aksi** | hanya 39 kunci di `dashboard_admin.FITUR` yang bisa dijalankan — kunci lain ditolak |
+| **Whitelist aksi** | hanya 48 kunci di `dashboard_admin.FITUR` yang bisa dijalankan — kunci lain ditolak |
 | **Tanpa PUT/DELETE/PATCH** | hanya tiga jalur tulis `POST`: `/api/aksi`, `/api/kirim`, `/api/konten` |
 | **Tanpa hapus data massal** | tombol Hapus hanya membuang satu item (pesan lama di Discord tidak ikut terhapus) |
 | **Jejak audit** | setiap perubahan (termasuk yang gagal) dicatat waktu, kunci, nilai, dan pesannya |
@@ -79,8 +79,21 @@ praktis untuk "📢 Pengumuman Server". Isi boleh memakai variabel pesan
 | `GET /api/setelan` | semua nilai setelan + ringkasan grup + riwayat |
 | `POST /api/aksi` | ubah setelan: `action=set.<kunci>` (token boleh lewat body form) |
 | `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar` |
-| `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `hapus.<jenis>:<id>` |
+| `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` |
 | `GET /healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
+
+### Yang tetap lebih enak di Discord
+
+Dashboard mengatur **setelan** dan **konten baru**, tetapi beberapa hal masih butuh
+percakapan interaktif di Discord (karena perlu pratinjau langsung):
+
+| Kebutuhan | Command |
+| :--- | :--- |
+| Menambah tombol/role/alur pada panel yang sudah ada | `/menu tombol-role`, `/menu tombol-link`, `/menu alur`, `/menu dropdown-role` |
+| Menyegarkan panel setelah tombol ditambah dari Discord | `/menu ubah` |
+| Mengundi (giveaway) — ambil pemenang, reroll | `/giveaway mulai`, `/giveaway pilih` |
+| Panel tiket & tombol verifikasi | `/tiket panel`, `/verifikasi kirim` |
+| Moderasi, musik, permainan, AI chat | perintah masing-masing (bukan setelan) |
 
 > 💡 **Auto-refresh**: set `DASHBOARD_REFRESH_SEC=0` bila dashboard dipakai untuk mengisi
 > form dari HP — tanpa auto-refresh, ketikan tidak ter-reset tiap 30 detik.

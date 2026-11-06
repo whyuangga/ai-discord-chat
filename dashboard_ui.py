@@ -268,6 +268,34 @@ def render_buat_block(bot, guild_id: int, token: str) -> str:
 </form>
 <p class="muted">Tombol/role pada panel ditambahkan lewat <code>/menu tombol</code> di Discord.
 Panel yang sudah terkirim bisa disegarkan dengan <code>/menu ubah</code>.</p></div>
+
+<div class="subpanel"><h3>📝 Formulir (modal)</h3>
+<form method="post" action="/api/konten" class="formgrid">
+  {_hidden(guild_id, token, "buat.formulir")}
+  <div class="medan"><label for="f-channel">Channel tujuan jawaban (opsional)</label>
+    <select name="channel" id="f-channel">{opsi}</select></div>
+  {_medan("Nama formulir", "judul", place="Pendaftaran Event")}
+  {_medan("Kolom", "kolom", place="Nama | Asal kota | Alasan:panjang?", jenis="textarea")}
+  {_medan("Penjelasan singkat", "isi", place="Isi formulir lalu tekan kirim", jenis="textarea")}
+  {_medan("Warna", "warna", place="#5865F2")}
+  <button type="submit">Buat formulir</button>
+</form>
+<p class="muted">Pisahkan kolom dengan <code>|</code> atau baris baru (maksimal 4–5 kolom).
+Tambahkan <code>:panjang</code> untuk jawaban panjang dan <code>?</code> bila tidak wajib —
+contoh: <code>Nama | Umur | Alasan:panjang?</code>. Pasang sebagai tombol panel lewat
+<code>/menu form tombol</code>.</p></div>
+
+<div class="subpanel"><h3>🚪 Pemicu saat member bergabung</h3>
+<form method="post" action="/api/konten" class="formgrid">
+  {_hidden(guild_id, token, "buat.pemicu")}
+  <div class="medan"><label for="pr-channel">Channel pesan/thread</label>
+    <select name="channel" id="pr-channel">{opsi}</select></div>
+  {_medan("Alur", "alur", place="+role:123 > umum:Selamat datang {member.mention} > thread:sambutan", jenis="textarea")}
+  {_medan("Umur akun minimal (hari)", "umur_akun", place="0", jenis="number")}
+  <button type="submit">Pasang pemicu</button>
+</form>
+<p class="muted">Sintaks alur sama dengan <code>/menu alur</code>: <code>+role:id</code>, <code>-role:id</code>,
+<code>umum:teks</code>, <code>pesan:teks</code>, <code>thread:nama</code>, <code>hapus</code>.</p></div>
 """
 
 
@@ -280,10 +308,20 @@ def _tabel_konten(judul: str, jenis: str, items: list[dict], token: str, guild_i
     baris = ""
     for item in items:
         aksi = f"hapus.{jenis}:{item.get('id')}"
+        tombol_jeda = ""
+        if jenis == "pengumuman" and "aktif" in item:
+            label = "Jeda" if item.get("aktif") else "Aktifkan"
+            aksi_jeda = "jeda.pengumuman:" + str(item.get("id"))
+            tombol_jeda = (
+                '<form method="post" action="/api/konten">'
+                + _hidden(guild_id, token, aksi_jeda)
+                + f'<button type="submit" class="ghost">{label}</button></form>'
+            )
         baris += (
             f'<tr><td><b>{_esc(item.get("judul"))}</b>'
             f'<div class="muted">{_esc(item.get("ringkas") or "")}</div></td>'
-            f'<td><form method="post" action="/api/konten">{_hidden(guild_id, token, aksi)}'
+            f'<td class="aksi">{tombol_jeda}'
+            f'<form method="post" action="/api/konten">{_hidden(guild_id, token, aksi)}'
             '<button type="submit" class="danger">Hapus</button></form></td></tr>'
         )
     return (
@@ -300,6 +338,7 @@ def render_konten_block(guild_id: int, konten: dict, token: str) -> str:
             _tabel_konten("🔗 Tautan embed", "tautan", konten.get("tautan") or [], token, guild_id),
             _tabel_konten("🧩 Panel", "panel", konten.get("panel") or [], token, guild_id),
             _tabel_konten("📝 Formulir", "formulir", konten.get("formulir") or [], token, guild_id),
+            _tabel_konten("🚪 Pemicu gabung", "pemicu", konten.get("pemicu") or [], token, guild_id),
             _tabel_konten("🪄 Webhook identitas", "webhook", konten.get("webhook") or [], token, guild_id),
         ]
     )

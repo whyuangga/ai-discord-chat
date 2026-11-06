@@ -25,7 +25,7 @@ Endpoint:
 | `/api/level?guild=<id>` | JSON papan peringkat level |
 | `/api/kontrol?guild=<id>` | JSON status 5 sakelar cepat (level, ekonomi, tumbuh, antispam, antinuke) |
 | `/api/fitur?guild=<id>` | JSON peta fitur server |
-| `/api/setelan?guild=<id>` | JSON semua setelan (39 fitur) + nilai sekarang |
+| `/api/setelan?guild=<id>` | JSON semua setelan (48 fitur) + nilai sekarang |
 | `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
 | `POST /api/konten` | Buat/hapus pengumuman, tautan, panel |
@@ -333,6 +333,8 @@ _PAGE_TEMPLATE = """<!doctype html>
   textarea {{ resize: vertical; min-height: 90px; }}
   .formgrid button {{ justify-self: start; }}
   button.danger {{ background: #b23b3b; border-color: #b23b3b; }}
+  button.ghost {{ background: transparent; border-color: #3a4152; color: #cbd0e0; }}
+  td.aksi {{ display: flex; gap: 6px; flex-wrap: wrap; }}
   .riwayat {{ padding-left: 18px; font-size: 13px; }}
   .riwayat li {{ margin: 8px 0; }}
   footer {{ margin-top: 18px; }}
@@ -866,6 +868,25 @@ async def start_dashboard(bot) -> bool:
             ok, message = await dashboard_pesan.tambah_tautan(gid, payload)
         elif aksi == "buat.panel":
             ok, message = await dashboard_pesan.buat_panel(bot, gid, payload)
+        elif aksi == "buat.formulir":
+            ok, message = await dashboard_pesan.tambah_formulir(gid, payload)
+        elif aksi == "buat.pemicu":
+            ok, message = await dashboard_pesan.pasang_pemicu(gid, payload)
+        elif aksi.startswith("jeda."):
+            sisa = aksi[len("jeda."):]
+            jenis, _, ref = sisa.partition(":")
+            if jenis == "pengumuman":
+                import engagement
+
+                data_pengumuman = engagement.announcements.get(int(ref)) if ref.isdigit() else None
+                if data_pengumuman is None:
+                    ok, message = False, "Pengumuman tidak ditemukan."
+                else:
+                    ok, message = await dashboard_pesan.ubah_pengumuman(
+                        gid, int(ref), not bool(data_pengumuman.get("enabled", True))
+                    )
+            else:
+                ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
         elif aksi.startswith("hapus."):
             sisa = aksi[len("hapus."):]
             jenis, _, ref = sisa.partition(":")

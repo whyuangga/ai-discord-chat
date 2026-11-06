@@ -31,7 +31,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **39 setelan** + kirim embed/webhook dari browser | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **48 setelan** + kirim embed/webhook dari browser | 0 |
 
 ---
 

@@ -7,7 +7,7 @@ toc: true
 ---
 
 Satu halaman web untuk memantau **dan** mengatur bot: status, pemakaian AI, papan level,
-peta fitur, **39 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
+peta fitur, **48 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
 Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
 | Aspek | Detail |
@@ -16,7 +16,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
 | **Endpoint tulis** | Hanya tiga jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan, `action=set.<kunci>`), `/api/kirim` (pesan/embed/webhook), `/api/konten` (buat/hapus pengumuman, tautan, panel). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
-| **Setelan** | **39 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
+| **Setelan** | **48 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
 | **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
