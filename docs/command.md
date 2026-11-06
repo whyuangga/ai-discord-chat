@@ -252,6 +252,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/menu dropdown-role` | `role1`…`role5`, `menu`, `placeholder`, `eksklusif`, `emoji1`…`emoji5` | *(Admin)* Dropdown role. |
 | `/menu alur` | `aksi`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Tombol yang menjalankan **alur aksi**: `+role:123 > pesan:Halo {member.mention} > thread:tiket`. |
 | `/menu alur-bantuan` | — | Panduan menulis alur (`role`, `pesan`, `umum`, `thread`, `tunggu`, `stop`, `syarat`). |
+| `/menu form buat` | `nama`, `kolom`, `tujuan`, `judul`, `penjelasan`, `hasil`, `warna` | *(Admin)* Buat **formulir (modal)** dengan kolom sendiri, mis. `kolom:"Nama \| Umur \| Alasan:panjang?"`. |
+| `/menu form ubah` | `form`, `nama`, `judul`, `penjelasan`, `hasil`, `tujuan`, `kolom`, `warna` | *(Admin)* Ubah formulir (kirim `-` untuk mengosongkan penjelasan/hasil). |
+| `/menu form tombol` | `form`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Pasang formulir sebagai tombol di panel. |
+| `/menu form daftar` | — | Lihat semua formulir, kolom, tujuan, dan jumlah jawaban. |
+| `/menu form uji` | `form` | *(Admin)* Coba isi formulir; hasilnya hanya pratinjau untukmu. |
+| `/menu form hapus` | `form` | *(Admin)* Hapus formulir beserta tombolnya di panel. |
 | `/menu hapus-item` | `item`, `menu` | *(Admin)* Hapus tombol/opsi. |
 | `/menu ubah` | `menu`, `judul`, `deskripsi` | *(Admin)* Ubah teks panel yang sudah terkirim (pesan ikut berubah, tanpa kirim ulang). |
 | `/menu ekspor` | `menu` | *(Admin)* Unduh panel sebagai berkas JSON (backup / pindah server). |

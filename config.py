@@ -174,6 +174,8 @@ SOCIAL_FILE = DATA_DIR / "social.json"
 MODERATION_FILE = DATA_DIR / "moderation.json"
 TEMP_VOICE_FILE = DATA_DIR / "temp_voice.json"
 AFK_FILE = DATA_DIR / "afk.json"
+FORMS_FILE = DATA_DIR / "forms.json"          # formulir (modal) buatan Admin
+LINKS_FILE = DATA_DIR / "links.json"          # tautan embed (link embed) yang dibuat bot
 
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)

@@ -1049,6 +1049,9 @@ satu panel bisa memuat **tombol role, tombol link, dan tombol command** sekaligu
 | **`/menu dropdown-role menu:… role1:@A role2:@B [eksklusif]`** | Dropdown role (maks 25 role, bisa eksklusif) |
 | **`/menu alur menu:… label:… aksi:…`** | Tombol yang menjalankan **alur aksi** berurutan (lihat di bawah) |
 | **`/menu alur-bantuan`** | Panduan singkat menulis alur |
+| **`/menu form buat nama:… kolom:… tujuan:#x`** | **Formulir (modal)** buatan sendiri: kolom bebas (lihat di bawah) |
+| **`/menu form tombol form:… menu:… [label]`** | Pasang formulir sebagai tombol di panel |
+| **`/menu form daftar`** / **`/menu form uji form:…`** | Lihat semua formulir / coba isi tanpa mengirim hasil |
 | **`/menu hapus-item menu:… item:2`** *(Admin)* | Hapus tombol/opsi (nomor urut, ID, atau label) |
 | **`/menu ubah menu:… judul:… deskripsi:…`** *(Admin)* | Ubah teks panel; pesan yang sudah terkirim ikut berubah |
 | **`/menu ekspor menu:…`** *(Admin)* | Unduh panel sebagai JSON (backup / pindah server) |
@@ -1077,6 +1080,40 @@ Langkah dipisah `>` dan teksnya boleh memakai variabel (`{member.mention}`, `{se
 | `stop[:<teks>]` | Hentikan alur, opsional kirim alasan |
 
 Batas: **10 langkah** per tombol, 1000 karakter per pesan. Role tetap wajib di bawah role bot.
+
+### Formulir (modal) buatan sendiri — `/menu form`
+`/agent panel` punya modal dengan kolom tetap. Lewat `/menu form`, **Admin merancang sendiri**
+isinya: sebut kolom yang diinginkan, pasang sebagai tombol, dan jawaban anggota dikirim rapi ke
+channel pilihan — cocok untuk lamaran staff, laporan bug, atau pendaftaran event.
+
+```text
+/menu form buat nama:"Lamaran Staff" kolom:"Nama | Umur | Alasan:panjang?" tujuan:#lamaran
+/menu form tombol form:"Lamaran Staff" menu:Pusat menu label:"📝 Daftar Staff"
+```
+
+| Tulis di `kolom` | Artinya |
+| :--- | :--- |
+| `Nama` | Kolom pendek, wajib diisi |
+| `Nama?` | Kolom pendek, boleh kosong |
+| `Alasan:panjang` | Kolom paragraf (bisa beberapa baris) |
+| `Catatan:panjang?` | Paragraf, boleh kosong (urutan penanda bebas) |
+
+- Kolom dipisah `|`; **maksimal 5** kolom — atau **4** bila memakai `penjelasan` (kalimat pengantar
+  di dalam modal memakan satu slot).
+- `hasil` mengatur bentuk pesan yang masuk ke channel, mis.
+  `hasil:"**Nama:** {form.nama}
+**Umur:** {form.umur}
+**Alasan:** {form.alasan}"`.
+  Kosongkan untuk daftar otomatis (`**Kolom**` lalu jawabannya).
+- `{form.<kolom>}` diisi jawaban anggota; variabel biasa (`{member.mention}`, `{server.name}`,
+  `{now_relative}`) tetap jalan.
+- **Tanpa mention:** hasil dikirim dengan *mention* dimatikan, jadi jawaban anggota tidak bisa
+  dipakai men-*ping* `@everyone`.
+- Jawaban **tidak disimpan** bot — hanya diteruskan ke channel tujuan; yang dicatat cuma jumlahnya.
+- `/menu form uji` menampilkan pratinjau hasil tanpa mengirim ke channel. Satu formulir per
+  server dibatasi **20**, dan `/menu form hapus` ikut membersihkan tombolnya di panel.
+- Berkas data: `data/forms.json`. Tombol formulir **tidak ikut** `/menu ekspor` (formulirnya
+  terpisah) — pesan ekspor akan menyebutkan tombol mana yang dilewati.
 
 ### Variabel pesan
 Judul/isi `/embed`, `/pengumuman`, `/menu`, dan teks alur bisa memakai variabel yang diisi saat

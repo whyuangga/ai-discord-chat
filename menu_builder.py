@@ -32,6 +32,7 @@ from discord import ui
 
 import flows
 import message_template
+import modal_forms
 import ui_kit
 import ui_theme
 from config import DATA_DIR, MENU_FILE
@@ -47,6 +48,7 @@ KIND_ROLE = "role"
 KIND_LINK = "link"
 KIND_COMMAND = "command"
 KIND_FLOW = "flow"      # tombol dengan alur aksi (lihat flows.py)
+KIND_FORM = "form"      # tombol yang membuka formulir/modal (lihat modal_forms.py)
 
 VIS_AUTO = "auto"          # ikuti keputusan command (bawaan)
 VIS_PUBLIK = "publik"      # paksa tampil di channel
@@ -321,6 +323,11 @@ def import_menu(
                     "flow": langkah,
                 }
             )
+        elif kind == KIND_FORM:
+            galat.append(
+                f"Tombol formulir “{label}” dilewati — formulir tidak ikut diekspor. "
+                "Buat ulang lewat `/menu form buat`."
+            )
 
     for dropdown in dropdown_masuk[:MAX_DROPDOWNS]:
         if not isinstance(dropdown, dict):
@@ -511,6 +518,30 @@ def add_flow_button(
         "emoji": emoji or "⚡",
         "style": style if style in BUTTON_STYLES else "biru",
         "flow": bersih,
+    }
+    menu["buttons"].append(item)
+    return item
+
+
+def add_form_button(
+    menu: dict,
+    form: dict,
+    *,
+    label: str | None = None,
+    emoji: str | None = None,
+    style: str = "biru",
+) -> dict | None:
+    """Tombol yang membuka formulir (modal) buatan Admin — lihat `modal_forms.py`."""
+    if len(menu["buttons"]) >= MAX_BUTTONS or not isinstance(form, dict):
+        return None
+    label = (str(label or "").strip() or str(form.get("name") or "Formulir"))[:80]
+    item = {
+        "id": _new_item_id(menu),
+        "kind": KIND_FORM,
+        "label": label,
+        "emoji": emoji or "📝",
+        "style": style if style in BUTTON_STYLES else "biru",
+        "form_id": str(form.get("id")),
     }
     menu["buttons"].append(item)
     return item
@@ -912,6 +943,11 @@ async def handle_button(interaction: discord.Interaction, menu_id: str, item_id:
     if kind == KIND_FLOW:
         await flows.run_flow(interaction, item.get("flow") or [], guild=guild, member=interaction.user)
         return
+    if kind == KIND_FORM:
+        await modal_forms.open_form_modal(
+            interaction, modal_forms.get_form(guild.id, str(item.get("form_id") or ""))
+        )
+        return
 
 
 async def handle_select(interaction: discord.Interaction, menu_id: str, dropdown_id: str) -> None:
@@ -1225,6 +1261,8 @@ def _sanitize_buttons(buttons) -> list[dict]:
             if not langkah:
                 continue
             tombol = {**tombol, "flow": langkah}
+        if tombol.get("kind") == KIND_FORM and not str(tombol.get("form_id") or "").strip():
+            continue  # tombol formulir tanpa rujukan tidak bisa dijalankan
         hasil.append(tombol)
     return hasil
 

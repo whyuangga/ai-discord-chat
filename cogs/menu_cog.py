@@ -13,6 +13,7 @@ from discord.ext import commands
 
 import flows
 import menu_builder
+import modal_forms
 import ui_kit
 import ui_theme
 
@@ -913,6 +914,9 @@ async def menu_daftar_cmd(interaction: discord.Interaction):
             }.get(btn.get("kind"), "")
             if btn.get("kind") == menu_builder.KIND_FLOW:
                 detail = f"alur {len(btn.get('flow') or [])} langkah"
+            if btn.get("kind") == menu_builder.KIND_FORM:
+                formulir = modal_forms.get_form(gid, str(btn.get("form_id") or ""))
+                detail = f"formulir {formulir['name']}" if formulir else "formulir (sudah dihapus)"
             lines.append(f"`{index}.` {btn.get('emoji') or '🔹'} {btn.get('label')} — {detail}")
         for dropdown in record["dropdowns"]:
             options = ", ".join(str(opt.get("label")) for opt in dropdown["options"])
@@ -964,6 +968,365 @@ async def menu_hapus_cmd(interaction: discord.Interaction, menu: str):
     )
 
 
+# ==============================================================================
+# FORMULIR (MODAL) BUATAN ADMIN — /menu form
+# ==============================================================================
+form_group = app_commands.Group(
+    name="form",
+    description="Formulir (modal) buatan sendiri: kolom bebas, jawaban dikirim ke channel",
+)
+
+
+async def _form_or_error(interaction: discord.Interaction, gid: int, ref: str) -> dict | None:
+    formulir = modal_forms.get_form(gid, ref)
+    if formulir is not None:
+        return formulir
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid, "warn", "Formulir tidak ditemukan",
+            f"Tidak ada formulir bernama “{ref}”. Lihat daftarnya lewat `/menu form daftar`.",
+        ),
+        ephemeral=True,
+    )
+    return None
+
+
+@form_group.command(name="buat", description="Buat formulir (modal) baru (Admin)")
+@app_commands.describe(
+    nama="Nama formulir — dipakai lagi saat memasang ke tombol",
+    kolom="Kolom dipisah `|`: `Nama | Umur | Alasan:panjang?` (maks 5, `?` = opsional)",
+    tujuan="Channel penerima hasil formulir",
+    judul="Judul modal (bawaan: nama formulir)",
+    penjelasan="Kalimat pengantar di dalam modal (memakai 1 slot → maks 4 kolom)",
+    hasil="Template hasil, mis. `**Nama:** {form.nama}` (kosong: daftar otomatis)",
+    warna="Warna embed hasil: ungu / biru / merah / hijau / emas / abu / #9B59B6",
+)
+async def form_buat_cmd(
+    interaction: discord.Interaction,
+    nama: str,
+    kolom: str,
+    tujuan: discord.TextChannel | discord.Thread,
+    judul: str | None = None,
+    penjelasan: str | None = None,
+    hasil: str | None = None,
+    warna: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    if warna and modal_forms.parse_color(warna) is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "warn", "Warna tidak dikenal",
+                "Pakai nama dasar (ungu, biru, merah, hijau, emas, abu) atau kode seperti `#9B59B6`.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    formulir, galat = modal_forms.create_form(
+        gid,
+        nama,
+        kolom,
+        title=judul,
+        description=penjelasan or "",
+        result_text=hasil or "",
+        channel_id=tujuan.id,
+        color=warna,
+    )
+    if formulir is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Formulir belum bisa dibuat",
+                "\n".join(f"• {g}" for g in galat)[:1500] or "Periksa kembali isiannya.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    await modal_forms.save_to_disk()
+    rangkuman = "\n".join(
+        f"`{i}.` {kolom['label']}"
+        f" ({'paragraf' if kolom['style'] == modal_forms.STYLE_LONG else 'pendek'}"
+        f"{', opsional' if not kolom['required'] else ''})"
+        for i, kolom in enumerate(formulir["fields"], start=1)
+    )
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok",
+            f"Formulir “{formulir['name']}” siap",
+            f"{rangkuman}\n\nHasil dikirim ke {tujuan.mention}.\n"
+            "Pasang ke panel: `/menu form tombol form:` — atau coba dulu `/menu form uji`.",
+        ),
+        ephemeral=True,
+    )
+
+
+@form_group.command(name="ubah", description="Ubah formulir yang sudah ada (Admin)")
+@app_commands.describe(
+    form="Nama atau ID formulir",
+    nama="Nama baru (opsional)",
+    judul="Judul modal baru (opsional)",
+    penjelasan="Kalimat pengantar baru (kirim `-` untuk menghapus)",
+    hasil="Template hasil baru (kirim `-` untuk daftar otomatis)",
+    tujuan="Channel penerima hasil baru (opsional)",
+    kolom="Ganti seluruh kolom, mis. `Nama | Alasan:panjang` (opsional)",
+    warna="Warna embed hasil: ungu / biru / merah / hijau / emas / abu / #9B59B6",
+)
+async def form_ubah_cmd(
+    interaction: discord.Interaction,
+    form: str,
+    nama: str | None = None,
+    judul: str | None = None,
+    penjelasan: str | None = None,
+    hasil: str | None = None,
+    tujuan: discord.TextChannel | discord.Thread | None = None,
+    kolom: str | None = None,
+    warna: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    formulir = await _form_or_error(interaction, gid, form)
+    if formulir is None:
+        return
+
+    perubahan: dict = {}
+    if nama:
+        perubahan["name"] = nama
+    if judul:
+        perubahan["title"] = judul
+    if penjelasan is not None:
+        perubahan["description"] = "" if penjelasan.strip() == "-" else penjelasan
+    if hasil is not None:
+        perubahan["result_text"] = "" if hasil.strip() == "-" else hasil
+    if tujuan is not None:
+        perubahan["channel_id"] = tujuan.id
+    if kolom:
+        perubahan["fields"] = kolom
+    if warna:
+        if modal_forms.parse_color(warna) is None:
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid, "warn", "Warna tidak dikenal",
+                    "Pakai nama dasar atau kode seperti `#9B59B6`.",
+                ),
+                ephemeral=True,
+            )
+            return
+        perubahan["color"] = warna
+
+    if not perubahan:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "info", "Tidak ada yang diubah",
+                'Sebutkan minimal satu isian, mis. `penjelasan:"Isi dengan jujur"`.',
+            ),
+            ephemeral=True,
+        )
+        return
+
+    galat = modal_forms.update_form(formulir, **perubahan)
+    await modal_forms.save_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok" if not galat else "warn",
+            f"Formulir “{formulir['name']}” diperbarui",
+            ("\n".join(f"• {g}" for g in galat)[:1200] + "\n\n" if galat else "")
+            + "Perubahan langsung berlaku — modal dibuat ulang setiap tombol diklik.",
+        ),
+        ephemeral=True,
+    )
+
+
+@form_group.command(name="hapus", description="Hapus formulir beserta tombolnya di panel (Admin)")
+@app_commands.describe(form="Nama atau ID formulir")
+async def form_hapus_cmd(interaction: discord.Interaction, form: str):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    formulir = await _form_or_error(interaction, gid, form)
+    if formulir is None:
+        return
+
+    modal_forms.delete_form(gid, formulir["id"])
+    await modal_forms.save_to_disk()
+
+    # Tombol formulir yang menunjuk formulir ini ikut dibersihkan
+    dibersihkan = 0
+    for menu in menu_builder.list_menus(gid):
+        sisa = [
+            btn for btn in menu["buttons"]
+            if not (btn.get("kind") == menu_builder.KIND_FORM
+                    and str(btn.get("form_id")) == formulir["id"])
+        ]
+        if len(sisa) == len(menu["buttons"]):
+            continue
+        dibersihkan += len(menu["buttons"]) - len(sisa)
+        menu["buttons"] = sisa
+        await menu_builder.refresh_panel(interaction.client, menu)
+    if dibersihkan:
+        await menu_builder.save_menus_to_disk()
+
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid, "ok", "Formulir dihapus",
+            f"**{formulir['name']}** tidak bisa dipakai lagi."
+            + (f"\n{dibersihkan} tombol di panel ikut dibersihkan." if dibersihkan else ""),
+        ),
+        ephemeral=True,
+    )
+
+
+@form_group.command(name="daftar", description="Lihat semua formulir di server ini")
+async def form_daftar_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    rows = modal_forms.list_forms(gid)
+    if not rows:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "info", "Belum ada formulir",
+                "Buat yang pertama: `/menu form buat nama:\"Lamaran Staff\" "
+                "kolom:\"Nama | Umur | Alasan:panjang\" tujuan:#lamaran`.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    baris: list[str] = []
+    for formulir in rows:
+        tujuan = f"<#{formulir['channel_id']}>" if formulir.get("channel_id") else "*(belum diatur)*"
+        kolom_teks = ", ".join(kolom["label"] for kolom in formulir["fields"])
+        baris.append(
+            f"**{formulir['name']}** (`{formulir['id']}`)\n"
+            f"-# kolom: {kolom_teks}\n"
+            f"-# tujuan: {tujuan} • {formulir.get('responses', 0)} jawaban"
+        )
+
+    info = modal_forms.stats(gid)
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "info",
+            f"📝 Formulir ({info['total']}/{info['maks']})",
+            "\n\n".join(baris)[:3800],
+            footer="Pasang ke panel: /menu form tombol • uji dulu: /menu form uji",
+        ),
+        ephemeral=True,
+    )
+
+
+@form_group.command(name="tombol", description="Pasang formulir sebagai tombol di panel (Admin)")
+@app_commands.describe(
+    form="Nama atau ID formulir",
+    menu="ID panel atau judulnya (bawaan: panel pertama)",
+    label="Teks tombol (bawaan: nama formulir)",
+    emoji="Emoji tombol (opsional)",
+    gaya="Warna tombol",
+)
+@app_commands.choices(gaya=_GAYA_CHOICES)
+async def form_tombol_cmd(
+    interaction: discord.Interaction,
+    form: str,
+    menu: str | None = None,
+    label: str | None = None,
+    emoji: str | None = None,
+    gaya: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    formulir = await _form_or_error(interaction, gid, form)
+    if formulir is None:
+        return
+
+    record = _menu_or_error(interaction, gid, menu)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "warn", "Panel tidak ditemukan",
+                "Buat panel dulu lewat `/menu buat`, lalu pasang tombol formulirnya.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    item = menu_builder.add_form_button(
+        record,
+        formulir,
+        label=label,
+        emoji=emoji,
+        style=gaya.value if gaya else "biru",
+    )
+    if item is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "warn", "Tombol tidak ditambahkan",
+                f"Batas **{menu_builder.MAX_BUTTONS} tombol** per panel.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    await menu_builder.save_menus_to_disk()
+    refreshed = await menu_builder.refresh_panel(interaction.client, record)
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid, "ok", "Tombol formulir terpasang",
+            f"**{item['label']}** → formulir “{formulir['name']}”\n"
+            + ("Panel langsung diperbarui." if refreshed else "Gunakan `/menu kirim` untuk menampilkan panel."),
+        ),
+        follow=True,
+        ephemeral=True,
+    )
+
+
+@form_group.command(name="uji", description="Coba formulir tanpa mengirim hasil ke channel (Admin)")
+@app_commands.describe(form="Nama atau ID formulir")
+async def form_uji_cmd(interaction: discord.Interaction, form: str):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    formulir = await _form_or_error(interaction, gid, form)
+    if formulir is None:
+        return
+    await modal_forms.open_form_modal(interaction, formulir, uji=True)
+
+
 def register_menu_cog(bot: commands.Bot) -> None:
     """Mendaftarkan command `/menu` ke bot."""
+    menu_group.add_command(form_group)
     bot.tree.add_command(menu_group)

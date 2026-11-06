@@ -54,6 +54,7 @@ from menu_builder import (
     load_menus_from_disk,
     save_menus_to_disk,
 )
+import modal_forms
 import webhook_identity
 from growth_tracker import (
     cleanup_growth_runtime,
@@ -296,6 +297,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_growth_guilds = load_growth_from_disk()
         loaded_menus = load_menus_from_disk()
         loaded_webhooks = webhook_identity.load_from_disk()
+        loaded_forms = modal_forms.load_from_disk()
         loaded_antinuke = load_antinuke_from_disk()
         loaded_raid = load_raid_from_disk()
         loaded_playlists = load_playlists_from_disk()
@@ -382,6 +384,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Pelacak pertumbuhan dimuat: %d server.", loaded_growth_guilds)
         logger.info("Panel menu dimuat: %d panel.", loaded_menus)
         logger.info("Webhook identitas dimuat: %d channel.", loaded_webhooks)
+        logger.info("Formulir (modal) dimuat: %d formulir.", loaded_forms)
         logger.info("Anti-Nuke dimuat: %d server.", loaded_antinuke)
         logger.info("Raid Guard dimuat: %d server.", loaded_raid)
         logger.info("Playlist musik dimuat: %d member.", loaded_playlists)
