@@ -22,7 +22,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
 | **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
-| **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` opsional (`DASHBOARD_REFRESH_SEC`, isi `0` untuk mematikan) → ringan dibuka dari HP. |
+| **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` bawaan **30 detik** (`DASHBOARD_REFRESH_SEC`; `0` = mati) dan bisa **dinyalakan/dijeda dari header** tanpa restart → ringan dibuka dari HP. |
 
 > ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
 > Di Wispbyte cek tab **Network / Allocations**; bila tidak ada alokasi, dashboard otomatis
@@ -402,8 +402,12 @@ Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**
 | Mengundi (giveaway) — ambil pemenang, reroll | `/giveaway mulai`, `/giveaway pilih` |
 | Moderasi, musik, permainan, AI chat | perintah masing-masing (bukan setelan) |
 
-> 💡 **Auto-refresh**: set `DASHBOARD_REFRESH_SEC=0` bila dashboard dipakai untuk mengisi
-> form dari HP — tanpa auto-refresh, ketikan tidak ter-reset tiap 30 detik.
+> 💡 **Auto-refresh**: **aktif sendiri** setiap **30 detik** — tidak perlu menyetel apa pun.
+> Di header ada tulisan `🔄 auto-refresh 30s · jeda` untuk menjeda, dan
+> `⏸ auto-refresh mati · hidupkan` untuk menyalakan lagi. Pilihan itu disimpan di cookie
+> (30 hari) **tanpa restart**, jadi `.env` tidak perlu diubah. Untuk mematikan permanen,
+> isi `DASHBOARD_REFRESH_SEC=0`; untuk kembali ke nilai `.env`, klik `?refresh=auto`.
+> Jeda auto-refresh praktis saat mengisi form panjang dari HP — ketikan tidak ter-reset.
 >
 > ⚠️ Token dashboard berlaku **satu bot penuh** (bukan per server). Rahasiakan, dan ganti
 > bila pernah ikut terlihat di tangkapan layar/percakapan.
@@ -432,7 +436,7 @@ python main.py
 | **Akses** | `http://IP:PORT/?token=TOKEN` — atau lewat header `X-Dashboard-Token` |
 | **Banyak server** | pakai dropdown **Server** di pojok atas halaman |
 | **Keamanan** | `DASHBOARD_HOST=127.0.0.1` + SSH tunnel, atau Cloudflare Tunnel untuk HTTPS |
-| **Nyaman mengetik** | `DASHBOARD_REFRESH_SEC=0` agar isian form tidak ter-reset |
+| **Auto-refresh** | bawaan **30 detik**; jeda/hidupkan lewat tautan di header (`?refresh=0` / `?refresh=30`), atau `DASHBOARD_REFRESH_SEC=0` untuk mati permanen |
 
 > 💡 Karena tiap instance punya token sendiri, kamu **tidak perlu** membagikan token ke siapa pun.
 > Pemakai lain menjalankan bot mereka sendiri dan membuat token mereka sendiri lewat perintah di atas.

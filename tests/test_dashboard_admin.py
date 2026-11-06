@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 
@@ -419,3 +420,106 @@ def test_modul_dashboard_tidak_menambah_dependency():
                 modul.add(node.module.split(".")[0])
         dilarang = {"requests", "flask", "fastapi", "jinja2", "sqlalchemy", "redis", "numpy"}
         assert not (modul & dilarang), f"{berkas} memakai dependency baru: {modul & dilarang}"
+
+
+def test_tautan_jeda_dan_hidupkan_auto_refresh():
+    """Header punya tautan `?refresh=` supaya auto-refresh bisa dinyalakan tanpa .env."""
+    tautan = "/?token=tok&guild=1234"
+
+    hidup = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, refresh=30, auto_tautan=tautan
+    )
+    assert "auto-refresh 30s" in hidup
+    assert f'href="{tautan.replace("&", "&amp;")}&amp;refresh=0"' in hidup   # jeda
+    assert "jeda" in hidup
+
+    mati = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, refresh=0, auto_tautan=tautan
+    )
+    assert "auto-refresh mati" in mati
+    assert f'href="{tautan.replace("&", "&amp;")}&amp;refresh=30"' in mati   # hidupkan
+    assert "hidupkan" in mati
+    assert 'http-equiv="refresh"' not in mati
+
+    # Tanpa tautan (render manual) tetap aman
+    polos = web_dashboard.render_dashboard_html(status={}, usage={}, levels={}, refresh=0)
+    assert "hidupkan" not in polos
+
+
+def test_detik_auto_memakai_cookie_lalu_env(monkeypatch):
+    class _Req:
+        def __init__(self, cookie=""):
+            self.cookies = {web_dashboard.COOKIE_AUTO: cookie} if cookie != "" else {}
+
+    assert web_dashboard.detik_auto(_Req(), 30) == 30
+    assert web_dashboard.detik_auto(_Req("0"), 30) == 0
+    assert web_dashboard.detik_auto(_Req("45"), 30) == 45
+    assert web_dashboard.detik_auto(_Req("ngawur"), 30) == 30
+    assert web_dashboard.detik_auto(_Req("99999"), 30) == 3600     # dibatasi
+
+
+def test_http_toggle_auto_refresh_lewat_header(monkeypatch):
+    """`?refresh=30` menghidupkan meta refresh, `?refresh=0` menjeda — lewat cookie."""
+
+    async def jalankan():
+        import socket
+
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_HOST", "127.0.0.1")
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", port)
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "token-uji")
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_REFRESH_SEC", 0)   # .env: mati
+
+        assert await web_dashboard.start_dashboard(_Bot()) is True
+        base = f"http://127.0.0.1:{port}/"
+        try:
+            # `unsafe=True`: aiohttp menolak cookie dari host berupa IP, browser tidak.
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
+                # Keadaan awal: auto-refresh mati (ikut .env) + tautan hidupkan
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert "auto-refresh mati" in body
+                    assert "refresh=30" in body and 'http-equiv="refresh"' not in body
+
+                # Nyalakan → 303, cookie tersimpan, halaman memakai 30 detik
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=30",
+                    allow_redirects=False,
+                ) as resp:
+                    assert resp.status == 303
+                    assert resp.headers["Location"] == "/?token=token-uji&guild=1234"
+                    assert web_dashboard.COOKIE_AUTO in resp.cookies
+                    assert resp.cookies[web_dashboard.COOKIE_AUTO].value == "30"
+
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert "auto-refresh 30s" in body
+                    assert 'http-equiv="refresh" content="30"' in body
+                    assert "refresh=0" in body            # tautan jeda
+
+                # Jeda lagi
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=0",
+                    allow_redirects=False,
+                ) as resp:
+                    assert resp.status == 303
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert "auto-refresh mati" in body
+                    assert 'http-equiv="refresh"' not in body
+
+                # Kembali ke nilai .env
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=auto", allow_redirects=False
+                ) as resp:
+                    assert resp.status == 303
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    assert "auto-refresh mati" in await resp.text()
+        finally:
+            await web_dashboard.stop_dashboard()
+
+    asyncio.run(jalankan())

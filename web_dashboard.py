@@ -97,6 +97,20 @@ def dashboard_config() -> dict:
     }
 
 
+# Cookie kecil untuk menghidupkan/menjeda auto-refresh tanpa menyentuh `.env`
+# (tautan di header dashboard: `…?refresh=0` / `…?refresh=30` / `…?refresh=auto`).
+COOKIE_AUTO = "dash_auto"
+COOKIE_AUTO_MAKS = 60 * 60 * 24 * 30   # 30 hari
+
+
+def detik_auto(request, bawaan: int = 30) -> int:
+    """Interval auto-refresh yang dipakai: cookie dulu, lalu `DASHBOARD_REFRESH_SEC`."""
+    simpan = str(request.cookies.get(COOKIE_AUTO) or "").strip()
+    if simpan.isdigit():
+        return max(0, min(3600, int(simpan)))
+    return max(0, min(3600, int(bawaan or 0)))
+
+
 def is_authorized(*, query_token: str = "", header_token: str = "", expected: str = "") -> bool:
     """Cek token akses dashboard (query, `X-Dashboard-Token`, atau `Bearer`)."""
     want = str(expected or "").strip()
@@ -882,6 +896,7 @@ def render_dashboard_html(
     usage: dict,
     levels: dict,
     refresh: int = 30,
+    auto_tautan: str = "",
     heading: str = "🛰️ Dashboard Bot",
     kontrol_block: str = '<div class="muted">Kontrol tidak tersedia.</div>',
     fitur_block: str = "",
@@ -943,7 +958,20 @@ def render_dashboard_html(
         if detik > 0
         else ""
     )
-    refresh_info = f" (auto-refresh {detik}s)" if detik > 0 else " (auto-refresh mati)"
+    tautan_auto = (
+        f'<a class="auto" href="{html.escape(auto_tautan, quote=True)}&amp;refresh={{}}">{{}}</a>'
+        if auto_tautan
+        else ""
+    )
+    if detik > 0:
+        refresh_info = f" (🔄 auto-refresh {detik}s"
+        if tautan_auto:
+            refresh_info += " · " + tautan_auto.format(0, "jeda")
+    else:
+        refresh_info = " (⏸ auto-refresh mati"
+        if tautan_auto:
+            refresh_info += " · " + tautan_auto.format(30, "hidupkan")
+    refresh_info += ")"
     data = {
         "uptime": html.escape(str(status.get("uptime") or "-")),
         "ram_mb": status.get("ram_mb") or 0,
@@ -1327,6 +1355,22 @@ async def start_dashboard(bot) -> bool:
         flash_pesan = str(request.query.get("pesan") or "")[:300]
         flash_ok = str(request.query.get("ok") or "1") != "0"
 
+        # 🔄 Hidupkan / jeda auto-refresh dari header (tanpa JavaScript, tanpa .env).
+        # `?refresh=30` → simpan di cookie, `?refresh=0` → jeda, `?refresh=auto` → ikut .env.
+        if "refresh" in request.query:
+            nilai = str(request.query.get("refresh") or "").strip().lower()
+            balik = url_halaman(halaman_dari_path(request.path), token, gid)
+            jawab = web.Response(status=303, headers={"Location": balik})
+            if nilai in ("", "auto", "bawaan", "env"):
+                jawab.del_cookie(COOKIE_AUTO, path="/")
+            else:
+                angka = int(nilai) if nilai.isdigit() else 0
+                jawab.set_cookie(
+                    COOKIE_AUTO, str(max(0, min(3600, angka))),
+                    max_age=COOKIE_AUTO_MAKS, path="/", httponly=True, samesite="Lax",
+                )
+            return jawab
+
         # Bookmark lama berbentuk `/?halaman=setelan` atau `/uji` diarahkan ke halaman barunya.
         pinta = str(request.query.get("halaman") or "").strip()
         lama = request.path.strip("/")
@@ -1445,7 +1489,8 @@ async def start_dashboard(bot) -> bool:
             status=collect_status(bot),
             usage=collect_usage(gid),
             levels=collect_levels(gid),
-            refresh=cfg["refresh"],
+            refresh=detik_auto(request, cfg["refresh"]),
+            auto_tautan=url_halaman(slug, token, gid),
             heading=guild_name or "Bot",
             kontrol_block=render_controls_block(gid, token),
             fitur_block=render_features_block(gid),
