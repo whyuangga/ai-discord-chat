@@ -8,6 +8,7 @@ dikirim ke `POST /api/aksi` atau `POST /api/kirim` yang memeriksa token.
 import html
 
 import dashboard_admin
+import channel_targets
 import dashboard_tema
 import dashboard_unggah
 
@@ -105,6 +106,33 @@ def kontrol_html(kunci: str, nilai: str, bot, guild_id: int) -> str:
     fitur = dashboard_admin.FITUR.get(kunci) or {}
     jenis = fitur.get("jenis")
     nama = f"nilai-{_esc(kunci)}"
+    if jenis == "channels":
+        terpilih = {str(cid) for cid in channel_targets.parse(nilai)}
+        kotak = "".join(
+            '<label class="pilih-channel">'
+            f'<input type="checkbox" name="value" value="{_esc(value)}"'
+            f'{" checked" if str(value) in terpilih else ""}>'
+            f"<span>{_esc(label)}</span></label>"
+            for value, label in pilihan_channel(bot, guild_id)
+            if str(value) != "0"
+        )
+        if not kotak:
+            kotak = '<div class="muted">Belum ada channel yang bisa dipilih.</div>'
+        # Channel yang tersimpan tapi sudah tidak ada di server tetap ditampilkan
+        # (dan dicentang) supaya admin bisa melepasnya.
+        tersedia = {str(value) for value, _ in pilihan_channel(bot, guild_id)}
+        for cid in sorted(terpilih - tersedia):
+            kotak += (
+                '<label class="pilih-channel">'
+                f'<input type="checkbox" name="value" value="{_esc(cid)}" checked>'
+                f"<span>ID {_esc(cid)} (di luar server ini)</span></label>"
+            )
+        kosong = (
+            '<label class="pilih-channel kosongkan">'
+            '<input type="checkbox" name="value" value="0">'
+            "<span>🚫 Kosongkan (matikan fitur)</span></label>"
+        )
+        return f'<div class="channel-grid" id="{nama}">{kotak}{kosong}</div>'
     if jenis in ("saklar", "pilihan", "channel", "role"):
         opsi = opsi_untuk(kunci, bot, guild_id)
         ada = {value for value, _ in opsi}
@@ -136,15 +164,27 @@ def _baris_setelan(kunci: str, nilai: str, bot, guild_id: int, token: str) -> st
         nama = _nama_channel(bot, guild_id, nilai)
         if nama:
             bantuan = f"Sedang: `{nama}`. {bantuan}".strip()
+    if fitur.get("jenis") == "channels":
+        jumlah = len(channel_targets.parse(nilai))
+        bantuan = (
+            f"Boleh pilih lebih dari satu channel ({jumlah} dipilih). {bantuan}"
+            if jumlah
+            else f"Belum ada channel dipilih. {bantuan}"
+        ).strip()
     catatan = f'<div class="muted">{_esc(bantuan)}</div>' if bantuan else ""
     hidden = (
         f'<input type="hidden" name="token" value="{_esc(token)}">'
         f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
         f'<input type="hidden" name="action" value="set.{_esc(kunci)}">'
     )
+    judul = (
+        f'<div class="label-setelan">{label}</div>'
+        if fitur.get("jenis") == "channels"
+        else f"<label for=\"nilai-{_esc(kunci)}\">{label}</label>"
+    )
     return (
         f'<form method="post" action="/api/aksi" class="kontrol">'
-        f"{hidden}<label for=\"nilai-{_esc(kunci)}\">{label}</label>"
+        f"{hidden}{judul}"
         f'{kontrol_html(kunci, nilai, bot, guild_id)}'
         f'<button type="submit">Simpan</button></form>{catatan}'
     )

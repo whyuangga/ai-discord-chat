@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 import discord
+import channel_targets
 
 from config import (
     ANTISPAM_FILE,
@@ -417,24 +418,17 @@ def build_spam_alert_embed(
 
 async def _notify(bot, cfg: dict, guild, embed: discord.Embed) -> bool:
     """Mengirim laporan ke channel log moderasi (bila diatur)."""
-    log_id = _to_int(cfg.get("log_channel_id"))
-    if not log_id:
+    ids = channel_targets.daftar(cfg, "log_channel_id")
+    if not ids:
         return False
-    channel = None
-    get_channel = getattr(bot, "get_channel", None)
-    if callable(get_channel):
-        channel = get_channel(log_id)
-    if channel is None:
-        return False
-    try:
+
+    async def _kirim(channel):
         await channel.send(
             embed=embed,
             allowed_mentions=discord.AllowedMentions.none(),
         )
-        return True
-    except (discord.Forbidden, discord.HTTPException) as exc:
-        logger.debug("Gagal mengirim laporan anti-spam: %s", sanitize_error_message(exc))
-        return False
+
+    return bool(await channel_targets.sebarkan(bot, ids, _kirim))
 
 
 async def handle_spam_guard(message, *, bot=None, now: float | None = None) -> bool:

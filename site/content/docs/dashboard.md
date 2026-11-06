@@ -176,6 +176,27 @@ dipanggil sebagai API). Kalau gagal, alasannya spesifik: `GEMINI_API_KEY` kosong
 tujuan sudah dihapus, bot tidak punya izin **Kirim Pesan**, atau AI tidak menjawab.
 Fitur ber-channel yang belum aktif menampilkan tombol **Atur dulu** alih-alih tombol tes.
 
+### Beberapa channel untuk satu fitur
+
+Setelan bertanda **channel** boleh diisi **lebih dari satu** — cukup centang di kotak
+pilihan (tanpa JavaScript). Bot mengirim ke semua channel yang dicentang, dan satu channel
+yang bermasalah tidak membatalkan pengiriman ke channel lain.
+
+| Fitur | Bisa berapa channel |
+| :--- | :--- |
+| Channel sambutan · pesan pamit · ucapan boost | banyak |
+| Channel pengumuman level (+ musim) | banyak |
+| Log anti-spam · log anti-nuke · log tiket | banyak |
+| Ucapan ulang tahun · backup otomatis | banyak |
+| Auto-Chat AI · Galeri AI · Rangkum YouTube · Pencarian berita · Terjemahan otomatis | banyak (satu per channel) |
+| **Koran pagi (digest)** · **Fakta harian** | **satu** (sengaja, sesuai permintaan) |
+| Kategori tiket · kotak saran · gerbang verifikasi · starboard · log pertumbuhan | satu (satu kategori/pintu/papan, bukan siaran) |
+
+Cara kerjanya: config menyimpan **daftar** (`channel_ids`, `log_channel_ids`, …) sekaligus
+channel pertama di kunci lama (`channel_id`), jadi config lama di disk tetap terbaca tanpa
+migrasi. Centang **🚫 Kosongkan** untuk mematikan fitur. Penjelasan teknis ada di modul
+`channel_targets.py`.
+
 ### Setelan yang bisa diubah dari web (52 fitur)
 
 | Grup | Fitur |

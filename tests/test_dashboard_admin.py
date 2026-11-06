@@ -22,7 +22,7 @@ def test_registry_konsisten():
     assert len(kunci) >= 35, "dashboard harus mencakup sebagian besar fitur"
 
     for item in dashboard_admin.FITUR_LIST:
-        assert item["jenis"] in {"saklar", "pilihan", "channel", "role", "teks", "angka"}
+        assert item["jenis"] in {"saklar", "pilihan", "channel", "channels", "role", "teks", "angka"}
         assert callable(item["nilai"]) and callable(item["simpan"])
         if item["jenis"] == "pilihan":
             assert item["opsi"], f"{item['kunci']} butuh daftar opsi"
@@ -97,7 +97,7 @@ async def test_apply_channel_dan_keterangan(tmp_path, monkeypatch):
 
     ok, pesan = await dashboard_admin.apply(gid, "tiket.log", "0")
     assert ok is True and "Log tiket" in pesan
-    assert dashboard_admin.read_values(gid)["tiket.log"] == "0"
+    assert dashboard_admin.read_values(gid)["tiket.log"] in ("", "0")
 
 
 async def test_audit_tertulis_dan_terbaca(tmp_path, monkeypatch):
@@ -233,8 +233,12 @@ def test_pilihan_channel_dan_role_dari_cache_bot():
 
 
 def test_kontrol_channel_menandai_id_di_luar_server():
+    # tiket.log kini multi-channel (checkbox), tapi channel di luar server tetap ditandai
     html = dashboard_ui.kontrol_html("tiket.log", "999999", _Bot(), 1234)
-    assert "di luar server ini" in html and "selected" in html
+    assert "di luar server ini" in html and f'value="999999" checked' in html
+    # Setelan single-channel tetap memakai <select> + opsi "selected"
+    tunggal = dashboard_ui.kontrol_html("digest.channel", "999999", _Bot(), 1234)
+    assert "di luar server ini" in tunggal and "selected" in tunggal
 
 
 def test_render_kirim_dan_konten_block():

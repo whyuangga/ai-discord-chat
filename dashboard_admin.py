@@ -30,6 +30,8 @@ import asyncio
 import importlib
 import json
 import logging
+
+import channel_targets
 import time
 from pathlib import Path
 
@@ -102,6 +104,118 @@ def _pesan(label: str, aktif: bool) -> tuple[bool, str]:
 
 def _hapus_keterangan(label: str, nilai: str) -> tuple[bool, str]:
     return True, f"{label} dikosongkan ({nilai})."
+
+
+# ==============================================================================
+# BANYAK CHANNEL (multi-channel) — lihat `channel_targets.py`
+# ==============================================================================
+def _baca_daftar(pembaca_cfg, kunci: str = "channel_id"):
+    """Baca daftar channel target sebagai teks `"1,2,3"` untuk dashboard."""
+
+    def baca(guild_id: int) -> str:
+        try:
+            cfg = pembaca_cfg(int(guild_id)) or {}
+        except Exception:  # pragma: no cover - jaring aman
+            return ""
+        return ",".join(str(cid) for cid in channel_targets.daftar(cfg, kunci))
+
+    return baca
+
+
+def _bersih_kanal(nilai: str) -> list[int]:
+    """Pilihan multi-channel; centang “🚫 Kosongkan” (nilai `0`) mematikan semuanya."""
+    potongan = str(nilai or "").replace(";", ",").split(",")
+    if any(part.strip() == "0" for part in potongan):
+        return []
+    return channel_targets.parse(nilai)
+
+
+def _set_daftar(penyimpan_tunggal, pembaca_cfg, kunci: str = "channel_id", label: str = "Channel"):
+    """Simpan beberapa channel: setter lama menulis channel pertama, lalu daftarnya.
+
+    Channel pertama tetap ditulis lewat fungsi lama supaya semua efek samping
+    (menyalakan fitur, mencatat audit, menghapus channel lama) tetap berjalan.
+    """
+
+    def simpan(guild_id: int, nilai: str) -> tuple[bool, str]:
+        ids = _bersih_kanal(nilai)
+        gid = int(guild_id)
+        ok, pesan = penyimpan_tunggal(gid, str(ids[0]) if ids else "0")
+        if not ok:
+            return ok, pesan
+        cfg = None
+        try:
+            cfg = pembaca_cfg(gid)
+        except Exception:  # pragma: no cover - jaring aman
+            cfg = None
+        if not isinstance(cfg, dict):
+            return ok, pesan
+        channel_targets.setel(cfg, ids, kunci)
+        if not ids:
+            return True, f"{label} dimatikan (tanpa channel)."
+        return True, f"{label} aktif di **{len(ids)} channel** → {channel_targets.label(ids)}."
+
+    return simpan
+
+
+def _baca_agent_channels(nama_peta: str):
+    """Semua channel tempat sebuah agen AI aktif (dict `channel_id -> cfg`)."""
+
+    def baca(guild_id: int) -> str:
+        peta = getattr(_mod("community_agent"), nama_peta, {}) or {}
+        ids = [
+            _to_int(cid)
+            for cid, cfg in peta.items()
+            if _to_int((cfg or {}).get("guild_id")) == int(guild_id)
+        ]
+        return ",".join(str(cid) for cid in sorted(ids) if cid)
+
+    return baca
+
+
+def _set_agent_channels(setter: str, label: str, peta: str, **extra):
+    """Nyalakan agen AI di semua channel terpilih, matikan yang dilepas."""
+
+    def simpan(guild_id: int, nilai: str) -> tuple[bool, str]:
+        ca = _mod("community_agent")
+        peta_dict = getattr(ca, peta, {}) or {}
+        lama = {
+            _to_int(cid)
+            for cid, cfg in peta_dict.items()
+            if _to_int((cfg or {}).get("guild_id")) == int(guild_id)
+        }
+        baru = set(_bersih_kanal(nilai))
+        fungsi = getattr(ca, setter)
+        for cid in sorted(lama - baru):
+            fungsi(int(guild_id), cid, enabled=False)
+        for cid in sorted(baru):
+            fungsi(int(guild_id), cid, enabled=True, **extra)
+        if not baru:
+            return _hapus_keterangan(label, "dimatikan")
+        return True, f"{label} aktif di **{len(baru)} channel** → {channel_targets.label(baru)}."
+
+    return simpan
+
+
+def _baca_terjemah_semua(guild_id: int) -> str:
+    cfg = _mod("translate_tools").get_guild_config(int(guild_id))
+    ids = [_to_int(cid) for cid in (cfg.get("channels") or {})]
+    return ",".join(str(cid) for cid in sorted(ids) if cid)
+
+
+def _set_terjemah_semua(guild_id: int, nilai: str) -> tuple[bool, str]:
+    mod = _mod("translate_tools")
+    gid = int(guild_id)
+    baru = set(_bersih_kanal(nilai))
+    cfg = mod.get_guild_config(gid)
+    lama = {_to_int(cid) for cid in (cfg.get("channels") or {})}
+    for cid in sorted(lama - baru):
+        mod.set_channel_config(gid, cid, enabled=False)
+    for cid in sorted(baru):
+        mod.set_channel_config(gid, cid, enabled=True)
+    if not baru:
+        return _hapus_keterangan("Terjemahan otomatis", "dimatikan")
+    return True, f"Terjemahan otomatis aktif di **{len(baru)} channel** → {channel_targets.label(baru)}."
 
 
 # ==============================================================================
@@ -832,9 +946,13 @@ FITUR_LIST = [
     _f("level.pengumuman", "Pengumuman naik level", "saklar",
        lambda g: "on" if _cfg("levels", g, "get_level_config").get("announce", True) else "off",
        _set_level_flag("announce", "Pengumuman naik level"), "levels"),
-    _f("level.channel", "Channel pengumuman level", "channel",
-       lambda g: str(_to_int(_cfg("levels", g, "get_level_config").get("announce_channel_id"))),
-       _set_level_channel, "levels"),
+    _f("level.channel", "Channel pengumuman level", "channels",
+       _baca_daftar(lambda g: _cfg("levels", g, "get_level_config"), "announce_channel_id"),
+       _set_daftar(
+           _set_level_channel,
+           lambda g: _cfg("levels", g, "get_level_config"),
+           kunci="announce_channel_id", label="Pengumuman level",
+       ), "levels"),
     _f("ekonomi.aktif", "Ekonomi koin", "saklar", _saklar_dari("economy"), _set_saklar("economy", "Ekonomi koin"), "economy"),
     _f("ekonomi.harian", "Koin harian (/harian)", "angka", _baca_ekonomi("daily_amount", 100),
        _set_ekonomi_key("daily_amount", "Koin harian"), "economy"),
@@ -846,8 +964,13 @@ FITUR_LIST = [
     _f("prefix", "Prefix custom (teks)", "teks", _baca_prefix, _set_prefix, "prefixes",
        bantuan="Kosongkan untuk kembali ke prefix bawaan."),
     # --- Sambutan & pamit ----------------------------------------------------
-    _f("sambutan.channel", "Channel sambutan", "channel", _baca_sambutan("channel_id", 0),
-       _set_sambutan_channel, "community_agent"),
+    _f("sambutan.channel", "Channel sambutan", "channels",
+       _baca_daftar(lambda g: (_mod("community_agent").welcome_agent_guilds or {}).get(g) or {}),
+       _set_daftar(
+           _set_sambutan_channel,
+           lambda g: (_mod("community_agent").welcome_agent_guilds or {}).get(g) or {},
+           label="Sambutan",
+       ), "community_agent"),
     _f("sambutan.dm", "Sambutan via DM", "saklar", _baca_sambutan_dm,
        _set_sambutan_dm, "community_agent"),
     _f("sambutan.kartu", "Kartu sambutan", "pilihan", _baca_sambutan("card_mode", "mati"),
@@ -864,16 +987,26 @@ FITUR_LIST = [
     _f("sambutan.arti", "Latin & arti sapaan sambutan", "saklar", _baca_sambutan_arti,
        _set_sambutan_arti, "community_agent",
        bantuan="Contoh: **\"မင်္ဂလာပါ\" (Mingalaba)** — *semoga berkah*"),
-    _f("pamit.channel", "Channel pesan pamit", "channel", _baca_pamit(), _set_pamit_channel,
-       "community_agent"),
+    _f("pamit.channel", "Channel pesan pamit", "channels",
+       _baca_daftar(lambda g: (_mod("community_agent").goodbye_agent_guilds or {}).get(g) or {}),
+       _set_daftar(
+           _set_pamit_channel,
+           lambda g: (_mod("community_agent").goodbye_agent_guilds or {}).get(g) or {},
+           label="Pesan pamit",
+       ), "community_agent"),
     _f("pamit.bahasa", "Bahasa kata perpisahan", "pilihan",
        _baca_pamit_bahasa(), _set_pamit_bahasa, "community_agent",
        opsi=_daftar_bahasa("ASIAN_FAREWELLS")),
     _f("pamit.arti", "Latin & arti kata perpisahan", "saklar", _baca_pamit_arti,
        _set_pamit_arti, "community_agent",
        bantuan="Contoh: **\"またね\" (Mata ne)** — *sampai nanti*"),
-    _f("boost.channel", "Channel ucapan boost", "channel", _baca_boost(), _set_boost_channel,
-       "community_agent"),
+    _f("boost.channel", "Channel ucapan boost", "channels",
+       _baca_daftar(lambda g: (_mod("community_agent").boost_agent_guilds or {}).get(g) or {}),
+       _set_daftar(
+           _set_boost_channel,
+           lambda g: (_mod("community_agent").boost_agent_guilds or {}).get(g) or {},
+           label="Ucapan boost",
+       ), "community_agent"),
     # --- Keamanan -----------------------------------------------------------
     _f("antispam.mode", "Mode anti-spam", "pilihan", _baca_antispam("mode", "lapor"),
        _set_antispam_mode, "antispam",
@@ -881,16 +1014,22 @@ FITUR_LIST = [
              ("timeout", "Timeout member"))),
     _f("antispam.caps", "Deteksi HURUF KAPITAL", "saklar", _baca_antispam_caps,
        _set_antispam_caps, "antispam"),
-    _f("antispam.log", "Log anti-spam", "channel",
-       lambda g: str(_to_int(_cfg("antispam", g, "get_spam_config").get("log_channel_id"))),
-       _set_antispam_log, "antispam"),
+    _f("antispam.log", "Log anti-spam", "channels",
+       _baca_daftar(lambda g: _cfg("antispam", g, "get_spam_config"), "log_channel_id"),
+       _set_daftar(
+           _set_antispam_log, lambda g: _cfg("antispam", g, "get_spam_config"),
+           kunci="log_channel_id", label="Log anti-spam",
+       ), "antispam"),
     _f("antinuke.aksi", "Aksi anti-nuke", "pilihan", _baca_antinuke("action", "lapor"),
        _set_antinuke_aksi, "antinuke",
        opsi=(("lapor", "Lapor"), ("cabut-role", "Cabut role"), ("timeout", "Timeout"),
              ("kick", "Kick"), ("ban", "Ban"))),
-    _f("antinuke.log", "Log anti-nuke", "channel",
-       lambda g: str(_to_int(_cfg("antinuke", g).get("log_channel_id"))),
-       _set_antinuke_log, "antinuke"),
+    _f("antinuke.log", "Log anti-nuke", "channels",
+       _baca_daftar(lambda g: _cfg("antinuke", g), "log_channel_id"),
+       _set_daftar(
+           _set_antinuke_log, lambda g: _cfg("antinuke", g),
+           kunci="log_channel_id", label="Log anti-nuke",
+       ), "antinuke"),
     _f("raid.aktif", "Pengaman raid", "saklar", _saklar_dari("raid_guard"),
        _set_raid_aktif, "raid_guard"),
     _f("raid.aksi", "Aksi saat raid", "pilihan", _baca_raid("action", "verifikasi"),
@@ -909,16 +1048,26 @@ FITUR_LIST = [
        _set_tiket_id("staff_role_id", "Role staf tiket"), "tickets"),
     _f("tiket.kategori", "Kategori tiket", "channel", _baca_tiket("category_id"),
        _set_tiket_id("category_id", "Kategori tiket"), "tickets"),
-    _f("tiket.log", "Log tiket", "channel", _baca_tiket("log_channel_id"),
-       _set_tiket_id("log_channel_id", "Log tiket"), "tickets"),
+    _f("tiket.log", "Log tiket", "channels",
+       _baca_daftar(lambda g: _cfg("tickets", g, "get_ticket_config"), "log_channel_id"),
+       _set_daftar(
+           _set_tiket_id("log_channel_id", "Log tiket"),
+           lambda g: _cfg("tickets", g, "get_ticket_config"),
+           kunci="log_channel_id", label="Log tiket",
+       ), "tickets"),
     _f("tiket.maks", "Maksimal tiket terbuka", "angka", _baca_tiket("max_open", 2),
        _set_tiket_angka("max_open", "Maksimal tiket terbuka"), "tickets"),
     _f("tiket.ping", "Ping staf saat tiket dibuka", "saklar", _baca_tiket_flag("ping_staff"),
        _set_tiket_flag("ping_staff", "Ping staf"), "tickets"),
     _f("tiket.rating", "Rating setelah tiket ditutup", "saklar", _baca_tiket_flag("rating_aktif"),
        _set_tiket_flag("rating_aktif", "Rating tiket"), "tickets"),
-    _f("ultah.channel", "Channel ucapan ulang tahun", "channel", _baca_ultah(),
-       _set_ultah_channel, "engagement"),
+    _f("ultah.channel", "Channel ucapan ulang tahun", "channels",
+       _baca_daftar(lambda g: (_mod("engagement").birthday_guilds or {}).get(g) or {}),
+       _set_daftar(
+           _set_ultah_channel,
+           lambda g: (_mod("engagement").birthday_guilds or {}).get(g) or {},
+           label="Ucapan ulang tahun",
+       ), "engagement"),
     # --- Konten & interaksi -------------------------------------------------
     _f("starboard.channel", "Channel starboard", "channel", _baca_starboard("channel_id"),
        _set_starboard_channel, "community_tools"),
@@ -926,31 +1075,39 @@ FITUR_LIST = [
        _set_starboard_ambang, "community_tools"),
     _f("saran.channel", "Channel kotak saran", "channel", _baca_saran, _set_saran,
        "suggestions"),
-    _f("chat.channel", "Channel Auto-Chat AI", "channel",
-       _baca_agent_channel("chat_agent_channels"), _set_agent_channel(
+    _f("chat.channel", "Channel Auto-Chat AI", "channels",
+       _baca_agent_channels("chat_agent_channels"), _set_agent_channels(
            "set_chat_channel_config", "Auto-Chat AI", "chat_agent_channels"), "community_agent"),
     _f("digest.channel", "Channel koran pagi", "channel", _baca_digest, _set_digest,
        "community_agent"),
-    _f("galeri.channel", "Channel galeri AI", "channel",
-       _baca_agent_channel("gallery_agent_channels"), _set_agent_channel(
+    _f("galeri.channel", "Channel galeri AI", "channels",
+       _baca_agent_channels("gallery_agent_channels"), _set_agent_channels(
            "set_gallery_channel_config", "Galeri AI", "gallery_agent_channels"),
        "community_agent"),
-    _f("youtube.channel", "Channel rangkum YouTube", "channel",
-       _baca_agent_channel("youtube_agent_channels"), _set_agent_channel(
+    _f("youtube.channel", "Channel rangkum YouTube", "channels",
+       _baca_agent_channels("youtube_agent_channels"), _set_agent_channels(
            "set_youtube_channel_config", "Rangkum YouTube", "youtube_agent_channels"),
        "community_agent"),
-    _f("cari.channel", "Channel pencarian berita", "channel",
-       _baca_agent_channel("search_agent_channels"), _set_agent_channel(
+    _f("cari.channel", "Channel pencarian berita", "channels",
+       _baca_agent_channels("search_agent_channels"), _set_agent_channels(
            "set_search_channel_config", "Pencarian berita", "search_agent_channels"),
        "community_agent"),
-    _f("terjemah.channel", "Channel terjemahan otomatis", "channel", _baca_terjemah,
-       _set_terjemah, "translate_tools"),
+    _f("terjemah.channel", "Channel terjemahan otomatis", "channels",
+       _baca_terjemah_semua, _set_terjemah_semua, "translate_tools"),
     _f("statistik.aktif", "Statistik server (voice)", "saklar", _baca_serverstats,
        _set_serverstats, "server_features"),
     _f("fakta.channel", "Channel fakta harian", "channel", _baca_fakta, _set_fakta,
        "server_features"),
-    _f("backup.channel", "Channel backup otomatis", "channel", _baca_backup, _set_backup,
-       "community_tools"),
+    _f("backup.channel", "Channel backup otomatis", "channels",
+       _baca_daftar(
+           lambda g: (_mod("community_tools").maintenance_guilds or {}).get(g) or {},
+           "backup_channel_id",
+       ),
+       _set_daftar(
+           _set_backup,
+           lambda g: (_mod("community_tools").maintenance_guilds or {}).get(g) or {},
+           kunci="backup_channel_id", label="Backup otomatis",
+       ), "community_tools"),
     # --- Agen AI ------------------------------------------------------------
     _f("agent.gaya", "Gaya bahasa Auto-Chat", "pilihan", _baca_agent("style_preset", "akrab"),
        _set_agent_gaya, "community_agent",

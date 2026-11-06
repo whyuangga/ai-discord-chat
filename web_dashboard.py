@@ -1141,7 +1141,19 @@ async def start_dashboard(bot) -> bool:
         try:
             if str(request.content_type or "").startswith("application/json"):
                 return dict(await request.json())
-            return dict(await request.post())
+            data = await request.post()
+            hasil: dict = {}
+            for kunci in data:
+                nilai = data.getall(kunci, [])
+                berkas = [v for v in nilai if hasattr(v, "file")]
+                if berkas:
+                    hasil[kunci] = nilai[0]
+                elif len(nilai) > 1:
+                    # checkbox multi (mis. pilih banyak channel) → "1,2,3"
+                    hasil[kunci] = ",".join(str(v).strip() for v in nilai if str(v).strip())
+                else:
+                    hasil[kunci] = nilai[0] if nilai else ""
+            return hasil
         except Exception as exc:
             if "TooLarge" in type(exc).__name__ or "too large" in str(exc).lower():
                 return {

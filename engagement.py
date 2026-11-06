@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import discord
+import channel_targets
 
 import message_template
 
@@ -636,7 +637,8 @@ async def run_birthday_check(bot: discord.Client) -> int:
     """Mengirim ucapan ulang tahun sekali sehari pada jam yang diatur Admin."""
     sent = 0
     for guild_id, cfg in list(birthday_guilds.items()):
-        channel = await resolve_channel(bot, cfg.get("channel_id"))
+        ids = channel_targets.daftar(cfg, "channel_id")
+        channel = await resolve_channel(bot, ids[0] if ids else 0)
         if channel is None:
             continue
 
@@ -671,11 +673,16 @@ async def run_birthday_check(bot: discord.Client) -> int:
             continue
 
         try:
-            await channel.send(
-                embed=build_birthday_embed(todays, today=today),
-                allowed_mentions=discord.AllowedMentions(users=True),
-            )
-            sent += 1
+            embed_ultah = build_birthday_embed(todays, today=today)
+
+            async def _kirim(channel):
+                await channel.send(
+                    embed=embed_ultah,
+                    allowed_mentions=discord.AllowedMentions(users=True),
+                )
+
+            if await channel_targets.sebarkan(bot, ids, _kirim):
+                sent += 1
         except (discord.Forbidden, discord.HTTPException) as exc:
             logger.warning("Gagal kirim ucapan ultah di %s: %s", guild_id, sanitize_error_message(exc))
             continue

@@ -8,6 +8,7 @@ slot channel server.
 import logging
 
 import discord
+import channel_targets
 from discord import app_commands
 from discord.ext import commands
 
@@ -421,16 +422,15 @@ async def level_musim_ulang_cmd(
             pass
 
     # Umumkan ke channel pengumuman level bila diatur
-    channel_id = int(cfg.get("announce_channel_id") or 0)
-    if channel_id and cfg.get("season_announce", True):
-        channel = interaction.guild.get_channel(channel_id)
-        if channel is not None:
-            try:
-                await channel.send(
-                    embed=embed, allowed_mentions=discord.AllowedMentions.none()
-                )
-            except (discord.Forbidden, discord.HTTPException):
-                pass
+    ids = channel_targets.daftar(cfg, "announce_channel_id")
+    if ids and cfg.get("season_announce", True):
+
+        async def _kirim(channel):
+            await channel.send(
+                embed=embed, allowed_mentions=discord.AllowedMentions.none()
+            )
+
+        await channel_targets.sebarkan(interaction.client, ids, _kirim)
 
 
 @level_group.command(name="voice", description="Atur XP dari aktivitas voice channel (0 kuota AI)")

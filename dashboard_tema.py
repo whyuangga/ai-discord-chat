@@ -257,6 +257,20 @@ CSS_HALAMAN = f"""
                      justify-content: flex-end; }}
   .uji-baris input[type=text] {{ width: 175px; padding: 7px 9px; font-size: 12.5px; }}
   .uji-baris select {{ max-width: 190px; padding: 7px 9px; font-size: 12.5px; }}
+  /* --- pilih banyak channel (checkbox, tanpa JavaScript) --- */
+  .label-setelan {{ font-size: 12.5px; font-weight: 500; margin-bottom: 6px; }}
+  .channel-grid {{
+    display: grid; gap: 4px 14px; width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    max-height: 216px; overflow-y: auto; padding: 8px 10px;
+    border: 1px solid var(--garis); border-radius: 10px; background: rgba(255,255,255,.02);
+  }}
+  .pilih-channel {{
+    display: flex; align-items: center; gap: 7px; font-size: 12.5px;
+    color: rgba(255,255,255,.86); padding: 3px 0; cursor: pointer;
+  }}
+  .pilih-channel input {{ accent-color: #8B7CFF; width: 15px; height: 15px; }}
+  .pilih-channel.kosongkan {{ grid-column: 1 / -1; color: var(--redup); }}
   .uji-baris input[name="opsi_manual"] {{ width: 165px; }}
   @media (max-width: 620px) {{
     .uji-baris {{ align-items: stretch; }}

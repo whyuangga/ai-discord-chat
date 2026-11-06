@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 import discord
+import channel_targets
 
 from config import (
     DATA_DIR,
@@ -780,16 +781,11 @@ def transcript_file(text: str, filename: str) -> discord.File:
 async def send_transcript(bot, data: dict, text: str, filename: str) -> bool:
     """Mengirim transkrip ke channel log server (bila diatur)."""
     cfg = ticket_guilds.get(int(data.get("guild_id") or 0)) or {}
-    log_id = _to_int(cfg.get("log_channel_id"))
-    if not log_id:
+    ids = channel_targets.daftar(cfg, "log_channel_id")
+    if not ids:
         return False
-    channel = None
-    get_channel = getattr(bot, "get_channel", None)
-    if callable(get_channel):
-        channel = get_channel(log_id)
-    if channel is None:
-        return False
-    try:
+
+    async def _kirim_satu(channel):
         await channel.send(
             content=(
                 f"📄 Transkrip tiket `#{int(data.get('number') or 0):04d}` "
@@ -798,7 +794,9 @@ async def send_transcript(bot, data: dict, text: str, filename: str) -> bool:
             file=transcript_file(text, filename),
             allowed_mentions=discord.AllowedMentions.none(),
         )
-        return True
+
+    try:
+        return bool(await channel_targets.sebarkan(bot, ids, _kirim_satu))
     except (discord.Forbidden, discord.HTTPException) as exc:
         logger.warning("Gagal mengirim transkrip tiket: %s", sanitize_error_message(exc))
         return False
