@@ -234,6 +234,84 @@ def _set_sambutan_kartu(guild_id: int, nilai: str) -> tuple[bool, str]:
     return True, f"Kartu sambutan diset ke **{mode}**."
 
 
+def _daftar_bahasa(pool_nama: str) -> tuple[tuple[str, str], ...]:
+    """Pilihan bahasa sapaan dari katalog `community_agent` (auto + tiap bahasa)."""
+    try:
+        pool = getattr(_mod("community_agent"), pool_nama) or ()
+    except Exception:  # pragma: no cover - jaring aman
+        pool = ()
+    hasil: list[tuple[str, str]] = [("auto", "🌏 Acak semua bahasa")]
+    terlihat: set[str] = set()
+    for item in pool:
+        key = str(item.get("key") or "")
+        if key and key not in terlihat:
+            terlihat.add(key)
+            hasil.append((key, str(item.get("lang") or key)))
+    return tuple(hasil)
+
+
+def _baca_sambutan_arti(guild_id: int) -> str:
+    cfg = (_mod("community_agent").welcome_agent_guilds or {}).get(int(guild_id)) or {}
+    return "on" if cfg.get("arti", True) else "off"
+
+
+def _set_sambutan_arti(guild_id: int, nilai: str) -> tuple[bool, str]:
+    ca = _mod("community_agent")
+    cfg = (ca.welcome_agent_guilds or {}).get(int(guild_id)) or {}
+    cid = _to_int(cfg.get("channel_id"))
+    if cid <= 0:
+        return False, "Atur channel sambutan lebih dulu."
+    ca.set_welcome_config(int(guild_id), cid, enabled=True, arti=nilai == "on")
+    status = "ditampilkan" if nilai == "on" else "disembunyikan"
+    return True, f"Huruf latin & arti sapaan **{status}**."
+
+
+def _set_sambutan_bahasa(guild_id: int, nilai: str) -> tuple[bool, str]:
+    ca = _mod("community_agent")
+    cfg = (ca.welcome_agent_guilds or {}).get(int(guild_id)) or {}
+    cid = _to_int(cfg.get("channel_id"))
+    if cid <= 0:
+        return False, "Atur channel sambutan lebih dulu."
+    ca.set_welcome_config(int(guild_id), cid, enabled=True, hello_language=nilai)
+    contoh = ca.pick_greeting_word(ca.ASIAN_GREETINGS, language=nilai)
+    return True, f"Bahasa sapaan sambutan diset ke **{nilai}** — contoh: {ca.format_greeting_markdown(contoh)}"
+
+
+def _baca_pamit_bahasa(guild_id: int | None = None):
+    def baca(gid: int) -> str:
+        cfg = (_mod("community_agent").goodbye_agent_guilds or {}).get(int(gid)) or {}
+        return str(cfg.get("hello_language") or "auto")
+
+    return baca
+
+
+def _baca_pamit_arti(guild_id: int) -> str:
+    cfg = (_mod("community_agent").goodbye_agent_guilds or {}).get(int(guild_id)) or {}
+    return "on" if cfg.get("arti", True) else "off"
+
+
+def _set_pamit_arti(guild_id: int, nilai: str) -> tuple[bool, str]:
+    ca = _mod("community_agent")
+    cfg = (ca.goodbye_agent_guilds or {}).get(int(guild_id)) or {}
+    cid = _to_int(cfg.get("channel_id"))
+    if cid <= 0:
+        return False, "Atur channel pesan pamit lebih dulu."
+    ca.set_goodbye_config(int(guild_id), cid, enabled=True, arti=nilai == "on")
+    status = "ditampilkan" if nilai == "on" else "disembunyikan"
+    return True, f"Huruf latin & arti kata perpisahan **{status}**."
+
+
+def _set_pamit_bahasa(guild_id: int, nilai: str) -> tuple[bool, str]:
+    ca = _mod("community_agent")
+    cfg = (ca.goodbye_agent_guilds or {}).get(int(guild_id)) or {}
+    cid = _to_int(cfg.get("channel_id"))
+    if cid <= 0:
+        return False, "Atur channel pesan pamit lebih dulu."
+    ca.set_goodbye_config(int(guild_id), cid, enabled=True, hello_language=nilai)
+    contoh = ca.pick_greeting_word(ca.ASIAN_FAREWELLS, language=nilai)
+    return True, f"Bahasa perpisahan diset ke **{nilai}** — contoh: {ca.format_greeting_markdown(contoh)}"
+
+
 def _set_sambutan_persona(guild_id: int, nilai: str) -> tuple[bool, str]:
     ca = _mod("community_agent")
     cfg = (ca.welcome_agent_guilds or {}).get(int(guild_id)) or {}
@@ -779,8 +857,21 @@ FITUR_LIST = [
        _set_sambutan_persona, "community_agent",
        opsi=(("hangat", "🤗 Hangat"), ("lucu", "😄 Lucu"), ("santai", "😎 Santai"),
              ("normal", "🙂 Normal"))),
+    _f("sambutan.bahasa", "Bahasa sapaan sambutan", "pilihan",
+       _baca_sambutan("hello_language", "auto"), _set_sambutan_bahasa, "community_agent",
+       opsi=_daftar_bahasa("ASIAN_GREETINGS"),
+       bantuan="Kata sapaan pembuka memakai bahasa ini; sisa kalimat tetap Bahasa Indonesia."),
+    _f("sambutan.arti", "Latin & arti sapaan sambutan", "saklar", _baca_sambutan_arti,
+       _set_sambutan_arti, "community_agent",
+       bantuan="Contoh: **\"မင်္ဂလာပါ\" (Mingalaba)** — *semoga berkah*"),
     _f("pamit.channel", "Channel pesan pamit", "channel", _baca_pamit(), _set_pamit_channel,
        "community_agent"),
+    _f("pamit.bahasa", "Bahasa kata perpisahan", "pilihan",
+       _baca_pamit_bahasa(), _set_pamit_bahasa, "community_agent",
+       opsi=_daftar_bahasa("ASIAN_FAREWELLS")),
+    _f("pamit.arti", "Latin & arti kata perpisahan", "saklar", _baca_pamit_arti,
+       _set_pamit_arti, "community_agent",
+       bantuan="Contoh: **\"またね\" (Mata ne)** — *sampai nanti*"),
     _f("boost.channel", "Channel ucapan boost", "channel", _baca_boost(), _set_boost_channel,
        "community_agent"),
     # --- Keamanan -----------------------------------------------------------
@@ -890,7 +981,8 @@ GRUP: tuple[dict, ...] = (
         "judul": "👋 Sambutan & pamit",
         "keterangan": "Pilih channel; pilih “— tidak dipakai —” untuk mematikan.",
         "fitur": ("sambutan.channel", "sambutan.dm", "sambutan.kartu", "sambutan.persona",
-                  "pamit.channel", "boost.channel"),
+                  "sambutan.bahasa", "sambutan.arti", "pamit.channel", "pamit.bahasa",
+                  "pamit.arti", "boost.channel"),
     },
     {
         "kunci": "keamanan",

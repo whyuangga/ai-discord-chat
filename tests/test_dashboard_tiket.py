@@ -399,8 +399,8 @@ async def test_http_tiket_daftar_dan_izin(monkeypatch):
             assert resp.status == 200
             assert data["items"][0]["nomor"] == "#0001"
 
-        # Panel tiket tampil di halaman utama
-        async with session.get(f"{base}/?token=tok-tiket&guild={GID}") as resp:
+        # Panel tiket tampil di halaman /tiket
+        async with session.get(f"{base}/tiket?token=tok-tiket&guild={GID}") as resp:
             body = await resp.text()
             assert resp.status == 200
             assert "Kotak masuk tiket" in body and "balas:7001" in body

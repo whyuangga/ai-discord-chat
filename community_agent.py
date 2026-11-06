@@ -209,53 +209,140 @@ GREETING_PERSONAS: dict[str, dict] = {
     },
 }
 
-# Kata sapaan "halo/hai" dari bahasa Asia Timur & Asia Tenggara.
-# HANYA kata sapaan pembuka ini yang memakai bahasa asing — sisa kalimat tetap Bahasa Indonesia.
+# Kata sapaan "halo/hai" dari banyak bahasa — HANYA kata sapaan pembuka ini yang
+# memakai bahasa asing; sisa kalimat tetap Bahasa Indonesia.
+# `word` = aksara asli, `read` = huruf latin (cara baca), `arti` = terjemahan Indonesia.
+# Sapaan pembuka (welcome). 24 bahasa pertama tampil di menu /agent welcome.
 ASIAN_GREETINGS: tuple[dict, ...] = (
-    {"key": "jepang", "lang": "Jepang", "word": "こんにちは", "read": "Konnichiwa"},
-    {"key": "jepang", "lang": "Jepang", "word": "やあ", "read": "Yaa"},
-    {"key": "jepang", "lang": "Jepang", "word": "おっす", "read": "Ossu"},
-    {"key": "korea", "lang": "Korea", "word": "안녕하세요", "read": "Annyeonghaseyo"},
-    {"key": "korea", "lang": "Korea", "word": "안녕", "read": "Annyeong"},
-    {"key": "mandarin", "lang": "Mandarin", "word": "你好", "read": "Nǐ hǎo"},
-    {"key": "mandarin", "lang": "Mandarin", "word": "大家好", "read": "Dàjiā hǎo"},
-    {"key": "mandarin", "lang": "Mandarin", "word": "嗨", "read": "Hāi"},
-    {"key": "kanton", "lang": "Kanton (Hong Kong)", "word": "你好", "read": "Néih hóu"},
-    {"key": "taiwan", "lang": "Hokkien Taiwan", "word": "逐家好", "read": "Ta̍k-ke hó"},
-    {"key": "mongolia", "lang": "Mongolia", "word": "Сайн уу", "read": "Sain uu"},
-    {"key": "tibet", "lang": "Tibet", "word": "བཀྲ་ཤིས་བདེ་ལེགས", "read": "Tashi delek"},
-    {"key": "thailand", "lang": "Thailand", "word": "สวัสดี", "read": "Sawasdee"},
-    {"key": "thailand", "lang": "Thailand", "word": "หวัดดี", "read": "Watdee"},
-    {"key": "vietnam", "lang": "Vietnam", "word": "Xin chào", "read": "Sin chao"},
-    {"key": "vietnam", "lang": "Vietnam", "word": "Chào bạn", "read": "Chao ban"},
-    {"key": "filipina", "lang": "Filipina", "word": "Kumusta", "read": "Kumusta"},
-    {"key": "filipina", "lang": "Filipina", "word": "Mabuhay", "read": "Mabuhay"},
-    {"key": "melayu", "lang": "Melayu", "word": "Apa khabar", "read": "Apa khabar"},
-    {"key": "melayu", "lang": "Melayu", "word": "Hai semua", "read": "Hai semua"},
-    {"key": "myanmar", "lang": "Myanmar", "word": "မင်္ဂလာပါ", "read": "Mingalaba"},
-    {"key": "kamboja", "lang": "Kamboja", "word": "សួស្តី", "read": "Suostei"},
-    {"key": "laos", "lang": "Laos", "word": "ສະບາຍດີ", "read": "Sabaidee"},
-    {"key": "timorleste", "lang": "Timor Leste", "word": "Ola", "read": "Ola"},
-    {"key": "indonesia", "lang": "Indonesia", "word": "Halo", "read": "Halo"},
-    {"key": "indonesia", "lang": "Indonesia", "word": "Hai", "read": "Hai"},
+    {"key": "jepang", "lang": "Jepang", "word": "こんにちは", "read": "Konnichiwa", "arti": "selamat siang, halo"},
+    {"key": "jepang", "lang": "Jepang", "word": "やあ", "read": "Yaa", "arti": "hai"},
+    {"key": "jepang", "lang": "Jepang", "word": "おっす", "read": "Ossu", "arti": "hai (santai)"},
+    {"key": "korea", "lang": "Korea", "word": "안녕하세요", "read": "Annyeonghaseyo", "arti": "apa kabar, halo"},
+    {"key": "korea", "lang": "Korea", "word": "안녕", "read": "Annyeong", "arti": "hai"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "你好", "read": "Nǐ hǎo", "arti": "halo"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "大家好", "read": "Dàjiā hǎo", "arti": "halo semua"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "嗨", "read": "Hāi", "arti": "hai"},
+    {"key": "kanton", "lang": "Kanton (Hong Kong)", "word": "你好", "read": "Néih hóu", "arti": "halo"},
+    {"key": "taiwan", "lang": "Hokkien Taiwan", "word": "逐家好", "read": "Ta̍k-ke hó", "arti": "halo semua"},
+    {"key": "mongolia", "lang": "Mongolia", "word": "Сайн уу", "read": "Sain uu", "arti": "apa kabar"},
+    {"key": "tibet", "lang": "Tibet", "word": "བཀྲ་ཤིས་བདེ་ལེགས", "read": "Tashi delek", "arti": "semoga sejahtera"},
+    {"key": "thailand", "lang": "Thailand", "word": "สวัสดี", "read": "Sawasdee", "arti": "halo"},
+    {"key": "thailand", "lang": "Thailand", "word": "หวัดดี", "read": "Watdee", "arti": "hai (santai)"},
+    {"key": "vietnam", "lang": "Vietnam", "word": "Xin chào", "read": "Sin chao", "arti": "halo"},
+    {"key": "vietnam", "lang": "Vietnam", "word": "Chào bạn", "read": "Chao ban", "arti": "hai, kawan"},
+    {"key": "filipina", "lang": "Filipina", "word": "Kumusta", "read": "Kumusta", "arti": "apa kabar"},
+    {"key": "filipina", "lang": "Filipina", "word": "Mabuhay", "read": "Mabuhay", "arti": "panjang umur"},
+    {"key": "melayu", "lang": "Melayu", "word": "Apa khabar", "read": "Apa khabar", "arti": "apa kabar"},
+    {"key": "melayu", "lang": "Melayu", "word": "Hai semua", "read": "Hai semua", "arti": "hai semua"},
+    {"key": "myanmar", "lang": "Myanmar", "word": "မင်္ဂလာပါ", "read": "Mingalaba", "arti": "semoga berkah"},
+    {"key": "kamboja", "lang": "Kamboja", "word": "សួស្តី", "read": "Suostei", "arti": "halo"},
+    {"key": "laos", "lang": "Laos", "word": "ສະບາຍດີ", "read": "Sabaidee", "arti": "halo"},
+    {"key": "timorleste", "lang": "Timor Leste", "word": "Ola", "read": "Ola", "arti": "halo"},
+    {"key": "indonesia", "lang": "Indonesia", "word": "Halo", "read": "Halo", "arti": "halo"},
+    {"key": "indonesia", "lang": "Indonesia", "word": "Hai", "read": "Hai", "arti": "hai"},
+    {"key": "arab", "lang": "Arab", "word": "مرحبا", "read": "Marhaban", "arti": "selamat datang"},
+    {"key": "arab", "lang": "Arab", "word": "السلام عليكم", "read": "Assalamu'alaikum", "arti": "semoga keselamatan menyertaimu"},
+    {"key": "persia", "lang": "Persia", "word": "سلام", "read": "Salaam", "arti": "damai, halo"},
+    {"key": "turki", "lang": "Turki", "word": "Merhaba", "read": "Merhaba", "arti": "halo"},
+    {"key": "rusia", "lang": "Rusia", "word": "Привет", "read": "Privet", "arti": "hai"},
+    {"key": "rusia", "lang": "Rusia", "word": "Здравствуйте", "read": "Zdravstvuyte", "arti": "halo (formal)"},
+    {"key": "spanyol", "lang": "Spanyol", "word": "Hola", "read": "Hola", "arti": "halo"},
+    {"key": "prancis", "lang": "Prancis", "word": "Bonjour", "read": "Bonjour", "arti": "selamat siang"},
+    {"key": "jerman", "lang": "Jerman", "word": "Hallo", "read": "Hallo", "arti": "halo"},
+    {"key": "italia", "lang": "Italia", "word": "Ciao", "read": "Ciao", "arti": "hai"},
+    {"key": "portugis", "lang": "Portugis", "word": "Olá", "read": "Ola", "arti": "halo"},
+    {"key": "belanda", "lang": "Belanda", "word": "Goedendag", "read": "Khudendakh", "arti": "selamat siang"},
+    {"key": "polandia", "lang": "Polandia", "word": "Cześć", "read": "Czesc", "arti": "hai"},
+    {"key": "ceko", "lang": "Ceko", "word": "Ahoj", "read": "Ahoj", "arti": "hai"},
+    {"key": "hongaria", "lang": "Hongaria", "word": "Szia", "read": "Sia", "arti": "hai"},
+    {"key": "finlandia", "lang": "Finlandia", "word": "Hei", "read": "Hei", "arti": "hai"},
+    {"key": "swedia", "lang": "Swedia", "word": "Hej", "read": "Hey", "arti": "hai"},
+    {"key": "norwegia", "lang": "Norwegia", "word": "Hei", "read": "Hai", "arti": "hai"},
+    {"key": "denmark", "lang": "Denmark", "word": "Hej", "read": "Hai", "arti": "hai"},
+    {"key": "islandia", "lang": "Islandia", "word": "Halló", "read": "Hallo", "arti": "halo"},
+    {"key": "rumania", "lang": "Rumania", "word": "Salut", "read": "Salut", "arti": "hai"},
+    {"key": "bulgaria", "lang": "Bulgaria", "word": "Здравей", "read": "Zdravey", "arti": "halo"},
+    {"key": "serbia", "lang": "Serbia", "word": "Здраво", "read": "Zdravo", "arti": "halo"},
+    {"key": "ukraina", "lang": "Ukraina", "word": "Привіт", "read": "Pryvit", "arti": "hai"},
+    {"key": "yunani", "lang": "Yunani", "word": "Γεια σου", "read": "Yia sou", "arti": "halo"},
+    {"key": "ibrani", "lang": "Ibrani", "word": "שלום", "read": "Shalom", "arti": "damai"},
+    {"key": "georgia", "lang": "Georgia", "word": "გამარჯობა", "read": "Gamarjoba", "arti": "halo (harfiah: menanglah)"},
+    {"key": "armenia", "lang": "Armenia", "word": "Բարև", "read": "Barev", "arti": "halo"},
+    {"key": "amharik", "lang": "Amharik", "word": "ሰላም", "read": "Selam", "arti": "damai"},
+    {"key": "swahili", "lang": "Swahili", "word": "Habari", "read": "Habari", "arti": "apa kabar"},
+    {"key": "zulu", "lang": "Zulu", "word": "Sawubona", "read": "Sawubona", "arti": "aku melihatmu (salam hormat)"},
+    {"key": "hawaii", "lang": "Hawaii", "word": "Aloha", "read": "Aloha", "arti": "kasih sayang"},
+    {"key": "maori", "lang": "Maori", "word": "Kia ora", "read": "Kia ora", "arti": "semoga sehat"},
+    {"key": "hindi", "lang": "Hindi", "word": "नमस्ते", "read": "Namaste", "arti": "salam hormat"},
+    {"key": "tamil", "lang": "Tamil", "word": "வணக்கம்", "read": "Vanakkam", "arti": "salam hormat"},
+    {"key": "bengali", "lang": "Bengali", "word": "নমস্কার", "read": "Nomoskar", "arti": "salam hormat"},
+    {"key": "sinhala", "lang": "Sinhala", "word": "ආයුබෝවන්", "read": "Ayubowan", "arti": "semoga panjang umur"},
+    {"key": "nepal", "lang": "Nepal", "word": "नमस्ते", "read": "Namaste", "arti": "salam hormat"},
 )
 
-# Kata perpisahan versi Asia Timur & Asia Tenggara untuk fitur Goodbye.
+# Kata perpisahan (goodbye) dengan huruf latin + terjemahannya.
 ASIAN_FAREWELLS: tuple[dict, ...] = (
-    {"key": "jepang", "lang": "Jepang", "word": "またね", "read": "Mata ne"},
-    {"key": "jepang", "lang": "Jepang", "word": "さようなら", "read": "Sayounara"},
-    {"key": "korea", "lang": "Korea", "word": "안녕히 가세요", "read": "Annyeonghi gaseyo"},
-    {"key": "mandarin", "lang": "Mandarin", "word": "再见", "read": "Zàijiàn"},
-    {"key": "kanton", "lang": "Kanton (Hong Kong)", "word": "再見", "read": "Zoi gin"},
-    {"key": "thailand", "lang": "Thailand", "word": "ลาก่อน", "read": "Lakorn"},
-    {"key": "vietnam", "lang": "Vietnam", "word": "Tạm biệt", "read": "Tam biet"},
-    {"key": "filipina", "lang": "Filipina", "word": "Paalam", "read": "Paalam"},
-    {"key": "melayu", "lang": "Melayu", "word": "Selamat jalan", "read": "Selamat jalan"},
-    {"key": "myanmar", "lang": "Myanmar", "word": "နှုတ်ဆက်ပါတယ်", "read": "Hnuthsaetpatal"},
-    {"key": "kamboja", "lang": "Kamboja", "word": "លាហើយ", "read": "Lea haey"},
-    {"key": "laos", "lang": "Laos", "word": "ລາກ່ອນ", "read": "Laa kon"},
-    {"key": "timorleste", "lang": "Timor Leste", "word": "Adeus", "read": "Adeus"},
-    {"key": "indonesia", "lang": "Indonesia", "word": "Sampai jumpa", "read": "Sampai jumpa"},
+    {"key": "jepang", "lang": "Jepang", "word": "またね", "read": "Mata ne", "arti": "sampai nanti"},
+    {"key": "jepang", "lang": "Jepang", "word": "さようなら", "read": "Sayounara", "arti": "selamat tinggal"},
+    {"key": "jepang", "lang": "Jepang", "word": "じゃあね", "read": "Jaa ne", "arti": "daah"},
+    {"key": "korea", "lang": "Korea", "word": "안녕히 가세요", "read": "Annyeonghi gaseyo", "arti": "selamat jalan"},
+    {"key": "korea", "lang": "Korea", "word": "잘 가", "read": "Jal ga", "arti": "selamat jalan (santai)"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "再见", "read": "Zàijiàn", "arti": "sampai jumpa"},
+    {"key": "mandarin", "lang": "Mandarin", "word": "拜拜", "read": "Bàibài", "arti": "bye"},
+    {"key": "kanton", "lang": "Kanton (Hong Kong)", "word": "再見", "read": "Zoi gin", "arti": "sampai jumpa"},
+    {"key": "thailand", "lang": "Thailand", "word": "ลาก่อน", "read": "Lakorn", "arti": "selamat jalan"},
+    {"key": "thailand", "lang": "Thailand", "word": "บาย", "read": "Baai", "arti": "bye"},
+    {"key": "vietnam", "lang": "Vietnam", "word": "Tạm biệt", "read": "Tam biet", "arti": "sampai jumpa"},
+    {"key": "filipina", "lang": "Filipina", "word": "Paalam", "read": "Paalam", "arti": "selamat tinggal"},
+    {"key": "melayu", "lang": "Melayu", "word": "Selamat jalan", "read": "Selamat jalan", "arti": "selamat jalan"},
+    {"key": "myanmar", "lang": "Myanmar", "word": "နှုတ်ဆက်ပါတယ်", "read": "Hnuthsaetpatal", "arti": "saya pamit"},
+    {"key": "kamboja", "lang": "Kamboja", "word": "លាហើយ", "read": "Lea haey", "arti": "sampai jumpa"},
+    {"key": "laos", "lang": "Laos", "word": "ລາກ່ອນ", "read": "Laa kon", "arti": "sampai jumpa"},
+    {"key": "timorleste", "lang": "Timor Leste", "word": "Adeus", "read": "Adeus", "arti": "selamat jalan"},
+    {"key": "indonesia", "lang": "Indonesia", "word": "Sampai jumpa", "read": "Sampai jumpa", "arti": "sampai jumpa"},
+    {"key": "arab", "lang": "Arab", "word": "مع السلامة", "read": "Ma'a as-salama", "arti": "semoga keselamatan menyertaimu"},
+    {"key": "arab", "lang": "Arab", "word": "وداعا", "read": "Wada'an", "arti": "selamat tinggal"},
+    {"key": "persia", "lang": "Persia", "word": "خداحافظ", "read": "Khodahafez", "arti": "Tuhan menjagamu"},
+    {"key": "turki", "lang": "Turki", "word": "Hoşça kal", "read": "Hosca kal", "arti": "selamat tinggal"},
+    {"key": "turki", "lang": "Turki", "word": "Görüşürüz", "read": "Gorusuruz", "arti": "sampai jumpa"},
+    {"key": "rusia", "lang": "Rusia", "word": "До свидания", "read": "Do svidaniya", "arti": "sampai jumpa"},
+    {"key": "rusia", "lang": "Rusia", "word": "Пока", "read": "Poka", "arti": "bye"},
+    {"key": "spanyol", "lang": "Spanyol", "word": "Adiós", "read": "Adios", "arti": "selamat tinggal"},
+    {"key": "spanyol", "lang": "Spanyol", "word": "Hasta luego", "read": "Hasta luego", "arti": "sampai nanti"},
+    {"key": "prancis", "lang": "Prancis", "word": "Au revoir", "read": "O revoir", "arti": "sampai jumpa"},
+    {"key": "prancis", "lang": "Prancis", "word": "À bientôt", "read": "A biento", "arti": "sampai segera"},
+    {"key": "italia", "lang": "Italia", "word": "Arrivederci", "read": "Arrivederci", "arti": "sampai jumpa"},
+    {"key": "italia", "lang": "Italia", "word": "Ciao", "read": "Ciao", "arti": "bye"},
+    {"key": "jerman", "lang": "Jerman", "word": "Auf Wiedersehen", "read": "Auf viderseen", "arti": "sampai jumpa"},
+    {"key": "jerman", "lang": "Jerman", "word": "Tschüss", "read": "Chus", "arti": "bye"},
+    {"key": "portugis", "lang": "Portugis", "word": "Adeus", "read": "Adeus", "arti": "selamat tinggal"},
+    {"key": "belanda", "lang": "Belanda", "word": "Tot ziens", "read": "Tot zins", "arti": "sampai jumpa"},
+    {"key": "polandia", "lang": "Polandia", "word": "Do widzenia", "read": "Do vidzenya", "arti": "sampai jumpa"},
+    {"key": "ceko", "lang": "Ceko", "word": "Na shledanou", "read": "Na skhedanou", "arti": "sampai jumpa"},
+    {"key": "hongaria", "lang": "Hongaria", "word": "Viszlát", "read": "Viszlat", "arti": "sampai jumpa"},
+    {"key": "finlandia", "lang": "Finlandia", "word": "Näkemiin", "read": "Nakemiin", "arti": "sampai jumpa"},
+    {"key": "swedia", "lang": "Swedia", "word": "Hej då", "read": "Hey do", "arti": "daah"},
+    {"key": "norwegia", "lang": "Norwegia", "word": "Ha det", "read": "Ha de", "arti": "daah"},
+    {"key": "denmark", "lang": "Denmark", "word": "Farvel", "read": "Farvel", "arti": "selamat tinggal"},
+    {"key": "islandia", "lang": "Islandia", "word": "Bless", "read": "Bless", "arti": "daah"},
+    {"key": "rumania", "lang": "Rumania", "word": "La revedere", "read": "La revedere", "arti": "sampai jumpa"},
+    {"key": "bulgaria", "lang": "Bulgaria", "word": "Довиждане", "read": "Dovizhdane", "arti": "sampai jumpa"},
+    {"key": "serbia", "lang": "Serbia", "word": "Довиђења", "read": "Dovidjenja", "arti": "sampai jumpa"},
+    {"key": "ukraina", "lang": "Ukraina", "word": "До побачення", "read": "Do pobachennya", "arti": "sampai jumpa"},
+    {"key": "yunani", "lang": "Yunani", "word": "Αντίο", "read": "Antio", "arti": "selamat tinggal"},
+    {"key": "ibrani", "lang": "Ibrani", "word": "להתראות", "read": "Lehitraot", "arti": "sampai jumpa"},
+    {"key": "georgia", "lang": "Georgia", "word": "ნახვამდის", "read": "Nakhvamdis", "arti": "sampai jumpa"},
+    {"key": "armenia", "lang": "Armenia", "word": "Ցտեսություն", "read": "Tstesutyun", "arti": "sampai jumpa"},
+    {"key": "amharik", "lang": "Amharik", "word": "ደህና ሁን", "read": "Dehna hun", "arti": "selamat tinggal"},
+    {"key": "swahili", "lang": "Swahili", "word": "Kwaheri", "read": "Kwaheri", "arti": "selamat tinggal"},
+    {"key": "zulu", "lang": "Zulu", "word": "Sala kahle", "read": "Sala kahle", "arti": "tinggallah dengan baik"},
+    {"key": "hawaii", "lang": "Hawaii", "word": "A hui hou", "read": "A hui hou", "arti": "sampai jumpa lagi"},
+    {"key": "maori", "lang": "Maori", "word": "Ka kite anō", "read": "Ka kite ano", "arti": "sampai jumpa"},
+    {"key": "hindi", "lang": "Hindi", "word": "अलविदा", "read": "Alvida", "arti": "selamat tinggal"},
+    {"key": "hindi", "lang": "Hindi", "word": "फिर मिलेंगे", "read": "Phir milenge", "arti": "sampai jumpa lagi"},
+    {"key": "tamil", "lang": "Tamil", "word": "நல்வாழ்த்துக்கள்", "read": "Nalvazhthukkal", "arti": "doa terbaik untukmu"},
+    {"key": "sinhala", "lang": "Sinhala", "word": "සුබ ගමන්", "read": "Suba gaman", "arti": "selamat jalan"},
+    {"key": "nepal", "lang": "Nepal", "word": "फेरि भेटौंला", "read": "Pheri bhetaunla", "arti": "sampai jumpa lagi"},
 )
 
 
@@ -280,12 +367,51 @@ def pick_greeting_word(
     return random.choice(fresh or candidates)
 
 
-def format_greeting_word(item: dict) -> str:
-    """Format tampilan kata sapaan asing, misal: `こんにちは` (Konnichiwa — Jepang)."""
+def _butuh_huruf_latin(item: dict) -> str:
+    """Huruf latin untuk sebuah kata — kosong bila tulisannya memang sudah latin."""
+    word = str(item.get("word") or "").strip()
     read = str(item.get("read") or "").strip()
+    if not read or read.lower() == word.lower():
+        return ""
+    return read
+
+
+def format_greeting_word(item: dict, *, dengan_arti: bool = True) -> str:
+    """Format untuk prompt/panel admin, mis.:
+
+    `"မင်္ဂလာပါ" (Mingalaba) — artinya "semoga berkah" · bahasa Myanmar`.
+    """
+    word = str(item.get("word") or "").strip()
+    read = _butuh_huruf_latin(item)
+    arti = str(item.get("arti") or "").strip()
     lang = str(item.get("lang") or "").strip()
-    detail = " — ".join(part for part in (read, lang) if part)
-    return f"`{item['word']}`" + (f" ({detail})" if detail else "")
+    bagian = [f'"{word}"']
+    if read:
+        bagian.append(f"({read})")
+    teks = " ".join(bagian)
+    if dengan_arti and arti:
+        teks += f' — artinya "{arti}"'
+    if lang:
+        teks += f" · bahasa {lang}"
+    return teks
+
+
+def format_greeting_markdown(item: dict, *, dengan_arti: bool = True) -> str:
+    """Bentuk siap kirim ke Discord: aksara asli + huruf latin + terjemahan.
+
+    Contoh: **"မင်္ဂလာပါ" (Mingalaba)** — *semoga berkah*
+    """
+    word = str(item.get("word") or "").strip()
+    if not word:
+        return ""
+    read = _butuh_huruf_latin(item)
+    arti = str(item.get("arti") or "").strip()
+    teks = f'**"{word}"**'
+    if read:
+        teks += f" ({read})"
+    if dengan_arti and arti:
+        teks += f" — *{arti}*"
+    return teks
 
 
 GALLERY_REACTIONS = ("✨", "🔥", "😍", "👏", "🙌")
@@ -758,6 +884,7 @@ def set_welcome_config(
     extra_note: str | None = None,
     persona: str | None = None,
     hello_language: str | None = None,
+    arti: bool | None = None,
 ) -> dict | None:
     """Mengatur atau menonaktifkan fitur AI Auto-Welcomer untuk member baru di suatu server.
 
@@ -793,6 +920,7 @@ def set_welcome_config(
         "extra_note": note,
         "persona": chosen_persona,
         "hello_language": chosen_lang,
+        "arti": bool(existing.get("arti", True)) if arti is None else bool(arti),
         "card_mode": str(existing.get("card_mode") or "mati"),
         "dm": bool(existing.get("dm", False)),
         "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
@@ -861,6 +989,7 @@ def set_goodbye_config(
     extra_note: str | None = None,
     persona: str | None = None,
     hello_language: str | None = None,
+    arti: bool | None = None,
 ) -> dict | None:
     """Mengatur fitur AI Auto-Goodbye (pamitan member yang keluar) di suatu server."""
     if not enabled:
@@ -890,6 +1019,7 @@ def set_goodbye_config(
         "extra_note": note,
         "persona": chosen_persona,
         "hello_language": chosen_lang,
+        "arti": bool(existing.get("arti", True)) if arti is None else bool(arti),
         "recent_goodbyes": list(existing.get("recent_goodbyes") or [])[-5:],
         "recent_farewells": list(existing.get("recent_farewells") or [])[-8:],
     }
@@ -2179,7 +2309,8 @@ async def generate_welcome_greeting(
         f"(Instruksi situasi: Member baru bernama '{member_display_name}'{count_info} baru saja bergabung{server_label} "
         f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
         f"Persona sambutan: {persona['label']}\n"
-        f"KATA SAPAAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan): {format_greeting_word(hello)}\n"
+        f"KATA SAPAAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan, "
+        f"jangan tambahkan huruf latin atau artinya): {format_greeting_word(hello, dengan_arti=False)}\n"
         f"Gaya sambutan kali ini: {angle}\n"
         f"Sertakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention. "
         "Tulis 1–2 kalimat pendek yang ramah dan mengundang dia ikut ngobrol, sisanya tetap Bahasa Indonesia!)"
@@ -2200,7 +2331,9 @@ async def generate_welcome_greeting(
     )
 
     if reply:
-        reply = _finalize_greeting_text(reply, hello, member_mention)
+        reply = _finalize_greeting_text(
+            reply, hello, member_mention, dengan_arti=bool(w_cfg.get("arti", True))
+        )
         recent_welcomes.append(reply)
         w_cfg["recent_welcomes"] = recent_welcomes[-5:]
         w_cfg["recent_hellos"] = (recent_hellos + [hello["word"]])[-8:]
@@ -2212,19 +2345,39 @@ async def generate_welcome_greeting(
     return reply
 
 
-def _finalize_greeting_text(reply: str, word_item: dict, member_mention: str) -> str:
-    """Merapikan balasan AI: pastikan kata sapaan asing ada di awal & mention tetap muncul."""
+def _finalize_greeting_text(
+    reply: str,
+    word_item: dict,
+    member_mention: str,
+    *,
+    dengan_arti: bool = True,
+) -> str:
+    """Merapikan balasan AI: sapaan asing + huruf latin + arti di awal, mention tetap ada.
+
+    AI hanya diminta menulis aksara aslinya; huruf latin & terjemahan ditempel oleh
+    kode supaya konsisten, mis.:
+
+    **"မင်္ဂလာပါ" (Mingalaba)** — *semoga berkah* @bintang, selamat datang di sini!
+    """
     text = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply or "").strip().strip('"').strip()
     word = str(word_item.get("word") or "").strip()
-    if word and not text.startswith(word):
-        text = f"{word} {text}"
+    hiasan = format_greeting_markdown(word_item, dengan_arti=dengan_arti)
+
+    # Buang kata asing (atau versi berhias) di awal supaya tidak dobel.
+    if word:
+        for pembuka in (hiasan, f'**"{word}"**', f'"{word}"', word):
+            if pembuka and text.startswith(pembuka):
+                text = text[len(pembuka):].lstrip(" ,.:;!—-")
+                break
+    if hiasan:
+        text = f"{hiasan} {text}".strip()
+    elif word:
+        text = f"{word} {text}".strip()
+
     if member_mention and member_mention not in text:
-        if word and text.startswith(word):
-            rest = text[len(word):].lstrip(" ,.:;!-")
-            text = f"{word} {member_mention}, {rest}" if rest else f"{word} {member_mention}"
-        else:
-            text = f"{member_mention} {text}"
-    return text.strip()[:900]
+        sisa = text[len(hiasan):].lstrip(" ,.:;!—-") if hiasan else text
+        text = f"{hiasan} {member_mention}, {sisa}" if sisa else f"{hiasan} {member_mention}"
+    return re.sub(r"[ \t]{2,}", " ", text).strip()[:900]
 
 
 async def generate_goodbye_message(
@@ -2288,7 +2441,8 @@ async def generate_goodbye_message(
         f"(Instruksi situasi: Member bernama '{member_display_name}' baru saja keluar{server_label} "
         f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']}.{duration_info}\n"
         f"Persona perpisahan: {persona['label']}\n"
-        f"KATA PERPISAHAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan): {format_greeting_word(farewell)}\n"
+        f"KATA PERPISAHAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan, "
+        f"jangan tambahkan huruf latin atau artinya): {format_greeting_word(farewell, dengan_arti=False)}\n"
         f"Gaya perpisahan kali ini: {angle}\n"
         f"Sertakan tag persis {member_mention} satu kali. Tulis 1–2 kalimat pendek yang hangat, "
         "tulus, dan tetap positif. Sisa kalimat WAJIB Bahasa Indonesia!)"
@@ -2309,7 +2463,9 @@ async def generate_goodbye_message(
     )
 
     if reply:
-        reply = _finalize_greeting_text(reply, farewell, member_mention)
+        reply = _finalize_greeting_text(
+            reply, farewell, member_mention, dengan_arti=bool(g_cfg.get("arti", True))
+        )
         recent_goodbyes.append(reply)
         g_cfg["recent_goodbyes"] = recent_goodbyes[-5:]
         g_cfg["recent_farewells"] = (recent_farewells + [farewell["word"]])[-8:]

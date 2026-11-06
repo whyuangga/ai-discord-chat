@@ -443,6 +443,158 @@ banner per server. Semua berkas diperiksa isinya (bukan hanya ekstensi).</p>
     return unggah + f'<div class="galeri">{kartu}</div>'
 
 
+def render_kartu_block(guild_id: int, token: str) -> str:
+    """Panel unggah kartu sambutan / perpisahan / boost (disimpan di `data/media/`)."""
+    info = dashboard_unggah.kartu_info(guild_id)
+    slot = ""
+    for jenis in dashboard_unggah.JENIS_KARTU:
+        data = info.get(jenis)
+        label = dashboard_unggah.LABEL_KARTU[jenis]
+        if data:
+            url = f"/api/kartu/{jenis}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
+            pratinjau = f'<img src="{url}" alt="{_esc(data["nama"])}" loading="lazy">'
+            keterangan = (
+                f'<div class="muted">{int(data["ukuran_kb"])} KB · {_esc(data["dibuat"])}</div>'
+                f'<code class="kecil">{_esc(data["nama"])}</code>'
+            )
+            hapus = (
+                '<form method="post" action="/api/unggah">'
+                f'{_hidden(guild_id, token, "kartu.hapus:" + jenis)}'
+                '<button type="submit" class="danger">Hapus kartu</button></form>'
+            )
+        else:
+            pratinjau = '<div class="kosong">Belum ada gambar</div>'
+            keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
+            hapus = ""
+        slot += (
+            '<div class="kartu-slot">'
+            f'<h4>{_esc(label.capitalize())}</h4>'
+            f'{pratinjau}{keterangan}'
+            '<form method="post" action="/api/unggah" class="formgrid" '
+            'enctype="multipart/form-data">'
+            f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
+            f'{_medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")}'
+            f'<button type="submit">Unggah kartu {_esc(label)}</button>'
+            "</form>"
+            f"{hapus}"
+            "</div>"
+        )
+
+    mode = "statis"
+    try:
+        import community_agent
+
+        mode = str(
+            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
+            .get("card_mode")
+            or "mati"
+        )
+    except Exception:  # pragma: no cover - jaring aman
+        mode = "statis"
+    opsi = "".join(
+        f'<option value="{nilai}"{" selected" if nilai == mode else ""}>{teks}</option>'
+        for nilai, teks in (("mati", "💬 Teks saja"), ("statis", "🖼️ Kartu statis"),
+                            ("dinamis", "✨ Kartu dinamis"))
+    )
+    pengaturan = (
+        '<form method="post" action="/api/aksi" class="kontrol">'
+        f'{_hidden(guild_id, token, "set.sambutan.kartu")}'
+        '<label for="mode-kartu">Tampilan kartu sambutan</label>'
+        f'<select name="value" id="mode-kartu">{opsi}</select>'
+        '<button type="submit">Simpan mode</button></form>'
+        '<p class="muted">Kartu <b>perpisahan</b> &amp; <b>boost</b> otomatis dipakai bila '
+        "gambarnya ada. Ukuran ideal 1024×420 px, maksimal "
+        f"{dashboard_unggah.batas_mb()} MB.</p>"
+    )
+    return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}'
+
+
+def render_uji_block(bot, guild_id: int, token: str) -> str:
+    """Panel tombol tes fitur — dikelompokkan per jenis fitur."""
+    import dashboard_uji
+
+    status = dashboard_uji.status_uji(guild_id)
+    kanal = getattr(bot, "guilds", None) or []
+    guild = bot.get_guild(int(guild_id or 0)) if callable(getattr(bot, "get_guild", None)) else None
+    channel_opsi = ""
+    for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
+        channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
+    if not channel_opsi:
+        channel_opsi = '<option value="0">(belum ada channel)</option>'
+    _ = kanal
+
+    grup_terlihat: list[str] = []
+    baris_per_grup: dict[str, str] = {}
+    for item in dashboard_uji.UJI:
+        keadaan = status.get(item["kunci"]) or {}
+        grup = keadaan.get("grup") or "Lainnya"
+        aktif = bool(keadaan.get("aktif"))
+        channel_id = int(keadaan.get("channel_id") or 0)
+        if aktif and channel_id:
+            getter = getattr(bot, "get_channel", None)
+            ch = getter(channel_id) if callable(getter) else None
+            nama_channel = f"<code>#{_esc(getattr(ch, 'name', ''))}</code>" if ch else f"<code>#{channel_id}</code>"
+            lencana = f"✅ aktif → {nama_channel}"
+        elif aktif:
+            lencana = "✅ siap diuji"
+        else:
+            lencana = "⬜ belum aktif"
+
+        kolom = keadaan.get("kolom") or ""
+        if aktif:
+            masukan = ""
+            if kolom == "member":
+                masukan = ('<input type="text" name="opsi" inputmode="numeric" '
+                           'placeholder="ID member (opsional)">')
+            elif kolom in ("id", "ref"):
+                pilihan = keadaan.get("pilihan") or []
+                if pilihan:
+                    masukan = '<select name="opsi">' + "".join(
+                        f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
+                    ) + "</select>"
+                else:
+                    masukan = ('<input type="text" name="opsi" inputmode="numeric" '
+                               'placeholder="Kosongkan = pilih otomatis">')
+            elif kolom == "channel":
+                masukan = f'<select name="opsi">{channel_opsi}</select>'
+            tombol = (
+                '<form method="post" action="/api/uji">'
+                f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
+                f'{masukan}<button type="submit">Kirim tes</button></form>'
+            )
+        else:
+            tombol = (
+                '<a class="tombol-unduh" href="/setelan?token='
+                f'{_esc(token)}&amp;guild={int(guild_id or 0)}#p-setelan">Atur di Setelan</a>'
+            )
+
+        if grup not in baris_per_grup:
+            baris_per_grup[grup] = ""
+            grup_terlihat.append(grup)
+        baris_per_grup[grup] += (
+            '<div class="uji-baris">'
+            '<div>'
+            f'<b>{item["emoji"]} {_esc(item["label"])}</b> '
+            f'<span class="muted">{lencana}</span>'
+            f'<div class="muted">{_esc(item["contoh"])}</div>'
+            "</div>"
+            f"{tombol}"
+            "</div>"
+        )
+
+    isi = "".join(
+        f'<div class="subpanel"><h3>{_esc(grup)}</h3>{baris_per_grup[grup]}</div>'
+        for grup in grup_terlihat
+    )
+    catatan = (
+        '<p class="muted">Sambutan, perpisahan, boost, koran pagi, dan koneksi AI memakai '
+        "<b>1 panggilan AI</b> per tes. Tes sambutan/perpisahan/boost mengirim pesan "
+        "sungguhan ke channel tujuan — member lain akan melihatnya. Sisi kanan memilih "
+        "subjek: ID member, pengumuman/panel tersimpan, atau channel.</p>"
+    )
+    return isi + catatan
+
+
 def render_konten_block(guild_id: int, konten: dict, token: str) -> str:
     """Daftar pengumuman/tautan/panel/formulir/webhook + tombol hapus."""
     return "".join(
@@ -470,8 +622,11 @@ def daftar_server(bot) -> list[tuple[str, str]]:
     return sorted(daftar, key=lambda item: item[1].lower())
 
 
-def render_guild_picker(bot, guild_id: int, token: str) -> str:
-    """Dropdown pilih server (form GET biasa, tanpa JavaScript)."""
+def render_guild_picker(bot, guild_id: int, token: str, halaman: str = "") -> str:
+    """Dropdown pilih server (form GET biasa, tanpa JavaScript).
+
+    `halaman` membuat pemilihan server tetap berada di halaman yang sedang dibuka.
+    """
     daftar = daftar_server(bot)
     if not daftar:
         return '<div class="muted">Bot belum berada di server mana pun.</div>'
@@ -483,7 +638,7 @@ def render_guild_picker(bot, guild_id: int, token: str) -> str:
         for gid, nama in daftar
     )
     return (
-        '<form method="get" action="/" class="pemilih-server">'
+        f'<form method="get" action="/{_esc(halaman)}" class="pemilih-server">'
         f'<input type="hidden" name="token" value="{_esc(token)}">'
         '<label for="pilih-server">Server</label>'
         f'<select name="guild" id="pilih-server">{opsi}</select>'

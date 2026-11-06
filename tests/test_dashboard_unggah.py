@@ -334,8 +334,8 @@ async def test_http_unggah_pratinjau_dan_kirim(tmp_path, monkeypatch):
             assert kiriman["file"].filename == nama
             assert kiriman["embed"].image.url == f"attachment://{nama}"
 
-            # Halaman utama menampilkan galeri banner
-            async with session.get(f"{base}/?token=token-up&guild=1234") as resp:
+            # Halaman /kirim menampilkan galeri banner
+            async with session.get(f"{base}/kirim?token=token-up&guild=1234") as resp:
                 body = await resp.text()
                 assert "Banner &amp; gambar" in body
                 assert nama in body

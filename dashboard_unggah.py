@@ -264,8 +264,11 @@ def siapkan(guild_id: int, medan=None, tersimpan: str = "") -> tuple[object | No
 
 __all__ = [
     "EKSTENSI",
+    "JENIS_KARTU",
+    "LABEL_KARTU",
     "MAX_PER_GUILD",
     "baca",
+    "baca_kartu",
     "batas_byte",
     "batas_mb",
     "berkas_dari_data",
@@ -273,9 +276,120 @@ __all__ = [
     "berkuasa",
     "daftar",
     "hapus",
+    "hapus_kartu",
+    "kartu_info",
     "jumlah",
     "periksa",
     "siapkan",
     "simpan",
+    "simpan_kartu",
     "tipe",
 ]
+
+
+# ==============================================================================
+# KARTU SAMBUTAN / PERPISAHAN / BOOST (disimpan di `data/media/`)
+# ==============================================================================
+# Berbeda dari banner di atas (dipakai untuk panel & embed), kartu di sini adalah
+# **latar kartu sambutan** yang dikirim bot saat member bergabung/keluar — berkas
+# aslinya disimpan `welcome_media` supaya bisa dikirim ulang sebagai lampiran
+# (`attachment://`) tanpa URL kedaluwarsa.
+JENIS_KARTU: tuple[str, ...] = ("welcome", "goodbye", "boost")
+LABEL_KARTU: dict[str, str] = {
+    "welcome": "sambutan",
+    "goodbye": "perpisahan",
+    "boost": "ucapan boost",
+}
+
+
+def normalisasi_kartu(jenis: str) -> str:
+    """Jenis kartu yang sah (`welcome` / `goodbye` / `boost`), '' bila tidak dikenal."""
+    kunci = str(jenis or "").strip().lower()
+    return kunci if kunci in JENIS_KARTU else ""
+
+
+def kartu_info(guild_id: int) -> dict[str, dict | None]:
+    """Ringkasan kartu server: `{jenis: {nama, ukuran_kb, dibuat, tipe} | None}`."""
+    import welcome_media
+
+    hasil: dict[str, dict | None] = {}
+    for jenis in JENIS_KARTU:
+        path = welcome_media.banner_path(int(guild_id or 0), kind=jenis)
+        if path is None:
+            hasil[jenis] = None
+            continue
+        try:
+            info = path.stat()
+        except OSError:  # pragma: no cover - berkas hilang di tengah jalan
+            hasil[jenis] = None
+            continue
+        hasil[jenis] = {
+            "nama": path.name,
+            "ukuran_kb": max(1, round(info.st_size / 1024)),
+            "dibuat": time.strftime("%Y-%m-%d %H:%M", time.localtime(info.st_mtime)),
+            "tipe": _TIPE.get(path.suffix.lower().lstrip("."), "image/png"),
+        }
+    return hasil
+
+
+def simpan_kartu(guild_id: int, medan, jenis: str) -> tuple[bool, str]:
+    """Validasi & simpan kartu sambutan dari unggahan dashboard."""
+    kunci = normalisasi_kartu(jenis)
+    if not kunci:
+        return False, "Jenis kartu tidak dikenal (hanya welcome/goodbye/boost)."
+    if medan is None:
+        return False, "Pilih berkas gambar kartu lebih dulu."
+    try:
+        data = medan.file.read()
+    except Exception:  # pragma: no cover - jarang
+        return False, "Berkas tidak bisa dibaca."
+    ekstensi, galat = periksa(data, getattr(medan, "filename", "") or "")
+    if galat:
+        return False, galat
+    try:
+        import welcome_media
+
+        path = welcome_media.save_banner(
+            int(guild_id or 0), data, f"kartu.{ekstensi}", kind=kunci
+        )
+    except ValueError as exc:
+        return False, str(exc)
+    except Exception as exc:  # pragma: no cover - IO jarang gagal
+        logger.warning("Gagal menyimpan kartu %s: %s", kunci, exc)
+        return False, "Gagal menyimpan kartu di server."
+    return True, (
+        f"Kartu {LABEL_KARTU[kunci]} tersimpan (`{path.name}`, {max(1, round(len(data) / 1024))} KB)."
+    )
+
+
+def hapus_kartu(guild_id: int, jenis: str) -> tuple[bool, str]:
+    """Hapus kartu server (bot kembali mengirim teks/embed biasa)."""
+    kunci = normalisasi_kartu(jenis)
+    if not kunci:
+        return False, "Jenis kartu tidak dikenal."
+    try:
+        import welcome_media
+
+        terhapus = welcome_media.delete_banner(int(guild_id or 0), kind=kunci)
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.warning("Gagal menghapus kartu %s: %s", kunci, exc)
+        return False, "Gagal menghapus kartu."
+    if terhapus:
+        return True, f"Kartu {LABEL_KARTU[kunci]} dihapus."
+    return False, f"Belum ada kartu {LABEL_KARTU[kunci]} yang tersimpan."
+
+
+def baca_kartu(guild_id: int, jenis: str) -> tuple[bytes | None, str]:
+    """Isi berkas kartu untuk pratinjau di dashboard: `(data, tipe)`."""
+    kunci = normalisasi_kartu(jenis)
+    if not kunci:
+        return None, "application/octet-stream"
+    import welcome_media
+
+    path = welcome_media.banner_path(int(guild_id or 0), kind=kunci)
+    if path is None:
+        return None, "application/octet-stream"
+    try:
+        return path.read_bytes(), _TIPE.get(path.suffix.lower().lstrip("."), "image/png")
+    except OSError:  # pragma: no cover
+        return None, "application/octet-stream"

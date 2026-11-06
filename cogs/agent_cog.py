@@ -732,13 +732,14 @@ def _language_choices(pool: tuple[dict, ...]) -> list[app_commands.Choice[str]]:
 
 @agent_group.command(
     name="welcome",
-    description="Atur sambutan member baru: persona khusus + sapaan bahasa Asia yang berganti-ganti",
+    description="Atur sambutan: persona khusus + sapaan bahasa asing (huruf latin & artinya ikut)",
 )
 @app_commands.describe(
     channel="Channel tempat AI menyambut member baru (misal #welcome)",
     aktif="True untuk mengaktifkan, False untuk mematikan",
     persona="Persona KHUSUS sambutan (terpisah dari persona Auto-Chat)",
     bahasa_sapaan="Bahasa kata sapaan pembuka (isi kalimat tetap Bahasa Indonesia)",
+    arti="True untuk menampilkan huruf latin + arti sapaan (mis. \"မင်္ဂလာပါ\" (Mingalaba) — semoga berkah)",
     pesan_tambahan="Info opsional yang diselipkan santai (atau ketik - untuk hapus)",
     tes_sekarang="True untuk langsung mencoba contoh sambutan AI di channel tersebut",
 )
@@ -752,6 +753,7 @@ async def agent_welcome_cmd(
     aktif: bool,
     persona: app_commands.Choice[str] | None = None,
     bahasa_sapaan: app_commands.Choice[str] | None = None,
+    arti: bool | None = None,
     pesan_tambahan: str | None = None,
     tes_sekarang: bool = False,
 ):
@@ -765,6 +767,7 @@ async def agent_welcome_cmd(
         extra_note=pesan_tambahan,
         persona=persona.value if persona else None,
         hello_language=bahasa_sapaan.value if bahasa_sapaan else None,
+        arti=arti,
     )
     await save_agent_config_to_disk()
 
@@ -799,15 +802,16 @@ async def agent_welcome_cmd(
 
     persona_data = GREETING_PERSONAS.get(cfg.get("persona", "hangat"), GREETING_PERSONAS["hangat"])
     lang_key = cfg.get("hello_language", "auto")
-    lang_label = "Acak semua bahasa Asia Timur & Tenggara" if lang_key == "auto" else next(
+    lang_label = "Acak semua bahasa" if lang_key == "auto" else next(
         (item["lang"] for item in ASIAN_GREETINGS if item["key"] == lang_key), lang_key
     )
+    arti_label = "huruf latin + arti Indonesia" if cfg.get("arti", True) else "hanya aksara aslinya"
     extra_info = cfg.get("extra_note") or "(Tidak ada — murni sambutan santai)"
 
     await interaction.followup.send(
         f"👋 **AI Auto-Welcomer aktif di {channel.mention}!**\n"
         f"• **Persona Sambutan:** {persona_data['emoji']} **{persona_data['label']}** *(terpisah dari persona Auto-Chat)*\n"
-        f"• **Bahasa Sapaan:** {lang_label} *(hanya kata 'halo/hai', sisanya Bahasa Indonesia)*\n"
+        f"• **Bahasa Sapaan:** {lang_label} — {arti_label} *(hanya kata pembuka, sisanya Bahasa Indonesia)*\n"
         f"• **Pesan Tambahan:** `{extra_info}`\n"
         f"• **Anti-Bosan:** kalimat & sapaan berganti otomatis tiap member baru."
         f"{test_result_note}{intent_hint}",
@@ -1041,6 +1045,7 @@ async def agent_boost_cmd(
     aktif="True untuk mengaktifkan, False untuk mematikan",
     persona="Persona KHUSUS perpisahan (terpisah dari persona Auto-Chat)",
     bahasa_sapaan="Bahasa kata perpisahan pembuka (isi kalimat tetap Bahasa Indonesia)",
+    arti="True untuk menampilkan huruf latin + arti kata perpisahan",
     pesan_tambahan="Pesan tambahan yang diselipkan (atau ketik - untuk hapus)",
     tes_sekarang="True untuk langsung mencoba contoh perpisahan di channel tersebut",
 )
@@ -1054,6 +1059,7 @@ async def agent_goodbye_cmd(
     aktif: bool,
     persona: app_commands.Choice[str] | None = None,
     bahasa_sapaan: app_commands.Choice[str] | None = None,
+    arti: bool | None = None,
     pesan_tambahan: str | None = None,
     tes_sekarang: bool = False,
 ):
@@ -1067,6 +1073,7 @@ async def agent_goodbye_cmd(
         extra_note=pesan_tambahan,
         persona=persona.value if persona else None,
         hello_language=bahasa_sapaan.value if bahasa_sapaan else None,
+        arti=arti,
     )
     await save_agent_config_to_disk()
 
@@ -1093,15 +1100,16 @@ async def agent_goodbye_cmd(
 
     persona_data = GREETING_PERSONAS.get(cfg.get("persona", "hangat"), GREETING_PERSONAS["hangat"])
     lang_key = cfg.get("hello_language", "auto")
-    lang_label = "Acak semua bahasa Asia Timur & Tenggara" if lang_key == "auto" else next(
+    lang_label = "Acak semua bahasa" if lang_key == "auto" else next(
         (item["lang"] for item in ASIAN_FAREWELLS if item["key"] == lang_key), lang_key
     )
+    arti_label = "huruf latin + arti Indonesia" if cfg.get("arti", True) else "hanya aksara aslinya"
     extra_info = cfg.get("extra_note") or "(Tidak ada)"
 
     await interaction.followup.send(
         f"👋 **AI Auto-Goodbye aktif di {channel.mention}!**\n"
         f"• **Persona Perpisahan:** {persona_data['emoji']} **{persona_data['label']}**\n"
-        f"• **Bahasa Perpisahan:** {lang_label}\n"
+        f"• **Bahasa Perpisahan:** {lang_label} — {arti_label}\n"
         f"• **Pesan Tambahan:** `{extra_info}`\n"
         f"• Setiap member yang keluar akan mendapat kartu perpisahan hangat berisi lama kebersamaan."
         f"{test_note}",
