@@ -28,7 +28,10 @@ def _panel(html: str, anchor: str) -> bool:
 # ==============================================================================
 def test_halaman_sesuai_kelompok_fitur():
     slug = [h["slug"] for h in web_dashboard.HALAMAN]
-    assert slug == ["", "setelan", "kirim", "buat", "uji", "tiket", "panel", "ekspor"]
+    # Satu fitur = satu halaman: unggah kartu & tombol tes ikut di halaman fiturnya.
+    assert slug == ["", "sambutan", "perpisahan", "boost", "setelan", "kirim",
+                    "buat", "panel", "tiket", "ekspor"]
+    assert "uji" not in slug
 
     # Semua panel lama tetap punya halaman — tidak ada yang hilang
     semua = [a for h in web_dashboard.HALAMAN for a in h["panel"]]
@@ -75,6 +78,10 @@ def test_url_halaman_dan_pemetaan_anchor():
     assert web_dashboard.halaman_dari_anchor("p-tiket") == "tiket"
     assert web_dashboard.halaman_dari_anchor("p-banner") == "kirim"
     assert web_dashboard.halaman_dari_anchor("p-riwayat") == "ekspor"
+    assert web_dashboard.halaman_dari_anchor("p-sambutan") == "sambutan"
+    assert web_dashboard.halaman_dari_anchor("p-boost") == "boost"
+    # Bookmark lama tetap nyasar ke tempat yang benar
+    assert web_dashboard.halaman_dari_anchor("p-kartu") == "sambutan"
     assert web_dashboard.halaman_dari_anchor("p-ngawur") == ""
     assert web_dashboard.halaman_dari_path("/setelan") == "setelan"
     assert web_dashboard.halaman_dari_path("/") == ""

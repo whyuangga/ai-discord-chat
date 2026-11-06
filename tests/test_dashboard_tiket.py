@@ -429,8 +429,9 @@ async def test_http_tiket_balas_json_dan_html(monkeypatch):
             data={"token": "tok-tiket", "guild": str(GID), "action": f"balas:{TID}", "teks": ""},
         ) as resp:
             body = await resp.text()
-            # gagal → halaman hasil dengan status 400 (sama seperti jalur form lain)
-            assert resp.status == 400 and "tidak boleh kosong" in body
+            # gagal → kembali ke halaman Tiket dengan kotak ⚠️
+            assert resp.status == 200 and "ok=0" in str(resp.url)
+            assert "tidak boleh kosong" in body and 'class="flash galat"' in body
 
     await _jalankan(monkeypatch, bot, skenario)
 

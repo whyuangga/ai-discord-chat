@@ -15,7 +15,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Enam jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
+| **Endpoint tulis** | Tujuh jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari) & `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian). |
 | **Setelan** | **52 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
@@ -45,8 +45,8 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Setelan server** | **52 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
-| **Kartu sambutan** | **unggah sendiri** gambar kartu **sambutan**, **perpisahan**, & **ucapan boost** (disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa) + pemilih mode kartu |
-| **Tes fitur** | tombol **Kirim tes** untuk sambutan / perpisahan / boost — mengirim satu contoh nyata ke channel tujuan (member tertentu lewat ID, atau akun bot) |
+| **Kartu sambutan** | **unggah sendiri** gambar kartu di **halaman fiturnya** (`/sambutan`, `/perpisahan`, `/boost`) — disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa |
+| **Tes fitur** | tombol **Kirim tes** ada di tiap halaman fitur (sambutan, perpisahan, boost, pengumuman, panel, tiket, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web, plus **pasang panel tiket** |
@@ -70,41 +70,44 @@ Semua warna & font tinggal di satu modul, `dashboard_tema.py` (`LATAR`, `TEKS`,
 `FONT_STACK`, `CSS_HALAMAN`, `CSS_PRATINJAU`, `CSS_HASIL`) — mengganti tema cukup
 mengubah satu berkas itu, tanpa menyentuh `web_dashboard.py` atau `dashboard_ui.py`.
 
-### Tujuh halaman, satu menu (menu ☰ di HP)
+### Satu fitur = satu halaman (menu ☰ di HP)
 
-Dashboard tidak lagi satu halaman gulung panjang — fitur dipecah per halaman, jadi
-membukanya di HP jauh lebih ringan (≈15–18 KB per halaman, halaman setelan ±46 KB
-karena memuat 52 setelan — dibanding ±63 KB sekaligus di versi lama):
+Dashboard tidak lagi satu halaman gulung panjang, dan **tidak ada halaman tes gabungan**:
+tiap fitur punya halamannya sendiri yang memuat **setelan + gambar kartu + tombol tes**
+sekaligus. Jadi tidak perlu berpindah halaman untuk mengatur lalu menguji satu fitur.
 
 | Halaman | Isi | Panel |
 | :--- | :--- | :--- |
-| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level | 6 |
-| `/setelan` | Kontrol cepat + **52 setelan** (5 grup) | 2 |
-| `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan, **kartu sambutan** | 3 |
-| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan | 2 |
-| `/uji` | **Tes fitur** sambutan / perpisahan / boost (kirim contoh nyata) | 1 |
-| `/tiket` | Kotak masuk tiket + pasang panel tiket | 1 |
-| `/panel` | Editor tombol & dropdown + gerbang verifikasi | 1 |
-| `/ekspor` | Ekspor CSV + riwayat perubahan | 2 |
+| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level, **tes koneksi AI** | 7 |
+| `/sambutan` | setelan sambutan (channel, DM, mode kartu, persona, bahasa, latin & arti) + **gambar kartu sambutan** + **tes** | 1 |
+| `/perpisahan` | setelan pesan pamit (channel, bahasa, latin & arti) + **gambar kartu perpisahan** + **tes** | 1 |
+| `/boost` | setelan channel ucapan boost + **gambar kartu boost** + **tes** | 1 |
+| `/setelan` | Kontrol cepat + setelan fitur lain (grup sambutan & pamit sudah pindah) + **tes koran pagi** | 2 |
+| `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan | 2 |
+| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan + **tes pengumuman** | 2 |
+| `/panel` | Editor tombol & dropdown + gerbang verifikasi + **tes panel** | 1 |
+| `/tiket` | Kotak masuk tiket + pasang panel tiket + **tes panel tiket** | 1 |
+| `/ekspor` | Ekspor CSV + riwayat perubahan + **tes ekspor** | 2 |
 
 Aturan mainnya:
 
 | Bagian | Perilaku |
 | :--- | :--- |
-| **Menu halaman** | 📡 Ringkasan · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🧪 Uji · 🎫 Tiket · 🧩 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
+| **Menu halaman** | 📡 Ringkasan · 👋 Sambutan · 👣 Perpisahan · 💎 Boost · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🧩 Panel · 🎫 Tiket · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
 | **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
 | **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
 | **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
-| **Anchor tetap ada** | tiap panel masih punya `id` (`#p-setelan`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/setelan#p-setelan` bisa dipakai sebagai bookmark |
-| **Bookmark lama** | `/?halaman=setelan` dialihkan otomatis (`303`) ke `/setelan`; `/api/*` tidak berubah sama sekali |
+| **Anchor tetap ada** | tiap panel masih punya `id` (`#p-sambutan`, `#p-setelan`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/sambutan#p-sambutan` bisa dipakai sebagai bookmark |
+| **Bookmark lama** | `/?halaman=setelan` → `/setelan`, `/uji` → `/` (keduanya `303`), dan `#p-kartu` diarahkan ke halaman Sambutan; `/api/*` tidak berubah |
 
 ### Setelah menekan Simpan
 
 Form memakai pola **POST → redirect (303) → GET**: setelah menyimpan, kamu kembali ke
 **halaman asal** dan panel yang sama (`/kirim#p-banner`, `/setelan#p-setelan`, …) lalu
 melihat kotak pesan ✅ berisi hasilnya — nilai barunya sudah
-terbaca dari JSON, jadi tidak perlu klik “kembali” atau muat ulang. Kalau gagal, pesan ⚠️
-dan alasannya tampil di halaman hasil dengan tautan kembali ke panel yang sama.
+terbaca dari JSON, jadi tidak perlu klik “kembali” atau muat ulang. Kalau gagal pun kamu
+tetap dikembalikan ke halaman fiturnya (`…?pesan=…&ok=0`) dengan kotak ⚠️ berisi alasannya —
+tidak ada lagi halaman buntu tanpa jalan pulang.
 Endpoint JSON (`Content-Type: application/json`) tetap menerima `200`/`400` + `{"ok": …}`
 tanpa redirect.
 
@@ -116,13 +119,13 @@ tanpa redirect.
 
 ### Kartu sambutan sendiri (unggah dari dashboard)
 
-Halaman **Kirim** punya panel *Kartu sambutan & perpisahan* dengan tiga slot:
+Tiap fitur punya slot unggahnya sendiri — **satu menu unggah, di dalam fiturnya**:
 
-| Slot | Dipakai saat | Berkas |
-| :--- | :--- | :--- |
-| **Sambutan** | member baru bergabung (mode kartu *statis* / *dinamis*) | `data/media/welcome_<id>.png` |
-| **Perpisahan** | member keluar (otomatis bila gambarnya ada) | `data/media/goodbye_<id>.png` |
-| **Boost** | member nge-boost server | `data/media/boost_<id>.png` |
+| Halaman | Slot | Dipakai saat | Berkas |
+| :--- | :--- | :--- | :--- |
+| `/sambutan` | **Sambutan** | member baru bergabung (mode kartu *statis* / *dinamis*) | `data/media/welcome_<id>.png` |
+| `/perpisahan` | **Perpisahan** | member keluar (otomatis bila gambarnya ada) | `data/media/goodbye_<id>.png` |
+| `/boost` | **Boost** | member nge-boost server | `data/media/boost_<id>.png` |
 
 > Contoh gambar siap pakai (1024×420) bisa dibuat sendiri dengan AI image generator —
 > gaya gelap `#0D0D0F` dengan aksen ungu/emas paling menyatu dengan kartu bot.
@@ -131,7 +134,7 @@ Halaman **Kirim** punya panel *Kartu sambutan & perpisahan* dengan tiga slot:
   (file `.exe` yang di-rename tetap ditolak). Gambar ditimpa per jenis, jadi tidak menumpuk.
 - Pratinjau tampil langsung di dashboard (`/api/kartu/<jenis>?token=…`, wajib token).
 - Tombol **Hapus kartu** mengembalikan bot ke tampilan teks/embed biasa.
-- Pemilih **Tampilan kartu sambutan** ada di panel yang sama. Ukuran gambar ideal **1024×420 px**.
+- Pemilih **Tampilan kartu sambutan** ada di halaman `/sambutan` (satu tempat dengan kartunya). Ukuran gambar ideal **1024×420 px**.
 
 ### Bedanya “Kartu statis” dan “Kartu dinamis”
 
@@ -145,35 +148,40 @@ Ringkasnya: **statis = gambar buatanmu dikirim utuh**; **dinamis = gambar buatan
 sebagai latar, lalu bot menambahkan nama & foto profil member**. Keduanya butuh gambar kartu
 yang sudah diunggah — tanpa gambar, bot otomatis memakai mode teks.
 
-### Uji fitur tanpa menunggu event (`/uji`)
+### Uji fitur tanpa menunggu event (tombol di halaman fiturnya)
 
-Halaman **🧪 Uji** punya tombol tes untuk fitur yang punya pemicu sendiri:
+Tidak ada halaman tes gabungan: tombol **Kirim tes** ada di halaman fiturnya masing-masing.
 
-| Fitur | Pilihan subjek | Yang terjadi |
-| :--- | :--- | :--- |
-| 👋 Sambutan member baru | ID member (opsional) | kirim contoh sambutan + sapaan asing ke channel sambutan (`force=True`, dedup dilewati) |
-| 👣 Pesan perpisahan | ID member (opsional) | kirim contoh kartu perpisahan |
-| 💎 Ucapan boost | ID member (opsional) | kirim contoh ucapan boost |
-| ⏰ Pengumuman terjadwal | daftar pengumuman tersimpan | kirim satu pengumuman **sekarang** (jadwal aslinya tidak digeser) |
-| 🧩 Panel menu | daftar panel tersimpan | segarkan panel di Discord supaya tombol/dropdown terbaru tampil |
-| 📰 Koran pagi (digest) | — | buat contoh rubrik pagi; **tidak dikirim** ke channel |
-| 🎫 Panel tiket | channel | pasang ulang panel **Buka Tiket** di channel itu |
-| 🤖 Koneksi AI (Gemini) | — | satu panggilan AI kecil; membuktikan API key, kuota, & jaringan sehat |
-| 📥 Ekspor CSV | — | bangun CSV level; melaporkan jumlah baris data |
+| Halaman | Fitur | Subjek | Yang terjadi |
+| :--- | :--- | :--- | :--- |
+| `/sambutan` | 👋 Sambutan member baru | pemilik server (bisa diganti) | kirim contoh sambutan + sapaan asing (`force=True`, dedup dilewati) |
+| `/perpisahan` | 👣 Pesan perpisahan | pemilik server (bisa diganti) | kirim contoh kartu perpisahan |
+| `/boost` | 💎 Ucapan boost | pemilik server (bisa diganti) | kirim contoh ucapan boost |
+| `/buat` | ⏰ Pengumuman terjadwal | daftar pengumuman tersimpan | kirim satu pengumuman **sekarang** (jadwal aslinya tidak digeser) |
+| `/panel` | 🧩 Panel menu | daftar panel tersimpan | segarkan panel di Discord supaya tombol/dropdown terbaru tampil |
+| `/setelan` | 📰 Koran pagi (digest) | — | buat contoh rubrik pagi; **tidak dikirim** ke channel |
+| `/tiket` | 🎫 Panel tiket | channel | pasang ulang panel **Buka Tiket** di channel itu |
+| `/` | 🤖 Koneksi AI (Gemini) | — | satu panggilan AI kecil; membuktikan API key, kuota, & jaringan sehat |
+| `/ekspor` | 📥 Ekspor CSV | — | bangun CSV level; melaporkan jumlah baris data |
 
-Kolom **ID member** opsional: kosongkan untuk memakai akun bot sebagai contoh, atau isi ID
-member agar contohnya atas nama member itu. Tes yang memakai AI (sambutan, perpisahan, boost,
-koran pagi, koneksi AI) memakan **1 panggilan AI**; tes sambutan/boost/pengumuman/panel tiket
-mengirim pesan **sungguhan** ke channel. Hasilnya tampil sebagai kotak ✅/⚠️ di halaman
-`/uji` (atau JSON bila dipanggil sebagai API). Fitur ber-channel yang belum aktif menampilkan
-tombol **Atur di Setelan** alih-alih tombol tes.
+**Subjek tes tidak perlu ID.** Kolom *contoh atas nama* sudah terisi **👑 Pemilik server
+(otomatis)** — tekan Kirim tes saja. Bisa juga pilih member lain dari dropdown, atau tempel
+`@nama` / `<@id>` di kolom opsional. Akun bot sendiri **tidak pernah** dipakai sebagai
+contoh (pemicu sambutan/perpisahan memang mengabaikan member bot).
+
+Tes yang memakai AI (sambutan, perpisahan, boost, koran pagi, koneksi AI) memakan
+**1 panggilan AI**; tes sambutan/boost/pengumuman/panel tiket mengirim pesan **sungguhan**
+ke channel. Hasilnya tampil sebagai kotak ✅/⚠️ di **halaman fiturnya** (atau JSON bila
+dipanggil sebagai API). Kalau gagal, alasannya spesifik: `GEMINI_API_KEY` kosong, channel
+tujuan sudah dihapus, bot tidak punya izin **Kirim Pesan**, atau AI tidak menjawab.
+Fitur ber-channel yang belum aktif menampilkan tombol **Atur dulu** alih-alih tombol tes.
 
 ### Setelan yang bisa diubah dari web (52 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
 | 🧭 **Inti, level, & ekonomi** (8) | Level & XP, pengumuman naik level, channel pengumuman level, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
-| 👋 **Sambutan & pamit** (10) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, **bahasa sapaan sambutan**, **latin & arti sapaan**, channel pamit, **bahasa kata perpisahan**, **latin & arti perpisahan**, channel ucapan boost |
+| 👋 **Sambutan & pamit** (10 — ada di halaman `/sambutan`, `/perpisahan`, `/boost`) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, **bahasa sapaan sambutan**, **latin & arti sapaan**, channel pamit, **bahasa kata perpisahan**, **latin & arti perpisahan**, channel ucapan boost |
 | 🛡️ **Keamanan** (10) | mode anti-spam, deteksi huruf kapital, log anti-spam, aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
 | 🎫 **Tiket & sapaan harian** (8) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, ping staf, rating tiket, channel ucapan ulang tahun |
 | 🧩 **Konten & interaksi** (16) | starboard (+ambang bintang), kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup, gaya bahasa AI, keamanan konten AI, jam tenang, zona waktu |

@@ -395,10 +395,20 @@ def _levels_table(payload: dict) -> str:
     )
 
 
+_ANCHOR_SETELAN: tuple[tuple[str, str], ...] = (
+    ("sambutan.", "p-sambutan"),
+    ("pamit.", "p-perpisahan"),
+    ("boost.", "p-boost"),
+)
+
+
 def _anchor_aksi(aksi: str) -> str:
-    """Panel tujuan setelah submit: setelan, kontrol cepat, atau default."""
+    """Panel tujuan setelah submit: halaman fitur, setelan, atau kontrol cepat."""
     kunci = str(aksi or "").strip().lower()
     if kunci.startswith("set."):
+        for awalan, anchor in _ANCHOR_SETELAN:
+            if kunci.startswith("set." + awalan):
+                return anchor
         return "p-setelan"
     if kunci in ("level", "ekonomi", "tumbuh", "antispam", "antinuke"):
         return "p-kontrol"
@@ -450,14 +460,35 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "",
         "menu": "📡 Ringkasan",
         "judul": "📡 Ringkasan",
-        "keterangan": "Status bot, pemakaian AI, tren 7 hari, & papan peringkat level.",
-        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level"),
+        "keterangan": "Status bot, pemakaian AI, tren 7 hari, papan peringkat, & tes koneksi AI.",
+        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level", "p-ai"),
+    },
+    {
+        "slug": "sambutan",
+        "menu": "👋 Sambutan",
+        "judul": "👋 Sambutan member baru",
+        "keterangan": "Setelan, gambar kartu, dan tombol tes sambutan — semuanya di halaman ini.",
+        "panel": ("p-sambutan",),
+    },
+    {
+        "slug": "perpisahan",
+        "menu": "👣 Perpisahan",
+        "judul": "👣 Pesan perpisahan",
+        "keterangan": "Setelan, gambar kartu, dan tombol tes pesan perpisahan.",
+        "panel": ("p-perpisahan",),
+    },
+    {
+        "slug": "boost",
+        "menu": "💎 Boost",
+        "judul": "💎 Ucapan boost",
+        "keterangan": "Setelan, gambar kartu, dan tombol tes ucapan terima kasih boost.",
+        "panel": ("p-boost",),
     },
     {
         "slug": "setelan",
         "menu": "🛠️ Setelan",
         "judul": "🛠️ Setelan server",
-        "keterangan": "Kontrol cepat + semua setelan fitur server (tanpa restart).",
+        "keterangan": "Kontrol cepat + setelan fitur lain (sambutan/perpisahan/boost punya halamannya sendiri).",
         "panel": ("p-kontrol", "p-setelan"),
     },
     {
@@ -465,7 +496,7 @@ HALAMAN: tuple[dict, ...] = (
         "menu": "✉️ Kirim",
         "judul": "✉️ Kirim pesan & banner",
         "keterangan": "Kirim pesan/embed, pratinjau dulu, dan unggah banner.",
-        "panel": ("p-kirim", "p-banner", "p-kartu"),
+        "panel": ("p-kirim", "p-banner"),
     },
     {
         "slug": "buat",
@@ -475,25 +506,18 @@ HALAMAN: tuple[dict, ...] = (
         "panel": ("p-buat", "p-konten"),
     },
     {
-        "slug": "uji",
-        "menu": "🧪 Uji",
-        "judul": "🧪 Uji fitur",
-        "keterangan": "Kirim contoh nyata sambutan, perpisahan, dan ucapan boost untuk memastikan semuanya jalan.",
-        "panel": ("p-uji",),
+        "slug": "panel",
+        "menu": "🧩 Panel",
+        "judul": "🧩 Editor panel",
+        "keterangan": "Tambah/hapus tombol & dropdown, pasang gerbang verifikasi, segarkan panel.",
+        "panel": ("p-panel",),
     },
     {
         "slug": "tiket",
         "menu": "🎫 Tiket",
         "judul": "🎫 Kotak masuk tiket",
-        "keterangan": "Balas & tutup tiket dari HP, plus pasang panel tiket.",
+        "keterangan": "Balas & tutup tiket dari HP, plus pasang ulang panel tiket.",
         "panel": ("p-tiket",),
-    },
-    {
-        "slug": "panel",
-        "menu": "🧩 Panel",
-        "judul": "🧩 Editor panel",
-        "keterangan": "Tambah/hapus tombol & dropdown, pasang gerbang verifikasi.",
-        "panel": ("p-panel",),
     },
     {
         "slug": "ekspor",
@@ -507,6 +531,34 @@ HALAMAN: tuple[dict, ...] = (
 HALAMAN_SLUG: dict[str, dict] = {h["slug"]: h for h in HALAMAN}
 ANCHOR_HALAMAN: dict[str, str] = {
     anchor: h["slug"] for h in HALAMAN for anchor in h["panel"]
+}
+# Bookmark lama tetap diarahkan ke tempat barunya.
+ANCHOR_HALAMAN.update({"p-kartu": "sambutan", "p-uji": ""})
+LEGACY_HALAMAN: dict[str, str] = {"uji": ""}
+
+# Setelan milik halaman fitur (dipisah dari halaman Setelan agar tidak dobel).
+SETELAN_SAMBUTAN: tuple[str, ...] = (
+    "sambutan.channel", "sambutan.dm", "sambutan.kartu", "sambutan.persona",
+    "sambutan.bahasa", "sambutan.arti",
+)
+SETELAN_PERPISAHAN: tuple[str, ...] = ("pamit.channel", "pamit.bahasa", "pamit.arti")
+SETELAN_BOOST: tuple[str, ...] = ("boost.channel",)
+
+# Halaman fitur: kartu yang diunggah + tes yang ikut di halaman itu.
+FITUR_HALAMAN: dict[str, dict] = {
+    "sambutan": {"kartu": ("welcome",), "uji": ("welcome",), "setelan": SETELAN_SAMBUTAN},
+    "perpisahan": {"kartu": ("goodbye",), "uji": ("goodbye",), "setelan": SETELAN_PERPISAHAN},
+    "boost": {"kartu": ("boost",), "uji": ("boost",), "setelan": SETELAN_BOOST},
+}
+
+# Tes yang menempel di halaman lain (fiturnya memang diatur di sana).
+UJI_HALAMAN: dict[str, tuple[str, ...]] = {
+    "": ("ai",),
+    "buat": ("pengumuman",),
+    "panel": ("panel",),
+    "tiket": ("tiket",),
+    "ekspor": ("ekspor",),
+    "setelan": ("digest",),
 }
 
 
@@ -607,7 +659,11 @@ def _panel_setelan(d: dict) -> str:
         '<div class="panel" id="p-setelan">\n    <h2>🛠️ Setelan server</h2>\n'
         '    <p class="muted">Semua fitur di bawah bisa diubah dari sini. Pilih nilai lalu <b>Simpan</b> —\n'
         '    perubahan langsung tersimpan ke JSON bot (tanpa restart) dan tercatat di riwayat.</p>\n'
-        f'    {d["setelan_block"]}\n  </div>'
+        '    <p class="muted">Setelan <b>sambutan</b>, <b>perpisahan</b>, dan <b>ucapan boost</b> '
+        'pindah ke halaman fiturnya masing-masing (menu di atas).</p>\n'
+        f'    {d["setelan_block"]}\n'
+        '    <div class="subpanel"><h3>🧪 Tes koran pagi</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
     )
 
 
@@ -623,7 +679,9 @@ def _panel_kirim(d: dict) -> str:
 def _panel_buat(d: dict) -> str:
     return (
         '<div class="panel" id="p-buat">\n    <h2>➕ Buat konten</h2>\n'
-        f'    {d["buat_block"]}\n  </div>'
+        f'    {d["buat_block"]}\n'
+        '    <div class="subpanel"><h3>🧪 Tes pengumuman</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
     )
 
 
@@ -639,7 +697,9 @@ def _panel_konten(d: dict) -> str:
 def _panel_ekspor(d: dict) -> str:
     return (
         '<div class="panel" id="p-ekspor">\n    <h2>📥 Ekspor CSV</h2>\n'
-        f'    {d["ekspor_block"]}\n  </div>'
+        f'    {d["ekspor_block"]}\n'
+        '    <div class="subpanel"><h3>🧪 Tes ekspor</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
     )
 
 
@@ -647,7 +707,9 @@ def _panel_panel(d: dict) -> str:
     return (
         '<div class="panel" id="p-panel">\n    <h2>🧩 Editor panel (tombol &amp; dropdown)</h2>\n'
         '    <p class="muted">Tambah atau hapus tombol/role/dropdown tanpa membuka Discord.</p>\n'
-        f'    {d["panel_block"]}\n  </div>'
+        f'    {d["panel_block"]}\n'
+        '    <div class="subpanel"><h3>🧪 Tes panel</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
     )
 
 
@@ -655,7 +717,9 @@ def _panel_tiket(d: dict) -> str:
     return (
         '<div class="panel" id="p-tiket">\n    <h2>🎫 Kotak masuk tiket</h2>\n'
         '    <p class="muted">Balas atau tutup tiket dari HP — tanpa membuka Discord.</p>\n'
-        f'    {d["tiket_block"]}\n  </div>'
+        f'    {d["tiket_block"]}\n'
+        '    <div class="subpanel"><h3>🧪 Tes panel tiket</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
     )
 
 
@@ -668,22 +732,31 @@ def _panel_banner(d: dict) -> str:
     )
 
 
-def _panel_kartu(d: dict) -> str:
+def _panel_ai(d: dict) -> str:
     return (
-        '<div class="panel" id="p-kartu">\n'
-        '    <h2>🖼️ Kartu sambutan &amp; perpisahan</h2>\n'
-        '    <p class="muted">Unggah gambar sendiri untuk latar kartu sambutan, perpisahan, dan '
-        'ucapan boost. Berkas disimpan di <code>data/media/</code> dan dikirim ulang sebagai '
-        'lampiran, jadi tidak pernah kedaluwarsa seperti URL CDN Discord.</p>\n'
-        f'    {d["kartu_block"]}\n  </div>'
-    )
-
-
-def _panel_uji(d: dict) -> str:
-    return (
-        '<div class="panel" id="p-uji">\n    <h2>🧪 Tes fitur</h2>\n'
+        '<div class="panel" id="p-ai">\n    <h2>🤖 Diagnostik AI</h2>\n'
+        '    <p class="muted">Satu panggilan AI kecil untuk memastikan API key, kuota, '
+        'dan jaringan sehat. Tidak mengirim pesan ke Discord.</p>\n'
         f'    {d["uji_block"]}\n  </div>'
     )
+
+
+def _panel_fitur(slug: str, judul: str, ket: str) -> object:
+    """Halaman satu fitur: setelan + gambar kartu + tombol tes di tempat yang sama."""
+
+    def render(d: dict) -> str:
+        return (
+            f'<div class="panel" id="p-{slug}">\n    <h2>{judul}</h2>\n'
+            f'    <p class="muted">{ket}</p>\n'
+            '    <div class="subpanel"><h3>⚙️ Setelan</h3>'
+            f'{d["setelan_block"]}</div>\n'
+            '    <div class="subpanel"><h3>🖼️ Gambar kartu</h3>'
+            f'{d["kartu_block"]}</div>\n'
+            '    <div class="subpanel"><h3>🧪 Tes fitur</h3>'
+            f'{d["uji_block"]}</div>\n  </div>'
+        )
+
+    return render
 
 
 def _panel_riwayat(d: dict) -> str:
@@ -709,8 +782,21 @@ PANEL: dict[str, object] = {
     "p-panel": _panel_panel,
     "p-tiket": _panel_tiket,
     "p-banner": _panel_banner,
-    "p-kartu": _panel_kartu,
-    "p-uji": _panel_uji,
+    "p-ai": _panel_ai,
+    "p-sambutan": _panel_fitur(
+        "sambutan", "👋 Sambutan member baru",
+        "Pesan yang dikirim saat ada member baru gabung. Atur di sini, unggah kartunya, "
+        "lalu tekan tombol tes untuk melihat hasilnya langsung di Discord.",
+    ),
+    "p-perpisahan": _panel_fitur(
+        "perpisahan", "👣 Pesan perpisahan",
+        "Pesan yang dikirim saat member keluar. Unggah kartu perpisahan dan tes tanpa "
+        "menunggu ada orang benar-benar keluar.",
+    ),
+    "p-boost": _panel_fitur(
+        "boost", "💎 Ucapan boost",
+        "Ucapan terima kasih saat member nge-boost server. Unggah kartunya, lalu tes.",
+    ),
     "p-riwayat": _panel_riwayat,
 }
 
@@ -1106,7 +1192,7 @@ async def start_dashboard(bot) -> bool:
         return web.Response(text=page, content_type="text/html", charset="utf-8",
                             status=200 if ok else 400)
 
-    def _kembali(gid: int, pesan: str, anchor: str):
+    def _kembali(gid: int, pesan: str, anchor: str, ok: bool = True):
         """303 kembali ke panel yang sama + kotak pesan (POST → redirect → GET)."""
         from urllib.parse import urlencode
 
@@ -1114,8 +1200,8 @@ async def start_dashboard(bot) -> bool:
             {
                 "token": cfg["token"],
                 "guild": int(gid or 0),
-                "pesan": str(pesan or "")[:300],
-                "ok": "1",
+                "pesan": str(pesan or "")[:500],
+                "ok": "1" if ok else "0",
             }
         )
         slug = halaman_dari_anchor(anchor)
@@ -1125,14 +1211,16 @@ async def start_dashboard(bot) -> bool:
         return web.Response(status=303, headers={"Location": tujuan})
 
     def _jawab(gid: int, ok: bool, pesan: str, anchor: str, request):
-        """JSON untuk otomasi; form HTML: redirect saat sukses, halaman hasil saat gagal."""
+        """JSON untuk otomasi; form HTML selalu kembali ke panelnya (✅ atau ⚠️).
+
+        Gagal pun tetap redirect: pengguna mendarat di halaman fiturnya dengan
+        kotak pesan yang jelas, bukan halaman buntu tanpa jalan pulang.
+        """
         if str(request.content_type or "").startswith("application/json"):
             return web.json_response(
                 {"ok": ok, "message": pesan, "guild": gid}, status=200 if ok else 400
             )
-        if ok:
-            return _kembali(gid, pesan, anchor)
-        return _halaman_hasil(False, pesan, anchor)
+        return _kembali(gid, pesan, anchor, ok=ok)
 
     async def handle_health(_request):
         return web.Response(text="ok", content_type="text/plain")
@@ -1145,8 +1233,12 @@ async def start_dashboard(bot) -> bool:
         flash_pesan = str(request.query.get("pesan") or "")[:300]
         flash_ok = str(request.query.get("ok") or "1") != "0"
 
-        # Bookmark lama berbentuk `/?halaman=setelan` diarahkan ke halaman barunya.
+        # Bookmark lama berbentuk `/?halaman=setelan` atau `/uji` diarahkan ke halaman barunya.
         pinta = str(request.query.get("halaman") or "").strip()
+        lama = request.path.strip("/")
+        if lama in LEGACY_HALAMAN and not pinta:
+            tujuan = url_halaman(LEGACY_HALAMAN[lama], token, gid)
+            return web.Response(status=303, headers={"Location": tujuan})
         if pinta and pinta in HALAMAN_SLUG and request.path.strip("/") != pinta:
             return web.Response(status=303, headers={
                 "Location": url_halaman(pinta, token, gid)
@@ -1163,9 +1255,19 @@ async def start_dashboard(bot) -> bool:
                 logger.warning("Blok dashboard gagal dirender: %s", exc)
                 return bawaan
 
+        fitur = FITUR_HALAMAN.get(slug) or {}
+        try:
+            nilai = dashboard_admin.read_values(gid)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Nilai setelan gagal dibaca: %s", exc)
+            nilai = {}
+        kunci_uji = fitur.get("uji") or UJI_HALAMAN.get(slug, ())
+
         setelan_block = _blok(
             lambda: dashboard_ui.render_setelan_block(
-                dashboard_admin.read_values(gid), bot, gid, token
+                nilai, bot, gid, token,
+                hanya=fitur.get("setelan"),
+                kecuali_grup=() if fitur.get("setelan") else ("sambutan",),
             ),
             '<div class="muted">Setelan tidak tersedia.</div>',
         )
@@ -1204,11 +1306,11 @@ async def start_dashboard(bot) -> bool:
             '<div class="muted">Unggahan tidak tersedia.</div>',
         )
         kartu_block = _blok(
-            lambda: dashboard_ui.render_kartu_block(gid, token),
-            '<div class="muted">Kartu sambutan tidak tersedia.</div>',
+            lambda: dashboard_ui.render_kartu_block(gid, token, hanya=fitur.get("kartu")),
+            '<div class="muted">Kartu tidak tersedia.</div>',
         )
         uji_block = _blok(
-            lambda: dashboard_ui.render_uji_block(bot, gid, token),
+            lambda: dashboard_ui.render_uji_block(bot, gid, token, hanya=kunci_uji),
             '<div class="muted">Tes fitur tidak tersedia.</div>',
         )
         audit_block = _blok(
@@ -1324,7 +1426,7 @@ async def start_dashboard(bot) -> bool:
             gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
         )
         if galat_banner:
-            return _halaman_hasil(False, galat_banner)
+            return _kembali(gid, galat_banner, "p-kirim", ok=False)
 
         # Tombol "Pratinjau" (name=pratinjau) menampilkan hasil tanpa mengirim.
         if str(payload.get("pratinjau") or "").strip():
@@ -1371,7 +1473,7 @@ async def start_dashboard(bot) -> bool:
                 gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
             )
             if galat_banner:
-                return _halaman_hasil(False, galat_banner)
+                return _kembali(gid, galat_banner, "p-buat", ok=False)
             ok, message = await dashboard_pesan.buat_panel(bot, gid, payload, banner=banner)
         elif aksi == "buat.formulir":
             ok, message = await dashboard_pesan.tambah_formulir(gid, payload)
@@ -1403,10 +1505,11 @@ async def start_dashboard(bot) -> bool:
                     gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
                 )
                 if galat_banner:
-                    return _halaman_hasil(False, galat_banner)
+                    return _kembali(gid, galat_banner, "p-panel", ok=False)
                 if banner is None:
-                    return _halaman_hasil(
-                        False, "Pilih berkas banner atau banner tersimpan lebih dulu."
+                    return _kembali(
+                        gid, "Pilih berkas banner atau banner tersimpan lebih dulu.",
+                        "p-panel", ok=False,
                     )
                 ok, message = await dashboard_pesan.ganti_banner_panel(
                     bot, gid, ref_panel, banner=banner
@@ -1551,11 +1654,18 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = False, f"Aksi unggah `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard unggah %s (server %s): %s", aksi, gid, message)
-        return _jawab(gid, ok, message, "p-kartu" if aksi.startswith("kartu.") else "p-banner",
-                      request)
+        anchor = "p-banner"
+        if aksi.startswith("kartu."):
+            jenis = aksi.split(":", 1)[1] if ":" in aksi else ""
+            anchor = {
+                "welcome": "p-sambutan",
+                "goodbye": "p-perpisahan",
+                "boost": "p-boost",
+            }.get(jenis, "p-sambutan")
+        return _jawab(gid, ok, message, anchor, request)
 
     async def handle_uji(request):
-        """Kirim satu contoh nyata untuk fitur yang bisa dites (sambutan/perpisahan/boost)."""
+        """Jalankan satu tes fitur. Subjek tes opsional — default pemilik server."""
         if request.method != "POST":
             return web.json_response({"error": "gunakan POST"}, status=405)
         payload = await _payload(request)
@@ -1569,15 +1679,13 @@ async def start_dashboard(bot) -> bool:
         gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
         aksi = str(payload.get("action") or "").strip().lower()
         kunci = aksi.split(":", 1)[1].strip() if ":" in aksi else aksi.removeprefix("uji.").strip()
-        getter = getattr(bot, "get_guild", None)
-        guild = getter(gid) if callable(getter) else None
-        opsi = str(payload.get("opsi") or payload.get("member") or "").strip()
-        member = dashboard_uji.cari_member(guild, opsi) if opsi.isdigit() else None
-        if member is None and opsi.isdigit() and kunci in ("welcome", "goodbye", "boost"):
-            logger.info("Uji %s: member %s tidak ditemukan, memakai akun bot.", kunci, opsi)
-        ok, message = await dashboard_uji.jalankan_uji(bot, gid, kunci, member, opsi)
+        opsi = str(
+            payload.get("opsi_manual") or payload.get("opsi") or payload.get("member") or ""
+        ).strip()
+        ok, message = await dashboard_uji.jalankan_uji(bot, gid, kunci, None, opsi)
         logger.info("Dashboard uji %s (server %s): %s", kunci, gid, message)
-        return _jawab(gid, ok, message, "p-uji", request)
+        anchor = dashboard_uji.ANCHOR_UJI.get(str(kunci).strip().lower(), "p-setelan")
+        return _jawab(gid, ok, message, anchor, request)
 
     async def handle_kartu(request):
         """Sajikan gambar kartu sambutan tersimpan (pratinjau di dashboard)."""
@@ -1655,6 +1763,8 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
+    for _lama in LEGACY_HALAMAN:
+        app.router.add_get(f"/{_lama}", handle_index)
     for _halaman in HALAMAN:
         if _halaman["slug"]:
             app.router.add_get(f"/{_halaman['slug']}", handle_index)

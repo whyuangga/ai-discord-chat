@@ -230,6 +230,8 @@ CSS_HALAMAN = f"""
     display: grid; gap: 10px; margin: 12px 0 8px;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }}
+  .kartu-sambutan.tunggal {{ grid-template-columns: 1fr; }}
+  .kartu-sambutan.tunggal .kartu-slot img {{ height: 170px; }}
   .kartu-slot {{
     background: var(--kartu-2); border: 1px solid var(--garis); border-radius: 12px;
     padding: 12px; display: grid; gap: 8px; align-content: start;
@@ -251,8 +253,17 @@ CSS_HALAMAN = f"""
   }}
   .uji-baris:last-of-type {{ border-bottom: 0; }}
   .uji-baris b {{ font-size: 13.5px; }}
-  .uji-baris form {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
+  .uji-baris form {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+                     justify-content: flex-end; }}
   .uji-baris input[type=text] {{ width: 175px; padding: 7px 9px; font-size: 12.5px; }}
+  .uji-baris select {{ max-width: 190px; padding: 7px 9px; font-size: 12.5px; }}
+  .uji-baris input[name="opsi_manual"] {{ width: 165px; }}
+  @media (max-width: 620px) {{
+    .uji-baris {{ align-items: stretch; }}
+    .uji-baris form {{ justify-content: flex-start; }}
+    .uji-baris input[type=text], .uji-baris select,
+    .uji-baris input[name="opsi_manual"] {{ width: 100%; max-width: none; }}
+  }}
 
   /* --- pemilih server --- */
   .pemilih-server {{ display: flex; gap: 8px; align-items: center; margin: 8px 0 0; flex-wrap: wrap; }}

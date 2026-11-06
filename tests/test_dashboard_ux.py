@@ -174,7 +174,8 @@ async def test_simpan_setelan_redirect_ke_panel_dan_tampilkan_pesan(monkeypatch,
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 
 
-async def test_simpan_gagal_tetap_halaman_hasil_dengan_anchor(monkeypatch, tmp_path):
+async def test_simpan_gagal_kembali_ke_panel_dengan_kotak_peringatan(monkeypatch, tmp_path):
+    """Gagal tidak lagi berakhir di halaman buntu: redirect + kotak ⚠️."""
     bot = _Bot()
 
     async def skenario(session, base):
@@ -184,10 +185,18 @@ async def test_simpan_gagal_tetap_halaman_hasil_dengan_anchor(monkeypatch, tmp_p
                   "action": "set.bukan.kunci", "value": "x"},
             allow_redirects=False,
         ) as resp:
+            assert resp.status == 303
+            lokasi = resp.headers["Location"]
+            assert lokasi.startswith("/setelan?")
+            assert "ok=0" in lokasi and "pesan=" in lokasi
+            assert lokasi.endswith("#p-setelan")     # kembali ke panel yang sama
+
+        # Kotak peringatan tampil di halaman fiturnya
+        async with session.get(base + lokasi) as resp:
             body = await resp.text()
-            assert resp.status == 400
-            assert "Kembali ke dashboard" in body
-            assert "#p-setelan" in body              # kembali ke panel yang sama
+            assert resp.status == 200
+            assert 'class="flash galat"' in body and "⚠️" in body
+            assert "tidak dikenal" in body.lower()
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 

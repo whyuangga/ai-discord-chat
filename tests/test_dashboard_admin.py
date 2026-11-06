@@ -383,7 +383,8 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
                 f"{base}/api/konten",
                 data={"token": "token-uji", "guild": "1234", "action": "buat.ngawur"},
             ) as resp:
-                assert resp.status == 400
+                # Form HTML: redirect + kotak ⚠️ (JSON tetap 400)
+                assert resp.status == 200 and "ok=0" in str(resp.url)
     finally:
         await web_dashboard.stop_dashboard()
 
