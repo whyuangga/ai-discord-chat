@@ -1081,6 +1081,17 @@ Menjawab pertanyaan "server ini tumbuh atau mati?" — **0 kuota AI**.
 - Data di `data/growth.json`: statistik harian **30 hari**, data member **90 hari**, maksimal 2000 member terlacak per server.
 - **Tidak menyimpan isi pesan** sama sekali.
 
+### Dashboard web (baca-saja)
+
+Bot menjalankan dashboard kecil di port privat (`DASHBOARD_PORT`, token di env) berisi
+**status bot, pemakaian AI, papan level, dan peta fitur per server**: fitur apa yang sudah
+dipakai (panel menu, formulir, pengumuman terjadwal, tautan embed, pemicu gabung) beserta
+**command yang dipakai mengubahnya di Discord**. Dashboard ini sengaja tidak menulis setting
+apa pun — sumber kebenaran tetap Discord, jadi tidak ada risiko konfigurasi ganda.
+
+Endpoint: `GET /` (halaman), `GET /api/status`, `GET /api/pemakaian`, `GET /api/level`,
+`GET /api/fitur` — semuanya butuh `?token=…`.
+
 ## Q. Menu Builder & Self Roles v2 (`/menu`)
 
 Bikin panel sendiri — mirip *Self Roles* milik bot Discohook, tapi isinya tidak harus role:

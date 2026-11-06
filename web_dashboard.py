@@ -170,6 +170,88 @@ def collect_usage(guild_id: int = 0) -> dict:
     return payload
 
 
+def collect_features(guild_id: int) -> dict:
+    """Peta fitur per server (baca-saja) + petunjuk cara mengubahnya di Discord.
+
+    Dashboard sengaja tidak menulis apa pun di sini: tujuannya supaya admin melihat
+    "fitur apa yang sudah menyala" lalu tahu command mana yang dipakai mengubahnya.
+    """
+    rows: list[dict] = []
+
+    def _hitung(nama: str, perintah: str, pengambil) -> None:
+        try:
+            jumlah = int(pengambil())
+        except Exception:  # pragma: no cover - jaring aman
+            jumlah = 0
+        rows.append(
+            {
+                "nama": nama,
+                "aktif": jumlah > 0,
+                "ringkas": f"{jumlah} aktif" if jumlah else "belum dipakai",
+                "perintah": perintah,
+            }
+        )
+
+    import menu_builder
+    import modal_forms
+
+    _hitung("Panel menu", "/menu buat", lambda: len(menu_builder.list_menus(guild_id)))
+    _hitung("Formulir (modal)", "/menu form buat", lambda: len(modal_forms.list_forms(guild_id)))
+
+    try:
+        import engagement
+
+        _hitung(
+            "Pengumuman terjadwal",
+            "/pengumuman tambah",
+            lambda: len([a for a in engagement.list_announcements(guild_id) if a.get("enabled")]),
+        )
+    except Exception:  # pragma: no cover
+        pass
+
+    try:
+        import link_embed
+
+        _hitung("Tautan embed", "/embed tautan buat", lambda: len(link_embed.list_links(guild_id)))
+    except Exception:  # pragma: no cover
+        pass
+
+    try:
+        import flow_triggers
+
+        alur = flow_triggers.get_trigger(guild_id)
+        rows.append(
+            {
+                "nama": "Pemicu gabung",
+                "aktif": alur is not None,
+                "ringkas": f"{len((alur or {}).get('steps') or [])} langkah" if alur else "belum dipakai",
+                "perintah": "/menu pemicu tambah",
+            }
+        )
+    except Exception:  # pragma: no cover
+        pass
+
+    return {"items": rows, "aktif": sum(1 for r in rows if r["aktif"]), "total": len(rows)}
+
+
+def render_features_block(guild_id: int) -> str:
+    """Tabel HTML ringkas untuk blok fitur di halaman utama dashboard."""
+    data = collect_features(guild_id)
+    if not data["items"]:
+        return '<div class="muted">Belum ada data fitur.</div>'
+    baris = "\n".join(
+        f'<tr><td>{html.escape(r["nama"])}</td>'
+        f'<td>{"✅" if r["aktif"] else "⬜"} {html.escape(r["ringkas"])}</td>'
+        f'<td><code>{html.escape(r["perintah"])}</code></td></tr>'
+        for r in data["items"]
+    )
+    return (
+        f'<p class="muted">{data["aktif"]} dari {data["total"]} fitur sudah dipakai di server ini.</p>'
+        "<table><thead><tr><th>Fitur</th><th>Status</th><th>Cara mengubah di Discord</th></tr></thead>"
+        f"<tbody>{baris}</tbody></table>"
+    )
+
+
 def collect_levels(guild_id: int, *, limit: int = 10) -> dict:
     """Papan peringkat level server (0 kuota AI)."""
     import levels
@@ -271,6 +353,8 @@ _PAGE_TEMPLATE = """<!doctype html>
   <div class="panel">
     <h2>⚙️ Kontrol Cepat</h2>
     <p class="muted">Menyala/mematikan fitur per server. Butuh token dashboard yang sah.</p>
+    {fitur_block}
+
     {kontrol_block}
   </div>
 
@@ -315,6 +399,7 @@ def render_dashboard_html(
     refresh: int = 30,
     heading: str = "🛰️ Dashboard Bot",
     kontrol_block: str = '<div class="muted">Kontrol tidak tersedia.</div>',
+    fitur_block: str = "",
 ) -> str:
     """Merender halaman HTML dashboard (string). Aman untuk data kosong."""
     guild_limit = int(usage.get("guild_limit") or 0)
@@ -352,6 +437,7 @@ def render_dashboard_html(
         channels_table=_rows_table(usage.get("channels") or [], value_label="Operasi"),
         levels_table=_levels_table(levels),
         kontrol_block=kontrol_block,
+        fitur_block=fitur_block,
     )
 
 
@@ -543,6 +629,7 @@ async def start_dashboard(bot) -> bool:
             refresh=cfg["refresh"],
             heading=f"🛰️ Dashboard {guild_name}" if guild_name else "🛰️ Dashboard Bot",
             kontrol_block=render_controls_block(gid, cfg["token"]),
+            fitur_block=render_features_block(gid),
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8")
 
@@ -612,6 +699,14 @@ async def start_dashboard(bot) -> bool:
                             status=200 if ok else 400)
 
     app.router.add_get("/api/kontrol", handle_kontrol)
+
+    async def handle_features(request):
+        if not _authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        gid, _name = _guild_hint(bot, request)
+        return web.json_response(collect_features(gid))
+
+    app.router.add_get("/api/fitur", handle_features)
     app.router.add_post("/api/aksi", handle_aksi)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_status)
