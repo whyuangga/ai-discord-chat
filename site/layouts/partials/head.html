@@ -38,10 +38,10 @@
     <!-- Google Fonts -->
     {{- partial "google-fonts" . }}
     <!-- Custom CSS -->
-    {{- $options := dict "enableSourceMap" true }}
-    {{- if hugo.IsProduction}}
-        {{- $options := dict "enableSourceMap" false "outputStyle" "compressed" }}
-    {{- end }}
+    {{- /* TAMBALAN: dulu `:=` di dalam if membuat $options baru (variabel
+           ter-shadow), sehingga source map 900 KB tetap dibuat & ikut ter-deploy
+           di produksi. */ -}}
+    {{- $options := cond hugo.IsProduction (dict "enableSourceMap" false "outputStyle" "compressed") (dict "enableSourceMap" true) }}
     {{- $style := resources.Get "/scss/style.scss" }}
     {{- $style = $style | resources.ExecuteAsTemplate "/scss/style.scss" . | css.Sass $options }}
     {{- if hugo.IsProduction }}
