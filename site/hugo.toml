@@ -6,6 +6,9 @@ theme = "lotusdocs"
 enableEmoji = true
 enableGitInfo = false
 enableRobotsTXT = true
+# Taksonomi tidak dipakai; tanpa ini Hugo membuat /categories/ dan /tags/ kosong
+# yang ikut masuk sitemap.
+disableKinds = ["taxonomy", "term"]
 
 [markup]
   defaultMarkdownHandler = "goldmark"

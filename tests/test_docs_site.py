@@ -81,7 +81,39 @@ def test_vercel_json_siap_deploy():
     assert config["outputDirectory"] == "public"
     assert config["build"]["env"]["HUGO_VERSION"] == "0.169.0"
     assert "--minify" in config["buildCommand"]
-    assert "$VERCEL_URL" in config["buildCommand"]
+    # baseURL harus mengikuti domain produksi, bukan URL deployment per-build,
+    # dengan fallback ke URL preview lalu ke domain produksi yang sekarang.
+    perintah = config["buildCommand"]
+    assert re.search(
+        r"\$\{VERCEL_PROJECT_PRODUCTION_URL:-\$\{VERCEL_URL:-[a-z0-9.-]+\}\}", perintah
+    ), perintah
+
+
+def test_robots_txt_menunjuk_sitemap():
+    """robots.txt bawaan Hugo hanya 'User-agent: *' — kita tambah baris Sitemap."""
+    templat = (ROOT / "site" / "layouts" / "robots.txt").read_text(encoding="utf-8")
+    assert "Sitemap:" in templat
+    assert "sitemap.xml" in templat
+    assert "absURL" in templat
+
+
+def test_taksonomi_kosong_dimatikan():
+    """Tanpa disableKinds, Hugo membuat /categories/ & /tags/ kosong yang masuk sitemap."""
+    config = (ROOT / "site" / "hugo.toml").read_text(encoding="utf-8")
+    assert "disableKinds" in config
+    for kind in ("taxonomy", "term"):
+        assert f'"{kind}"' in config
+
+
+def test_landing_tidak_memuat_angka_tes_usang():
+    """Angka tes di halaman depan pernah tertinggal (149 vs 152)."""
+    import re
+
+    isi = (ROOT / "site" / "data" / "landing.yaml").read_text(encoding="utf-8")
+    assert "tes otomatis" in isi
+    angka = re.findall(r"(\d+)\+?\s*tes otomatis", isi)
+    assert angka, "landing.yaml harus menyebut jumlah tes"
+    assert all(int(a) >= 150 for a in angka), f"angka tes usang: {angka}"
 
 
 # Berkas hasil build yang memang tidak perlu dilacak git.

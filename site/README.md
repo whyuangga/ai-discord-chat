@@ -45,7 +45,7 @@ cukup menunjuk root directory ke `site/`.
 | Setelan | Nilai |
 | :--- | :--- |
 | Framework Preset | **Hugo** |
-| Build Command | `hugo --gc --minify --baseURL "https://$VERCEL_URL"` |
+| Build Command | `hugo --gc --minify --baseURL "https://${VERCEL_PROJECT_PRODUCTION_URL:-${VERCEL_URL:-ai-discord-chat-site.vercel.app}}"` |
 | Output Directory | `public` |
 | Install Command | *(kosongkan)* |
 
@@ -62,8 +62,11 @@ cukup menunjuk root directory ke `site/`.
 `build.env.HUGO_VERSION`, jadi langkah 2–3 sebenarnya hanya perlu bila kamu ingin
 mengubahnya — kalau file itu terbaca, build langsung benar.
 
-**Kalau memakai domain sendiri:** tambahkan di *Settings → Domains*; `--baseURL "$VERCEL_URL"`
-membuat tautan mengikuti domain yang sedang dipakai, jadi tidak perlu mengubah `hugo.toml`.
+**Kalau memakai domain sendiri:** tambahkan di *Settings → Domains*. `--baseURL` di atas memakai
+`VERCEL_PROJECT_PRODUCTION_URL` (domain produksi) lebih dulu, lalu `VERCEL_URL` (URL deployment /
+preview), lalu domain sekarang sebagai cadangan terakhir. Jadi `sitemap.xml`, `robots.txt`, dan
+`og:url` **tidak** menunjuk ke URL deployment panjang saat situs dibuka dari domain produksi —
+tanpa perlu mengubah `hugo.toml`.
 
 > **Catatan versi:** Lotus Docs (rilis v0.3.0) masih memakai `css.Sass` (libsass) yang sudah
 > *deprecated* di Hugo, sehingga build mengeluarkan peringatan — bukan error. Karena itu versi
@@ -72,6 +75,14 @@ membuat tautan mengikuti domain yang sedang dipakai, jadi tidak perlu mengubah `
 
 > Alternatif lain tetap bisa: Cloudflare Pages atau Netlify dengan setelan yang sama
 > (build `hugo --gc --minify`, output `public`, `HUGO_VERSION=0.169.0`).
+
+## Berkas tambahan di luar tema
+
+| Berkas | Kenapa ada |
+| :--- | :--- |
+| `site/data/landing.yaml` | hero + 6 kartu halaman depan (tema tidak menyediakannya) |
+| `site/layouts/robots.txt` | menambah baris `Sitemap:` — templat bawaan Hugo hanya `User-agent: *` |
+| `disableKinds = ["taxonomy", "term"]` di `hugo.toml` | mencegah `/categories/` & `/tags/` kosong ikut ke sitemap |
 
 ## Isi tema & asal-usulnya (untuk update manual)
 
