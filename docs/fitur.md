@@ -154,13 +154,16 @@ Fitur ini membuat bot berbaur di channel publik server — baik di **Text Channe
 
 ### 6. 👋 AI Auto-Welcomer Member Baru + Persona Sambutan Khusus (`/agent welcome`)
 - **Persona sambutan TERPISAH dari persona Auto-Chat!** Pilih gaya sambutan lewat `persona:` — **🤗 Hangat & Tulus**, **😂 Lucu & Receh**, **😎 Santai & Akrab**, atau **🙂 Normal & Sopan**. Mengubah `/agent persona` (gaya obrolan harian) **tidak akan** mengacaukan gaya sambutan, begitu pula sebaliknya.
-- **Kata sapaan "halo/hai" berganti-ganti bahasa Asia Timur & Asia Tenggara** — misalnya `こんにちは` (Jepang), `안녕하세요` (Korea), `你好` (Mandarin), `สวัสดี` (Thailand), `Xin chào` (Vietnam), `Kumusta` (Filipina), `မင်္ဂလာပါ` (Myanmar), `សួស្តី` (Kamboja), `ສະບາຍດີ` (Laos), `Ola` (Timor Leste), dan masih banyak lagi. **Hanya kata sapaan pembuka** yang berbahasa asing — seluruh kalimat sambutan tetap **Bahasa Indonesia** yang hangat/lucu sesuai persona.
-- Bisa memilih **satu bahasa** tertentu (`bahasa_sapaan:jepang`) atau **acak semua bahasa** (default) agar setiap member baru mendapat sapaan yang berbeda.
+- **Kata sapaan "halo/hai" berganti-ganti dari 64 sapaan / 45 bahasa** — Asia Timur & Tenggara (`こんにちは` Jepang, `안녕하세요` Korea, `你好` Mandarin, `สวัสดี` Thailand, `Xin chào` Vietnam, `Kumusta` Filipina, `မင်္ဂလာပါ` Myanmar, `សួស្តី` Kamboja, `ສະບາຍດີ` Laos, `Ola` Timor Leste), Timur Tengah & India (`مرحبا` Arab, `سلام` Persia, `नमस्ते` Hindi, `வணக்கம்` Tamil), sampai Eropa & Afrika (`Привет` Rusia, `Γεια σου` Yunani, `שלום` Ibrani, `Bonjour` Prancis, `Hola` Spanyol, `Sawubona` Zulu). **Hanya kata sapaan pembuka** yang berbahasa asing — seluruh kalimat sambutan tetap **Bahasa Indonesia** yang hangat/lucu sesuai persona.
+- **Huruf latin & terjemahannya ikut tampil**, jadi member yang tidak membaca aksaranya tetap paham. Formatnya: **`"မင်္ဂလာပါ"` (Mingalaba)** — *semoga berkah* → lalu kalimat Bahasa Indonesia. Huruf latin & arti ditempel oleh kode (bukan oleh AI) supaya konsisten dan tidak pernah salah tulis. Bisa dimatikan dengan `arti:False` (hanya aksara aslinya).
+- Bisa memilih **satu bahasa** tertentu (`bahasa_sapaan:jepang`) atau **acak semua bahasa** (default, `auto`) agar setiap member baru mendapat sapaan yang berbeda.
+- Tabel arti lengkap ada di `community_agent.ASIAN_GREETINGS` (`word` = aksara asli, `read` = huruf latin, `arti` = terjemahan Indonesia) — menambah bahasa baru cukup menambah satu baris di sana, dan otomatis muncul di `/agent welcome`, `/agent goodbye`, serta dashboard.
 - Bisa ditambahkan `pesan_tambahan` (contoh: *"Jangan lupa ambil role di #roles ya"*) yang akan dirangkai secara luwes oleh AI, serta `tes_sekarang:True` untuk langsung melihat contoh sambutannya.
 
 ### 7. 👣 AI Auto-Goodbye: Kartu Perpisahan Member Keluar (`/agent goodbye`)
 - Saat ada member keluar dari server, bot otomatis mengirim **kartu perpisahan** berisi pesan hangat + foto profil + **lama masa kebersamaan** (jumlah hari sejak bergabung).
-- Punya **persona perpisahan sendiri** (Hangat / Lucu / Santai / Normal) dan **kata perpisahan bahasa Asia** seperti `またね` (Jepang), `안녕히 가세요` (Korea), `再见` (Mandarin), `ลาก่อน` (Thailand), `Tạm biệt` (Vietnam), `Paalam` (Filipina), `Selamat jalan` (Melayu), dan lainnya — sisa kalimat tetap Bahasa Indonesia.
+- Punya **persona perpisahan sendiri** (Hangat / Lucu / Santai / Normal) dan **61 kata perpisahan dari 40+ bahasa** seperti `またね` (Mata ne — sampai nanti, Jepang), `안녕히 가세요` (Annyeonghi gaseyo — selamat jalan, Korea), `再见` (Zàijiàn — sampai jumpa, Mandarin), `ลาก่อน` (Lakorn, Thailand), `مع السلامة` (Ma'a as-salama, Arab), `Auf Wiedersehen` (Jerman), `Kwaheri` (Swahili), dan lainnya — sisa kalimat tetap Bahasa Indonesia.
+- Format pesan perpisahan sama: **`"またね"` (Mata ne)** — *sampai nanti* `@member`, lalu kalimat hangatnya. Huruf latin & arti bisa dimatikan lewat `arti:False`.
 - Anti-dobel: tetap ramah kuota karena hanya 1 pesan per member keluar dan ada deduplikasi otomatis.
 
 ### 8. 🖼️ Banner Gambar & Kartu Sambutan Dinamis (`/agent banner`, `/agent kartu`)
@@ -834,7 +837,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 ## J. Dashboard Web (`DASHBOARD_TOKEN`)
 
 Satu halaman web untuk memantau **dan** mengatur bot: status, pemakaian AI, papan level,
-peta fitur, **48 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
+peta fitur, **52 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
 Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
 | Aspek | Detail |
@@ -844,7 +847,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
 | **Endpoint tulis** | Enam jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari) & `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian). |
-| **Setelan** | **48 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
+| **Setelan** | **52 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
@@ -869,7 +872,7 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | sakelar level, ekonomi, & pertumbuhan dengan **tombol yang mengikuti keadaan** (“Nonaktifkan” saat aktif, “Aktifkan” saat mati) + mode anti-spam & aksi anti-nuke |
-| **Setelan server** | **48 setelan** dalam 5 grup (lihat tabel di bawah) |
+| **Setelan server** | **52 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
@@ -895,22 +898,38 @@ Semua warna & font tinggal di satu modul, `dashboard_tema.py` (`LATAR`, `TEKS`,
 `FONT_STACK`, `CSS_HALAMAN`, `CSS_PRATINJAU`, `CSS_HASIL`) — mengganti tema cukup
 mengubah satu berkas itu, tanpa menyentuh `web_dashboard.py` atau `dashboard_ui.py`.
 
-#### Navigasi dashboard (menu ☰ di HP)
+#### Tujuh halaman, satu menu (menu ☰ di HP)
 
-Halaman dashboard itu panjang (status → setelan → kirim → tiket → panel → banner).
-Supaya tidak perlu menggulir buta:
+Dashboard tidak lagi satu halaman gulung panjang — fitur dipecah per halaman, jadi
+membukanya di HP jauh lebih ringan (≈15–18 KB per halaman, halaman setelan ±46 KB
+karena memuat 52 setelan — dibanding ±63 KB sekaligus di versi lama):
+
+| Halaman | Isi | Panel |
+| :--- | :--- | :--- |
+| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level | 6 |
+| `/setelan` | Kontrol cepat + **52 setelan** (5 grup) | 2 |
+| `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan | 2 |
+| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan | 2 |
+| `/tiket` | Kotak masuk tiket + pasang panel tiket | 1 |
+| `/panel` | Editor tombol & dropdown + gerbang verifikasi | 1 |
+| `/ekspor` | Ekspor CSV + riwayat perubahan | 2 |
+
+Aturan mainnya:
 
 | Bagian | Perilaku |
 | :--- | :--- |
-| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: nama bot, versi, waktu baca, & pemilih server |
-| **Menu anchor** | baris tombol 📡 Status · 📊 Pemakaian · 📈 Tren · 🏆 Level · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🎫 Tiket · 🧩 Panel · 🖼️ Banner · 📥 Ekspor · 🗂️ Konten · 🧾 Riwayat |
+| **Menu halaman** | 📡 Ringkasan · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🎫 Tiket · 🧩 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
+| **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
 | **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
-| **Lompatan rapi** | setiap panel punya `id` (`#p-setelan`, `#p-tiket`, …) dan `scroll-margin-top`, jadi judulnya tidak tertutup header |
+| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
+| **Anchor tetap ada** | tiap panel masih punya `id` (`#p-setelan`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/setelan#p-setelan` bisa dipakai sebagai bookmark |
+| **Bookmark lama** | `/?halaman=setelan` dialihkan otomatis (`303`) ke `/setelan`; `/api/*` tidak berubah sama sekali |
 
 #### Setelah menekan Simpan
 
 Form memakai pola **POST → redirect (303) → GET**: setelah menyimpan, kamu kembali ke
-panel yang sama (`#p-…`) dan melihat kotak pesan ✅ berisi hasilnya — nilai barunya sudah
+**halaman asal** dan panel yang sama (`/kirim#p-banner`, `/setelan#p-setelan`, …) lalu
+melihat kotak pesan ✅ berisi hasilnya — nilai barunya sudah
 terbaca dari JSON, jadi tidak perlu klik “kembali” atau muat ulang. Kalau gagal, pesan ⚠️
 dan alasannya tampil di halaman hasil dengan tautan kembali ke panel yang sama.
 Endpoint JSON (`Content-Type: application/json`) tetap menerima `200`/`400` + `{"ok": …}`
@@ -922,12 +941,12 @@ tanpa redirect.
 > Sekarang dashboard memakai `peek_level_config()` (baca tanpa membuat config) dan
 > `set_level_enabled()` (menyimpan `enabled: False` tanpa menghapus setelan XP/channel/season).
 
-#### Setelan yang bisa diubah dari web (48 fitur)
+#### Setelan yang bisa diubah dari web (52 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
 | 🧭 **Inti, level, & ekonomi** (8) | Level & XP, pengumuman naik level, channel pengumuman level, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
-| 👋 **Sambutan & pamit** (6) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, channel pamit, channel ucapan boost |
+| 👋 **Sambutan & pamit** (10) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, **bahasa sapaan sambutan**, **latin & arti sapaan**, channel pamit, **bahasa kata perpisahan**, **latin & arti perpisahan**, channel ucapan boost |
 | 🛡️ **Keamanan** (10) | mode anti-spam, deteksi huruf kapital, log anti-spam, aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
 | 🎫 **Tiket & sapaan harian** (8) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, ping staf, rating tiket, channel ucapan ulang tahun |
 | 🧩 **Konten & interaksi** (16) | starboard (+ambang bintang), kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup, gaya bahasa AI, keamanan konten AI, jam tenang, zona waktu |

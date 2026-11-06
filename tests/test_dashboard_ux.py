@@ -79,14 +79,15 @@ def test_tombol_kontrol_cepat_mengikuti_keadaan():
 # ==============================================================================
 # MENU HAMBURGER (tanpa JavaScript)
 # ==============================================================================
-def test_halaman_punya_menu_hamburger_dan_anchor():
-    page = web_dashboard.render_dashboard_html(status={}, usage={}, levels={})
+def test_halaman_punya_menu_hamburger_dan_panel():
+    page = web_dashboard.render_dashboard_html(status={}, usage={}, levels={}, halaman="")
     assert "☰ Menu" in page
     assert 'id="nav-buka"' in page and 'for="nav-buka"' in page
     assert "#nav-buka:checked ~ nav.menu" in page     # CSS murni, tanpa JS
-    for anchor in ("p-status", "p-setelan", "p-kirim", "p-tiket", "p-panel", "p-riwayat"):
+    for anchor in ("p-status", "p-pemakaian", "p-tren", "p-level"):
         assert f'id="{anchor}"' in page
-        assert f'href="#{anchor}"' in page
+    # Panel fitur lain pindah ke halamannya sendiri
+    assert 'id="p-setelan"' not in page
     assert "position: sticky" in page                 # header menempel saat digulir
 
 
@@ -154,6 +155,8 @@ async def test_simpan_setelan_redirect_ke_panel_dan_tampilkan_pesan(monkeypatch,
             assert resp.status == 303
             lokasi = resp.headers["Location"]
             assert "pesan=" in lokasi and "ok=1" in lokasi
+            # Redirect kembali ke HALAMAN asal (setelan), bukan ke "/"
+            assert lokasi.startswith("/setelan?")
             assert lokasi.endswith("#p-setelan")
 
         # Ikuti redirect: kotak pesan tampil dan nilai sudah nonaktif
@@ -163,8 +166,8 @@ async def test_simpan_setelan_redirect_ke_panel_dan_tampilkan_pesan(monkeypatch,
             assert 'class="flash"' in body and "nonaktif" in body
             assert '<option value="off" selected>' in body
 
-        # Nilai tidak balik jadi "on" pada muat berikutnya
-        async with session.get(f"{base}/?token=tok-ux&guild={GID}") as resp:
+        # Nilai tidak balik jadi "on" pada muat berikutnya (halaman setelan)
+        async with session.get(f"{base}/setelan?token=tok-ux&guild={GID}") as resp:
             assert '<option value="off" selected>' in await resp.text()
         assert levels.is_leveling_active(GID) is False
 

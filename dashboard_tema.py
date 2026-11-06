@@ -122,6 +122,12 @@ CSS_HALAMAN = f"""
     transition: background .15s ease, color .15s ease, border-color .15s ease;
   }}
   nav.menu a:hover {{ background: rgba(255,255,255,.10); color: #fff; border-color: var(--garis-kuat); }}
+  nav.menu a[aria-current="page"] {{
+    background: rgba(139,124,255,.16); border-color: rgba(139,124,255,.55);
+    color: #fff; font-weight: 600;
+  }}
+  .keterangan-halaman {{ margin: 0 0 16px; color: var(--redup); font-size: 12.5px; }}
+  .keterangan-halaman:empty {{ display: none; }}
   .panel, .subpanel, section[id] {{ scroll-margin-top: 118px; }}
 
   /* --- pesan hasil aksi --- */

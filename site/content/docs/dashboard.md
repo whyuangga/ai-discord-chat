@@ -7,7 +7,7 @@ toc: true
 ---
 
 Satu halaman web untuk memantau **dan** mengatur bot: status, pemakaian AI, papan level,
-peta fitur, **48 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
+peta fitur, **52 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
 Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
 | Aspek | Detail |
@@ -17,7 +17,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
 | **Endpoint tulis** | Enam jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari) & `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian). |
-| **Setelan** | **48 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
+| **Setelan** | **52 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
@@ -42,7 +42,7 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | sakelar level, ekonomi, & pertumbuhan dengan **tombol yang mengikuti keadaan** (“Nonaktifkan” saat aktif, “Aktifkan” saat mati) + mode anti-spam & aksi anti-nuke |
-| **Setelan server** | **48 setelan** dalam 5 grup (lihat tabel di bawah) |
+| **Setelan server** | **52 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
@@ -68,22 +68,38 @@ Semua warna & font tinggal di satu modul, `dashboard_tema.py` (`LATAR`, `TEKS`,
 `FONT_STACK`, `CSS_HALAMAN`, `CSS_PRATINJAU`, `CSS_HASIL`) — mengganti tema cukup
 mengubah satu berkas itu, tanpa menyentuh `web_dashboard.py` atau `dashboard_ui.py`.
 
-### Navigasi dashboard (menu ☰ di HP)
+### Tujuh halaman, satu menu (menu ☰ di HP)
 
-Halaman dashboard itu panjang (status → setelan → kirim → tiket → panel → banner).
-Supaya tidak perlu menggulir buta:
+Dashboard tidak lagi satu halaman gulung panjang — fitur dipecah per halaman, jadi
+membukanya di HP jauh lebih ringan (≈15–18 KB per halaman, halaman setelan ±46 KB
+karena memuat 52 setelan — dibanding ±63 KB sekaligus di versi lama):
+
+| Halaman | Isi | Panel |
+| :--- | :--- | :--- |
+| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level | 6 |
+| `/setelan` | Kontrol cepat + **52 setelan** (5 grup) | 2 |
+| `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan | 2 |
+| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan | 2 |
+| `/tiket` | Kotak masuk tiket + pasang panel tiket | 1 |
+| `/panel` | Editor tombol & dropdown + gerbang verifikasi | 1 |
+| `/ekspor` | Ekspor CSV + riwayat perubahan | 2 |
+
+Aturan mainnya:
 
 | Bagian | Perilaku |
 | :--- | :--- |
-| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: nama bot, versi, waktu baca, & pemilih server |
-| **Menu anchor** | baris tombol 📡 Status · 📊 Pemakaian · 📈 Tren · 🏆 Level · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🎫 Tiket · 🧩 Panel · 🖼️ Banner · 📥 Ekspor · 🗂️ Konten · 🧾 Riwayat |
+| **Menu halaman** | 📡 Ringkasan · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🎫 Tiket · 🧩 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
+| **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
 | **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
-| **Lompatan rapi** | setiap panel punya `id` (`#p-setelan`, `#p-tiket`, …) dan `scroll-margin-top`, jadi judulnya tidak tertutup header |
+| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
+| **Anchor tetap ada** | tiap panel masih punya `id` (`#p-setelan`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/setelan#p-setelan` bisa dipakai sebagai bookmark |
+| **Bookmark lama** | `/?halaman=setelan` dialihkan otomatis (`303`) ke `/setelan`; `/api/*` tidak berubah sama sekali |
 
 ### Setelah menekan Simpan
 
 Form memakai pola **POST → redirect (303) → GET**: setelah menyimpan, kamu kembali ke
-panel yang sama (`#p-…`) dan melihat kotak pesan ✅ berisi hasilnya — nilai barunya sudah
+**halaman asal** dan panel yang sama (`/kirim#p-banner`, `/setelan#p-setelan`, …) lalu
+melihat kotak pesan ✅ berisi hasilnya — nilai barunya sudah
 terbaca dari JSON, jadi tidak perlu klik “kembali” atau muat ulang. Kalau gagal, pesan ⚠️
 dan alasannya tampil di halaman hasil dengan tautan kembali ke panel yang sama.
 Endpoint JSON (`Content-Type: application/json`) tetap menerima `200`/`400` + `{"ok": …}`
@@ -95,12 +111,12 @@ tanpa redirect.
 > Sekarang dashboard memakai `peek_level_config()` (baca tanpa membuat config) dan
 > `set_level_enabled()` (menyimpan `enabled: False` tanpa menghapus setelan XP/channel/season).
 
-### Setelan yang bisa diubah dari web (48 fitur)
+### Setelan yang bisa diubah dari web (52 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
 | 🧭 **Inti, level, & ekonomi** (8) | Level & XP, pengumuman naik level, channel pengumuman level, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
-| 👋 **Sambutan & pamit** (6) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, channel pamit, channel ucapan boost |
+| 👋 **Sambutan & pamit** (10) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, **bahasa sapaan sambutan**, **latin & arti sapaan**, channel pamit, **bahasa kata perpisahan**, **latin & arti perpisahan**, channel ucapan boost |
 | 🛡️ **Keamanan** (10) | mode anti-spam, deteksi huruf kapital, log anti-spam, aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
 | 🎫 **Tiket & sapaan harian** (8) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, ping staf, rating tiket, channel ucapan ulang tahun |
 | 🧩 **Konten & interaksi** (16) | starboard (+ambang bintang), kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup, gaya bahasa AI, keamanan konten AI, jam tenang, zona waktu |

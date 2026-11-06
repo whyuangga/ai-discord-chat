@@ -470,8 +470,11 @@ def daftar_server(bot) -> list[tuple[str, str]]:
     return sorted(daftar, key=lambda item: item[1].lower())
 
 
-def render_guild_picker(bot, guild_id: int, token: str) -> str:
-    """Dropdown pilih server (form GET biasa, tanpa JavaScript)."""
+def render_guild_picker(bot, guild_id: int, token: str, halaman: str = "") -> str:
+    """Dropdown pilih server (form GET biasa, tanpa JavaScript).
+
+    `halaman` membuat pemilihan server tetap berada di halaman yang sedang dibuka.
+    """
     daftar = daftar_server(bot)
     if not daftar:
         return '<div class="muted">Bot belum berada di server mana pun.</div>'
@@ -483,7 +486,7 @@ def render_guild_picker(bot, guild_id: int, token: str) -> str:
         for gid, nama in daftar
     )
     return (
-        '<form method="get" action="/" class="pemilih-server">'
+        f'<form method="get" action="/{_esc(halaman)}" class="pemilih-server">'
         f'<input type="hidden" name="token" value="{_esc(token)}">'
         '<label for="pilih-server">Server</label>'
         f'<select name="guild" id="pilih-server">{opsi}</select>'

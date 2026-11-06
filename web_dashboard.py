@@ -46,6 +46,7 @@ import html
 import logging
 import os
 import time
+from urllib.parse import urlencode
 
 import dashboard_admin
 import dashboard_panel
@@ -352,130 +353,16 @@ _PAGE_TEMPLATE = """<!doctype html>
       <span class="meta">v{version} • {checked_at}{refresh_info}</span>
       <label class="menu-btn" for="nav-buka">☰ Menu</label>
     </div>
-    <nav class="menu">
-      <a href="#p-status">📡 Status</a>
-      <a href="#p-pemakaian">📊 Pemakaian</a>
-      <a href="#p-tren">📈 Tren</a>
-      <a href="#p-level">🏆 Level</a>
-      <a href="#p-setelan">🛠️ Setelan</a>
-      <a href="#p-kirim">✉️ Kirim</a>
-      <a href="#p-buat">➕ Buat</a>
-      <a href="#p-tiket">🎫 Tiket</a>
-      <a href="#p-panel">🧩 Panel</a>
-      <a href="#p-banner">🖼️ Banner</a>
-      <a href="#p-ekspor">📥 Ekspor</a>
-      <a href="#p-konten">🗂️ Konten</a>
-      <a href="#p-riwayat">🧾 Riwayat</a>
-    </nav>
+    {menu}
     <div class="baris" style="margin-top:8px">{guild_picker}</div>
   </header>
   {flash}
+  <p class="keterangan-halaman">{keterangan}</p>
 
-  <section id="p-status">
-  <div class="grid">
-    <div class="card">Uptime<b>{uptime}</b></div>
-    <div class="card">RAM<b>{ram_mb} MB</b></div>
-    <div class="card">Latensi<b>{ping_ms} ms</b></div>
-    <div class="card">Server / Member<b>{guilds} / {members}</b></div>
-    <div class="card">Gemini<b class="{ai_class}">{ai_label}</b></div>
-    <div class="card">Operasi AI Hari Ini<b>{total}</b></div>
-  </div>
-  </section>
-
-  <div class="panel" id="p-pemakaian">
-    <h2>📊 Pemakaian AI — {date}</h2>
-    <table>
-      <tr><th>Token masuk</th><td>{tokens_in:,}</td><th>Token keluar</th><td>{tokens_out:,}</td></tr>
-      <tr><th>Cache hit</th><td>{cache_hits}</td><th>FAQ lokal</th><td>{faq_hits}</td></tr>
-      <tr><th>Kuota server</th><td>{guild_usage}</td><th>Batas per member</th><td>{cap_per_user}</td></tr>
-    </table>
-  </div>
-
-  <div class="panel" id="p-jenis">
-    <h2>🧩 Jenis Operasi</h2>
-    {kinds_table}
-  </div>
-
-  <div class="panel" id="p-tren">
-    <h2>📈 Tren {tren_hari} hari</h2>
-    {tren_block}
-  </div>
-
-  <div class="panel" id="p-channel">
-    <h2>📍 Channel Paling Ramai</h2>
-    {channels_table}
-  </div>
-
-  <div class="panel" id="p-level">
-    <h2>🏆 Papan Peringkat Level</h2>
-    {levels_table}
-  </div>
-
-  <div class="panel" id="p-kontrol">
-    <h2>⚙️ Kontrol Cepat</h2>
-    <p class="muted">Menyala/mematikan fitur per server. Butuh token dashboard yang sah.</p>
-    {fitur_block}
-
-    {kontrol_block}
-  </div>
-
-  <div class="panel" id="p-setelan">
-    <h2>🛠️ Setelan server</h2>
-    <p class="muted">Semua fitur di bawah bisa diubah dari sini. Pilih nilai lalu <b>Simpan</b> —
-    perubahan langsung tersimpan ke JSON bot (tanpa restart) dan tercatat di riwayat.</p>
-    {setelan_block}
-  </div>
-
-  <div class="panel" id="p-kirim">
-    <h2>✉️ Kirim pesan &amp; embed</h2>
-    <p class="muted">Kirim pengumuman sekali jalan, atau pakai identitas webhook supaya
-    nama &amp; avatar pengirim bisa berbeda dari bot.</p>
-    {kirim_block}
-  </div>
-
-  <div class="panel" id="p-buat">
-    <h2>➕ Buat konten</h2>
-    {buat_block}
-  </div>
-
-  <div class="panel" id="p-ekspor">
-    <h2>📥 Ekspor CSV</h2>
-    {ekspor_block}
-  </div>
-
-  <div class="panel" id="p-panel">
-    <h2>🧩 Editor panel (tombol &amp; dropdown)</h2>
-    <p class="muted">Tambah atau hapus tombol/role/dropdown tanpa membuka Discord.</p>
-    {panel_block}
-  </div>
-
-  <div class="panel" id="p-tiket">
-    <h2>🎫 Kotak masuk tiket</h2>
-    <p class="muted">Balas atau tutup tiket dari HP — tanpa membuka Discord.</p>
-    {tiket_block}
-  </div>
-
-  <div class="panel" id="p-banner">
-    <h2>🖼️ Banner &amp; gambar</h2>
-    <p class="muted">Unggah gambar lalu pakai untuk banner panel atau gambar embed —
-    tanpa perlu URL publik. Berkas disimpan di <code>data/uploads/</code>.</p>
-    {banner_block}
-  </div>
-
-  <div class="panel" id="p-konten">
-    <h2>🗂️ Konten tersimpan</h2>
-    <p class="muted">Klik Hapus untuk membuang konten. Pesan yang sudah terkirim di Discord
-    tidak ikut terhapus.</p>
-    {konten_block}
-  </div>
-
-  <div class="panel" id="p-riwayat">
-    <h2>🧾 Riwayat perubahan</h2>
-    {audit_block}
-  </div>
+{isi}
 
   <footer class="muted">
-    Data dibaca dari JSON lokal bot. Kontrol di atas hanya mengubah setelan fitur (bukan menghapus data).
+    Data dibaca dari JSON lokal bot. Kontrol di sini hanya mengubah setelan fitur (bukan menghapus data).
     Rahasiakan tautan ini — siapa pun yang punya token bisa mengubah setelan.
   </footer>
 </body>
@@ -551,6 +438,266 @@ def _flash_box(pesan: str, ok: bool = True) -> str:
     return f'<div class="{kelas}">{tanda} {_teks_pesan(teks)}</div>'
 
 
+# ==============================================================================
+# HALAMAN (fitur dipecah per halaman — tanpa JavaScript)
+# ==============================================================================
+# Satu halaman = satu kelompok fitur. Menu atas menjadi tautan antar-halaman
+# (token & server tetap terbawa di query), dan tiap panel masih punya `id`
+# sendiri supaya `…/setelan#p-setelan` tetap bisa dipakai sebagai bookmark.
+HALAMAN: tuple[dict, ...] = (
+    {
+        "slug": "",
+        "menu": "📡 Ringkasan",
+        "judul": "📡 Ringkasan",
+        "keterangan": "Status bot, pemakaian AI, tren 7 hari, & papan peringkat level.",
+        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level"),
+    },
+    {
+        "slug": "setelan",
+        "menu": "🛠️ Setelan",
+        "judul": "🛠️ Setelan server",
+        "keterangan": "Kontrol cepat + semua setelan fitur server (tanpa restart).",
+        "panel": ("p-kontrol", "p-setelan"),
+    },
+    {
+        "slug": "kirim",
+        "menu": "✉️ Kirim",
+        "judul": "✉️ Kirim pesan & banner",
+        "keterangan": "Kirim pesan/embed, pratinjau dulu, dan unggah banner.",
+        "panel": ("p-kirim", "p-banner"),
+    },
+    {
+        "slug": "buat",
+        "menu": "➕ Buat",
+        "judul": "➕ Buat konten",
+        "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan.",
+        "panel": ("p-buat", "p-konten"),
+    },
+    {
+        "slug": "tiket",
+        "menu": "🎫 Tiket",
+        "judul": "🎫 Kotak masuk tiket",
+        "keterangan": "Balas & tutup tiket dari HP, plus pasang panel tiket.",
+        "panel": ("p-tiket",),
+    },
+    {
+        "slug": "panel",
+        "menu": "🧩 Panel",
+        "judul": "🧩 Editor panel",
+        "keterangan": "Tambah/hapus tombol & dropdown, pasang gerbang verifikasi.",
+        "panel": ("p-panel",),
+    },
+    {
+        "slug": "ekspor",
+        "menu": "📥 Ekspor",
+        "judul": "📥 Ekspor & riwayat",
+        "keterangan": "Unduh CSV (level, moderasi, tiket, pemakaian) & lihat riwayat perubahan.",
+        "panel": ("p-ekspor", "p-riwayat"),
+    },
+)
+
+HALAMAN_SLUG: dict[str, dict] = {h["slug"]: h for h in HALAMAN}
+ANCHOR_HALAMAN: dict[str, str] = {
+    anchor: h["slug"] for h in HALAMAN for anchor in h["panel"]
+}
+
+
+def halaman_dari_path(path: str) -> str:
+    """Slug halaman dari URL (`/` -> "", `/setelan` -> "setelan")."""
+    slug = str(path or "").strip("/")
+    return slug if slug in HALAMAN_SLUG else ""
+
+
+def halaman_dari_anchor(anchor: str) -> str:
+    """Halaman tempat sebuah panel (`p-tiket`, …) berada."""
+    return ANCHOR_HALAMAN.get(str(anchor or "").strip(), "")
+
+
+def url_halaman(slug: str, token: str = "", guild_id: int = 0) -> str:
+    """Alamat satu halaman dengan token & server tetap terbawa."""
+    dasar = f"/{slug}" if slug else "/"
+    return f"{dasar}?{urlencode({'token': token, 'guild': int(guild_id or 0)})}"
+
+
+def render_menu(slug: str, token: str = "", guild_id: int = 0) -> str:
+    """Menu utama: tautan antar-halaman, halaman aktif ditandai `aria-current`."""
+    aktif = slug if slug in HALAMAN_SLUG else ""
+    butir = []
+    for halaman in HALAMAN:
+        ini = halaman["slug"] == aktif
+        tanda = ' aria-current="page"' if ini else ""
+        tautan = html.escape(url_halaman(halaman["slug"], token, guild_id), quote=True)
+        butir.append(f'<a href="{tautan}"{tanda}>{halaman["menu"]}</a>')
+    return '<nav class="menu" aria-label="Halaman dashboard">' + "".join(butir) + "</nav>"
+
+
+def _panel_status(d: dict) -> str:
+    return (
+        '<section id="p-status">\n  <div class="grid">\n'
+        f'    <div class="card">Uptime<b>{d["uptime"]}</b></div>\n'
+        f'    <div class="card">RAM<b>{d["ram_mb"]} MB</b></div>\n'
+        f'    <div class="card">Latensi<b>{d["ping_ms"]} ms</b></div>\n'
+        f'    <div class="card">Server / Member<b>{d["guilds"]} / {d["members"]}</b></div>\n'
+        f'    <div class="card">Gemini<b class="{d["ai_class"]}">{d["ai_label"]}</b></div>\n'
+        f'    <div class="card">Operasi AI Hari Ini<b>{d["total"]}</b></div>\n'
+        "  </div>\n  </section>"
+    )
+
+
+def _panel_pemakaian(d: dict) -> str:
+    return (
+        f'<div class="panel" id="p-pemakaian">\n'
+        f'    <h2>📊 Pemakaian AI — {d["date"]}</h2>\n    <table>\n'
+        f'      <tr><th>Token masuk</th><td>{d["tokens_in"]:,}</td>'
+        f'<th>Token keluar</th><td>{d["tokens_out"]:,}</td></tr>\n'
+        f'      <tr><th>Cache hit</th><td>{d["cache_hits"]}</td>'
+        f'<th>FAQ lokal</th><td>{d["faq_hits"]}</td></tr>\n'
+        f'      <tr><th>Kuota server</th><td>{d["guild_usage"]}</td>'
+        f'<th>Batas per member</th><td>{d["cap_per_user"]}</td></tr>\n'
+        "    </table>\n  </div>"
+    )
+
+
+def _panel_jenis(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-jenis">\n    <h2>🧩 Jenis Operasi</h2>\n'
+        f'    {d["kinds_table"]}\n  </div>'
+    )
+
+
+def _panel_tren(d: dict) -> str:
+    return (
+        f'<div class="panel" id="p-tren">\n    <h2>📈 Tren {d["tren_hari"]} hari</h2>\n'
+        f'    {d["tren_block"]}\n  </div>'
+    )
+
+
+def _panel_channel(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-channel">\n    <h2>📍 Channel Paling Ramai</h2>\n'
+        f'    {d["channels_table"]}\n  </div>'
+    )
+
+
+def _panel_level(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-level">\n    <h2>🏆 Papan Peringkat Level</h2>\n'
+        f'    {d["levels_table"]}\n  </div>'
+    )
+
+
+def _panel_kontrol(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-kontrol">\n    <h2>⚙️ Kontrol Cepat</h2>\n'
+        '    <p class="muted">Menyala/mematikan fitur per server. Butuh token dashboard yang sah.</p>\n'
+        f'    {d["fitur_block"]}\n\n    {d["kontrol_block"]}\n  </div>'
+    )
+
+
+def _panel_setelan(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-setelan">\n    <h2>🛠️ Setelan server</h2>\n'
+        '    <p class="muted">Semua fitur di bawah bisa diubah dari sini. Pilih nilai lalu <b>Simpan</b> —\n'
+        '    perubahan langsung tersimpan ke JSON bot (tanpa restart) dan tercatat di riwayat.</p>\n'
+        f'    {d["setelan_block"]}\n  </div>'
+    )
+
+
+def _panel_kirim(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-kirim">\n    <h2>✉️ Kirim pesan &amp; embed</h2>\n'
+        '    <p class="muted">Kirim pengumuman sekali jalan, atau pakai identitas webhook supaya\n'
+        '    nama &amp; avatar pengirim bisa berbeda dari bot.</p>\n'
+        f'    {d["kirim_block"]}\n  </div>'
+    )
+
+
+def _panel_buat(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-buat">\n    <h2>➕ Buat konten</h2>\n'
+        f'    {d["buat_block"]}\n  </div>'
+    )
+
+
+def _panel_konten(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-konten">\n    <h2>🗂️ Konten tersimpan</h2>\n'
+        '    <p class="muted">Klik Hapus untuk membuang konten. Pesan yang sudah terkirim di Discord\n'
+        '    tidak ikut terhapus.</p>\n'
+        f'    {d["konten_block"]}\n  </div>'
+    )
+
+
+def _panel_ekspor(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-ekspor">\n    <h2>📥 Ekspor CSV</h2>\n'
+        f'    {d["ekspor_block"]}\n  </div>'
+    )
+
+
+def _panel_panel(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-panel">\n    <h2>🧩 Editor panel (tombol &amp; dropdown)</h2>\n'
+        '    <p class="muted">Tambah atau hapus tombol/role/dropdown tanpa membuka Discord.</p>\n'
+        f'    {d["panel_block"]}\n  </div>'
+    )
+
+
+def _panel_tiket(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-tiket">\n    <h2>🎫 Kotak masuk tiket</h2>\n'
+        '    <p class="muted">Balas atau tutup tiket dari HP — tanpa membuka Discord.</p>\n'
+        f'    {d["tiket_block"]}\n  </div>'
+    )
+
+
+def _panel_banner(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-banner">\n    <h2>🖼️ Banner &amp; gambar</h2>\n'
+        '    <p class="muted">Unggah gambar lalu pakai untuk banner panel atau gambar embed —\n'
+        '    tanpa perlu URL publik. Berkas disimpan di <code>data/uploads/</code>.</p>\n'
+        f'    {d["banner_block"]}\n  </div>'
+    )
+
+
+def _panel_riwayat(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-riwayat">\n    <h2>🧾 Riwayat perubahan</h2>\n'
+        f'    {d["audit_block"]}\n  </div>'
+    )
+
+
+PANEL: dict[str, object] = {
+    "p-status": _panel_status,
+    "p-pemakaian": _panel_pemakaian,
+    "p-jenis": _panel_jenis,
+    "p-tren": _panel_tren,
+    "p-channel": _panel_channel,
+    "p-level": _panel_level,
+    "p-kontrol": _panel_kontrol,
+    "p-setelan": _panel_setelan,
+    "p-kirim": _panel_kirim,
+    "p-buat": _panel_buat,
+    "p-konten": _panel_konten,
+    "p-ekspor": _panel_ekspor,
+    "p-panel": _panel_panel,
+    "p-tiket": _panel_tiket,
+    "p-banner": _panel_banner,
+    "p-riwayat": _panel_riwayat,
+}
+
+
+def susun_isi(slug: str, data: dict) -> str:
+    """HTML isi untuk satu halaman (hanya panel milik halaman itu)."""
+    halaman = HALAMAN_SLUG.get(slug) or HALAMAN_SLUG[""]
+    return "\n\n".join(PANEL[a](data) for a in halaman["panel"] if a in PANEL)
+
+
+def susun_isi_lengkap(data: dict) -> str:
+    """Semua panel dalam satu halaman (dipakai tes lama & mode cetak)."""
+    return "\n\n".join(PANEL[a](data) for a in PANEL)
+
+
 def render_dashboard_html(
     *,
     status: dict,
@@ -575,8 +722,20 @@ def render_dashboard_html(
     tiket_block: str = "",
     tren_block: str = "",
     tren_hari: int = 7,
+    halaman: str | None = None,
+    menu: str = "",
+    isi: str | None = None,
+    token: str = "",
+    guild_id: int = 0,
+    judul_halaman: str = "",
+    keterangan: str = "",
 ) -> str:
-    """Merender halaman HTML dashboard (string). Aman untuk data kosong."""
+    """Merender satu halaman dashboard (string). Aman untuk data kosong.
+
+    `halaman` menentukan kelompok panel yang ditampilkan; bila `isi` diberikan
+    (mis. hasil `susun_isi`) isi itulah yang dipakai. Tanpa `halaman`/`isi`,
+    semua panel dirender dalam satu halaman — perilaku lama tetap jalan.
+    """
     guild_limit = int(usage.get("guild_limit") or 0)
     guild_used = int(usage.get("guild_used") or 0)
     guild_usage = (
@@ -596,6 +755,56 @@ def render_dashboard_html(
         else ""
     )
     refresh_info = f" (auto-refresh {detik}s)" if detik > 0 else " (auto-refresh mati)"
+    data = {
+        "uptime": html.escape(str(status.get("uptime") or "-")),
+        "ram_mb": status.get("ram_mb") or 0,
+        "ping_ms": int(status.get("ping_ms") or 0),
+        "guilds": int(status.get("guilds") or 0),
+        "members": int(status.get("members") or 0),
+        "ai_class": "ok" if ai_ready else "warn",
+        "ai_label": "aktif" if ai_ready else "belum ada key",
+        "total": int(usage.get("total") or 0),
+        "date": html.escape(str(usage.get("date") or "-")),
+        "tokens_in": int(usage.get("tokens_in") or 0),
+        "tokens_out": int(usage.get("tokens_out") or 0),
+        "cache_hits": int(usage.get("cache_hits") or 0),
+        "faq_hits": int(usage.get("faq_hits") or 0),
+        "guild_usage": html.escape(guild_usage),
+        "cap_per_user": (
+            f"{int(usage.get('cap_per_user') or 0)}/hari"
+            if int(usage.get("cap_per_user") or 0)
+            else "tanpa batas"
+        ),
+        "kinds_table": _rows_table(usage.get("kinds") or [], value_label="Operasi"),
+        "channels_table": _rows_table(usage.get("channels") or [], value_label="Operasi"),
+        "levels_table": _levels_table(levels),
+        "kontrol_block": kontrol_block,
+        "fitur_block": fitur_block,
+        "setelan_block": setelan_block or '<div class="muted">Setelan tidak tersedia.</div>',
+        "kirim_block": kirim_block,
+        "buat_block": buat_block,
+        "konten_block": konten_block,
+        "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
+        "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
+        "ekspor_block": ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
+        "panel_block": panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
+        "tiket_block": tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
+        "tren_block": tren_block or '<div class="muted">Belum ada data tren.</div>',
+        "tren_hari": int(tren_hari or 7),
+    }
+    slug = halaman if halaman in HALAMAN_SLUG else ""
+    if isi is not None:
+        isi_halaman = isi
+    elif halaman is None:
+        isi_halaman = susun_isi_lengkap(data)   # mode lama: semua panel
+    else:
+        isi_halaman = susun_isi(slug, data)
+    menu_html = menu or render_menu(slug, token, guild_id)
+    if judul_halaman:
+        heading_final = f"{judul_halaman} · {heading}" if heading else judul_halaman
+    else:
+        heading_final = heading
+
     return _PAGE_TEMPLATE.format(
         font_link=dashboard_tema.FONT_LINK,
         css=dashboard_tema.CSS_HALAMAN,
@@ -603,45 +812,13 @@ def render_dashboard_html(
         meta_refresh=meta_refresh,
         version=html.escape(str(status.get("version") or "-")),
         bot_name=html.escape(str(status.get("bot_name") or "Bot")),
-        heading=html.escape(heading),
-        uptime=html.escape(str(status.get("uptime") or "-")),
-        ram_mb=status.get("ram_mb") or 0,
-        ping_ms=int(status.get("ping_ms") or 0),
-        guilds=int(status.get("guilds") or 0),
-        members=int(status.get("members") or 0),
-        ai_class="ok" if ai_ready else "warn",
-        ai_label="aktif" if ai_ready else "belum ada key",
+        heading=html.escape(heading_final),
         checked_at=html.escape(str(status.get("checked_at") or "-")),
-        total=int(usage.get("total") or 0),
-        date=html.escape(str(usage.get("date") or "-")),
-        tokens_in=int(usage.get("tokens_in") or 0),
-        tokens_out=int(usage.get("tokens_out") or 0),
-        cache_hits=int(usage.get("cache_hits") or 0),
-        faq_hits=int(usage.get("faq_hits") or 0),
-        guild_usage=html.escape(guild_usage),
-        cap_per_user=(
-            f"{int(usage.get('cap_per_user') or 0)}/hari"
-            if int(usage.get("cap_per_user") or 0)
-            else "tanpa batas"
-        ),
-        kinds_table=_rows_table(usage.get("kinds") or [], value_label="Operasi"),
-        channels_table=_rows_table(usage.get("channels") or [], value_label="Operasi"),
-        levels_table=_levels_table(levels),
-        kontrol_block=kontrol_block,
-        fitur_block=fitur_block,
-        setelan_block=setelan_block or '<div class="muted">Setelan tidak tersedia.</div>',
-        kirim_block=kirim_block,
-        buat_block=buat_block,
-        konten_block=konten_block,
-        audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
-        banner_block=banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
+        menu=menu_html,
+        isi=isi_halaman,
+        keterangan=html.escape(keterangan),
         guild_picker=guild_picker,
         flash=_flash_box(flash_pesan, flash_ok),
-        ekspor_block=ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
-        panel_block=panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
-        tiket_block=tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
-        tren_block=tren_block or '<div class="muted">Belum ada data tren.</div>',
-        tren_hari=int(tren_hari or 7),
     )
 
 
@@ -878,7 +1055,9 @@ async def start_dashboard(bot) -> bool:
         supaya pengguna langsung berada di panel yang sama dan melihat nilai baru.
         """
         token_url = html.escape(cfg["token"], quote=True)
-        tujuan = f"/?token={token_url}"
+        slug = halaman_dari_anchor(anchor)
+        dasar = f"/{slug}" if slug else "/"
+        tujuan = f"{dasar}?token={token_url}"
         if anchor:
             tujuan += f"#{html.escape(anchor, quote=True)}"
         page = (
@@ -907,7 +1086,8 @@ async def start_dashboard(bot) -> bool:
                 "ok": "1",
             }
         )
-        tujuan = f"/?{kueri}"
+        slug = halaman_dari_anchor(anchor)
+        tujuan = f"/{slug}?{kueri}" if slug else f"/?{kueri}"
         if anchor:
             tujuan += f"#{anchor}"
         return web.Response(status=303, headers={"Location": tujuan})
@@ -932,6 +1112,16 @@ async def start_dashboard(bot) -> bool:
         token = cfg["token"]
         flash_pesan = str(request.query.get("pesan") or "")[:300]
         flash_ok = str(request.query.get("ok") or "1") != "0"
+
+        # Bookmark lama berbentuk `/?halaman=setelan` diarahkan ke halaman barunya.
+        pinta = str(request.query.get("halaman") or "").strip()
+        if pinta and pinta in HALAMAN_SLUG and request.path.strip("/") != pinta:
+            return web.Response(status=303, headers={
+                "Location": url_halaman(pinta, token, gid)
+            })
+
+        slug = halaman_dari_path(request.path)
+        halaman_meta = HALAMAN_SLUG[slug]
 
         def _blok(pembuat, bawaan: str) -> str:
             """Gambar satu blok; kegagalan satu blok tidak mematikan halaman."""
@@ -987,7 +1177,7 @@ async def start_dashboard(bot) -> bool:
         )
 
         guild_picker = _blok(
-            lambda: dashboard_ui.render_guild_picker(bot, gid, token),
+            lambda: dashboard_ui.render_guild_picker(bot, gid, token, halaman=slug),
             "",
         )
         tren = collect_tren(7)
@@ -1001,7 +1191,7 @@ async def start_dashboard(bot) -> bool:
             usage=collect_usage(gid),
             levels=collect_levels(gid),
             refresh=cfg["refresh"],
-            heading=f"🛰️ Dashboard {guild_name}" if guild_name else "🛰️ Dashboard Bot",
+            heading=guild_name or "Bot",
             kontrol_block=render_controls_block(gid, token),
             fitur_block=render_features_block(gid),
             setelan_block=setelan_block,
@@ -1013,12 +1203,17 @@ async def start_dashboard(bot) -> bool:
             guild_picker=guild_picker,
             flash_pesan=flash_pesan,
             flash_ok=flash_ok,
-            alamat_bersih=f"/?token={token}&guild={int(gid or 0)}",
+            alamat_bersih=url_halaman(slug, token, gid),
             ekspor_block=ekspor_block,
             panel_block=panel_block,
             tiket_block=tiket_block,
             tren_block=tren_block,
             tren_hari=tren["hari"],
+            halaman=slug,
+            token=token,
+            guild_id=gid,
+            judul_halaman=halaman_meta["judul"],
+            keterangan=halaman_meta["keterangan"],
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8")
 
@@ -1369,6 +1564,9 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
+    for _halaman in HALAMAN:
+        if _halaman["slug"]:
+            app.router.add_get(f"/{_halaman['slug']}", handle_index)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/pemakaian", handle_usage)
     app.router.add_get("/api/level", handle_levels)

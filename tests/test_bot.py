@@ -2370,7 +2370,9 @@ async def test_welcome_persona_goodbye_and_asian_greetings(monkeypatch):
         10, "Bintang", "<@555>", "Whas", guild_name="Server Angga", http_session=fake_http
     )
     jp_words = {w["word"] for w in japanese}
-    assert any(greeting.startswith(w) for w in jp_words)
+    # Sapaan asing kini berhias: **"こんにちは" (Konnichiwa)** — *selamat siang, halo*
+    assert any(greeting.startswith(f'**"{w}"**') for w in jp_words)
+    assert "Konnichiwa" in greeting or "(" in greeting  # huruf latin ikut tampil
     assert "<@555>" in greeting
 
     sent_system = fake_http.post_calls[0]["json"]["systemInstruction"]["parts"][0]["text"]
@@ -2400,7 +2402,7 @@ async def test_welcome_persona_goodbye_and_asian_greetings(monkeypatch):
         days_in_server=12, http_session=fake_http_g,
     )
     korean_words = {w["word"] for w in community_agent.ASIAN_FAREWELLS if w["key"] == "korea"}
-    assert any(farewell.startswith(w) for w in korean_words)
+    assert any(farewell.startswith(f'**"{w}"**') for w in korean_words)
     assert "<@555>" in farewell
     assert "Persona perpisahan: Hangat & Tulus" in fake_http_g.post_calls[0]["json"]["contents"][0]["parts"][-1]["text"]
 

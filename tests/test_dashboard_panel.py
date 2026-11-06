@@ -539,11 +539,15 @@ async def test_http_panel_daftar_tambah_hapus(monkeypatch, tmp_path):
             data = await resp.json()
             assert resp.status == 200 and data["items"][0]["id"] == "m1"
 
-        # halaman utama memuat editor panel
-        async with session.get(f"{base}/?token=tok-panel&guild={GID}") as resp:
+        # halaman /panel memuat editor panel
+        async with session.get(f"{base}/panel?token=tok-panel&guild={GID}") as resp:
             body = await resp.text()
             assert resp.status == 200
             assert "Editor panel" in body and "tambah:m1" in body
+
+        # halaman /tiket memuat tombol pasang panel tiket
+        async with session.get(f"{base}/tiket?token=tok-panel&guild={GID}") as resp:
+            body = await resp.text()
             assert "Pasang panel tiket" in body
 
         # tambah tombol role lewat form
