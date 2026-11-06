@@ -1,4 +1,4 @@
-"""Satu fitur = satu halaman: unggah kartu & tombol tes ikut di halaman fiturnya.
+"""Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
 
 Selain itu, subjek tes tidak perlu ID: kosongkan saja → bot memakai pemilik server.
 Dulu tes memakai akun bot sendiri, dan pemicu sambutan/perpisahan mengabaikan member
@@ -11,6 +11,7 @@ import types
 
 import pytest
 
+import dashboard_ui
 import dashboard_uji
 import web_dashboard
 
@@ -150,43 +151,44 @@ async def test_uji_menyebut_nama_pemilik_saat_berhasil(monkeypatch):
 # ==============================================================================
 # HALAMAN: UNGGAH + TES DI FITURNYA
 # ==============================================================================
-def test_tiap_fitur_punya_halaman_sendiri():
+def test_satu_halaman_per_grup_setelan():
     halaman = {h["slug"]: h for h in web_dashboard.HALAMAN}
-    assert set(web_dashboard.FITUR_HALAMAN) == {"sambutan", "perpisahan", "boost"}
+    # Sambutan, pamit, & boost digabung dalam satu halaman
     assert halaman["sambutan"]["panel"] == ("p-sambutan",)
-    assert halaman["perpisahan"]["panel"] == ("p-perpisahan",)
-    assert halaman["boost"]["panel"] == ("p-boost",)
-    # Halaman gabungan /uji sudah dihapus, /kirim tidak lagi memuat kartu
+    assert set(web_dashboard.BAGIAN_SAMBUTAN and
+               [b[0] for b in web_dashboard.BAGIAN_SAMBUTAN]) == {"welcome", "goodbye", "boost"}
+    # Tiap grup setelan punya halaman sendiri
+    assert set(web_dashboard.GRUP_HALAMAN.values()) <= set(halaman)
+    assert halaman["inti"]["panel"] == ("p-kontrol", "p-inti")
+    # Halaman tes gabungan & kartu di /kirim sudah tidak ada
     assert "uji" not in halaman
     assert "p-kartu" not in halaman["kirim"]["panel"]
 
 
 def test_tes_menempel_di_halaman_fiturnya():
     """Setiap fitur uji punya satu halaman tujuan (tidak ada lagi halaman tes global)."""
-    peta = {}
-    for slug, data in web_dashboard.FITUR_HALAMAN.items():
-        for kunci in data["uji"]:
-            peta[kunci] = slug
+    peta = {"welcome": "sambutan", "goodbye": "sambutan", "boost": "sambutan"}
     for slug, kunci in web_dashboard.UJI_HALAMAN.items():
         for satu in kunci:
             peta[satu] = slug
     assert set(peta) == {item["kunci"] for item in dashboard_uji.UJI}
-    assert peta["welcome"] == "sambutan" and peta["boost"] == "boost"
+    assert peta["welcome"] == "sambutan" and peta["boost"] == "sambutan"
     assert peta["tiket"] == "tiket" and peta["ekspor"] == "ekspor"
 
 
 def test_anchor_hasil_tes_dan_setelan_mengarah_ke_halaman_fitur():
-    assert dashboard_uji.ANCHOR_UJI["welcome"] == "p-sambutan"
+    assert dashboard_uji.ANCHOR_UJI["welcome"] == "p-welcome"
     assert dashboard_uji.ANCHOR_UJI["boost"] == "p-boost"
+    assert dashboard_uji.ANCHOR_UJI["goodbye"] == "p-goodbye"
     for anchor in dashboard_uji.ANCHOR_UJI.values():
         assert web_dashboard.halaman_dari_anchor(anchor) != "" or anchor in (
             "p-setelan", "p-ai"
         )
     # Setelan sambutan disimpan dari halaman Sambutan → kembali ke sana
-    assert web_dashboard._anchor_aksi("set.sambutan.channel") == "p-sambutan"
-    assert web_dashboard._anchor_aksi("set.pamit.bahasa") == "p-perpisahan"
+    assert web_dashboard._anchor_aksi("set.sambutan.channel") == "p-welcome"
+    assert web_dashboard._anchor_aksi("set.pamit.bahasa") == "p-goodbye"
     assert web_dashboard._anchor_aksi("set.boost.channel") == "p-boost"
-    assert web_dashboard._anchor_aksi("set.level.aktif") == "p-setelan"
+    assert web_dashboard._anchor_aksi("set.level.aktif") == "p-inti"
 
 
 def test_kartu_dan_tes_hanya_muncul_di_halaman_fiturnya():
@@ -234,20 +236,25 @@ def test_tombol_tes_di_halaman_fitur_unik():
     assert dashboard_ui.render_uji_block(_Bot(), GID, TOKEN, hanya=()) == ""
 
 
-def test_halaman_fitur_memuat_tiga_bagian():
+def test_halaman_sambutan_memuat_tiga_bagian():
     page = web_dashboard.render_dashboard_html(
         status={}, usage={}, levels={}, halaman="sambutan",
-        setelan_block="SETELAN-X", kartu_block="KARTU-X", uji_block="UJI-X",
+        setelan_welcome="SETELAN-W", setelan_goodbye="SETELAN-G", setelan_boost="SETELAN-B",
+        kartu_welcome="KARTU-W", kartu_goodbye="KARTU-G", kartu_boost="KARTU-B",
+        uji_welcome="UJI-W", uji_goodbye="UJI-G", uji_boost="UJI-B",
     )
     assert 'id="p-sambutan"' in page
-    assert "⚙️ Setelan" in page and "🖼️ Gambar kartu" in page and "🧪 Tes fitur" in page
-    assert "SETELAN-X" in page and "KARTU-X" in page and "UJI-X" in page
+    for anchor in ("p-welcome", "p-goodbye", "p-boost"):
+        assert f'id="{anchor}"' in page
+    for teks in ("SETELAN-W", "SETELAN-G", "SETELAN-B", "KARTU-W", "KARTU-G", "KARTU-B",
+                 "UJI-W", "UJI-G", "UJI-B"):
+        assert teks in page
 
 
 @pytest.mark.parametrize(
     "slug,penanda",
-    [("", "p-ai"), ("buat", "p-buat"), ("panel", "p-panel"),
-     ("tiket", "p-tiket"), ("ekspor", "p-ekspor"), ("setelan", "p-setelan")],
+    [("", "p-ai"), ("buat", "p-buat"), ("panel", "p-panel"), ("tiket", "p-tiket"),
+     ("konten", "p-konten"), ("ekspor", "p-ekspor")],
 )
 def test_tes_ikut_di_halaman_lain(slug, penanda):
     page = web_dashboard.render_dashboard_html(
@@ -255,6 +262,22 @@ def test_tes_ikut_di_halaman_lain(slug, penanda):
     )
     assert f'id="{penanda}"' in page
     assert "UJI-X" in page
+
+
+@pytest.mark.parametrize("slug,penanda", [("inti", "p-inti"), ("keamanan", "p-keamanan")])
+def test_halaman_grup_tanpa_tes(slug, penanda):
+    page = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, halaman=slug, setelan_block="SETELAN-X"
+    )
+    assert f'id="{penanda}"' in page
+    assert "SETELAN-X" in page
+
+
+def test_kontrol_cepat_pindah_ke_halaman_inti():
+    page = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, halaman="inti", kontrol_block="KONTROL-X"
+    )
+    assert 'id="p-kontrol"' in page and "KONTROL-X" in page
 
 
 def test_tautan_atur_dulu_mengarah_ke_halaman_fitur_yang_benar():
@@ -265,15 +288,15 @@ def test_tautan_atur_dulu_mengarah_ke_halaman_fitur_yang_benar():
     community_agent.boost_agent_guilds.pop(GID, None)          # boost belum aktif
     html = dashboard_ui.render_uji_block(_Bot(), GID, TOKEN, hanya=("boost",))
     assert "Atur dulu" in html
-    assert f'href="/boost?token={TOKEN}&amp;guild={GID}#p-boost"' in html
+    assert f'href="/sambutan?token={TOKEN}&amp;guild={GID}#p-boost"' in html
 
     community_agent.goodbye_agent_guilds.pop(GID, None)
     html = dashboard_ui.render_uji_block(_Bot(), GID, TOKEN, hanya=("goodbye",))
-    assert f'href="/perpisahan?token={TOKEN}&amp;guild={GID}#p-perpisahan"' in html
+    assert f'href="/sambutan?token={TOKEN}&amp;guild={GID}#p-goodbye"' in html
 
     community_agent.digest_agent_guilds.pop(GID, None)
     html = dashboard_ui.render_uji_block(_Bot(), GID, TOKEN, hanya=("digest",))
-    assert f'href="/setelan?token={TOKEN}&amp;guild={GID}#p-setelan"' in html
+    assert f'href="/konten?token={TOKEN}&amp;guild={GID}#p-konten"' in html
 
 
 def test_halaman_kartu_boost_tanpa_pemilih_mode():
@@ -282,3 +305,57 @@ def test_halaman_kartu_boost_tanpa_pemilih_mode():
     html = dashboard_ui.render_kartu_block(GID, TOKEN, hanya=("boost",))
     assert "Tampilan kartu sambutan" not in html
     assert "1024×420" in html
+
+
+def test_halaman_lama_dialihkan_ke_halaman_grup():
+    """Bookmark lama tetap hidup: /setelan → /inti, /perpisahan & /boost → /sambutan."""
+    assert web_dashboard.LEGACY_HALAMAN["setelan"] == "inti"
+    assert web_dashboard.LEGACY_HALAMAN["perpisahan"] == "sambutan"
+    assert web_dashboard.LEGACY_HALAMAN["boost"] == "sambutan"
+    assert web_dashboard.LEGACY_HALAMAN["uji"] == ""
+    slug = {h["slug"] for h in web_dashboard.HALAMAN}
+    assert set(web_dashboard.LEGACY_HALAMAN.values()) <= slug
+    # Anchor lama menempel ke halaman grup barunya
+    assert web_dashboard.ANCHOR_HALAMAN["p-setelan"] == "inti"
+    assert web_dashboard.ANCHOR_HALAMAN["p-perpisahan"] == "sambutan"
+    assert web_dashboard.ANCHOR_HALAMAN["p-kartu"] == "sambutan"
+
+
+def test_lima_grup_setelan_punya_halaman():
+    """Satu grup setelan = satu halaman (permintaan penggabungan halaman)."""
+    assert web_dashboard.GRUP_HALAMAN == {
+        "inti": "inti", "sambutan": "sambutan", "keamanan": "keamanan",
+        "bantuan": "tiket", "konten": "konten",
+    }
+    halaman = {h["slug"]: h for h in web_dashboard.HALAMAN}
+    # Semua fitur tiap grup kelihatan di halamannya masing-masing
+    for grup, slug in web_dashboard.GRUP_HALAMAN.items():
+        fitur = web_dashboard.fitur_grup(grup)
+        assert fitur, grup
+        for kunci in fitur:
+            assert web_dashboard.HALAMAN_SETELAN[kunci] == slug
+    # Halaman sambutan memuat tiga bagian, bukan tiga halaman terpisah
+    assert [b[0] for b in web_dashboard.BAGIAN_SAMBUTAN] == ["welcome", "goodbye", "boost"]
+    assert "perpisahan" not in halaman and "boost" not in halaman and "setelan" not in halaman
+    assert halaman["inti"]["panel"] == ("p-kontrol", "p-inti")
+
+
+@pytest.mark.parametrize(
+    "kunci, potongan",
+    [("welcome", "Sambutan"), ("goodbye", "Sambutan"), ("boost", "Sambutan"),
+     ("digest", "Konten"), ("pengumuman", "Buat"), ("tiket", "Tiket"),
+     ("keamanan", "Keamanan")],
+)
+def test_pesan_atur_dulu_menunjuk_halaman_grup(kunci, potongan):
+    teks = dashboard_uji.halaman_uji(kunci)
+    assert potongan in teks or "fiturnya" in teks
+    assert "Setelan" not in teks          # halaman /setelan sudah tidak ada
+
+
+def test_atur_dulu_tidak_pernah_ke_halaman_lama():
+    """Tautan “Atur dulu” memakai halaman grup yang benar, bukan /setelan."""
+    assert dashboard_ui._JALUR_FITUR["pengumuman"] == "/buat"
+    assert dashboard_ui._JALUR_FITUR["digest"] == "/konten"
+    assert dashboard_ui._JALUR_FITUR["welcome"] == "/sambutan"
+    for jalur in dashboard_ui._JALUR_FITUR.values():
+        assert jalur != "/setelan"

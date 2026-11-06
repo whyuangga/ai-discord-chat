@@ -102,18 +102,42 @@ UJI: tuple[dict, ...] = (
 
 UJI_MAP: dict[str, dict] = {item["kunci"]: item for item in UJI}
 
-# Halaman dashboard tempat tiap tes dipasang (satu fitur = satu halaman).
+# Halaman dashboard tempat tiap tes dipasang (satu grup fitur = satu halaman).
 ANCHOR_UJI: dict[str, str] = {
-    "welcome": "p-sambutan",
-    "goodbye": "p-perpisahan",
+    "welcome": "p-welcome",
+    "goodbye": "p-goodbye",
     "boost": "p-boost",
-    "pengumuman": "p-konten",
+    "pengumuman": "p-buat",
     "panel": "p-panel",
-    "digest": "p-setelan",
+    "digest": "p-konten",
     "tiket": "p-tiket",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
+
+# Nama halaman (untuk pesan “atur dulu di halaman …”) mengikuti anchor di atas.
+_HALAMAN_ANCHOR: dict[str, str] = {
+    "p-welcome": "**Sambutan & pamit**",
+    "p-goodbye": "**Sambutan & pamit**",
+    "p-boost": "**Sambutan & pamit**",
+    "p-sambutan": "**Sambutan & pamit**",
+    "p-inti": "**Inti, level, & ekonomi**",
+    "p-kontrol": "**Inti, level, & ekonomi**",
+    "p-keamanan": "**Keamanan**",
+    "p-tiket": "**Tiket & sapaan harian**",
+    "p-konten": "**Konten & interaksi**",
+    "p-buat": "**Buat konten**",
+    "p-panel": "**Editor panel**",
+    "p-ai": "**Ringkasan**",
+    "p-ekspor": "**Ekspor**",
+}
+
+
+def halaman_uji(kunci: str) -> str:
+    """Frasa “di halaman X” untuk fitur uji tertentu (tanpa JavaScript)."""
+    anchor = ANCHOR_UJI.get(str(kunci or "").strip().lower(), "")
+    nama = _HALAMAN_ANCHOR.get(anchor, "")
+    return f"di halaman {nama}" if nama else "di halaman fiturnya"
 
 # Subjek tes yang tidak perlu dipilih (dijalankan tanpa member/channel).
 TANPA_SUBJEK: tuple[str, ...] = ("digest", "ai", "ekspor")
@@ -324,7 +348,7 @@ def _diagnosa_agent(bot, guild, status: dict, kunci: str) -> str:
     if cid and channel is None:
         return (
             f"Channel <#{cid}> tidak ada di server ini (mungkin sudah dihapus) — "
-            f"pilih channel lain untuk {label.lower()} di halaman Setelan."
+            f"pilih channel lain untuk {label.lower()} di {halaman_uji(kunci)}."
         )
     if channel is not None:
         aku = getattr(guild, "me", None)
@@ -362,7 +386,7 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
     status = status_uji(gid).get(kunci) or {}
     if item.get("cfg") and not status.get("aktif"):
         return False, (
-            f"{item['label']} belum aktif — atur channel-nya dulu di halaman **Setelan**."
+            f"{item['label']} belum aktif — atur channel-nya dulu di {halaman_uji(kunci)}."
         )
 
     ambil_guild = getattr(bot, "get_guild", None)

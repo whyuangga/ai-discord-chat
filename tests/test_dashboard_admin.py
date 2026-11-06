@@ -306,11 +306,11 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
     base = f"http://127.0.0.1:{port}"
     try:
         async with aiohttp.ClientSession() as session:
-            # Halaman /setelan memuat form setelan (dashboard kini per halaman)
-            async with session.get(f"{base}/setelan?token=token-uji&guild=1234") as resp:
+            # Halaman grup memuat form setelan (dashboard kini satu halaman per grup)
+            async with session.get(f"{base}/inti?token=token-uji&guild=1234") as resp:
                 body = await resp.text()
                 assert resp.status == 200
-                assert "Setelan server" in body and "Kontrol Cepat" in body
+                assert "Kontrol Cepat" in body and 'id="p-inti"' in body
                 assert 'value="set.level.aktif"' in body
 
             # Halaman /kirim memuat form kirim pesan

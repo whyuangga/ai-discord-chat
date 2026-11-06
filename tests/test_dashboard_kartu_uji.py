@@ -258,15 +258,16 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
     halaman = f"token={TOKEN}&guild={GID}"
 
     async def skenario(session, base):
-        # Slot kartu sambutan ada di halaman fiturnya sendiri (/sambutan)
+        # Sambutan, pamit, & boost jadi satu halaman: tiga slot ada di sana
         async with session.get(f"{base}/sambutan?{halaman}") as resp:
             body = await resp.text()
             assert resp.status == 200 and 'id="p-sambutan"' in body
-            assert "kartu.simpan:welcome" in body
-            assert "kartu.simpan:goodbye" not in body      # slot lain beda halaman
-        async with session.get(f"{base}/perpisahan?{halaman}") as resp:
-            body = await resp.text()
-            assert "kartu.simpan:goodbye" in body and "kartu.simpan:welcome" not in body
+            for slot in ("welcome", "goodbye", "boost"):
+                assert f"kartu.simpan:{slot}" in body
+                assert f'id="p-{slot}"' in body
+        # Bookmark /perpisahan dialihkan ke halaman gabungan
+        async with session.get(f"{base}/perpisahan?{halaman}", allow_redirects=False) as resp:
+            assert resp.status == 303 and resp.headers["Location"].startswith("/sambutan?")
 
         # Unggah kartu sambutan
         form = aiohttp.FormData()
@@ -335,6 +336,7 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
             body = await resp.text()
             assert resp.status == 200 and 'id="p-sambutan"' in body
             assert "Tes fitur" in body and "uji.welcome" in body
+            assert "👣 Pesan perpisahan" in body and "💎 Ucapan boost" in body
             assert 'aria-current="page"' in body
         # Bookmark lama /uji dialihkan ke Ringkasan
         async with session.get(f"{base}/uji?{halaman}", allow_redirects=False) as resp:
@@ -349,7 +351,7 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
             assert resp.status == 303
             lokasi = resp.headers["Location"]
             assert lokasi.startswith("/sambutan?") and "pesan=" in lokasi
-            assert lokasi.endswith("#p-sambutan")
+            assert lokasi.endswith("#p-welcome")
 
         # JSON tetap JSON
         async with session.post(

@@ -247,6 +247,10 @@ CSS_HALAMAN = f"""
   .kartu-slot .medan label {{ font-size: 11.5px; }}
 
   /* --- tes fitur --- */
+  .kepala-tes {{
+    margin: 14px 0 6px; padding-top: 10px;
+    border-top: 1px dashed var(--garis); font-size: 0.9rem;
+  }}
   .uji-baris {{
     display: flex; gap: 12px; align-items: center; justify-content: space-between;
     flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--garis);
@@ -427,3 +431,4 @@ CSS_HASIL = f"""
  a {{ color: #A99BFF; }}
  a:hover {{ color: #fff; }}
 """
+

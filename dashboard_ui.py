@@ -677,8 +677,8 @@ def render_uji_block(
                 f'{masukan}<button type="submit">Kirim tes</button></form>'
             )
         else:
-            jalur = _JALUR_FITUR.get(item["kunci"], "/setelan")
-            anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-setelan")
+            jalur = _JALUR_FITUR.get(item["kunci"], "/")
+            anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-kontrol")
             tombol = (
                 '<a class="tombol-unduh" href="'
                 f'{_esc(jalur)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}'
@@ -716,8 +716,14 @@ def render_uji_block(
 # Halaman tempat setelan sebuah fitur uji diatur (tautan “Atur dulu”).
 _JALUR_FITUR: dict[str, str] = {
     "welcome": "/sambutan",
-    "goodbye": "/perpisahan",
-    "boost": "/boost",
+    "goodbye": "/sambutan",
+    "boost": "/sambutan",
+    "pengumuman": "/buat",
+    "panel": "/panel",
+    "digest": "/konten",
+    "tiket": "/tiket",
+    "ai": "/",
+    "ekspor": "/ekspor",
 }
 
 
