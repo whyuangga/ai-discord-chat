@@ -260,7 +260,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/menu tombol-command` | `aksi`, `menu`, `label`, `emoji`, `visibilitas`, `gaya` | *(Admin)* Tombol yang menjalankan command info. |
 | `/menu dropdown-role` | `role1`…`role5`, `menu`, `placeholder`, `eksklusif`, `emoji1`…`emoji5` | *(Admin)* Dropdown role. |
 | `/menu alur` | `aksi`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Tombol yang menjalankan **alur aksi**: `+role:123 > pesan:Halo {member.mention} > thread:tiket`. |
-| `/menu alur-bantuan` | — | Panduan menulis alur (`role`, `pesan`, `umum`, `thread`, `tunggu`, `stop`, `syarat`). |
+| `/menu alur-bantuan` | — | Panduan menulis alur (`role`, `pesan`, `umum`, `thread`, `tunggu`, `stop`, `syarat`, `webhook`, `hapus`). |
 | `/menu form buat` | `nama`, `kolom`, `tujuan`, `judul`, `penjelasan`, `hasil`, `warna` | *(Admin)* Buat **formulir (modal)** dengan kolom sendiri, mis. `kolom:"Nama \| Umur \| Alasan:panjang?"`. |
 | `/menu form ubah` | `form`, `nama`, `judul`, `penjelasan`, `hasil`, `tujuan`, `kolom`, `warna` | *(Admin)* Ubah formulir (kirim `-` untuk mengosongkan penjelasan/hasil). |
 | `/menu form tombol` | `form`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Pasang formulir sebagai tombol di panel. |

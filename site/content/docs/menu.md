@@ -47,6 +47,8 @@ Langkah dipisah `>` dan teksnya boleh memakai variabel (`{member.mention}`, `{se
 | `thread:<nama>` | Buat thread publik di channel panel |
 | `tunggu:<detik>` | Jeda (maks 15 detik) |
 | `stop[:<teks>]` | Hentikan alur, opsional kirim alasan |
+| `webhook:<nama>\|<teks>` | Kirim pesan sebagai **nama sendiri** lewat webhook (butuh *Manage Webhooks*) |
+| `hapus` | Hapus balasan bot yang sudah dikirim alur ini (pasangan `umum:… > tunggu:5 > hapus`) |
 
 Batas: **10 langkah** per tombol, 1000 karakter per pesan. Role tetap wajib di bawah role bot.
 

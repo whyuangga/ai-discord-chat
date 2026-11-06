@@ -19,6 +19,8 @@ Sintaks ringkas (dipakai `/menu alur`), langkah dipisah `>`:
 | `thread:<nama>` | Buat thread publik di channel panel |
 | `tunggu:<detik>` | Jeda (maksimal 15 detik) |
 | `stop[:<teks>]` | Hentikan alur, opsional kirim alasan |
+| `webhook:<nama>\|<teks>` | Kirim pesan sebagai **nama sendiri** (identitas webhook) |
+| `hapus` | Hapus pesan balasan bot yang sudah terkirim di alur ini |
 
 Teks boleh memakai variabel dari :mod:`message_template` (`{member.mention}`,
 `{server.name}`, …). Batas: 10 langkah per alur, 1000 karakter teks per pesan.
@@ -54,6 +56,8 @@ ACTION_THREAD = "thread"
 ACTION_WAIT = "wait"
 ACTION_STOP = "stop"
 ACTION_REQUIRE_ROLE = "require_role"
+ACTION_WEBHOOK = "webhook"
+ACTION_DELETE = "delete"
 
 VALID_ACTIONS = frozenset(
     {
@@ -65,6 +69,8 @@ VALID_ACTIONS = frozenset(
         ACTION_WAIT,
         ACTION_STOP,
         ACTION_REQUIRE_ROLE,
+        ACTION_WEBHOOK,
+        ACTION_DELETE,
     }
 )
 
@@ -78,6 +84,8 @@ _PREFIX = {
     "thread": ACTION_THREAD,
     "tunggu": ACTION_WAIT,
     "stop": ACTION_STOP,
+    "webhook": ACTION_WEBHOOK,
+    "hapus": ACTION_DELETE,
 }
 
 HELP_LINES: tuple[str, ...] = (
@@ -89,6 +97,8 @@ HELP_LINES: tuple[str, ...] = (
     "`thread:<nama>` — buat thread publik di channel panel",
     "`tunggu:<detik>` — jeda, maksimal 15 detik",
     "`stop[:<teks>]` — hentikan alur (opsional kirim alasan)",
+    "`webhook:<nama>|<teks>` — kirim pesan sebagai nama sendiri",
+    "`hapus` — hapus balasan bot yang sudah dikirim alur ini",
 )
 
 
@@ -190,6 +200,24 @@ def parse(text: str) -> tuple[list[dict], list[str]]:
             langkah.append({"action": ACTION_STOP, "text": argumen[:MAX_TEXT]})
             continue
 
+        if aksi == ACTION_WEBHOOK:
+            identitas, _, teks = argumen.partition("|")
+            identitas = identitas.strip()[:80]
+            teks = teks.strip()
+            if not identitas or not teks:
+                galat.append(
+                    f"Langkah {posisi}: `webhook` butuh format `webhook:<nama>|<teks>`."
+                )
+                continue
+            langkah.append(
+                {"action": ACTION_WEBHOOK, "name": identitas, "text": teks[:MAX_TEXT]}
+            )
+            continue
+
+        if aksi == ACTION_DELETE:
+            langkah.append({"action": ACTION_DELETE})
+            continue
+
     return langkah, galat
 
 
@@ -229,6 +257,14 @@ def sanitize_steps(steps: Any) -> list[dict]:
             bersih.append({"action": aksi, "seconds": round(detik, 2)})
         elif aksi == ACTION_STOP:
             bersih.append({"action": aksi, "text": str(step.get("text") or "")[:MAX_TEXT]})
+        elif aksi == ACTION_WEBHOOK:
+            nama = str(step.get("name") or "")[:80].strip()
+            teks = str(step.get("text") or "")[:MAX_TEXT].strip()
+            if not nama or not teks:
+                continue
+            bersih.append({"action": aksi, "name": nama, "text": teks})
+        elif aksi == ACTION_DELETE:
+            bersih.append({"action": aksi})
     return bersih
 
 
@@ -255,6 +291,10 @@ def to_text(steps: list[dict]) -> str:
         elif aksi == ACTION_STOP:
             teks = step.get("text")
             bagian.append(f"stop:{teks}" if teks else "stop")
+        elif aksi == ACTION_WEBHOOK:
+            bagian.append(f"webhook:{step.get('name')}|{step.get('text')}")
+        elif aksi == ACTION_DELETE:
+            bagian.append("hapus")
     return " > ".join(bagian)
 
 
@@ -282,6 +322,10 @@ def describe(steps: list[dict], role_names: dict[int, str] | None = None) -> lis
         elif aksi == ACTION_STOP:
             suffix = f": {str(step.get('text'))[:40]}" if step.get("text") else ""
             baris.append(f"⏹ stop{suffix}")
+        elif aksi == ACTION_WEBHOOK:
+            baris.append(f"🎭 kirim sebagai “{step.get('name')}”: {str(step.get('text'))[:40]}")
+        elif aksi == ACTION_DELETE:
+            baris.append("🗑️ hapus balasan bot")
     return baris or ["(alur kosong)"]
 
 
@@ -418,6 +462,33 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
             await asyncio.sleep(float(step.get("seconds") or 0))
             continue
 
+        if aksi == ACTION_WEBHOOK:
+            import webhook_identity  # impor lambat: modul ini memakai data & izin channel
+
+            nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
+            teks = message_template.render(str(step.get("text") or ""), **konteks)
+            if not teks.strip() or channel is None:
+                hasil["errors"].append("webhook butuh channel teks")
+                continue
+            ok, keterangan = await webhook_identity.kirim_sebagai(
+                channel, nama=nama or "Server", isi=teks
+            )
+            if not ok:
+                hasil["errors"].append(f"webhook ditolak: {keterangan}")
+                hasil["sent"] += 0
+                continue
+            hasil["sent"] += 1
+            continue
+
+        if aksi == ACTION_DELETE:
+            try:
+                pesan = await interaction.original_response()
+                await pesan.delete()
+            except Exception as exc:  # pragma: no cover - pesan sudah hilang
+                logger.debug("Alur gagal menghapus balasan: %s", exc)
+                hasil["errors"].append("balasan tidak bisa dihapus")
+            continue
+
         if aksi == ACTION_STOP:
             teks = message_template.render(str(step.get("text") or ""), **konteks)
             if teks.strip():
@@ -435,8 +506,10 @@ __all__ = [
     "ACTION_ROLE_REMOVE",
     "ACTION_ROLE_TOGGLE",
     "ACTION_REQUIRE_ROLE",
+    "ACTION_DELETE",
     "ACTION_SAY",
     "ACTION_STOP",
+    "ACTION_WEBHOOK",
     "ACTION_THREAD",
     "ACTION_WAIT",
     "FlowResult",
