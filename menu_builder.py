@@ -30,6 +30,8 @@ from pathlib import Path
 import discord
 from discord import ui
 
+import flows
+import message_template
 import ui_kit
 import ui_theme
 from config import DATA_DIR, MENU_FILE
@@ -44,6 +46,7 @@ _lock = asyncio.Lock()
 KIND_ROLE = "role"
 KIND_LINK = "link"
 KIND_COMMAND = "command"
+KIND_FLOW = "flow"      # tombol dengan alur aksi (lihat flows.py)
 
 VIS_AUTO = "auto"          # ikuti keputusan command (bawaan)
 VIS_PUBLIK = "publik"      # paksa tampil di channel
@@ -185,6 +188,199 @@ def create_menu(
     return menu
 
 
+# ------------------------------------------------------------------------------
+# EKSPOR / IMPOR (backup & pindah server)
+# ------------------------------------------------------------------------------
+EXPORT_FORMAT = "ai-discord-chat/panel"
+EXPORT_VERSION = 1
+MAX_IMPORT_BYTES = 256 * 1024
+
+
+def export_menu(menu: dict) -> dict:
+    """Payload portabel untuk satu panel — tanpa ID guild/channel/pesan."""
+    return {
+        "format": EXPORT_FORMAT,
+        "version": EXPORT_VERSION,
+        "title": menu.get("title"),
+        "description": menu.get("description"),
+        "banner_url": menu.get("banner_url"),
+        "buttons": [
+            {k: v for k, v in item.items() if k != "id"} for item in menu.get("buttons", [])
+        ],
+        "dropdowns": [
+            {
+                "placeholder": dropdown.get("placeholder"),
+                "exclusive": bool(dropdown.get("exclusive")),
+                "group": dropdown.get("group"),
+                "options": [
+                    {k: v for k, v in opt.items() if k != "id"}
+                    for opt in dropdown.get("options", [])
+                ],
+            }
+            for dropdown in menu.get("dropdowns", [])
+        ],
+    }
+
+
+def import_menu(
+    guild_id: int,
+    payload: dict,
+    *,
+    title: str | None = None,
+) -> tuple[dict | None, list[str]]:
+    """Buat panel dari payload ekspor. Kembalikan `(menu, galat)`."""
+    galat: list[str] = []
+    if not isinstance(payload, dict):
+        return None, ["Isi berkas bukan objek JSON."]
+    if str(payload.get("format") or "").strip() not in ("", EXPORT_FORMAT):
+        return None, ["Berkas ini bukan ekspor panel bot ini."]
+    versi = _to_int(payload.get("version") or EXPORT_VERSION)
+    if versi > EXPORT_VERSION:
+        return None, [f"Versi ekspor {versi} lebih baru dari yang didukung bot ({EXPORT_VERSION})."]
+
+    tombol_masuk = payload.get("buttons") or []
+    dropdown_masuk = payload.get("dropdowns") or []
+    if not isinstance(tombol_masuk, list) or not isinstance(dropdown_masuk, list):
+        return None, ["Bagian `buttons`/`dropdowns` harus berupa daftar."]
+
+    menu = create_menu(
+        guild_id,
+        (title or payload.get("title") or "Panel Impor"),
+        description=str(payload.get("description") or "")[:MAX_DESCRIPTION],
+        banner_url=(str(payload.get("banner_url"))[:400] if payload.get("banner_url") else None),
+    )
+    if menu is None:
+        return None, [f"Kuota panel server penuh (maksimal {MAX_MENUS_PER_GUILD}) atau judul kosong."]
+
+    for item in tombol_masuk[:MAX_BUTTONS]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "")
+        label = str(item.get("label") or "")[:80]
+        style = str(item.get("style") or "abu")
+        emoji = item.get("emoji") or None
+        if kind == KIND_ROLE:
+            role_id = _to_int(item.get("role_id"))
+            if not role_id:
+                galat.append(f"Tombol role “{label}” dilewati (ID role tidak ada).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_ROLE,
+                    "label": label or "Role",
+                    "emoji": emoji,
+                    "style": style if style in BUTTON_STYLES else "abu",
+                    "role_id": role_id,
+                    "group": (str(item.get("group"))[:40] if item.get("group") else None),
+                }
+            )
+        elif kind == KIND_LINK:
+            url = str(item.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                galat.append(f"Tombol tautan “{label}” dilewati (URL tidak valid).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_LINK,
+                    "label": label or "Buka",
+                    "emoji": emoji,
+                    "url": url[:400],
+                }
+            )
+        elif kind == KIND_COMMAND:
+            key = str(item.get("command") or "")
+            spec = SAFE_COMMANDS.get(key)
+            if spec is None:
+                galat.append(f"Tombol command “{label}” dilewati (command tidak ada di daftar aman).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_COMMAND,
+                    "label": (label or spec["label"])[:80],
+                    "emoji": emoji or spec.get("emoji"),
+                    "style": style if style in BUTTON_STYLES else "biru",
+                    "command": key,
+                    "visibility": str(item.get("visibility") or VIS_AUTO),
+                }
+            )
+        elif kind == KIND_FLOW:
+            langkah = flows.sanitize_steps(item.get("flow"))
+            if not langkah:
+                galat.append(f"Tombol alur “{label}” dilewati (alur kosong/tidak valid).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_FLOW,
+                    "label": label or "Aksi",
+                    "emoji": emoji,
+                    "style": style if style in BUTTON_STYLES else "biru",
+                    "flow": langkah,
+                }
+            )
+
+    for dropdown in dropdown_masuk[:MAX_DROPDOWNS]:
+        if not isinstance(dropdown, dict):
+            continue
+        opsi: list[dict] = []
+        for opt in (dropdown.get("options") or [])[:MAX_OPTIONS]:
+            if not isinstance(opt, dict):
+                continue
+            role_id = _to_int(opt.get("role_id"))
+            if not role_id:
+                continue
+            opsi.append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_ROLE,
+                    "role_id": role_id,
+                    "label": str(opt.get("label") or "Role")[:100],
+                    "emoji": opt.get("emoji") or None,
+                    "description": (str(opt.get("description") or "")[:100] or None),
+                }
+            )
+        if not opsi:
+            continue
+        menu["dropdowns"].append(
+            {
+                "id": "d" + secrets.token_hex(3),
+                "placeholder": str(dropdown.get("placeholder") or "Pilih role…")[:150],
+                "exclusive": bool(dropdown.get("exclusive")),
+                "group": str(dropdown.get("group") or "dropdown")[:40],
+                "options": opsi,
+            }
+        )
+
+    if not menu["buttons"] and not menu["dropdowns"]:
+        delete_menu(guild_id, menu["id"])
+        galat.append("Tidak ada tombol/dropdown yang bisa dipulihkan dari berkas itu.")
+        return None, galat
+
+    return menu, galat
+
+
+def update_menu_text(
+    menu: dict,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> list[str]:
+    """Ubah judul/deskripsi panel yang sudah terkirim (tanpa kirim ulang)."""
+    galat: list[str] = []
+    if title is not None:
+        bersih = str(title).strip()[:MAX_TITLE]
+        if not bersih:
+            galat.append("Judul tidak boleh kosong.")
+        else:
+            menu["title"] = bersih
+    if description is not None:
+        menu["description"] = str(description).strip()[:MAX_DESCRIPTION]
+    return galat
+
+
 def delete_menu(guild_id: int, menu_id: str) -> bool:
     bucket = menus.get(int(guild_id)) or {}
     return bucket.pop(str(menu_id), None) is not None
@@ -289,6 +485,32 @@ def add_command_button(
         "style": style if style in BUTTON_STYLES else "biru",
         "command": str(command_key),
         "visibility": visibility if visibility in (VIS_AUTO, VIS_PUBLIK, VIS_EPHEMERAL) else VIS_AUTO,
+    }
+    menu["buttons"].append(item)
+    return item
+
+
+def add_flow_button(
+    menu: dict,
+    label: str,
+    steps: list[dict],
+    *,
+    emoji: str | None = None,
+    style: str = "biru",
+) -> dict | None:
+    """Tombol yang menjalankan alur aksi (lihat `flows.py`)."""
+    if len(menu["buttons"]) >= MAX_BUTTONS:
+        return None
+    bersih = flows.sanitize_steps(steps)
+    if not bersih:
+        return None
+    item = {
+        "id": _new_item_id(menu),
+        "kind": KIND_FLOW,
+        "label": (str(label or "Aksi")[:80] or "Aksi"),
+        "emoji": emoji or "⚡",
+        "style": style if style in BUTTON_STYLES else "biru",
+        "flow": bersih,
     }
     menu["buttons"].append(item)
     return item
@@ -687,6 +909,9 @@ async def handle_button(interaction: discord.Interaction, menu_id: str, item_id:
     if kind == KIND_COMMAND:
         await run_command_item(interaction, str(item.get("command")), str(item.get("visibility") or VIS_AUTO))
         return
+    if kind == KIND_FLOW:
+        await flows.run_flow(interaction, item.get("flow") or [], guild=guild, member=interaction.user)
+        return
 
 
 async def handle_select(interaction: discord.Interaction, menu_id: str, dropdown_id: str) -> None:
@@ -739,14 +964,24 @@ def _item_button(menu: dict, item: dict) -> ui.Button:
     return button
 
 
-def build_panel_items(menu: dict, *, banner_override: str | None = None) -> list:
-    """Menyusun daftar komponen (container + action rows) untuk sebuah menu."""
+def build_panel_items(
+    menu: dict,
+    *,
+    banner_override: str | None = None,
+    guild=None,
+) -> list:
+    """Menyusun daftar komponen (container + action rows) untuk sebuah menu.
+
+    `guild` dipakai untuk mengisi variabel seperti `{server.members}` pada judul/deskripsi.
+    """
     guild_id = _to_int(menu.get("guild_id")) or None
     container = ui.Container(accent_colour=ui_theme.accent_color(guild_id))
 
-    head = f"# {menu.get('title') or 'Menu'}"
-    if menu.get("description"):
-        head += f"\n{menu['description']}"
+    judul = message_template.render(str(menu.get("title") or "Menu"), guild=guild)
+    deskripsi = message_template.render(str(menu.get("description") or ""), guild=guild)
+    head = f"# {judul}"
+    if deskripsi:
+        head += f"\n{deskripsi}"
     container.add_item(ui.TextDisplay(head[:4000]))
 
     banner = banner_override or menu.get("banner_url")
@@ -796,10 +1031,10 @@ def build_panel_items(menu: dict, *, banner_override: str | None = None) -> list
     return items
 
 
-def build_view(menu: dict, *, banner_override: str | None = None) -> ui.LayoutView:
+def build_view(menu: dict, *, banner_override: str | None = None, guild=None) -> ui.LayoutView:
     """`LayoutView` persisten (timeout=None) untuk sebuah menu."""
     view = ui.LayoutView(timeout=None)
-    for item in build_panel_items(menu, banner_override=banner_override):
+    for item in build_panel_items(menu, banner_override=banner_override, guild=guild):
         view.add_item(item)
     return view
 
@@ -833,7 +1068,7 @@ async def send_panel(
     banner_ref: str | None = None,
 ) -> discord.Message | None:
     """Mengirim panel menu ke channel & menyimpan `message_id` + URL banner."""
-    view = build_view(menu, banner_override=banner_ref)
+    view = build_view(menu, banner_override=banner_ref, guild=getattr(channel, "guild", None))
     try:
         if banner_file is not None:
             message = await channel.send(view=view, file=banner_file)
@@ -879,7 +1114,7 @@ async def refresh_panel(bot, menu: dict) -> bool:
     except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
         return False
 
-    view = build_view(menu)
+    view = build_view(menu, guild=guild)
     try:
         await message.edit(view=view)
     except (discord.HTTPException, TypeError, ValueError) as exc:
@@ -903,7 +1138,11 @@ def register_menus(bot) -> int:
             if not menu.get("buttons") and not menu.get("dropdowns"):
                 continue
             try:
-                view = build_view(menu)
+                guild = None
+                getter = getattr(bot, "get_guild", None)
+                if callable(getter) and menu.get("guild_id"):
+                    guild = getter(int(menu["guild_id"]))
+                view = build_view(menu, guild=guild)
                 if menu.get("message_id"):
                     bot.add_view(view, message_id=int(menu["message_id"]))
                 else:
@@ -930,6 +1169,21 @@ def _menu_payload(menu: dict) -> dict:
         "dropdowns": menu.get("dropdowns", []),
         "created_at": menu.get("created_at"),
     }
+
+
+def _sanitize_buttons(buttons) -> list[dict]:
+    """Tombol dari disk: alur aksi divalidasi ulang (jangan percaya JSON)."""
+    hasil: list[dict] = []
+    for tombol in buttons or []:
+        if not isinstance(tombol, dict):
+            continue
+        if tombol.get("kind") == KIND_FLOW:
+            langkah = flows.sanitize_steps(tombol.get("flow"))
+            if not langkah:
+                continue
+            tombol = {**tombol, "flow": langkah}
+        hasil.append(tombol)
+    return hasil
 
 
 def load_menus_from_disk() -> int:
@@ -963,7 +1217,7 @@ def load_menus_from_disk() -> int:
                 "description": str(data.get("description") or "")[:MAX_DESCRIPTION],
                 "banner_url": (str(data.get("banner_url"))[:400] if data.get("banner_url") else None),
                 "kind": str(data.get("kind") or MENU_KIND_MENU),
-                "buttons": [b for b in (data.get("buttons") or []) if isinstance(b, dict)],
+                "buttons": _sanitize_buttons(data.get("buttons")),
                 "dropdowns": [d for d in (data.get("dropdowns") or []) if isinstance(d, dict)],
                 "created_at": float(data.get("created_at") or 0),
             }

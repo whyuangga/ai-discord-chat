@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import message_template
 import suggestions as sg
 import ui_kit
 import ui_theme
@@ -321,15 +322,21 @@ class EmbedBuilderModal(discord.ui.Modal, title="Buat Pesan Embed"):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
+        ctx = {
+            "member": getattr(interaction, "user", None),
+            "guild": getattr(interaction, "guild", None),
+            "channel": self.channel,
+        }
+        judul = message_template.render(str(self.judul or ""), **ctx)
         embed = discord.Embed(
-            title=str(self.judul) or None,
-            description=str(self.deskripsi)[:4000],
+            title=judul[:256] or None,
+            description=message_template.render(str(self.deskripsi), **ctx)[:4000],
             colour=self.color,
         )
         image = str(self.gambar or "").strip()
         if image.startswith(("http://", "https://")):
             embed.set_image(url=image)
-        footer = str(self.footer or "").strip()
+        footer = message_template.render(str(self.footer or ""), **ctx).strip()
         if footer:
             embed.set_footer(text=footer[:200])
         await self.channel.send(embed=embed)
@@ -386,8 +393,11 @@ async def embed_cepat_cmd(
         )
         return
 
+    ctx = {"member": interaction.user, "guild": interaction.guild, "channel": channel}
+    judul_teks = message_template.render(judul, **ctx)
+    isi_teks = message_template.render(isi, **ctx)
     embed = discord.Embed(
-        title=judul[:256], description=isi[:4000], colour=parse_color(warna)
+        title=judul_teks[:256] or None, description=isi_teks[:4000], colour=parse_color(warna)
     )
     if gambar and gambar.startswith(("http://", "https://")):
         embed.set_image(url=gambar)
@@ -398,9 +408,42 @@ async def embed_cepat_cmd(
     except (discord.Forbidden, discord.HTTPException) as exc:
         await interaction.response.send_message(f"⚠️ Gagal mengirim embed: {exc}", ephemeral=True)
         return
+    peringatan = message_template.check(f"{judul}\n{isi}", member=interaction.user)
+    catatan = ("\n" + "\n".join(f"-# ⚠️ {p}" for p in peringatan)) if peringatan else ""
     await interaction.response.send_message(
-        f"✅ Embed terkirim ke {channel.mention}.", ephemeral=True
+        f"✅ Embed terkirim ke {channel.mention}.{catatan}", ephemeral=True
     )
+
+
+@embed_group.command(
+    name="variabel",
+    description="Daftar variabel yang bisa dipakai di judul/isi embed (mis. {server.members})",
+)
+async def embed_variabel_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    kelompok = (
+        ("👤 Member", message_template.MEMBER_TOKENS),
+        ("🏠 Server", message_template.SERVER_TOKENS),
+        ("💬 Channel", message_template.CHANNEL_TOKENS),
+        ("⏰ Waktu", message_template.MISC_TOKENS),
+        ("🔁 Alias lama", message_template.ALIAS_TOKENS),
+    )
+    embed = ui_theme.status_embed(
+        interaction.guild.id,
+        "info",
+        "Variabel Pesan",
+        "Tulis variabel di bawah ini pada judul/isi `/embed` atau `/pengumuman` — "
+        "nilainya diisi otomatis saat pesan dikirim.",
+    )
+    for judul, tokens in kelompok:
+        embed.add_field(
+            name=judul,
+            value="\n".join(message_template.help_lines(tokens))[:1024],
+            inline=False,
+        )
+    embed.set_footer(text="Variabel tak dikenal dibiarkan apa adanya agar salah ketik terlihat.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 def register_suggestions_cog(bot: commands.Bot) -> None:
