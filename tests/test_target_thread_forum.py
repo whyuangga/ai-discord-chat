@@ -228,6 +228,8 @@ def test_perintah_pengumuman_menerima_thread():
 
     cmd = next(c for c in pengumuman_group.commands if c.name == "tambah")
     param = next(p for p in cmd.parameters if p.name == "channel")
-    pilihan = getattr(param.type, "__args__", (param.type,))
-    assert discord.Thread in pilihan
-    assert discord.TextChannel in pilihan
+
+    # discord.py menerjemahkan union channel menjadi AppCommandChannel + channel_types
+    pilihan = set(getattr(param, "channel_types", None) or ())
+    assert discord.ChannelType.public_thread in pilihan
+    assert discord.ChannelType.text in pilihan
