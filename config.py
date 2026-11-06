@@ -177,6 +177,12 @@ AFK_FILE = DATA_DIR / "afk.json"
 FORMS_FILE = DATA_DIR / "forms.json"          # formulir (modal) buatan Admin
 LINKS_FILE = DATA_DIR / "links.json"          # tautan embed (link embed) yang dibuat bot
 
+# Situs dokumentasi di Vercel — dipakai tautan embed `/l/<kode>` (tag og:).
+# Ganti bila domainnya beda: SITE_BASE_URL="https://contoh.vercel.app"
+SITE_BASE_URL: str = (
+    os.getenv("SITE_BASE_URL") or "https://ai-discord-chat-site.vercel.app"
+).strip().rstrip("/")
+
 # ==============================================================================
 # FITUR SERVER (Server Stats, Auto Role, Fakta Harian, & Anti-Phishing)
 # ==============================================================================

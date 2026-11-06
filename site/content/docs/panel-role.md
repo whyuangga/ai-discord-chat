@@ -89,6 +89,27 @@ satu webhook per channel lalu memakainya ulang (`data/webhooks.json`), jadi tida
 baru setiap kali. Butuh izin **Manage Webhooks**; mention massal dinonaktifkan agar tidak bisa
 dipakai men-*ping* `@everyone` diam-diam. Tujuan bisa channel teks **atau thread**.
 
+**Tautan embed (`/embed tautan`).** Ingin tautan yang tampil sebagai **embed cantik** di Discord
+(judul, deskripsi, gambar) tetapi saat diklik membuka situsmu — persis *Link Embeds*-nya Discohook?
+Bot membuat tautan ke halaman `/l/<kode>` di situs dokumentasi (Vercel) ini:
+
+```text
+/embed tautan url:https://situs.kamu/panduan judul:"Panduan Server" isi:"Semua aturan & tips" gambar:https://…/banner.png
+→ https://ai-discord-chat-site.vercel.app/l/eyJ0IjoiUGFuZHVhbiBTZXJ2ZXIiLCJkIjoi…
+```
+
+- Halaman itu memuat tag `og:` (judul, deskripsi, gambar) sehingga Discord menampilkan embed, lalu
+  **mengalihkan pengunjung** ke `url` tujuan lewat `<meta http-equiv="refresh">`.
+- **Tanpa database**: seluruh isi embed dipaketkan ke dalam kode pada URL, jadi tautan lama tetap
+  hidup walau bot mati dan tidak ada data yang tersimpan di server bot.
+- Batasan: URL maksimal ±1.300 karakter (kode ≤1.200), jadi ringkas judul/isi — gambar memakai
+  tautan, bukan unggahan. Maksimal **50 tautan** tercatat per server.
+- `/embed tautan daftar` melihat yang sudah dibuat; `/embed tautan hapus` hanya menghapus catatan
+  (halaman tetap bisa dibuka — hapus pesannya bila ingin benar-benar hilang).
+- Alamat situs diatur lewat env `SITE_BASE_URL` (bawaan `https://ai-discord-chat-site.vercel.app`).
+  Caranya: `site/api/l/[id].js` + rewrite `/l/:id` di `site/vercel.json` — keduanya sudah ada di repo,
+  jadi cukup deploy `site/` seperti biasa. Kalau situs belum dideploy, tautan akan 404.
+
 ## 10. 🔊 Temp Voice: Voice Room Sementara (`/tempvoice`)
 
 Cukup satu voice channel sebagai "tombol" pembuat room — konsep sama dengan ProBot/YAGPDB.

@@ -5864,7 +5864,14 @@ async def test_suggestions_voting_status_and_persistence():
 
     # 10. Command terdaftar
     assert {c.name for c in saran_group.commands} == {"pasang", "kirim", "daftar", "status", "hapus"}
-    assert {c.name for c in embed_group.commands} == {"buat", "cepat", "sebagai", "variabel", "webhook"}
+    assert {c.name for c in embed_group.commands} == {
+        "buat",
+        "cepat",
+        "sebagai",
+        "tautan",
+        "variabel",
+        "webhook",
+    }
 
     sg.suggestion_settings.pop(gid, None)
     sg.suggestion_items.pop(gid, None)

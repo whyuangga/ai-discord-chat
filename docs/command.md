@@ -69,6 +69,9 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/embed variabel` | — | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … yang bisa dipakai di judul/isi. |
 | `/embed sebagai` | `nama`, `isi`, `channel`, `judul`, `avatar`, `warna` | *(Staff)* Kirim pesan dengan nama & avatar sendiri lewat webhook (butuh *Manage Webhooks*). |
 | `/embed webhook` | `channel`, `hapus` | *(Staff)* Cek atau hapus webhook identitas yang dipakai bot di channel itu. |
+| `/embed tautan buat` | `url`, `judul`, `isi`, `gambar`, `sampul`, `warna`, `provider`, `situs` | *(Staff)* Buat tautan yang tampil sebagai embed (`/l/<kode>` di situs) dan mengarah ke `url`. |
+| `/embed tautan daftar` | — | Lihat tautan embed yang pernah dibuat di server ini. |
+| `/embed tautan hapus` | `tautan` | *(Staff)* Hapus tautan dari daftar server (halaman tetap hidup). |
 | `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
 | `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
 | `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |

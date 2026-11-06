@@ -8,7 +8,22 @@
       "HUGO_VERSION": "0.169.0"
     }
   },
+  "rewrites": [
+    {
+      "source": "/l/:id",
+      "destination": "/api/l/:id"
+    }
+  ],
   "headers": [
+    {
+      "source": "/l/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
     {
       "source": "/docs/(scss|js)/(.*)",
       "headers": [

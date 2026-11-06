@@ -62,6 +62,29 @@ cukup menunjuk root directory ke `site/`.
 `build.env.HUGO_VERSION`, jadi langkah 2–3 sebenarnya hanya perlu bila kamu ingin
 mengubahnya — kalau file itu terbaca, build langsung benar.
 
+## 🔗 Halaman tautan embed (`/l/<kode>`)
+
+Bot memakai situs ini untuk fitur **tautan embed** (`/embed tautan`): Discord hanya mau
+menampilkan embed dari tag `og:` pada halaman yang ditautkan, jadi bot membuat tautan
+`https://<situs>/l/<kode>` dan Vercel menyajikan halamannya.
+
+| Berkas | Fungsi |
+| :--- | :--- |
+| [`api/l/[id].js`](api/l/[id].js) | Function Node: mengubah kode (base64url) menjadi HTML bertag `og:` + pengalihan ke URL tujuan |
+| [`vercel.json`](vercel.json) | `rewrites`: `/l/:id` → `/api/l/:id`, plus header `X-Robots-Tag: noindex` |
+
+Tidak ada database: seluruh isi embed menempel di URL, jadi function ini hanya membaca,
+tidak menyimpan apa pun. Deploy tetap seperti biasa — folder `api/` otomatis dideteksi Vercel
+selama **Root Directory** = `site`. Uji cepat tanpa deploy:
+
+```bash
+node -e "require('./api/l/[id].js')"            # pastikan tidak ada error sintaks
+python3 -m pytest tests/test_link_embed.py -q   # tes ikut memanggil function lewat Node
+```
+
+Bot sendiri memakai env `SITE_BASE_URL` (bawaan `https://ai-discord-chat-site.vercel.app`)
+untuk menyusun tautan — samakan dengan domain produksimu bila berbeda.
+
 **Kalau memakai domain sendiri:** tambahkan di *Settings → Domains*. `--baseURL` di atas memakai
 `VERCEL_PROJECT_PRODUCTION_URL` (domain produksi) lebih dulu, lalu `VERCEL_URL` (URL deployment /
 preview), lalu domain sekarang sebagai cadangan terakhir. Jadi `sitemap.xml`, `robots.txt`, dan
