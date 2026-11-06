@@ -15,7 +15,7 @@ hero:
     soft: true
 
   title: "AI Discord Chat"
-  subtitle: Bot Discord modular berbasis **Google Gemini** — 52 command utama, satu proses, JSON, Free Tier (±53 MB RAM).
+  subtitle: Bot Discord modular berbasis **Google Gemini** — 53 command utama, satu proses, JSON, Free Tier (±53 MB RAM).
 
   ctaButton:
     icon: menu_book
@@ -27,7 +27,7 @@ hero:
     btnText: "GitHub"
     url: "https://github.com/whyuangga/ai-discord-chat"
 
-  info: "**Open Source** MIT Licensed · 150+ tes otomatis"
+  info: "**Open Source** MIT Licensed · 367 tes otomatis"
 
 # Feature Grid
 featureGrid:
