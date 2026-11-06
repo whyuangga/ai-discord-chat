@@ -261,6 +261,9 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/menu form daftar` | — | Lihat semua formulir, kolom, tujuan, dan jumlah jawaban. |
 | `/menu form uji` | `form` | *(Admin)* Coba isi formulir; hasilnya hanya pratinjau untukmu. |
 | `/menu form hapus` | `form` | *(Admin)* Hapus formulir beserta tombolnya di panel. |
+| `/menu pemicu tambah` | `aksi`, `channel`, `umur_akun` | *(Admin)* Alur yang jalan otomatis saat member baru bergabung. |
+| `/menu pemicu daftar` | — | Lihat alur gabung yang aktif. |
+| `/menu pemicu hapus` | — | *(Admin)* Matikan alur gabung. |
 | `/menu hapus-item` | `item`, `menu` | *(Admin)* Hapus tombol/opsi. |
 | `/menu ubah` | `menu`, `judul`, `deskripsi` | *(Admin)* Ubah teks panel yang sudah terkirim (pesan ikut berubah, tanpa kirim ulang). |
 | `/menu ekspor` | `menu` | *(Admin)* Unduh panel sebagai berkas JSON (backup / pindah server). |

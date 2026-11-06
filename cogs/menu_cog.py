@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import flow_triggers
 import flows
 import menu_builder
 import modal_forms
@@ -1419,8 +1420,112 @@ async def form_uji_cmd(interaction: discord.Interaction, form: str):
         return
     await modal_forms.open_form_modal(interaction, formulir, uji=True)
 
+pemicu_group = app_commands.Group(
+    name="pemicu",
+    description="Alur otomatis saat member baru bergabung (di luar klik tombol)",
+)
+
+
+@pemicu_group.command(name="tambah", description="Pasang alur yang dijalankan saat member bergabung (Admin)")
+@app_commands.describe(
+    aksi="Alur, mis. `+role:123 > umum:Selamat datang {member.mention}!`",
+    channel="Channel untuk pesan/thread sambutan",
+    umur_akun="Hanya akun berumur minimal N hari (0 = semua akun)",
+)
+async def pemicu_tambah_cmd(
+    interaction: discord.Interaction,
+    aksi: str,
+    channel: discord.TextChannel | discord.Thread,
+    umur_akun: int = 0,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    langkah, galat = flows.parse(aksi)
+    if galat:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Alur belum valid", "\n".join(f"• {g}" for g in galat)[:1500]
+            ),
+            ephemeral=True,
+        )
+        return
+
+    data, galat2 = flow_triggers.set_trigger(
+        gid, langkah, channel_id=channel.id, min_age_days=umur_akun, created_by=interaction.user.id
+    )
+    if data is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Pemicu belum tersimpan", "\n".join(f"• {g}" for g in galat2)[:1200]
+            ),
+            ephemeral=True,
+        )
+        return
+
+    await flow_triggers.save_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok",
+            "Pemicu gabung tersimpan",
+            "Alur berjalan setiap ada member baru.\n"
+            + "\n".join(flow_triggers.describe(data))[:1500],
+            footer="Langkah `pesan`/`hapus` dilewati karena tidak ada interaksi",
+        ),
+        ephemeral=True,
+    )
+
+
+@pemicu_group.command(name="daftar", description="Lihat alur gabung yang aktif di server ini")
+async def pemicu_daftar_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    data = flow_triggers.get_trigger(gid)
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "info" if data else "warn",
+            "Pemicu Gabung",
+            "\n".join(flow_triggers.describe(data))[:3000]
+            + ("" if data else "\n-# Pasang dengan `/menu pemicu tambah`."),
+        ),
+        ephemeral=True,
+    )
+
+
+@pemicu_group.command(name="hapus", description="Matikan alur gabung di server ini (Admin)")
+async def pemicu_hapus_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+    if not flow_triggers.remove_trigger(gid):
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "warn", "Tidak ada pemicu", "Memang belum dipasang."),
+            ephemeral=True,
+        )
+        return
+    await flow_triggers.save_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(gid, "ok", "Pemicu gabung dimatikan", "Tidak ada alur yang jalan saat member baru masuk."),
+        ephemeral=True,
+    )
+
 
 def register_menu_cog(bot: commands.Bot) -> None:
     """Mendaftarkan command `/menu` ke bot."""
     menu_group.add_command(form_group)
+    menu_group.add_command(pemicu_group)
     bot.tree.add_command(menu_group)

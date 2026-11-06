@@ -52,6 +52,20 @@ Langkah dipisah `>` dan teksnya boleh memakai variabel (`{member.mention}`, `{se
 
 Batas: **10 langkah** per tombol, 1000 karakter per pesan. Role tetap wajib di bawah role bot.
 
+## Pemicu saat member bergabung (`/menu pemicu`)
+Alur yang sama bisa dijalankan **tanpa klik tombol** — dipicu ketika ada member baru masuk:
+
+```text
+/menu pemicu tambah aksi:"+role:123456 > umum:Selamat datang {member.mention}!" channel:#umum umur_akun:7
+```
+
+- Pilih `channel` untuk pesan/thread sambutan; `umur_akun` menolak akun yang terlalu baru
+  (bawaan 0 = semua akun) — pengaman saat server kena raid.
+- Langkah yang butuh interaksi (`pesan`, `hapus`) dilewati karena tidak ada yang mengklik apa pun;
+  `role`, `syarat`, `umum`, `webhook`, `thread`, `tunggu`, `stop` tetap berlaku.
+- Satu alur gabung per server; `/menu pemicu daftar` melihatnya, `/menu pemicu hapus` mematikannya.
+  Data disimpan di `data/flow_triggers.json`.
+
 ## Formulir (modal) buatan sendiri — `/menu form`
 `/agent panel` punya modal dengan kolom tetap. Lewat `/menu form`, **Admin merancang sendiri**
 isinya: sebut kolom yang diinginkan, pasang sebagai tombol, dan jawaban anggota dikirim rapi ke

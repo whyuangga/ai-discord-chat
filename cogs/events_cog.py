@@ -405,6 +405,14 @@ def register_events_cog(bot: commands.Bot) -> None:
     @bot.event
     async def on_member_join(member: discord.Member):
         """Menyambut member baru, memasang Auto Role, & mendeteksi lonjakan join (raid)."""
+        # Alur gabung buatan Admin (/menu pemicu) — berjalan sebelum sambutan biasa.
+        try:
+            import flow_triggers
+
+            await flow_triggers.handle_member_join(bot, member)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Alur gabung dilewati: %s", exc)
+
         # Raid Guard: deteksi lonjakan join & tahan Auto Role saat mode darurat
         raid_state = None
         try:
