@@ -39,6 +39,7 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
+| **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web |
 | **Riwayat perubahan** | 8 perubahan terakhir dari dashboard (siapa-waktu-nilai-hasil) |
 
 ### Setelan yang bisa diubah dari web (48 fitur)
@@ -110,13 +111,51 @@ Batasan & pengamanan:
   embed klasik dengan banner yang sama. Tombol **Hapus banner** menghapus lampiran lama
   tanpa menyentuh isi panel.
 
+### Kotak masuk tiket dari web
+
+Panel **🎫 Kotak masuk tiket** menampilkan tiket yang belum selesai untuk server yang
+sedang dipilih — jadi staf bisa menjawab tanpa membuka Discord di HP.
+
+| Kolom | Arti |
+| :--- | :--- |
+| **#nomor** | nomor tiket (sama dengan nama thread `tiket-0001`) |
+| **Status** | 🟢 terbuka · 🟡 diklaim (dengan ID staf) · ⏰ lewat SLA |
+| **umur / diam** | sejak tiket dibuat / sejak pesan terakhir di thread |
+| **Ringkasan** | jumlah aktif, diklaim, lewat SLA, dan rating rata-rata |
+
+Setiap baris punya dua tombol:
+
+| Tombol | Yang terjadi |
+| :--- | :--- |
+| **Balas** | kirim isi kolom teks ke thread tiket sebagai bot, atau sebagai **identitas webhook** bila kolom nama pengirim diisi (mis. “Tim Bantuan”). Respons staf pertama otomatis dicatat untuk hitungan SLA. |
+| **Tutup** | tutup tiket: transkrip dibuat & dikirim ke channel log (bila diatur), thread dikunci + diarsipkan, status tersimpan di `data/tickets.json`. |
+
+Tiket yang sudah selesai hilang dari daftar dan tidak bisa dibalas lagi — sama seperti
+`/tiket tutup` di Discord. Membuat tiket tetap lewat panel `/tiket panel` (atau tombol
+di panel yang sudah ada), karena butuh interaksi member.
+
+### Formulir: kolom diisi lewat baris visual
+
+Form **Buat formulir** sekarang menampilkan **5 baris kolom** siap pakai, bukan satu
+kotak teks sintaks:
+
+| Isian per baris | Fungsi |
+| :--- | :--- |
+| **Label kolom** | judul pertanyaan, mis. `Nama` |
+| **pendek / paragraf** | `pendek` = satu baris, `paragraf` = jawaban panjang |
+| **wajib** | centang = tidak boleh kosong |
+
+Baris yang labelnya dikosongkan diabaikan. Mode lanjutan (`<details>`) tetap menyediakan
+kolom teks bebas `Nama | Asal:panjang?` bagi yang lebih suka menulis sintaks — teks itu
+hanya dipakai bila kelima baris visual kosong.
+
 ### Keamanan bertingkat
 
 | Lapis | Jaminan |
 | :--- | :--- |
 | **Token** | semua endpoint baca & tulis wajib token (`?token=`, `X-Dashboard-Token`, `Bearer`, atau field tersembunyi pada form HTML) |
 | **Whitelist aksi** | hanya 48 kunci di `dashboard_admin.FITUR` yang bisa dijalankan — kunci lain ditolak |
-| **Tanpa PUT/DELETE/PATCH** | hanya tiga jalur tulis `POST`: `/api/aksi`, `/api/kirim`, `/api/konten` |
+| **Tanpa PUT/DELETE/PATCH** | hanya lima jalur tulis `POST`: `/api/aksi`, `/api/kirim`, `/api/konten`, `/api/unggah`, `/api/tiket` |
 | **Tanpa hapus data massal** | tombol Hapus hanya membuang satu item (pesan lama di Discord tidak ikut terhapus) |
 | **Jejak audit** | setiap perubahan (termasuk yang gagal) dicatat waktu, kunci, nilai, dan pesannya |
 | **Bind privat** | default `DASHBOARD_HOST=0.0.0.0`, bisa diubah ke `127.0.0.1` + tunnel SSH |
@@ -134,6 +173,8 @@ Batasan & pengamanan:
 | `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` / `banner.panel:<id>` / `hapusbanner.panel:<id>` |
 | `POST /api/unggah` | `action=unggah.simpan` (multipart, field `banner`) / `hapus.banner:<nama>` |
 | `GET /api/unggahan/<nama>?guild=<id>` | pratinjau banner tersimpan (wajib token) |
+| `GET /api/tiket?guild=<id>` | daftar tiket aktif + statistik (JSON) |
+| `POST /api/tiket` | `action=balas:<id>` (field `teks`, `identitas` opsional) / `action=tutup:<id>` |
 | `GET /healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
 ### Yang tetap lebih enak di Discord
@@ -146,7 +187,7 @@ percakapan interaktif di Discord (karena perlu pratinjau langsung):
 | Menambah tombol/role/alur pada panel yang sudah ada | `/menu tombol-role`, `/menu tombol-link`, `/menu alur`, `/menu dropdown-role` |
 | Menyegarkan panel setelah tombol ditambah dari Discord | `/menu ubah` |
 | Mengundi (giveaway) — ambil pemenang, reroll | `/giveaway mulai`, `/giveaway pilih` |
-| Panel tiket & tombol verifikasi | `/tiket panel`, `/verifikasi kirim` |
+| Membuat panel tiket & tombol verifikasi *(menutup/membalas tiket sudah bisa dari dashboard)* | `/tiket panel`, `/verifikasi kirim` |
 | Moderasi, musik, permainan, AI chat | perintah masing-masing (bukan setelan) |
 
 > 💡 **Auto-refresh**: set `DASHBOARD_REFRESH_SEC=0` bila dashboard dipakai untuk mengisi

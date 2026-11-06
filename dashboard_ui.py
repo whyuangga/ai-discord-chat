@@ -197,6 +197,23 @@ def _medan_berkas(label: str, nama: str = "banner") -> str:
     )
 
 
+def _baris_kolom(jumlah: int = 5) -> str:
+    """Baris visual kolom formulir: label, jenis, & centang wajib."""
+    baris = ""
+    for nomor in range(1, jumlah + 1):
+        baris += (
+            f'<div class="baris-kolom">'
+            f'<input type="text" name="kolom_label_{nomor}" maxlength="45" '
+            f'placeholder="Label kolom {nomor}">'
+            f'<select name="kolom_jenis_{nomor}">'
+            f'<option value="pendek">pendek</option>'
+            f'<option value="panjang">paragraf</option></select>'
+            f'<label class="centang"><input type="checkbox" name="kolom_wajib_{nomor}" '
+            f'value="on" checked> wajib</label></div>'
+        )
+    return f'<div class="kolom-formulir">{baris}</div>'
+
+
 def _hidden(guild_id: int, token: str, action: str) -> str:
     return (
         f'<input type="hidden" name="token" value="{_esc(token)}">'
@@ -305,15 +322,17 @@ Panel yang sudah terkirim bisa disegarkan dengan <code>/menu ubah</code>.</p></d
   <div class="medan"><label for="f-channel">Channel tujuan jawaban (opsional)</label>
     <select name="channel" id="f-channel">{opsi}</select></div>
   {_medan("Nama formulir", "judul", place="Pendaftaran Event")}
-  {_medan("Kolom", "kolom", place="Nama | Asal kota | Alasan:panjang?", jenis="textarea")}
+  {_baris_kolom(5)}
   {_medan("Penjelasan singkat", "isi", place="Isi formulir lalu tekan kirim", jenis="textarea")}
   {_medan("Warna", "warna", place="#5865F2")}
+  <details><summary class="muted">Mode lanjutan (tulis kolom sebagai teks)</summary>
+    {_medan("Kolom", "kolom", place="Nama | Asal kota | Alasan:panjang?", jenis="textarea")}
+  </details>
   <button type="submit">Buat formulir</button>
 </form>
-<p class="muted">Pisahkan kolom dengan <code>|</code> atau baris baru (maksimal 4–5 kolom).
-Tambahkan <code>:panjang</code> untuk jawaban panjang dan <code>?</code> bila tidak wajib —
-contoh: <code>Nama | Umur | Alasan:panjang?</code>. Pasang sebagai tombol panel lewat
-<code>/menu form tombol</code>.</p></div>
+<p class="muted">Isi label kolom (maksimal 5). Pilih <b>paragraf</b> untuk jawaban panjang, dan
+hilangkan centang <b>wajib</b> bila boleh dikosongkan. Mode lanjutan hanya dipakai bila semua
+baris di atas kosong. Pasang formulir sebagai tombol panel lewat <code>/menu form tombol</code>.</p></div>
 
 <div class="subpanel"><h3>🚪 Pemicu saat member bergabung</h3>
 <form method="post" action="/api/konten" class="formgrid">
@@ -626,6 +645,53 @@ def render_pratinjau_html(
 </body></html>"""
 
 
+# ==============================================================================
+# KOTAK MASUK TIKET
+# ==============================================================================
+def render_tiket_block(guild_id: int, data: dict, token: str) -> str:
+    """Kotak masuk tiket: ringkasan + daftar tiket aktif + form balas/tutup."""
+    paket = data or {}
+    items = paket.get("items") or []
+    stat = paket.get("statistik") or {}
+    ringkas = (
+        f'<p class="muted">🔢 Aktif: <b>{int(stat.get("aktif") or 0)}</b> · '
+        f'diklaim: {int(stat.get("diklaim") or 0)} · '
+        f'lewat SLA: {int(stat.get("lewat_sla") or 0)} · '
+        f'rating: {_esc(stat.get("rating") or "-")}'
+        + ("" if stat.get("aktifkan", True) else " · ⛔ Sistem tiket nonaktif")
+        + "</p>"
+    )
+    if not items:
+        return (
+            ringkas
+            + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
+            "member membukanya lewat panel `/tiket panel`.</div>"
+        )
+
+    baris = ""
+    for item in items:
+        tid = str(item.get("id"))
+        sla = ' <span class="warn">⏰ lewat SLA</span>' if item.get("sla") else ""
+        baris += (
+            f'<div class="tiket-baris">'
+            f'<div><b>{_esc(item.get("nomor"))}</b> {_esc(item.get("status_label"))}{sla}'
+            f'<div class="muted">Pemilik <code>{_esc(item.get("pemilik"))}</code> · '
+            f'umur {_esc(item.get("umur"))} · diam {_esc(item.get("diam"))}'
+            + (f' · diklaim <code>{_esc(item.get("diklaim"))}</code>' if item.get("diklaim") else "")
+            + (f'<br>{_esc(item.get("topik"))}' if item.get("topik") else "")
+            + "</div></div>"
+            '<form method="post" action="/api/tiket" class="tiket-form">'
+            + _hidden(guild_id, token, "balas:" + tid)
+            + '<input type="text" name="teks" maxlength="1800" placeholder="Balas sebagai bot…">'
+            '<input type="text" name="identitas" maxlength="80" placeholder="nama pengirim (opsional)">'
+            '<button type="submit" class="ghost">Balas</button></form>'
+            '<form method="post" action="/api/tiket">'
+            + _hidden(guild_id, token, "tutup:" + tid)
+            + '<button type="submit" class="danger">Tutup</button></form>'
+            "</div>"
+        )
+    return ringkas + f'<div class="daftar-tiket">{baris}</div>'
+
 
 __all__ = [
     "daftar_server",
@@ -642,5 +708,6 @@ __all__ = [
     "render_kirim_block",
     "render_pratinjau_html",
     "render_setelan_block",
+    "render_tiket_block",
     "render_tren_svg",
 ]

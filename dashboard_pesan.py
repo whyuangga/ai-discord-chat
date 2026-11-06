@@ -458,17 +458,40 @@ async def ganti_banner_panel(bot, guild_id: int, ref: str, banner=None) -> tuple
 # ==============================================================================
 # FORMULIR (MODAL)
 # ==============================================================================
+def kolom_dari_baris(data: dict, batas: int = 5) -> str:
+    """Susun teks kolom dari baris visual form (`kolom_label_1`, `kolom_jenis_1`, …).
+
+    Hasilnya memakai sintaks yang dipahami `modal_forms.parse_fields`, mis.
+    `Nama | Asal:panjang?`. Mengembalikan `""` bila semua baris kosong.
+    """
+    bagian: list[str] = []
+    for nomor in range(1, batas + 1):
+        label = _bersih(data, f"kolom_label_{nomor}", 45)
+        if not label:
+            continue
+        jenis = _bersih(data, f"kolom_jenis_{nomor}", 20).lower()
+        wajib = _bersih(data, f"kolom_wajib_{nomor}", 20).lower()
+        potongan = label.replace("|", "/")
+        if jenis in ("panjang", "paragraf", "long"):
+            potongan += ":panjang"
+        if wajib not in ("on", "1", "ya", "wajib", "true"):
+            potongan += "?"
+        bagian.append(potongan)
+    return " | ".join(bagian)
+
+
 async def tambah_formulir(guild_id: int, data: dict) -> tuple[bool, str]:
-    """Buat formulir (modal) dari kolom teks; tombolnya dipasang lewat `/menu form tombol`."""
+    """Buat formulir (modal); tombolnya dipasang lewat `/menu form tombol`."""
     import modal_forms
 
     gid = _to_int(guild_id)
     nama = _bersih(data, "judul", 100)
-    kolom = _bersih(data, "kolom", 900)
+    # Mode visual (baris label/jenis/wajib) diutamakan; teks bebas tetap didukung.
+    kolom = kolom_dari_baris(data) or _bersih(data, "kolom", 900)
     if not nama:
         return False, "Nama formulir wajib diisi."
     if not kolom:
-        return False, "Daftar kolom wajib diisi, mis. `Nama | Umur | Alasan:panjang?`."
+        return False, "Isi minimal satu kolom (label kolom pertama tidak boleh kosong)."
     form, galat = modal_forms.create_form(
         gid,
         nama,
@@ -696,6 +719,7 @@ async def hapus(bot, guild_id: int, jenis: str, ref: str) -> tuple[bool, str]:
 
 __all__ = [
     "JENIS_KONTEN",
+    "kolom_dari_baris",
     "pratinjau",
     "buat_panel",
     "ganti_banner_panel",

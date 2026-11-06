@@ -30,6 +30,7 @@ Endpoint:
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
 | `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu; ganti/hapus banner panel |
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
+| `GET /api/tiket` · `POST /api/tiket` | Kotak masuk tiket: daftar, balas (`balas:<id>`), tutup (`tutup:<id>`) |
 | `GET /api/unggahan/<nama>` | Pratinjau banner tersimpan (butuh token) |
 | `/healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
@@ -43,6 +44,7 @@ import time
 
 import dashboard_admin
 import dashboard_pesan
+import dashboard_tiket
 import dashboard_ui
 import dashboard_unggah
 import insights
@@ -386,6 +388,22 @@ _PAGE_TEMPLATE = """<!doctype html>
   .grafik {{ margin: 4px 0 8px; }}
   .grafik svg {{ width: 100%; height: 150px; }}
   .aksi-banner {{ display: grid; gap: 6px; margin-top: 8px; }}
+  .kolom-formulir {{ display: grid; gap: 6px; }}
+  .baris-kolom {{ display: grid; grid-template-columns: 1fr 110px auto; gap: 6px;
+                  align-items: center; }}
+  .baris-kolom input[type=text] {{ width: 100%; padding: 6px 8px; border-radius: 8px;
+      border: 1px solid #2a2f3d; background: #171b25; color: #e6e6f0; font-size: 13px; }}
+  .baris-kolom select {{ padding: 6px; border-radius: 8px; border: 1px solid #2a2f3d;
+      background: #171b25; color: #e6e6f0; font-size: 12px; }}
+  .baris-kolom label.centang {{ font-size: 12px; color: #9aa0b5; display: flex; gap: 4px;
+      align-items: center; white-space: nowrap; }}
+  details summary {{ cursor: pointer; margin: 6px 0; }}
+  .daftar-tiket {{ display: grid; gap: 10px; }}
+  .tiket-baris {{ background: #171b25; border: 1px solid #2a2f3d; border-radius: 10px;
+      padding: 10px; display: grid; gap: 8px; }}
+  form.tiket-form {{ display: flex; gap: 6px; flex-wrap: wrap; }}
+  form.tiket-form input[type=text] {{ flex: 1 1 150px; padding: 6px 8px; border-radius: 8px;
+      border: 1px solid #2a2f3d; background: #14161f; color: #e6e6f0; font-size: 12px; }}
   form.banner-form {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
   form.banner-form input[type=file] {{ width: auto; max-width: 190px; }}
   form.banner-form select {{ padding: 5px 8px; border-radius: 8px; border: 1px solid #2a2f3d;
@@ -466,6 +484,12 @@ _PAGE_TEMPLATE = """<!doctype html>
   </div>
 
   <div class="panel">
+    <h2>🎫 Kotak masuk tiket</h2>
+    <p class="muted">Balas atau tutup tiket dari HP — tanpa membuka Discord.</p>
+    {tiket_block}
+  </div>
+
+  <div class="panel">
     <h2>🖼️ Banner &amp; gambar</h2>
     <p class="muted">Unggah gambar lalu pakai untuk banner panel atau gambar embed —
     tanpa perlu URL publik. Berkas disimpan di <code>data/uploads/</code>.</p>
@@ -533,6 +557,7 @@ def render_dashboard_html(
     audit_block: str = "",
     banner_block: str = "",
     guild_picker: str = "",
+    tiket_block: str = "",
     tren_block: str = "",
     tren_hari: int = 7,
 ) -> str:
@@ -587,6 +612,7 @@ def render_dashboard_html(
         audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
         banner_block=banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         guild_picker=guild_picker,
+        tiket_block=tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
         tren_block=tren_block or '<div class="muted">Belum ada data tren.</div>',
         tren_hari=int(tren_hari or 7),
     )
@@ -851,6 +877,12 @@ async def start_dashboard(bot) -> bool:
             ),
             '<div class="muted">Daftar konten tidak tersedia.</div>',
         )
+        tiket_block = _blok(
+            lambda: dashboard_ui.render_tiket_block(
+                gid, dashboard_tiket.collect_tiket(gid), token
+            ),
+            '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
+        )
         banner_block = _blok(
             lambda: dashboard_ui.render_banner_block(gid, token),
             '<div class="muted">Unggahan tidak tersedia.</div>',
@@ -885,6 +917,7 @@ async def start_dashboard(bot) -> bool:
             audit_block=audit_block,
             banner_block=banner_block,
             guild_picker=guild_picker,
+            tiket_block=tiket_block,
             tren_block=tren_block,
             tren_hari=tren["hari"],
         )
@@ -1063,6 +1096,42 @@ async def start_dashboard(bot) -> bool:
                                      status=200 if ok else 400)
         return _halaman_hasil(ok, message)
 
+    async def handle_tiket(request):
+        """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
+        if request.method == "GET":
+            if not _authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            gid, _name = _guild_hint(bot, request)
+            return web.json_response(dashboard_tiket.collect_tiket(gid))
+
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        jenis, _, ref = aksi.partition(":")
+
+        if jenis == "balas":
+            ok, message = await dashboard_tiket.balas(
+                bot, gid, ref, str(payload.get("teks") or ""),
+                identitas=str(payload.get("identitas") or ""),
+            )
+        elif jenis == "tutup":
+            ok, message = await dashboard_tiket.tutup(bot, gid, ref)
+        else:
+            ok, message = False, f"Aksi tiket `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard tiket %s (server %s): %s", aksi, gid, message)
+
+        if str(request.content_type or "").startswith("application/json"):
+            return web.json_response({"ok": ok, "message": message, "guild": gid},
+                                     status=200 if ok else 400)
+        return _halaman_hasil(ok, message)
+
     async def handle_unggah(request):
         """Simpan / hapus banner. Multipart untuk berkas, form biasa untuk hapus."""
         if request.method != "POST":
@@ -1151,6 +1220,8 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/kirim", handle_kirim)
     app.router.add_post("/api/konten", handle_konten)
     app.router.add_post("/api/unggah", handle_unggah)
+    app.router.add_get("/api/tiket", handle_tiket)
+    app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_status)
