@@ -218,3 +218,16 @@ async def test_kirim_sekarang_ke_thread():
     status, _ = await engagement.send_announcement_now(bot, cfg["id"], guild_id=88)
     assert status == "ok"
     assert thread.terkirim
+
+
+def test_perintah_pengumuman_menerima_thread():
+    """`/pengumuman tambah` harus bisa menunjuk thread, bukan hanya channel teks."""
+    import discord
+
+    from cogs.engagement_cog import pengumuman_group
+
+    cmd = next(c for c in pengumuman_group.commands if c.name == "tambah")
+    param = next(p for p in cmd.parameters if p.name == "channel")
+    pilihan = getattr(param.type, "__args__", (param.type,))
+    assert discord.Thread in pilihan
+    assert discord.TextChannel in pilihan

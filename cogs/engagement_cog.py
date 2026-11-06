@@ -635,14 +635,14 @@ pengumuman_group = app_commands.Group(
         "`sekali 31-12-2026 23:59`, `setiap 3 jam` (berulang, min. 2 jam)"
     ),
     judul="Judul pengumuman (opsional)",
-    channel="Channel tujuan (default: channel ini)",
+    channel="Channel/thread tujuan (default: channel ini)",
 )
 async def pengumuman_tambah_cmd(
     interaction: discord.Interaction,
     isi: str,
     jadwal: str,
     judul: str | None = None,
-    channel: discord.TextChannel | None = None,
+    channel: discord.TextChannel | discord.Thread | None = None,
 ):
     if interaction.guild is None:
         return
