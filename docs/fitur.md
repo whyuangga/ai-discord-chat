@@ -880,6 +880,21 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Ekspor CSV** | unduh data level, moderasi, tiket, & pemakaian AI langsung dari browser |
 | **Riwayat perubahan** | 8 perubahan terakhir dari dashboard (siapa-waktu-nilai-hasil) |
 
+#### Tampilan (tema gelap + General Sans)
+
+| Bagian | Nilai |
+| :--- | :--- |
+| **Latar** | `#0D0D0F` (hitam netral) — sama untuk halaman utama, halaman pratinjau embed, dan halaman hasil submit |
+| **Warna teks** | `#FFFFFF`; teks sekunder memakai putih transparan (`rgba(255,255,255,.62)`) |
+| **Font** | **General Sans** (Fontshare, bobot 400/500/600/700) dimuat lewat `api.fontshare.com`; cadangan `Inter` → `system-ui` → `Segoe UI` bila CDN tidak terjangkau |
+| **Aksen** | ungu `#8B7CFF` (fokus, tautan), biru Discord `#5865F2` (tombol utama), hijau `#4ADE80` (berhasil), kuning `#FBBF24` (peringatan), merah `#E5484D` (tombol hapus/tutup) |
+| **Bentuk** | kartu radius 14 px, garis `rgba(255,255,255,.09)`, tanpa gradien norak, tanpa JavaScript |
+| **Aksesibilitas** | `color-scheme: dark`, outline fokus ungu 2 px pada input/select/tombol, `prefers-reduced-motion` mematikan transisi |
+
+Semua warna & font tinggal di satu modul, `dashboard_tema.py` (`LATAR`, `TEKS`,
+`FONT_STACK`, `CSS_HALAMAN`, `CSS_PRATINJAU`, `CSS_HASIL`) — mengganti tema cukup
+mengubah satu berkas itu, tanpa menyentuh `web_dashboard.py` atau `dashboard_ui.py`.
+
 #### Navigasi dashboard (menu ☰ di HP)
 
 Halaman dashboard itu panjang (status → setelan → kirim → tiket → panel → banner).

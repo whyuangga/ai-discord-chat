@@ -50,6 +50,7 @@ import time
 import dashboard_admin
 import dashboard_panel
 import dashboard_pesan
+import dashboard_tema
 import dashboard_tiket
 import dashboard_ui
 import dashboard_unggah
@@ -340,142 +341,8 @@ _PAGE_TEMPLATE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {meta_refresh}
 <title>Dashboard {bot_name} — v{version}</title>
-<style>
-  :root {{ color-scheme: dark; }}
-  * {{ box-sizing: border-box; }}
-  body {{ margin: 0; padding: 20px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-         background: #0f1117; color: #e6e6f0; }}
-  h1 {{ font-size: 20px; margin: 0 0 4px; }}
-  /* --- header lengket + menu (tanpa JavaScript) --- */
-  .topbar {{ position: sticky; top: 0; z-index: 20; margin: -20px -20px 14px; padding: 10px 20px;
-      background: rgba(15, 17, 23, .96); border-bottom: 1px solid #242838;
-      backdrop-filter: blur(6px); }}
-  .topbar .baris {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
-  .topbar .judul {{ font-weight: 600; font-size: 16px; }}
-  .topbar .meta {{ color: #8b90a3; font-size: 12px; }}
-  .menu-btn {{ margin-left: auto; display: none; cursor: pointer; user-select: none;
-      padding: 8px 14px; border-radius: 10px; border: 1px solid #3a4152; background: #1d2433;
-      font-size: 15px; }}
-  .nav-buka {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
-  #nav-buka:focus-visible + .baris .menu-btn {{ outline: 2px solid #8ea2ff; outline-offset: 2px; }}
-  nav.menu {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
-  nav.menu a {{ padding: 6px 11px; border-radius: 999px; border: 1px solid #2a2f3d;
-      background: #171b25; color: #cbd0e0; text-decoration: none; font-size: 12.5px;
-      white-space: nowrap; }}
-  nav.menu a:hover {{ background: #263049; color: #fff; }}
-  .panel, .subpanel, section[id] {{ scroll-margin-top: 110px; }}
-  .flash {{ border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; font-size: 13px;
-      border: 1px solid #2f7d52; background: #12291d; }}
-  .flash.galat {{ border-color: #8a4a3a; background: #2a1714; }}
-  .muted {{ color: #8b90a3; font-size: 12px; }}
-  .kontrol {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }}
-  .kontrol label {{ min-width: 190px; font-size: 13px; }}
-  .kontrol select, .kontrol button {{ padding: 6px 10px; border-radius: 8px; border: 1px solid #2a2f3d;
-      background: #171b25; color: #e6e6f0; font-size: 13px; }}
-  .kontrol button {{ background: #5865f2; border-color: #5865f2; cursor: pointer; }}
-  .grid {{ display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-           margin: 16px 0 24px; }}
-  .card {{ background: #171a23; border: 1px solid #242838; border-radius: 14px; padding: 14px 16px; }}
-  .card b {{ display: block; font-size: 22px; margin-top: 6px; color: #b39dff; }}
-  .panel {{ background: #14161f; border: 1px solid #242838; border-radius: 14px; padding: 16px;
-            margin-bottom: 14px; }}
-  .panel h2 {{ font-size: 14px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .06em;
-               color: #9aa0b5; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-  td, th {{ text-align: left; padding: 6px 4px; border-bottom: 1px solid #1d2130; }}
-  th {{ color: #8b90a3; font-weight: 500; }}
-  .ok {{ color: #58d68d; }} .warn {{ color: #f5b041; }}
-  .subpanel {{ margin: 14px 0 6px; }}
-  .subpanel h3 {{ font-size: 13px; margin: 8px 0 4px; color: #cbd0e0; }}
-  .formgrid {{ display: grid; gap: 10px; margin: 8px 0 4px; }}
-  .medan {{ display: grid; gap: 4px; }}
-  .medan label {{ font-size: 12px; color: #9aa0b5; }}
-  input[type=text], input[type=number], input[type=url], textarea {{
-      width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid #2a2f3d;
-      background: #171b25; color: #e6e6f0; font-size: 13px; font-family: inherit; }}
-  textarea {{ resize: vertical; min-height: 90px; }}
-  .formgrid button {{ justify-self: start; }}
-  button.danger {{ background: #b23b3b; border-color: #b23b3b; }}
-  button.ghost {{ background: transparent; border-color: #3a4152; color: #cbd0e0; }}
-  td.aksi {{ display: flex; gap: 6px; flex-wrap: wrap; }}
-  .galeri {{ display: grid; gap: 10px; margin-top: 12px;
-             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }}
-  .kartu-banner {{ background: #171b25; border: 1px solid #2a2f3d; border-radius: 10px;
-                   padding: 8px; display: grid; gap: 6px; }}
-  .kartu-banner img {{ width: 100%; height: 90px; object-fit: cover; border-radius: 6px;
-                       background: #0f1117; }}
-  .kartu-banner code.kecil {{ font-size: 10px; color: #8b90a3; overflow-wrap: anywhere; }}
-  input[type=file] {{ width: 100%; font-size: 12px; color: #cbd0e0; }}
-  .pemilih-server {{ display: flex; gap: 8px; align-items: center; margin: 10px 0 4px;
-      flex-wrap: wrap; }}
-  .pemilih-server label {{ font-size: 12px; color: #9aa0b5; }}
-  .pemilih-server select, .pemilih-server button {{ padding: 6px 10px; border-radius: 8px;
-      border: 1px solid #2a2f3d; background: #171b25; color: #e6e6f0; font-size: 13px; }}
-  .pemilih-server button {{ background: #5865f2; border-color: #5865f2; cursor: pointer; }}
-  .grafik {{ margin: 4px 0 8px; }}
-  .grafik svg {{ width: 100%; height: 150px; }}
-  .aksi-banner {{ display: grid; gap: 6px; margin-top: 8px; }}
-  .kolom-formulir {{ display: grid; gap: 6px; }}
-  .baris-kolom {{ display: grid; grid-template-columns: 1fr 110px auto; gap: 6px;
-                  align-items: center; }}
-  .baris-kolom input[type=text] {{ width: 100%; padding: 6px 8px; border-radius: 8px;
-      border: 1px solid #2a2f3d; background: #171b25; color: #e6e6f0; font-size: 13px; }}
-  .baris-kolom select {{ padding: 6px; border-radius: 8px; border: 1px solid #2a2f3d;
-      background: #171b25; color: #e6e6f0; font-size: 12px; }}
-  .baris-kolom label.centang {{ font-size: 12px; color: #9aa0b5; display: flex; gap: 4px;
-      align-items: center; white-space: nowrap; }}
-  details summary {{ cursor: pointer; margin: 6px 0; }}
-  .daftar-tiket {{ display: grid; gap: 10px; }}
-  .tiket-baris {{ background: #171b25; border: 1px solid #2a2f3d; border-radius: 10px;
-      padding: 10px; display: grid; gap: 8px; }}
-  form.tiket-form {{ display: flex; gap: 6px; flex-wrap: wrap; }}
-  form.tiket-form input[type=text] {{ flex: 1 1 150px; padding: 6px 8px; border-radius: 8px;
-      border: 1px solid #2a2f3d; background: #14161f; color: #e6e6f0; font-size: 12px; }}
-  .daftar-panel {{ border: 1px solid #2a2f3d; border-radius: 10px; padding: 10px;
-      background: #14161f; margin-bottom: 10px; }}
-  .daftar-panel h4 {{ margin: 2px 0 6px; font-size: 14px; }}
-  .panel-item {{ display: flex; gap: 8px; align-items: center; padding: 6px 0;
-      border-bottom: 1px solid #232734; }}
-  .panel-item .nomor {{ min-width: 22px; color: #8ea2ff; font-size: 12px; }}
-  .panel-item > div {{ flex: 1; }}
-  .panel-item form {{ margin: 0; }}
-  .panel-item.dropdown {{ background: #171b25; padding: 6px 8px; border-radius: 8px; margin-top: 6px; }}
-  form.tambah-item {{ display: grid; gap: 8px; margin: 8px 0; }}
-  form.tambah-item .medan label {{ font-size: 12px; }}
-  .kecil {{ font-size: 11px; }}
-  .ekspor {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-  a.tombol-unduh {{ display: inline-block; padding: 8px 12px; border-radius: 8px;
-      background: #1d2433; border: 1px solid #2a2f3d; color: #e6e6f0;
-      text-decoration: none; font-size: 13px; }}
-  a.tombol-unduh:hover {{ background: #263049; }}
-  /* --- layar HP --- */
-  @media (max-width: 820px) {{
-    /* menu jadi hamburger: disembunyikan sampai kotak ☰ dicentang */
-    .menu-btn {{ display: inline-block; }}
-    nav.menu {{ display: none; flex-direction: column; gap: 4px; }}
-    nav.menu a {{ padding: 9px 12px; border-radius: 10px; font-size: 14px; }}
-    #nav-buka:checked ~ nav.menu {{ display: flex; }}
-    .topbar {{ margin: -12px -12px 12px; padding: 10px 12px; }}
-    .panel, .subpanel, section[id] {{ scroll-margin-top: 150px; }}
-  }}
-  @media (max-width: 620px) {{
-    body {{ padding: 12px; }}
-    .panel {{ padding: 12px; }}
-    .baris-kolom {{ grid-template-columns: 1fr; gap: 4px; }}
-    .panel-item {{ flex-wrap: wrap; }}
-    .tiket-form input[type=text] {{ flex: 1 1 100%; }}
-    .ekspor a.tombol-unduh {{ flex: 1 1 45%; text-align: center; }}
-    .kontrol label {{ min-width: 100%; }}
-    table {{ font-size: 12px; }}
-  }}
-  form.banner-form {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
-  form.banner-form input[type=file] {{ width: auto; max-width: 190px; }}
-  form.banner-form select {{ padding: 5px 8px; border-radius: 8px; border: 1px solid #2a2f3d;
-      background: #171b25; color: #e6e6f0; font-size: 12px; max-width: 210px; }}
-  .riwayat {{ padding-left: 18px; font-size: 13px; }}
-  .riwayat li {{ margin: 8px 0; }}
-  footer {{ margin-top: 18px; }}
-</style>
+{font_link}
+<style>{css}</style>
 </head>
 <body>
   <header class="topbar">
@@ -730,6 +597,8 @@ def render_dashboard_html(
     )
     refresh_info = f" (auto-refresh {detik}s)" if detik > 0 else " (auto-refresh mati)"
     return _PAGE_TEMPLATE.format(
+        font_link=dashboard_tema.FONT_LINK,
+        css=dashboard_tema.CSS_HALAMAN,
         refresh_info=refresh_info,
         meta_refresh=meta_refresh,
         version=html.escape(str(status.get("version") or "-")),
@@ -1016,8 +885,8 @@ async def start_dashboard(bot) -> bool:
             "<!doctype html><html lang=id><head><meta charset=utf-8>"
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             "<title>Dashboard — hasil</title>"
-            "<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e6e6f0;"
-            "padding:28px;line-height:1.5}a{color:#8ea2ff}</style></head><body>"
+            f"{dashboard_tema.FONT_LINK}"
+            f"<style>{dashboard_tema.CSS_HASIL}</style></head><body>"
             f"<h1>{'✅' if ok else '⚠️'}</h1>"
             f'<p style="font-size:16px">{_teks_pesan(pesan)}</p>'
             f'<p><a href="{tujuan}">← Kembali ke dashboard</a></p>'

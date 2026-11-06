@@ -8,6 +8,7 @@ dikirim ke `POST /api/aksi` atau `POST /api/kirim` yang memeriksa token.
 import html
 
 import dashboard_admin
+import dashboard_tema
 import dashboard_unggah
 
 # Kunci yang butuh daftar channel kategori (bukan channel teks biasa).
@@ -534,10 +535,11 @@ def render_tren_svg(rows: list[dict], *, judul: str = "Operasi AI", tinggi: int 
         '<span style="color:#58d68d">■</span> cache</div>'
         f'<svg viewBox="0 0 {lebar} {tinggi}" role="img" aria-label="Grafik {_esc(judul)}" '
         'preserveAspectRatio="none">'
-        '<style>.grafik text{font-size:11px;fill:#8b90a3;font-family:system-ui,sans-serif}'
-        '.grafik text.nilai{fill:#cbd0e0;font-size:10px}.grafik text.sumbu{text-anchor:middle}'
+        '<style>.grafik text{font-size:11px;fill:rgba(255,255,255,.62);'
+        'font-family:' + dashboard_tema.FONT_STACK + '}'
+        '.grafik text.nilai{fill:#FFFFFF;font-size:10px}.grafik text.sumbu{text-anchor:middle}'
         '.grafik rect{x:0}</style>'
-        f'<line x1="0" y1="{area}" x2="{lebar}" y2="{area}" stroke="#2a2f3d" stroke-width="1"/>'
+        f'<line x1="0" y1="{area}" x2="{lebar}" y2="{area}" stroke="rgba(255,255,255,.14)" stroke-width="1"/>'
         + "".join(batang)
         + "</svg></div>"
     )
@@ -617,28 +619,8 @@ def render_pratinjau_html(
 <html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pratinjau embed — dashboard</title>
-<style>
- body {{ margin:0; padding:20px; font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
-        background:#0f1117; color:#e6e6f0; }}
- h1 {{ font-size:18px; margin:0 0 4px; }}
- .muted {{ color:#8b90a3; font-size:12px; }}
- .p-pengirim {{ font-size:13px; margin:18px 0 6px; color:#cbd0e0; }}
- .p-kartu {{ background:#2b2d31; border-left:4px solid #5865f2; border-radius:6px;
-            padding:12px 14px; max-width:520px; }}
- .p-judul {{ font-weight:600; margin-bottom:6px; }}
- .p-isi {{ white-space:pre-wrap; font-size:14px; line-height:1.45; }}
- .p-gambar {{ width:100%; border-radius:6px; margin-top:8px; }}
- .p-footer {{ font-size:11px; color:#b5bac1; margin-top:8px; }}
- .p-tombol {{ margin-top:10px; display:inline-block; background:#4e5058; color:#fff;
-             padding:6px 12px; border-radius:4px; font-size:13px; }}
- .p-peringatan {{ margin:14px 0; background:#3a2d17; border:1px solid #6b4d17;
-                 border-radius:8px; padding:10px 12px; font-size:13px; }}
- .p-peringatan ul {{ margin:6px 0 0 18px; }}
- .aksi {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }}
- button, a.tombol {{ padding:9px 16px; border-radius:8px; border:1px solid #5865f2;
-      background:#5865f2; color:#fff; font-size:14px; text-decoration:none; cursor:pointer; }}
- a.kembali {{ background:transparent; border-color:#3a4152; color:#cbd0e0; }}
-</style></head><body>
+{dashboard_tema.FONT_LINK}
+<style>{dashboard_tema.CSS_PRATINJAU}</style></head><body>
 <h1>👀 Pratinjau embed</h1>
 <div class="muted">Tujuan: {tujuan} · belum ada yang dikirim</div>
 {pengirim}
