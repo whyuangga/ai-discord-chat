@@ -73,8 +73,12 @@ def _warna(nilai: str):
         return None
 
 
-async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
-    """Kirim pesan/embed ke channel, opsional dengan identitas webhook kustom."""
+async def kirim(bot, guild_id: int, data: dict, banner=None) -> tuple[bool, str]:
+    """Kirim pesan/embed ke channel, opsional dengan identitas webhook & banner.
+
+    `banner` adalah `discord.File` hasil unggahan dashboard; bila ada, gambar embed
+    memakai lampiran itu (`attachment://<nama>`) sehingga tidak butuh URL publik.
+    """
     import discord
 
     import message_template
@@ -90,6 +94,7 @@ async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
     isi = _bersih(data, "isi", MAX_ISI)
     footer = _bersih(data, "footer", 200)
     gambar = _bersih(data, "gambar", 400)
+    nama_banner = str(getattr(banner, "filename", "") or "") if banner is not None else ""
     identitas = _bersih(data, "identitas", 80)
     avatar = _bersih(data, "avatar", 400)
     tombol_label = _bersih(data, "tombol_label", 80)
@@ -109,6 +114,7 @@ async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
 
     if gambar and not gambar.lower().startswith(("http://", "https://")):
         return False, "URL gambar harus dimulai `http://` atau `https://`."
+    gambar_final = f"attachment://{nama_banner}" if nama_banner else gambar
     if tombol_url and not tombol_url.lower().startswith(("http://", "https://")):
         return False, "URL tombol harus dimulai `http://` atau `https://`."
 
@@ -121,6 +127,7 @@ async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
             avatar=avatar or None,
             warna=warna,
             footer=footer or None,
+            berkas=banner,
         )
         if not ok:
             return False, pesan or "Gagal mengirim lewat webhook."
@@ -128,7 +135,7 @@ async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
         return True, f"Terkirim ke {getattr(channel, 'mention', 'channel')} lewat identitas **{identitas}**."
 
     embed = None
-    if judul or warna is not None or footer or gambar:
+    if judul or warna is not None or footer or gambar_final:
         embed = discord.Embed(
             title=judul or None,
             description=isi or None,
@@ -136,8 +143,8 @@ async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
         )
         if footer:
             embed.set_footer(text=footer)
-        if gambar:
-            embed.set_image(url=gambar)
+        if gambar_final:
+            embed.set_image(url=gambar_final)
 
     kwargs: dict = {"allowed_mentions": discord.AllowedMentions.none()}
     if embed is not None:
@@ -151,6 +158,8 @@ async def kirim(bot, guild_id: int, data: dict) -> tuple[bool, str]:
         view = discord.ui.View()
         view.add_item(discord.ui.Button(label=tombol_label, url=tombol_url))
         kwargs["view"] = view
+    if banner is not None:
+        kwargs["file"] = banner
 
     try:
         await channel.send(**kwargs)
@@ -234,8 +243,12 @@ async def tambah_tautan(guild_id: int, data: dict) -> tuple[bool, str]:
 # ==============================================================================
 # PANEL MENU
 # ==============================================================================
-async def buat_panel(bot, guild_id: int, data: dict) -> tuple[bool, str]:
-    """Buat panel menu sederhana lalu kirim ke channel (tombol ditambah di Discord)."""
+async def buat_panel(bot, guild_id: int, data: dict, banner=None) -> tuple[bool, str]:
+    """Buat panel menu sederhana lalu kirim ke channel (tombol ditambah di Discord).
+
+    `banner` (`discord.File`) dikirim sebagai gambar panel; URL lampirannya otomatis
+    disimpan ke `menu["banner_url"]` oleh `menu_builder.send_panel`.
+    """
     import menu_builder
 
     gid = _to_int(guild_id)
@@ -252,7 +265,7 @@ async def buat_panel(bot, guild_id: int, data: dict) -> tuple[bool, str]:
     channel = await _ambil_channel(bot, gid, channel_id)
     if channel is None:
         return False, "Panel tersimpan, tetapi channel tidak ditemukan sehingga belum terkirim."
-    message = await menu_builder.send_panel(bot, menu, channel)
+    message = await menu_builder.send_panel(bot, menu, channel, banner_file=banner)
     if message is None:
         return False, "Panel tersimpan, tetapi Discord menolak pengirimannya (cek izin bot)."
     await menu_builder.save_menus_to_disk()

@@ -8,6 +8,7 @@ dikirim ke `POST /api/aksi` atau `POST /api/kirim` yang memeriksa token.
 import html
 
 import dashboard_admin
+import dashboard_unggah
 
 # Kunci yang butuh daftar channel kategori (bukan channel teks biasa).
 KUNCI_KATEGORI = {"tiket.kategori"}
@@ -176,6 +177,26 @@ def render_audit_block(entries: list[dict]) -> str:
 # ==============================================================================
 # FORM KIRIM PESAN / EMBED (webhook & embed)
 # ==============================================================================
+def opsi_banner(guild_id: int) -> str:
+    """Opsi dropdown banner tersimpan (kosong bila belum ada unggahan)."""
+    items = dashboard_unggah.daftar(guild_id)
+    if not items:
+        return '<option value="">(belum ada banner tersimpan)</option>'
+    return '<option value="">(tidak pakai banner tersimpan)</option>' + "".join(
+        f'<option value="{_esc(item["nama"])}">{_esc(item["nama"])} · '
+        f'{int(item["ukuran_kb"])} KB</option>'
+        for item in items
+    )
+
+
+def _medan_berkas(label: str, nama: str = "banner") -> str:
+    return (
+        f'<div class="medan"><label for="{nama}">{_esc(label)}</label>'
+        f'<input type="file" name="{nama}" id="{nama}" '
+        'accept="image/png,image/jpeg,image/gif,image/webp"></div>'
+    )
+
+
 def _hidden(guild_id: int, token: str, action: str) -> str:
     return (
         f'<input type="hidden" name="token" value="{_esc(token)}">'
@@ -205,7 +226,7 @@ def render_kirim_block(bot, guild_id: int, token: str) -> str:
         for value, label in pilihan_channel(bot, guild_id)[1:]
     ) or '<option value="0">(bot belum di server mana pun)</option>'
     return f"""
-<form method="post" action="/api/kirim" class="formgrid">
+<form method="post" action="/api/kirim" class="formgrid" enctype="multipart/form-data">
   {_hidden(guild_id, token, "kirim")}
   <div class="medan"><label for="k-channel">Channel tujuan</label>
     <select name="channel" id="k-channel">{opsi_channel}</select></div>
@@ -218,10 +239,14 @@ def render_kirim_block(bot, guild_id: int, token: str) -> str:
   {_medan("URL tombol link", "tombol_url", place="https://…", jenis="url")}
   {_medan("Identitas webhook", "identitas", place="mis. 📢 Pengumuman Server (kosong = kirim sebagai bot)")}
   {_medan("Avatar webhook", "avatar", place="https://… (opsional)", jenis="url")}
+  {_medan_berkas("Unggah banner/gambar (opsional)")}
+  <div class="medan"><label for="k-banner-tersimpan">…atau pakai banner tersimpan</label>
+    <select name="banner_tersimpan" id="k-banner-tersimpan">{opsi_banner(guild_id)}</select></div>
   <button type="submit">Kirim sekarang</button>
 </form>
 <p class="muted">Kalau “Identitas webhook” diisi, pesan dikirim lewat webhook channel itu
-(nama &amp; avatar boleh beda dari bot). Tombol link hanya dipakai saat mengirim sebagai bot.</p>
+(nama &amp; avatar boleh beda dari bot). Tombol link hanya dipakai saat mengirim sebagai bot.
+Banner yang diunggah disimpan ke <code>data/uploads/</code> sehingga bisa dipakai lagi.</p>
 """
 
 
@@ -258,12 +283,15 @@ def render_buat_block(bot, guild_id: int, token: str) -> str:
 </form></div>
 
 <div class="subpanel"><h3>🧩 Panel menu</h3>
-<form method="post" action="/api/konten" class="formgrid">
+<form method="post" action="/api/konten" class="formgrid" enctype="multipart/form-data">
   {_hidden(guild_id, token, "buat.panel")}
   <div class="medan"><label for="pan-channel">Channel</label>
     <select name="channel" id="pan-channel">{opsi}</select></div>
   {_medan("Judul panel", "judul", place="Pusat Bantuan")}
   {_medan("Deskripsi", "isi", place="Pilih tombol di bawah…", jenis="textarea")}
+  {_medan_berkas("Banner panel (opsional)")}
+  <div class="medan"><label for="pan-banner">…atau pakai banner tersimpan</label>
+    <select name="banner_tersimpan" id="pan-banner">{opsi_banner(guild_id)}</select></div>
   <button type="submit">Buat &amp; kirim panel</button>
 </form>
 <p class="muted">Tombol/role pada panel ditambahkan lewat <code>/menu tombol</code> di Discord.
@@ -330,6 +358,39 @@ def _tabel_konten(judul: str, jenis: str, items: list[dict], token: str, guild_i
     )
 
 
+def render_banner_block(guild_id: int, token: str) -> str:
+    """Panel unggah banner + galeri thumbnail dengan tombol hapus."""
+    items = dashboard_unggah.daftar(guild_id)
+    unggah = f"""
+<form method="post" action="/api/unggah" class="formgrid" enctype="multipart/form-data">
+  {_hidden(guild_id, token, "unggah.simpan")}
+  {_medan_berkas("Berkas gambar (PNG/JPG/GIF/WEBP)")}
+  <button type="submit">Unggah banner</button>
+</form>
+<p class="muted">Maksimal {dashboard_unggah.batas_mb()} MB per berkas, {dashboard_unggah.MAX_PER_GUILD}
+banner per server. Semua berkas diperiksa isinya (bukan hanya ekstensi).</p>
+"""
+    if not items:
+        return unggah + '<div class="muted">Belum ada banner tersimpan.</div>'
+    kartu = ""
+    for item in items:
+        nama = item["nama"]
+        # `guild` wajib ikut supaya pratinjau memakai server yang sama dengan halaman.
+        url = (
+            f"/api/unggahan/{_esc(nama)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
+        )
+        kartu += (
+            f'<div class="kartu-banner">'
+            f'<img src="{url}" alt="{_esc(nama)}" loading="lazy">'
+            f'<div class="muted">{int(item["ukuran_kb"])} KB · {_esc(item["dibuat"])}</div>'
+            f'<code class="kecil">{_esc(nama)}</code>'
+            f'<form method="post" action="/api/unggah">'
+            f'{_hidden(guild_id, token, "hapus.banner:" + nama)}'
+            '<button type="submit" class="danger">Hapus</button></form></div>'
+        )
+    return unggah + f'<div class="galeri">{kartu}</div>'
+
+
 def render_konten_block(guild_id: int, konten: dict, token: str) -> str:
     """Daftar pengumuman/tautan/panel/formulir/webhook + tombol hapus."""
     return "".join(
@@ -347,10 +408,12 @@ def render_konten_block(guild_id: int, konten: dict, token: str) -> str:
 
 __all__ = [
     "kontrol_html",
+    "opsi_banner",
     "opsi_untuk",
     "pilihan_channel",
     "pilihan_role",
     "render_audit_block",
+    "render_banner_block",
     "render_buat_block",
     "render_konten_block",
     "render_kirim_block",

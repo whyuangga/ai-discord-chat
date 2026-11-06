@@ -28,7 +28,9 @@ Endpoint:
 | `/api/setelan?guild=<id>` | JSON semua setelan (48 fitur) + nilai sekarang |
 | `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
-| `POST /api/konten` | Buat/hapus pengumuman, tautan, panel |
+| `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu |
+| `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
+| `GET /api/unggahan/<nama>` | Pratinjau banner tersimpan (butuh token) |
 | `/healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
 Autentikasi: `?token=...`, header `X-Dashboard-Token`, atau `Authorization: Bearer ...`.
@@ -42,6 +44,7 @@ import time
 import dashboard_admin
 import dashboard_pesan
 import dashboard_ui
+import dashboard_unggah
 import insights
 from config import (
     AI_DAILY_CAP_PER_GUILD,
@@ -335,6 +338,14 @@ _PAGE_TEMPLATE = """<!doctype html>
   button.danger {{ background: #b23b3b; border-color: #b23b3b; }}
   button.ghost {{ background: transparent; border-color: #3a4152; color: #cbd0e0; }}
   td.aksi {{ display: flex; gap: 6px; flex-wrap: wrap; }}
+  .galeri {{ display: grid; gap: 10px; margin-top: 12px;
+             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }}
+  .kartu-banner {{ background: #171b25; border: 1px solid #2a2f3d; border-radius: 10px;
+                   padding: 8px; display: grid; gap: 6px; }}
+  .kartu-banner img {{ width: 100%; height: 90px; object-fit: cover; border-radius: 6px;
+                       background: #0f1117; }}
+  .kartu-banner code.kecil {{ font-size: 10px; color: #8b90a3; overflow-wrap: anywhere; }}
+  input[type=file] {{ width: 100%; font-size: 12px; color: #cbd0e0; }}
   .riwayat {{ padding-left: 18px; font-size: 13px; }}
   .riwayat li {{ margin: 8px 0; }}
   footer {{ margin-top: 18px; }}
@@ -405,6 +416,13 @@ _PAGE_TEMPLATE = """<!doctype html>
   </div>
 
   <div class="panel">
+    <h2>🖼️ Banner &amp; gambar</h2>
+    <p class="muted">Unggah gambar lalu pakai untuk banner panel atau gambar embed —
+    tanpa perlu URL publik. Berkas disimpan di <code>data/uploads/</code>.</p>
+    {banner_block}
+  </div>
+
+  <div class="panel">
     <h2>🗂️ Konten tersimpan</h2>
     <p class="muted">Klik Hapus untuk membuang konten. Pesan yang sudah terkirim di Discord
     tidak ikut terhapus.</p>
@@ -463,6 +481,7 @@ def render_dashboard_html(
     buat_block: str = "",
     konten_block: str = "",
     audit_block: str = "",
+    banner_block: str = "",
 ) -> str:
     """Merender halaman HTML dashboard (string). Aman untuk data kosong."""
     guild_limit = int(usage.get("guild_limit") or 0)
@@ -513,6 +532,7 @@ def render_dashboard_html(
         buat_block=buat_block,
         konten_block=konten_block,
         audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
+        banner_block=banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
     )
 
 
@@ -678,7 +698,8 @@ async def start_dashboard(bot) -> bool:
 
     from aiohttp import web
 
-    app = web.Application()
+    # Batas body dinaikkan supaya unggahan banner (DASHBOARD_UPLOAD_MB) bisa diterima.
+    app = web.Application(client_max_size=dashboard_unggah.batas_byte() + (512 * 1024))
 
     def _authorized(request) -> bool:
         header = str(request.headers.get("X-Dashboard-Token") or "").strip()
@@ -691,13 +712,25 @@ async def start_dashboard(bot) -> bool:
         )
 
     async def _payload(request) -> dict:
-        """Baca body JSON atau form; selalu dict (kosong bila gagal)."""
+        """Baca body JSON/form/multipart. Gagal baca → `{"__galat__": pesan}`."""
         try:
             if str(request.content_type or "").startswith("application/json"):
                 return dict(await request.json())
             return dict(await request.post())
-        except Exception:
+        except Exception as exc:
+            if "TooLarge" in type(exc).__name__ or "too large" in str(exc).lower():
+                return {
+                    "__galat__": f"Berkas terlalu besar — maksimal {dashboard_unggah.batas_mb()} MB."
+                }
             return {}
+
+    def _galat_payload(payload: dict):
+        """Balasan untuk body yang gagal dibaca (mis. unggahan kebesaran)."""
+        pesan = str((payload or {}).get("__galat__") or "")
+        if not pesan:
+            return None
+        logger.warning("Payload dashboard ditolak: %s", pesan)
+        return _halaman_hasil(False, pesan)
 
     def _izin(request, payload: dict) -> bool:
         """Token boleh lewat query/header (API) atau field tersembunyi (form HTML)."""
@@ -762,6 +795,10 @@ async def start_dashboard(bot) -> bool:
             ),
             '<div class="muted">Daftar konten tidak tersedia.</div>',
         )
+        banner_block = _blok(
+            lambda: dashboard_ui.render_banner_block(gid, token),
+            '<div class="muted">Unggahan tidak tersedia.</div>',
+        )
         audit_block = _blok(
             lambda: dashboard_ui.render_audit_block(dashboard_admin.audit_terakhir(gid, limit=8)),
             '<div class="muted">Riwayat tidak tersedia.</div>',
@@ -780,6 +817,7 @@ async def start_dashboard(bot) -> bool:
             buat_block=buat_block,
             konten_block=konten_block,
             audit_block=audit_block,
+            banner_block=banner_block,
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8")
 
@@ -812,6 +850,9 @@ async def start_dashboard(bot) -> bool:
         if request.method != "POST":
             return web.json_response({"error": "gunakan POST"}, status=405)
         payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
         if not _izin(request, payload):
             return web.json_response({"error": "unauthorized"}, status=401)
 
@@ -837,12 +878,20 @@ async def start_dashboard(bot) -> bool:
         if request.method != "POST":
             return web.json_response({"error": "gunakan POST"}, status=405)
         payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
         if not _izin(request, payload):
             return web.json_response({"error": "unauthorized"}, status=401)
 
         raw_guild = str(payload.get("guild") or "").strip()
         gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
-        ok, message = await dashboard_pesan.kirim(bot, gid, payload)
+        banner, galat_banner, _nama = dashboard_unggah.siapkan(
+            gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
+        )
+        if galat_banner:
+            return _halaman_hasil(False, galat_banner)
+        ok, message = await dashboard_pesan.kirim(bot, gid, payload, banner=banner)
         logger.info("Dashboard kirim (server %s): %s", gid, message)
 
         if str(request.content_type or "").startswith("application/json"):
@@ -855,6 +904,9 @@ async def start_dashboard(bot) -> bool:
         if request.method != "POST":
             return web.json_response({"error": "gunakan POST"}, status=405)
         payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
         if not _izin(request, payload):
             return web.json_response({"error": "unauthorized"}, status=401)
 
@@ -867,7 +919,12 @@ async def start_dashboard(bot) -> bool:
         elif aksi == "buat.tautan":
             ok, message = await dashboard_pesan.tambah_tautan(gid, payload)
         elif aksi == "buat.panel":
-            ok, message = await dashboard_pesan.buat_panel(bot, gid, payload)
+            banner, galat_banner, _nama = dashboard_unggah.siapkan(
+                gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
+            )
+            if galat_banner:
+                return _halaman_hasil(False, galat_banner)
+            ok, message = await dashboard_pesan.buat_panel(bot, gid, payload, banner=banner)
         elif aksi == "buat.formulir":
             ok, message = await dashboard_pesan.tambah_formulir(gid, payload)
         elif aksi == "buat.pemicu":
@@ -900,6 +957,59 @@ async def start_dashboard(bot) -> bool:
                                      status=200 if ok else 400)
         return _halaman_hasil(ok, message)
 
+    async def handle_unggah(request):
+        """Simpan / hapus banner. Multipart untuk berkas, form biasa untuk hapus."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+
+        if aksi == "unggah.simpan":
+            berkas, galat, nama = dashboard_unggah.siapkan(gid, payload.get("banner"))
+            if galat:
+                ok, message = False, galat
+            elif not nama:
+                ok, message = False, "Pilih berkas gambar lebih dulu."
+            else:
+                ok, message = True, f"Banner tersimpan: `{nama}`."
+        elif aksi.startswith("hapus.banner:"):
+            nama = aksi.split(":", 1)[1]
+            ok = dashboard_unggah.hapus(gid, nama)
+            message = f"Banner `{nama}` dihapus." if ok else "Banner tidak ditemukan."
+        else:
+            ok, message = False, f"Aksi unggah `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard unggah %s (server %s): %s", aksi, gid, message)
+
+        if str(request.content_type or "").startswith("application/json"):
+            return web.json_response({"ok": ok, "message": message, "guild": gid},
+                                     status=200 if ok else 400)
+        return _halaman_hasil(ok, message)
+
+    async def handle_berkas(request):
+        """Sajikan banner tersimpan untuk pratinjau di halaman dashboard."""
+        if not _authorized(request):
+            return web.Response(text="401 Unauthorized", status=401)
+        nama = str(request.match_info.get("nama") or "")
+        gid, _name = _guild_hint(bot, request)
+        if not dashboard_unggah.berkuasa(gid, nama):
+            return web.Response(text="404 Not Found", status=404)
+        isi = dashboard_unggah.baca(gid, nama)
+        if isi is None:
+            return web.Response(text="404 Not Found", status=404)
+        return web.Response(
+            body=isi,
+            content_type=dashboard_unggah.tipe(nama),
+            headers={"Cache-Control": "private, max-age=300"},
+        )
+
     async def handle_setelan(request):
         """JSON semua setelan + nilai sekarang (untuk otomasi/tes)."""
         if not _authorized(request):
@@ -928,6 +1038,8 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/aksi", handle_aksi)
     app.router.add_post("/api/kirim", handle_kirim)
     app.router.add_post("/api/konten", handle_konten)
+    app.router.add_post("/api/unggah", handle_unggah)
+    app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/pemakaian", handle_usage)

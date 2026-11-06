@@ -34,6 +34,7 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Kontrol Cepat** | 5 sakelar lama: level, ekonomi, pertumbuhan, anti-spam, anti-nuke |
 | **Setelan server** | **48 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri) |
+| **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Riwayat perubahan** | 8 perubahan terakhir dari dashboard (siapa-waktu-nilai-hasil) |
@@ -59,6 +60,28 @@ pesan dikirim lewat webhook channel itu sehingga nama pengirim bisa berbeda dari
 praktis untuk "📢 Pengumuman Server". Isi boleh memakai variabel pesan
 (`{server.name}`, `{now_long}`) yang diisi otomatis saat dikirim.
 
+### Unggah banner & gambar
+
+Banner bisa diunggah langsung dari HP — tidak perlu hosting gambar atau URL publik.
+
+| Langkah | Detail |
+| :--- | :--- |
+| **1. Unggah** | Panel **🖼️ Banner & gambar** → pilih berkas → **Unggah banner**. Berkas disimpan di `data/uploads/`. |
+| **2. Pakai** | Di form **Kirim pesan & embed** atau **Panel menu**, pilih berkas di kolom *Unggah banner* **atau** pilih dari dropdown *banner tersimpan*. |
+| **3. Hasil** | Embed memakai `attachment://<nama>` sehingga gambar ikut terkirim; panel menyimpan URL lampirannya sebagai `banner_url`. |
+| **Bersih-bersih** | Setiap banner di galeri punya tombol **Hapus** (kuota 20 berkas per server). |
+
+Batasan & pengamanan:
+
+- Format: **PNG, JPG, GIF, WEBP**. Isi berkas diperiksa lewat *magic bytes*, jadi file `.exe`
+  yang diganti nama jadi `.png` tetap ditolak.
+- Ukuran: `DASHBOARD_UPLOAD_MB` (bawaan **8 MB**, maksimal 25 MB). Batas body server
+  menyesuaikan nilai ini — bukan 1 MB bawaan aiohttp.
+- Nama berkas selalu dibuat ulang (`<guild>_<waktu>_<acak>.<ext>`), jadi aman dari path
+  traversal dan tabrakan nama. Pratinjau hanya bisa dibuka dengan token pemilik server.
+- Untuk panel, banner dikirim saat panel dibuat. Untuk panel yang **sudah terkirim**,
+  ganti bannernya dari Discord (`/menu ubah`) — atau buat panel baru.
+
 ### Keamanan bertingkat
 
 | Lapis | Jaminan |
@@ -80,6 +103,8 @@ praktis untuk "📢 Pengumuman Server". Isi boleh memakai variabel pesan
 | `POST /api/aksi` | ubah setelan: `action=set.<kunci>` (token boleh lewat body form) |
 | `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar` |
 | `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` |
+| `POST /api/unggah` | `action=unggah.simpan` (multipart, field `banner`) / `hapus.banner:<nama>` |
+| `GET /api/unggahan/<nama>?guild=<id>` | pratinjau banner tersimpan (wajib token) |
 | `GET /healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
 ### Yang tetap lebih enak di Discord
