@@ -260,6 +260,25 @@ def get_level_config(guild_id: int) -> dict:
     return cfg
 
 
+def peek_level_config(guild_id: int) -> dict:
+    """Baca konfigurasi level **tanpa** membuat default baru.
+
+    `get_level_config()` membuat config default (`enabled: True`) bila belum ada,
+    sehingga sekadar *membaca* bisa menyalakan ulang leveling yang baru dimatikan.
+    """
+    return dict(level_guilds.get(int(guild_id)) or {})
+
+
+def set_level_enabled(guild_id: int, aktif: bool) -> dict:
+    """Nyalakan/matikan leveling **tanpa menghapus** setelan lain (XP, channel, season).
+
+    Berbeda dengan `set_level_config(aktif=False)` yang membuang seluruh konfigurasi.
+    """
+    cfg = get_level_config(guild_id)
+    cfg["enabled"] = bool(aktif)
+    return cfg
+
+
 def is_leveling_active(guild_id: int) -> bool:
     cfg = level_guilds.get(int(guild_id))
     return bool(cfg and cfg.get("enabled"))
