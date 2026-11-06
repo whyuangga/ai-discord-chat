@@ -230,6 +230,8 @@ CSS_HALAMAN = f"""
     display: grid; gap: 10px; margin: 12px 0 8px;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }}
+  .kartu-sambutan.tunggal {{ grid-template-columns: 1fr; }}
+  .kartu-sambutan.tunggal .kartu-slot img {{ height: 170px; }}
   .kartu-slot {{
     background: var(--kartu-2); border: 1px solid var(--garis); border-radius: 12px;
     padding: 12px; display: grid; gap: 8px; align-content: start;
@@ -245,14 +247,41 @@ CSS_HALAMAN = f"""
   .kartu-slot .medan label {{ font-size: 11.5px; }}
 
   /* --- tes fitur --- */
+  .kepala-tes {{
+    margin: 14px 0 6px; padding-top: 10px;
+    border-top: 1px dashed var(--garis); font-size: 0.9rem;
+  }}
   .uji-baris {{
     display: flex; gap: 12px; align-items: center; justify-content: space-between;
     flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--garis);
   }}
   .uji-baris:last-of-type {{ border-bottom: 0; }}
   .uji-baris b {{ font-size: 13.5px; }}
-  .uji-baris form {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
+  .uji-baris form {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+                     justify-content: flex-end; }}
   .uji-baris input[type=text] {{ width: 175px; padding: 7px 9px; font-size: 12.5px; }}
+  .uji-baris select {{ max-width: 190px; padding: 7px 9px; font-size: 12.5px; }}
+  /* --- pilih banyak channel (checkbox, tanpa JavaScript) --- */
+  .label-setelan {{ font-size: 12.5px; font-weight: 500; margin-bottom: 6px; }}
+  .channel-grid {{
+    display: grid; gap: 4px 14px; width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    max-height: 216px; overflow-y: auto; padding: 8px 10px;
+    border: 1px solid var(--garis); border-radius: 10px; background: rgba(255,255,255,.02);
+  }}
+  .pilih-channel {{
+    display: flex; align-items: center; gap: 7px; font-size: 12.5px;
+    color: rgba(255,255,255,.86); padding: 3px 0; cursor: pointer;
+  }}
+  .pilih-channel input {{ accent-color: #8B7CFF; width: 15px; height: 15px; }}
+  .pilih-channel.kosongkan {{ grid-column: 1 / -1; color: var(--redup); }}
+  .uji-baris input[name="opsi_manual"] {{ width: 165px; }}
+  @media (max-width: 620px) {{
+    .uji-baris {{ align-items: stretch; }}
+    .uji-baris form {{ justify-content: flex-start; }}
+    .uji-baris input[type=text], .uji-baris select,
+    .uji-baris input[name="opsi_manual"] {{ width: 100%; max-width: none; }}
+  }}
 
   /* --- pemilih server --- */
   .pemilih-server {{ display: flex; gap: 8px; align-items: center; margin: 8px 0 0; flex-wrap: wrap; }}
@@ -402,3 +431,4 @@ CSS_HASIL = f"""
  a {{ color: #A99BFF; }}
  a:hover {{ color: #fff; }}
 """
+

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 
@@ -22,7 +23,7 @@ def test_registry_konsisten():
     assert len(kunci) >= 35, "dashboard harus mencakup sebagian besar fitur"
 
     for item in dashboard_admin.FITUR_LIST:
-        assert item["jenis"] in {"saklar", "pilihan", "channel", "role", "teks", "angka"}
+        assert item["jenis"] in {"saklar", "pilihan", "channel", "channels", "role", "teks", "angka"}
         assert callable(item["nilai"]) and callable(item["simpan"])
         if item["jenis"] == "pilihan":
             assert item["opsi"], f"{item['kunci']} butuh daftar opsi"
@@ -97,7 +98,7 @@ async def test_apply_channel_dan_keterangan(tmp_path, monkeypatch):
 
     ok, pesan = await dashboard_admin.apply(gid, "tiket.log", "0")
     assert ok is True and "Log tiket" in pesan
-    assert dashboard_admin.read_values(gid)["tiket.log"] == "0"
+    assert dashboard_admin.read_values(gid)["tiket.log"] in ("", "0")
 
 
 async def test_audit_tertulis_dan_terbaca(tmp_path, monkeypatch):
@@ -233,8 +234,12 @@ def test_pilihan_channel_dan_role_dari_cache_bot():
 
 
 def test_kontrol_channel_menandai_id_di_luar_server():
+    # tiket.log kini multi-channel (checkbox), tapi channel di luar server tetap ditandai
     html = dashboard_ui.kontrol_html("tiket.log", "999999", _Bot(), 1234)
-    assert "di luar server ini" in html and "selected" in html
+    assert "di luar server ini" in html and f'value="999999" checked' in html
+    # Setelan single-channel tetap memakai <select> + opsi "selected"
+    tunggal = dashboard_ui.kontrol_html("digest.channel", "999999", _Bot(), 1234)
+    assert "di luar server ini" in tunggal and "selected" in tunggal
 
 
 def test_render_kirim_dan_konten_block():
@@ -302,11 +307,11 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
     base = f"http://127.0.0.1:{port}"
     try:
         async with aiohttp.ClientSession() as session:
-            # Halaman /setelan memuat form setelan (dashboard kini per halaman)
-            async with session.get(f"{base}/setelan?token=token-uji&guild=1234") as resp:
+            # Halaman grup memuat form setelan (dashboard kini satu halaman per grup)
+            async with session.get(f"{base}/inti?token=token-uji&guild=1234") as resp:
                 body = await resp.text()
                 assert resp.status == 200
-                assert "Setelan server" in body and "Kontrol Cepat" in body
+                assert "Kontrol Cepat" in body and 'id="p-inti"' in body
                 assert 'value="set.level.aktif"' in body
 
             # Halaman /kirim memuat form kirim pesan
@@ -383,7 +388,8 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
                 f"{base}/api/konten",
                 data={"token": "token-uji", "guild": "1234", "action": "buat.ngawur"},
             ) as resp:
-                assert resp.status == 400
+                # Form HTML: redirect + kotak ⚠️ (JSON tetap 400)
+                assert resp.status == 200 and "ok=0" in str(resp.url)
     finally:
         await web_dashboard.stop_dashboard()
 
@@ -414,3 +420,106 @@ def test_modul_dashboard_tidak_menambah_dependency():
                 modul.add(node.module.split(".")[0])
         dilarang = {"requests", "flask", "fastapi", "jinja2", "sqlalchemy", "redis", "numpy"}
         assert not (modul & dilarang), f"{berkas} memakai dependency baru: {modul & dilarang}"
+
+
+def test_tautan_jeda_dan_hidupkan_auto_refresh():
+    """Header punya tautan `?refresh=` supaya auto-refresh bisa dinyalakan tanpa .env."""
+    tautan = "/?token=tok&guild=1234"
+
+    hidup = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, refresh=30, auto_tautan=tautan
+    )
+    assert "auto-refresh 30s" in hidup
+    assert f'href="{tautan.replace("&", "&amp;")}&amp;refresh=0"' in hidup   # jeda
+    assert "jeda" in hidup
+
+    mati = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, refresh=0, auto_tautan=tautan
+    )
+    assert "auto-refresh mati" in mati
+    assert f'href="{tautan.replace("&", "&amp;")}&amp;refresh=30"' in mati   # hidupkan
+    assert "hidupkan" in mati
+    assert 'http-equiv="refresh"' not in mati
+
+    # Tanpa tautan (render manual) tetap aman
+    polos = web_dashboard.render_dashboard_html(status={}, usage={}, levels={}, refresh=0)
+    assert "hidupkan" not in polos
+
+
+def test_detik_auto_memakai_cookie_lalu_env(monkeypatch):
+    class _Req:
+        def __init__(self, cookie=""):
+            self.cookies = {web_dashboard.COOKIE_AUTO: cookie} if cookie != "" else {}
+
+    assert web_dashboard.detik_auto(_Req(), 30) == 30
+    assert web_dashboard.detik_auto(_Req("0"), 30) == 0
+    assert web_dashboard.detik_auto(_Req("45"), 30) == 45
+    assert web_dashboard.detik_auto(_Req("ngawur"), 30) == 30
+    assert web_dashboard.detik_auto(_Req("99999"), 30) == 3600     # dibatasi
+
+
+def test_http_toggle_auto_refresh_lewat_header(monkeypatch):
+    """`?refresh=30` menghidupkan meta refresh, `?refresh=0` menjeda — lewat cookie."""
+
+    async def jalankan():
+        import socket
+
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_HOST", "127.0.0.1")
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_PORT", port)
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_TOKEN", "token-uji")
+        monkeypatch.setattr(web_dashboard, "DASHBOARD_REFRESH_SEC", 0)   # .env: mati
+
+        assert await web_dashboard.start_dashboard(_Bot()) is True
+        base = f"http://127.0.0.1:{port}/"
+        try:
+            # `unsafe=True`: aiohttp menolak cookie dari host berupa IP, browser tidak.
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
+                # Keadaan awal: auto-refresh mati (ikut .env) + tautan hidupkan
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert "auto-refresh mati" in body
+                    assert "refresh=30" in body and 'http-equiv="refresh"' not in body
+
+                # Nyalakan → 303, cookie tersimpan, halaman memakai 30 detik
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=30",
+                    allow_redirects=False,
+                ) as resp:
+                    assert resp.status == 303
+                    assert resp.headers["Location"] == "/?token=token-uji&guild=1234"
+                    assert web_dashboard.COOKIE_AUTO in resp.cookies
+                    assert resp.cookies[web_dashboard.COOKIE_AUTO].value == "30"
+
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert "auto-refresh 30s" in body
+                    assert 'http-equiv="refresh" content="30"' in body
+                    assert "refresh=0" in body            # tautan jeda
+
+                # Jeda lagi
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=0",
+                    allow_redirects=False,
+                ) as resp:
+                    assert resp.status == 303
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert "auto-refresh mati" in body
+                    assert 'http-equiv="refresh"' not in body
+
+                # Kembali ke nilai .env
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=auto", allow_redirects=False
+                ) as resp:
+                    assert resp.status == 303
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    assert "auto-refresh mati" in await resp.text()
+        finally:
+            await web_dashboard.stop_dashboard()
+
+    asyncio.run(jalankan())

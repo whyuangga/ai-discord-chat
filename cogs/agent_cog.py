@@ -2,6 +2,7 @@ import io
 import logging
 
 import discord
+import channel_targets
 
 import message_template
 from discord import app_commands
@@ -148,7 +149,8 @@ async def trigger_member_welcome(
     if not w_cfg or not w_cfg.get("enabled"):
         return None
 
-    target_ch = guild.get_channel(int(w_cfg["channel_id"]))
+    ch_ids = channel_targets.daftar(w_cfg, "channel_id")
+    target_ch = guild.get_channel(ch_ids[0]) if ch_ids else None
     if not isinstance(target_ch, discord.TextChannel):
         return None
 
@@ -175,16 +177,20 @@ async def trigger_member_welcome(
                     http_session=http_session,
                 )
                 if greeting:
-                    payload = await build_greeting_payload(
-                        guild,
-                        member,
-                        greeting,
-                        mode=str(w_cfg.get("card_mode") or "mati"),
-                        kind="welcome",
-                        title="👋 Selamat Datang!",
-                        footer=f"{guild.name} • member ke-{getattr(guild, 'member_count', 0) or 0}",
-                    )
-                    await target_ch.send(**payload)
+                    async def _kirim_sambutan(ch):
+                        payload = await build_greeting_payload(
+                            guild,
+                            member,
+                            greeting,
+                            mode=str(w_cfg.get("card_mode") or "mati"),
+                            kind="welcome",
+                            title="👋 Selamat Datang!",
+                            footer=f"{guild.name} • member ke-{getattr(guild, 'member_count', 0) or 0}",
+                        )
+                        await ch.send(**payload)
+
+                    if not await channel_targets.sebarkan(bot, ch_ids, _kirim_sambutan):
+                        return None
 
                     # Salinan lewat DM (opsional, bisa dimatikan Admin)
                     if w_cfg.get("dm"):
@@ -211,7 +217,8 @@ async def trigger_member_boost(
     if not cfg or not cfg.get("enabled"):
         return None
 
-    target_ch = guild.get_channel(int(cfg["channel_id"]))
+    ch_ids = channel_targets.daftar(cfg, "channel_id")
+    target_ch = guild.get_channel(ch_ids[0]) if ch_ids else None
     if not isinstance(target_ch, discord.TextChannel):
         return None
     if not should_process_member_boost(guild.id, member.id):
@@ -230,17 +237,20 @@ async def trigger_member_boost(
     )
 
     try:
-        payload = await build_greeting_payload(
-            guild,
-            member,
-            text,
-            mode="statis" if welcome_media.has_banner(guild.id, kind="boost") else "mati",
-            kind="boost",
-            title="💎 Server Ter-Boost!",
-            footer=f"Total boost: {getattr(guild, 'premium_subscription_count', 0) or 0} 💎",
-        )
-        await target_ch.send(**payload)
-        return text
+        async def _kirim_boost(ch):
+            payload = await build_greeting_payload(
+                guild,
+                member,
+                text,
+                mode="statis" if welcome_media.has_banner(guild.id, kind="boost") else "mati",
+                kind="boost",
+                title="💎 Server Ter-Boost!",
+                footer=f"Total boost: {getattr(guild, 'premium_subscription_count', 0) or 0} 💎",
+            )
+            await ch.send(**payload)
+
+        if await channel_targets.sebarkan(bot, ch_ids, _kirim_boost):
+            return text
     except (discord.Forbidden, discord.HTTPException) as exc:
         logger.warning("Gagal mengirim pesan boost di %s: %s", target_ch.id, exc)
     return None
@@ -261,7 +271,8 @@ async def trigger_member_goodbye(
     if not cfg or not cfg.get("enabled"):
         return None
 
-    target_ch = guild.get_channel(int(cfg["channel_id"]))
+    ch_ids = channel_targets.daftar(cfg, "channel_id")
+    target_ch = guild.get_channel(ch_ids[0]) if ch_ids else None
     if not isinstance(target_ch, discord.TextChannel):
         return None
 
@@ -299,36 +310,40 @@ async def trigger_member_goodbye(
                 if not farewell:
                     return None
 
-                embed = discord.Embed(
-                    title="👋 Sampai Jumpa Lagi!",
-                    description=farewell[:3900],
-                    color=discord.Color.dark_grey(),
-                    timestamp=discord.utils.utcnow(),
-                )
-                avatar = getattr(member, "display_avatar", None)
-                avatar_url = getattr(avatar, "url", None)
-                if avatar_url:
-                    embed.set_thumbnail(url=avatar_url)
-                farewell_file = None
-                banner = welcome_media.banner_path(guild.id, kind="goodbye")
-                if banner is None:
-                    banner = welcome_media.banner_path(guild.id, kind="welcome")
-                if banner is not None:
-                    banner_name = f"banner-goodbye{banner.suffix.lower()}"
-                    embed.set_image(url=f"attachment://{banner_name}")
-                    farewell_file = discord.File(str(banner), filename=banner_name)
-                if days_in_server:
-                    embed.add_field(
-                        name="📅 Masa Kebersamaan",
-                        value=f"`{days_in_server} hari` bersama {guild.name}",
-                        inline=True,
+                async def _kirim_pamit(ch):
+                    embed = discord.Embed(
+                        title="👋 Sampai Jumpa Lagi!",
+                        description=farewell[:3900],
+                        color=discord.Color.dark_grey(),
+                        timestamp=discord.utils.utcnow(),
                     )
-                embed.set_footer(text=f"Terima kasih sudah menjadi bagian dari {guild.name}")
-                if farewell_file is not None:
-                    await target_ch.send(embed=embed, file=farewell_file)
-                else:
-                    await target_ch.send(embed=embed)
-                return farewell
+                    avatar = getattr(member, "display_avatar", None)
+                    avatar_url = getattr(avatar, "url", None)
+                    if avatar_url:
+                        embed.set_thumbnail(url=avatar_url)
+                    farewell_file = None
+                    banner = welcome_media.banner_path(guild.id, kind="goodbye")
+                    if banner is None:
+                        banner = welcome_media.banner_path(guild.id, kind="welcome")
+                    if banner is not None:
+                        banner_name = f"banner-goodbye{banner.suffix.lower()}"
+                        embed.set_image(url=f"attachment://{banner_name}")
+                        farewell_file = discord.File(str(banner), filename=banner_name)
+                    if days_in_server:
+                        embed.add_field(
+                            name="📅 Masa Kebersamaan",
+                            value=f"`{days_in_server} hari` bersama {guild.name}",
+                            inline=True,
+                        )
+                    embed.set_footer(text=f"Terima kasih sudah menjadi bagian dari {guild.name}")
+                    if farewell_file is not None:
+                        await ch.send(embed=embed, file=farewell_file)
+                    else:
+                        await ch.send(embed=embed)
+
+                if await channel_targets.sebarkan(bot, ch_ids, _kirim_pamit):
+                    return farewell
+                return None
         except (discord.Forbidden, discord.HTTPException) as exc:
             logger.warning("Gagal mengirim pesan Auto-Goodbye di %s: %s", target_ch.id, exc)
     return None

@@ -28,7 +28,11 @@ def _panel(html: str, anchor: str) -> bool:
 # ==============================================================================
 def test_halaman_sesuai_kelompok_fitur():
     slug = [h["slug"] for h in web_dashboard.HALAMAN]
-    assert slug == ["", "setelan", "kirim", "buat", "uji", "tiket", "panel", "ekspor"]
+    # Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
+    # Satu halaman per grup setelan — sambutan/pamit/boost digabung.
+    assert slug == ["", "sambutan", "inti", "keamanan", "tiket", "konten",
+                    "kirim", "buat", "panel", "ekspor"]
+    assert "uji" not in slug and "setelan" not in slug
 
     # Semua panel lama tetap punya halaman — tidak ada yang hilang
     semua = [a for h in web_dashboard.HALAMAN for a in h["panel"]]
@@ -50,12 +54,12 @@ def test_setiap_halaman_hanya_memuat_panelnya():
 
 def test_menu_menautkan_halaman_dan_menandai_yang_aktif():
     page = web_dashboard.render_dashboard_html(
-        status={}, usage={}, levels={}, halaman="tiket", token=TOKEN, guild_id=GID
+        status={}, usage={}, levels={}, halaman="keamanan", token=TOKEN, guild_id=GID
     )
-    assert f'href="/tiket?token={TOKEN}&amp;guild={GID}" aria-current="page"' in page
+    assert f'href="/keamanan?token={TOKEN}&amp;guild={GID}" aria-current="page"' in page
     assert page.count(' aria-current="page">') == 1   # hanya satu menu aktif
     # Token & server tetap terbawa di semua tautan menu
-    assert f'href="/setelan?token={TOKEN}&amp;guild={GID}"' in page
+    assert f'href="/inti?token={TOKEN}&amp;guild={GID}"' in page
     assert f'href="/?token={TOKEN}&amp;guild={GID}"' in page
     assert page.count("<nav class=\"menu\"") == 1
 
@@ -75,8 +79,14 @@ def test_url_halaman_dan_pemetaan_anchor():
     assert web_dashboard.halaman_dari_anchor("p-tiket") == "tiket"
     assert web_dashboard.halaman_dari_anchor("p-banner") == "kirim"
     assert web_dashboard.halaman_dari_anchor("p-riwayat") == "ekspor"
+    assert web_dashboard.halaman_dari_anchor("p-sambutan") == "sambutan"
+    assert web_dashboard.halaman_dari_anchor("p-konten") == "konten"
+    assert web_dashboard.halaman_dari_anchor("p-keamanan") == "keamanan"
+    # Bookmark lama tetap nyasar ke tempat yang benar
+    assert web_dashboard.halaman_dari_anchor("p-kartu") == "sambutan"
     assert web_dashboard.halaman_dari_anchor("p-ngawur") == ""
-    assert web_dashboard.halaman_dari_path("/setelan") == "setelan"
+    assert web_dashboard.halaman_dari_path("/inti") == "inti"
+    assert web_dashboard.halaman_dari_path("/setelan") == ""   # slug lama
     assert web_dashboard.halaman_dari_path("/") == ""
     assert web_dashboard.halaman_dari_path("/tidak-ada") == ""
 
@@ -148,7 +158,7 @@ async def test_semua_rute_halaman_200_dan_terisolasi(monkeypatch, tmp_path):
                 assert not _panel(body, anchor), (halaman["slug"], anchor)
 
         # Tanpa token tetap 401 (termasuk halaman baru)
-        async with session.get(f"{base}/setelan?guild={GID}") as resp:
+        async with session.get(f"{base}/inti?guild={GID}") as resp:
             assert resp.status == 401
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
@@ -162,11 +172,11 @@ async def test_bookmark_lama_dialihkan_ke_halaman_baru(monkeypatch, tmp_path):
             f"{base}/?token={TOKEN}&guild={GID}&halaman=setelan", allow_redirects=False
         ) as resp:
             assert resp.status == 303
-            assert resp.headers["Location"] == f"/setelan?token={TOKEN}&guild={GID}"
+            assert resp.headers["Location"] == f"/inti?token={TOKEN}&guild={GID}"
 
         # Halaman yang sama tidak me-redirect terus-menerus
         async with session.get(
-            f"{base}/setelan?token={TOKEN}&guild={GID}&halaman=setelan", allow_redirects=False
+            f"{base}/inti?token={TOKEN}&guild={GID}&halaman=inti", allow_redirects=False
         ) as resp:
             assert resp.status == 200
 
@@ -178,8 +188,8 @@ async def test_redirect_kembali_ke_halaman_asal_per_aksi(monkeypatch, tmp_path):
 
     async def skenario(session, base):
         pasangan = [
-            ("aksi", {"action": "level", "value": "off"}, "/setelan"),   # p-kontrol
-            ("aksi", {"action": "set.level.aktif", "value": "on"}, "/setelan"),
+            ("aksi", {"action": "level", "value": "off"}, "/inti"),   # p-kontrol
+            ("aksi", {"action": "set.level.aktif", "value": "on"}, "/inti"),
             ("konten", {"aksi": "hapus.panel:tidak-ada"}, "/buat"),
             ("panel", {"aksi": "tambah:tidak-ada"}, "/panel"),
             ("tiket", {"aksi": "balas:tidak-ada", "teks": "halo"}, "/tiket"),

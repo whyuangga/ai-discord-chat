@@ -8,6 +8,7 @@ dikirim ke `POST /api/aksi` atau `POST /api/kirim` yang memeriksa token.
 import html
 
 import dashboard_admin
+import channel_targets
 import dashboard_tema
 import dashboard_unggah
 
@@ -105,6 +106,33 @@ def kontrol_html(kunci: str, nilai: str, bot, guild_id: int) -> str:
     fitur = dashboard_admin.FITUR.get(kunci) or {}
     jenis = fitur.get("jenis")
     nama = f"nilai-{_esc(kunci)}"
+    if jenis == "channels":
+        terpilih = {str(cid) for cid in channel_targets.parse(nilai)}
+        kotak = "".join(
+            '<label class="pilih-channel">'
+            f'<input type="checkbox" name="value" value="{_esc(value)}"'
+            f'{" checked" if str(value) in terpilih else ""}>'
+            f"<span>{_esc(label)}</span></label>"
+            for value, label in pilihan_channel(bot, guild_id)
+            if str(value) != "0"
+        )
+        if not kotak:
+            kotak = '<div class="muted">Belum ada channel yang bisa dipilih.</div>'
+        # Channel yang tersimpan tapi sudah tidak ada di server tetap ditampilkan
+        # (dan dicentang) supaya admin bisa melepasnya.
+        tersedia = {str(value) for value, _ in pilihan_channel(bot, guild_id)}
+        for cid in sorted(terpilih - tersedia):
+            kotak += (
+                '<label class="pilih-channel">'
+                f'<input type="checkbox" name="value" value="{_esc(cid)}" checked>'
+                f"<span>ID {_esc(cid)} (di luar server ini)</span></label>"
+            )
+        kosong = (
+            '<label class="pilih-channel kosongkan">'
+            '<input type="checkbox" name="value" value="0">'
+            "<span>🚫 Kosongkan (matikan fitur)</span></label>"
+        )
+        return f'<div class="channel-grid" id="{nama}">{kotak}{kosong}</div>'
     if jenis in ("saklar", "pilihan", "channel", "role"):
         opsi = opsi_untuk(kunci, bot, guild_id)
         ada = {value for value, _ in opsi}
@@ -136,24 +164,61 @@ def _baris_setelan(kunci: str, nilai: str, bot, guild_id: int, token: str) -> st
         nama = _nama_channel(bot, guild_id, nilai)
         if nama:
             bantuan = f"Sedang: `{nama}`. {bantuan}".strip()
+    if fitur.get("jenis") == "channels":
+        jumlah = len(channel_targets.parse(nilai))
+        bantuan = (
+            f"Boleh pilih lebih dari satu channel ({jumlah} dipilih). {bantuan}"
+            if jumlah
+            else f"Belum ada channel dipilih. {bantuan}"
+        ).strip()
     catatan = f'<div class="muted">{_esc(bantuan)}</div>' if bantuan else ""
     hidden = (
         f'<input type="hidden" name="token" value="{_esc(token)}">'
         f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
         f'<input type="hidden" name="action" value="set.{_esc(kunci)}">'
     )
+    judul = (
+        f'<div class="label-setelan">{label}</div>'
+        if fitur.get("jenis") == "channels"
+        else f"<label for=\"nilai-{_esc(kunci)}\">{label}</label>"
+    )
     return (
         f'<form method="post" action="/api/aksi" class="kontrol">'
-        f"{hidden}<label for=\"nilai-{_esc(kunci)}\">{label}</label>"
+        f"{hidden}{judul}"
         f'{kontrol_html(kunci, nilai, bot, guild_id)}'
         f'<button type="submit">Simpan</button></form>{catatan}'
     )
 
 
-def render_setelan_block(values: dict, bot, guild_id: int, token: str) -> str:
-    """Semua grup setelan (5 panel) siap ditempel ke halaman dashboard."""
+def render_setelan_block(
+    values: dict,
+    bot,
+    guild_id: int,
+    token: str,
+    *,
+    hanya: tuple[str, ...] | None = None,
+    kecuali_grup: tuple[str, ...] = (),
+) -> str:
+    """Grup setelan siap ditempel ke halaman dashboard.
+
+    `hanya` membatasi ke beberapa kunci saja (dipakai halaman fitur seperti
+    Sambutan/Perpisahan/Boost). `kecuali_grup` membuang grup yang sudah punya
+    halaman sendiri supaya tidak tampil dua kali.
+    """
+    if hanya is not None:
+        baris = "".join(
+            _baris_setelan(kunci, str(values.get(kunci, "")), bot, guild_id, token)
+            for kunci in hanya
+            if kunci in dashboard_admin.FITUR
+        )
+        if not baris:
+            return '<div class="muted">Belum ada setelan yang bisa diatur.</div>'
+        # Tanpa pembungkus: pemanggil sudah menaruhnya di subpanel + <h3>.
+        return baris
     bagian: list[str] = []
     for grup in dashboard_admin.GRUP:
+        if grup.get("kunci") in kecuali_grup:
+            continue
         baris = "".join(
             _baris_setelan(kunci, str(values.get(kunci, "")), bot, guild_id, token)
             for kunci in grup["fitur"]
@@ -443,11 +508,24 @@ banner per server. Semua berkas diperiksa isinya (bukan hanya ekstensi).</p>
     return unggah + f'<div class="galeri">{kartu}</div>'
 
 
-def render_kartu_block(guild_id: int, token: str) -> str:
-    """Panel unggah kartu sambutan / perpisahan / boost (disimpan di `data/media/`)."""
+def render_kartu_block(
+    guild_id: int,
+    token: str,
+    hanya: tuple[str, ...] | None = None,
+) -> str:
+    """Panel unggah kartu (disimpan di `data/media/`).
+
+    `hanya` membatasi ke satu slot — halaman Sambutan hanya menampilkan kartu
+    sambutan, halaman Perpisahan hanya kartu perpisahan, dan seterusnya.
+    """
     info = dashboard_unggah.kartu_info(guild_id)
+    jenis_dipakai = tuple(
+        j for j in dashboard_unggah.JENIS_KARTU if hanya is None or j in hanya
+    )
+    if not jenis_dipakai:
+        return ""
     slot = ""
-    for jenis in dashboard_unggah.JENIS_KARTU:
+    for jenis in jenis_dipakai:
         data = info.get(jenis)
         label = dashboard_unggah.LABEL_KARTU[jenis]
         if data:
@@ -466,10 +544,10 @@ def render_kartu_block(guild_id: int, token: str) -> str:
             pratinjau = '<div class="kosong">Belum ada gambar</div>'
             keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
             hapus = ""
+        judul = f'<h4>{_esc(label.capitalize())}</h4>' if len(jenis_dipakai) > 1 else ""
         slot += (
             '<div class="kartu-slot">'
-            f'<h4>{_esc(label.capitalize())}</h4>'
-            f'{pratinjau}{keterangan}'
+            f"{judul}{pratinjau}{keterangan}"
             '<form method="post" action="/api/unggah" class="formgrid" '
             'enctype="multipart/form-data">'
             f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
@@ -479,6 +557,14 @@ def render_kartu_block(guild_id: int, token: str) -> str:
             f"{hapus}"
             "</div>"
         )
+
+    catatan_ukuran = (
+        '<p class="muted">Ukuran ideal <b>1024×420 px</b>, maksimal '
+        f"{dashboard_unggah.batas_mb()} MB (PNG/JPG/GIF/WEBP). Gambar disimpan di server bot, "
+        "jadi tidak pernah kedaluwarsa seperti tautan CDN Discord.</p>"
+    )
+    if "welcome" not in jenis_dipakai:
+        return f'<div class="kartu-sambutan tunggal">{slot}</div>' + catatan_ukuran
 
     mode = "statis"
     try:
@@ -502,30 +588,51 @@ def render_kartu_block(guild_id: int, token: str) -> str:
         '<label for="mode-kartu">Tampilan kartu sambutan</label>'
         f'<select name="value" id="mode-kartu">{opsi}</select>'
         '<button type="submit">Simpan mode</button></form>'
-        '<p class="muted">Kartu <b>perpisahan</b> &amp; <b>boost</b> otomatis dipakai bila '
-        "gambarnya ada. Ukuran ideal 1024×420 px, maksimal "
-        f"{dashboard_unggah.batas_mb()} MB.</p>"
+        '<p class="muted"><b>Teks saja</b> = pesan polos. <b>Kartu statis</b> = gambarmu '
+        "dikirim apa adanya di dalam embed (+ foto profil kecil). <b>Kartu dinamis</b> = "
+        "gambarmu jadi latar, lalu bot menambahkan foto profil bulat, nama member, dan "
+        "“Member ke-N” di atasnya. Butuh gambar kartu yang sudah diunggah.</p>"
     )
-    return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}'
+    return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}{catatan_ukuran}'
 
 
-def render_uji_block(bot, guild_id: int, token: str) -> str:
-    """Panel tombol tes fitur — dikelompokkan per jenis fitur."""
+def render_uji_block(
+    bot,
+    guild_id: int,
+    token: str,
+    hanya: tuple[str, ...] | None = None,
+) -> str:
+    """Tombol tes fitur. `hanya` membatasi ke fitur milik halaman ini."""
     import dashboard_uji
 
     status = dashboard_uji.status_uji(guild_id)
-    kanal = getattr(bot, "guilds", None) or []
     guild = bot.get_guild(int(guild_id or 0)) if callable(getattr(bot, "get_guild", None)) else None
     channel_opsi = ""
     for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
         channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
     if not channel_opsi:
         channel_opsi = '<option value="0">(belum ada channel)</option>'
-    _ = kanal
+
+    # Opsi default selalu ada: tanpa ID apa pun, bot memakai pemilik server.
+    nama_pemilik = dashboard_uji.nama_pemilik(guild)
+    label_pemilik = "👑 Pemilik server (otomatis)"
+    if nama_pemilik:
+        label_pemilik += f" · {nama_pemilik}"
+    orang_opsi = f'<option value="">{_esc(label_pemilik)}</option>' + "".join(
+        f'<option value="{_esc(uid)}">{_esc(nama)}</option>'
+        for uid, nama in dashboard_uji.pilihan_subjek(guild, sertakan_pemilik=False)
+    )
+
+    dipakai = tuple(
+        item for item in dashboard_uji.UJI
+        if hanya is None or item["kunci"] in hanya
+    )
+    if not dipakai:
+        return ""
 
     grup_terlihat: list[str] = []
     baris_per_grup: dict[str, str] = {}
-    for item in dashboard_uji.UJI:
+    for item in dipakai:
         keadaan = status.get(item["kunci"]) or {}
         grup = keadaan.get("grup") or "Lainnya"
         aktif = bool(keadaan.get("aktif"))
@@ -533,7 +640,9 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
         if aktif and channel_id:
             getter = getattr(bot, "get_channel", None)
             ch = getter(channel_id) if callable(getter) else None
-            nama_channel = f"<code>#{_esc(getattr(ch, 'name', ''))}</code>" if ch else f"<code>#{channel_id}</code>"
+            nama_channel = (
+                f"<code>#{_esc(getattr(ch, 'name', ''))}</code>" if ch else f"<code>#{channel_id}</code>"
+            )
             lencana = f"✅ aktif → {nama_channel}"
         elif aktif:
             lencana = "✅ siap diuji"
@@ -544,8 +653,11 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
         if aktif:
             masukan = ""
             if kolom == "member":
-                masukan = ('<input type="text" name="opsi" inputmode="numeric" '
-                           'placeholder="ID member (opsional)">')
+                masukan = (
+                    f'<select name="opsi" aria-label="Contoh atas nama">{orang_opsi}</select>'
+                    '<input type="text" name="opsi_manual" placeholder="atau tempel @nama /'
+                    ' &lt;@id&gt; (opsional)">'
+                )
             elif kolom in ("id", "ref"):
                 pilihan = keadaan.get("pilihan") or []
                 if pilihan:
@@ -553,8 +665,10 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
                         f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
                     ) + "</select>"
                 else:
-                    masukan = ('<input type="text" name="opsi" inputmode="numeric" '
-                               'placeholder="Kosongkan = pilih otomatis">')
+                    masukan = (
+                        '<input type="text" name="opsi_manual" '
+                        'placeholder="Kosongkan = pilih otomatis">'
+                    )
             elif kolom == "channel":
                 masukan = f'<select name="opsi">{channel_opsi}</select>'
             tombol = (
@@ -563,9 +677,12 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
                 f'{masukan}<button type="submit">Kirim tes</button></form>'
             )
         else:
+            jalur = _JALUR_FITUR.get(item["kunci"], "/")
+            anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-kontrol")
             tombol = (
-                '<a class="tombol-unduh" href="/setelan?token='
-                f'{_esc(token)}&amp;guild={int(guild_id or 0)}#p-setelan">Atur di Setelan</a>'
+                '<a class="tombol-unduh" href="'
+                f'{_esc(jalur)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}'
+                f'#{_esc(anchor)}">Atur dulu</a>'
             )
 
         if grup not in baris_per_grup:
@@ -573,7 +690,7 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
             grup_terlihat.append(grup)
         baris_per_grup[grup] += (
             '<div class="uji-baris">'
-            '<div>'
+            "<div>"
             f'<b>{item["emoji"]} {_esc(item["label"])}</b> '
             f'<span class="muted">{lencana}</span>'
             f'<div class="muted">{_esc(item["contoh"])}</div>'
@@ -582,17 +699,32 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
             "</div>"
         )
 
-    isi = "".join(
-        f'<div class="subpanel"><h3>{_esc(grup)}</h3>{baris_per_grup[grup]}</div>'
-        for grup in grup_terlihat
+    if len(dipakai) == 1:
+        isi = next(iter(baris_per_grup.values()))
+    else:
+        isi = "".join(
+            f'<div class="subpanel"><h3>{_esc(grup)}</h3>{baris_per_grup[grup]}</div>'
+            for grup in grup_terlihat
+        )
+    return isi + (
+        '<p class="muted">Kolom <b>contoh atas nama</b> boleh dibiarkan — bot memakai '
+        "pemilik server. Koran pagi, koneksi AI, dan sambutan memakai <b>1 panggilan AI</b> "
+        "per tes; sambutan/perpisahan/boost mengirim pesan sungguhan ke channel tujuan.</p>"
     )
-    catatan = (
-        '<p class="muted">Sambutan, perpisahan, boost, koran pagi, dan koneksi AI memakai '
-        "<b>1 panggilan AI</b> per tes. Tes sambutan/perpisahan/boost mengirim pesan "
-        "sungguhan ke channel tujuan — member lain akan melihatnya. Sisi kanan memilih "
-        "subjek: ID member, pengumuman/panel tersimpan, atau channel.</p>"
-    )
-    return isi + catatan
+
+
+# Halaman tempat setelan sebuah fitur uji diatur (tautan “Atur dulu”).
+_JALUR_FITUR: dict[str, str] = {
+    "welcome": "/sambutan",
+    "goodbye": "/sambutan",
+    "boost": "/sambutan",
+    "pengumuman": "/buat",
+    "panel": "/panel",
+    "digest": "/konten",
+    "tiket": "/tiket",
+    "ai": "/",
+    "ekspor": "/ekspor",
+}
 
 
 def render_konten_block(guild_id: int, konten: dict, token: str) -> str:

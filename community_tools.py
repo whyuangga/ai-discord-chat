@@ -22,6 +22,7 @@ import time
 import zipfile
 
 import discord
+import channel_targets
 
 from config import (
     BACKUP_INTERVAL_DAYS,
@@ -839,20 +840,20 @@ async def run_backup_check(bot: discord.Client) -> int:
     for gid, cfg in list(maintenance_guilds.items()):
         if not cfg.get("auto_backup"):
             continue
-        channel_id = _to_int(cfg.get("backup_channel_id"))
-        if not channel_id:
+        ids = channel_targets.daftar(cfg, "backup_channel_id")
+        if not ids:
             continue
         if now - float(cfg.get("last_backup_at") or 0) < interval:
             continue
-        get_channel = getattr(bot, "get_channel", None)
-        channel = get_channel(channel_id) if callable(get_channel) else None
-        if channel is None:
-            continue
-        ok, _ = await send_backup(bot, channel)
-        if not ok:
-            continue
-        cfg["last_backup_at"] = now
-        sent += 1
+
+        async def _kirim_backup(channel):
+            ok, _ = await send_backup(bot, channel)
+            if not ok:
+                raise RuntimeError("backup gagal")
+
+        if await channel_targets.sebarkan(bot, ids, _kirim_backup):
+            cfg["last_backup_at"] = now
+            sent += 1
 
     if sent:
         await save_community_tools_to_disk()

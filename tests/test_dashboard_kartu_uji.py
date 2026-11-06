@@ -83,6 +83,10 @@ def test_kartu_menolak_berkas_palsu_dan_jenis_ngawur(media):
 
 
 def test_panel_kartu_menampilkan_tiga_slot(media):
+    # Halaman fitur hanya memuat slotnya sendiri
+    html_boost = dashboard_ui.render_kartu_block(GID, TOKEN, hanya=("boost",))
+    assert html_boost.count('class="kartu-slot"') == 1
+    assert "kartu.simpan:boost" in html_boost and "kartu.simpan:welcome" not in html_boost
     html = dashboard_ui.render_kartu_block(GID, TOKEN)
     assert "Kartu sambutan &amp; perpisahan" not in html      # judul ada di panel web_dashboard
     assert html.count('class="kartu-slot"') == 3
@@ -105,9 +109,18 @@ class _Guild:
     member_count = 3
     channels: list = []
     roles: list = []
+    owner_id = 1                      # pemilik server = akun contoh bawaan tes
+
+    def __init__(self):
+        self.me = _Member(1)
+        self.members = [_Member(1), _Member(777), _Member(9)]
+        self.members[2].bot = True
 
     def get_member(self, uid):
-        return _Member(uid) if int(uid) == 777 else None
+        for orang in self.members:
+            if orang.id == int(uid):
+                return orang
+        return None
 
 
 class _Member:
@@ -158,8 +171,10 @@ async def test_jalankan_uji_mengirim_dan_menolak_bila_mati(monkeypatch):
     monkeypatch.setattr(agent_cog, "trigger_member_welcome", pura_pura)
     community_agent.set_welcome_config(GID, 505, enabled=True)
 
+    # Tanpa mengisi ID apa pun → memakai pemilik server (bukan akun bot)
     ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "welcome")
     assert ok is True and "terkirim" in pesan and "<#505>" in pesan
+    assert "pemilik server" in pesan and "**Bintang**" in pesan
     assert dipanggil == {"member": 1, "force": True}
 
     # Member tertentu lewat ID
@@ -185,7 +200,11 @@ async def test_jalankan_uji_melaporkan_kegagalan_kirim(monkeypatch):
     monkeypatch.setattr(agent_cog, "trigger_member_goodbye", gagal)
     community_agent.set_goodbye_config(GID, 404, enabled=True)
     ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "goodbye")
-    assert ok is False and "izin" in pesan
+    # Channel 404 tidak ada di cache bot → alasan spesifik, bukan "cek izin"
+    assert ok is False and "tidak ada di server ini" in pesan
+    community_agent.set_goodbye_config(GID, 505, enabled=True)
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "goodbye")
+    assert ok is False and "GEMINI_API_KEY" in pesan
 
 
 def test_panel_uji_punya_tombol_dan_tautan_setelan():
@@ -195,9 +214,10 @@ def test_panel_uji_punya_tombol_dan_tautan_setelan():
     assert html.count('class="uji-baris"') == len(dashboard_uji.UJI) == 9
     assert html.count("<h3>") == len({item["grup"] for item in dashboard_uji.UJI})
     assert 'action="/api/uji"' in html and "uji.welcome" in html
-    assert "ID member (opsional)" in html
+    assert "👑 Pemilik server" in html                 # subjek default tanpa ID
+    assert 'name="opsi_manual"' in html                # bisa tempel @nama/<@id>
     assert "#sambutan" in html                     # nama channel tampil
-    assert "Atur di Setelan" in html               # fitur yang belum aktif
+    assert "Atur dulu" in html                      # fitur yang belum aktif
     assert "1 panggilan AI" in html
     # Fitur tanpa config tetap bisa dites & punya pemilih subjek
     for kunci in ("pengumuman", "panel", "tiket", "ai", "ekspor"):
@@ -238,11 +258,16 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
     halaman = f"token={TOKEN}&guild={GID}"
 
     async def skenario(session, base):
-        # Panel kartu ada di halaman /kirim
-        async with session.get(f"{base}/kirim?{halaman}") as resp:
+        # Sambutan, pamit, & boost jadi satu halaman: tiga slot ada di sana
+        async with session.get(f"{base}/sambutan?{halaman}") as resp:
             body = await resp.text()
-            assert resp.status == 200 and 'id="p-kartu"' in body
-            assert "kartu.simpan:welcome" in body
+            assert resp.status == 200 and 'id="p-sambutan"' in body
+            for slot in ("welcome", "goodbye", "boost"):
+                assert f"kartu.simpan:{slot}" in body
+                assert f'id="p-{slot}"' in body
+        # Bookmark /perpisahan dialihkan ke halaman gabungan
+        async with session.get(f"{base}/perpisahan?{halaman}", allow_redirects=False) as resp:
+            assert resp.status == 303 and resp.headers["Location"].startswith("/sambutan?")
 
         # Unggah kartu sambutan
         form = aiohttp.FormData()
@@ -255,7 +280,7 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
         ) as resp:
             assert resp.status == 303
             lokasi = resp.headers["Location"]
-            assert lokasi.startswith("/kirim?") and lokasi.endswith("#p-kartu")
+            assert lokasi.startswith("/sambutan?") and lokasi.endswith("#p-sambutan")
 
         # Pratinjau bisa diambil (butuh token)
         async with session.get(f"{base}/api/kartu/welcome?{halaman}") as resp:
@@ -267,7 +292,7 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
             assert resp.status == 404
 
         # Halaman kini menampilkan thumbnail
-        async with session.get(f"{base}/kirim?{halaman}") as resp:
+        async with session.get(f"{base}/sambutan?{halaman}") as resp:
             assert f"/api/kartu/welcome?token={TOKEN}" in await resp.text()
 
         # Hapus
@@ -286,8 +311,9 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
         form.add_field("action", "kartu.simpan:welcome")
         form.add_field("banner", b"<html>", filename="x.png", content_type="image/png")
         async with session.post(f"{base}/api/unggah", data=form) as resp:
-            assert resp.status == 400
-            assert "bukan gambar" in await resp.text()
+            body = await resp.text()
+            assert resp.status == 200 and "ok=0" in str(resp.url)
+            assert "bukan gambar" in body
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 
@@ -305,13 +331,18 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
     halaman = f"token={TOKEN}&guild={GID}"
 
     async def skenario(session, base):
-        async with session.get(f"{base}/uji?{halaman}") as resp:
+        # Tiap fitur punya halamannya sendiri (tidak ada lagi /uji gabungan)
+        async with session.get(f"{base}/sambutan?{halaman}") as resp:
             body = await resp.text()
-            assert resp.status == 200 and 'id="p-uji"' in body
-            assert "Tes fitur" in body
+            assert resp.status == 200 and 'id="p-sambutan"' in body
+            assert "Tes fitur" in body and "uji.welcome" in body
+            assert "👣 Pesan perpisahan" in body and "💎 Ucapan boost" in body
             assert 'aria-current="page"' in body
+        # Bookmark lama /uji dialihkan ke Ringkasan
+        async with session.get(f"{base}/uji?{halaman}", allow_redirects=False) as resp:
+            assert resp.status == 303 and resp.headers["Location"].startswith("/?")
 
-        # Tombol tes → 303 kembali ke halaman uji + pesan
+        # Tombol tes → 303 kembali ke halaman fiturnya + pesan
         async with session.post(
             f"{base}/api/uji",
             data={"token": TOKEN, "guild": str(GID), "action": "uji.welcome"},
@@ -319,8 +350,8 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
         ) as resp:
             assert resp.status == 303
             lokasi = resp.headers["Location"]
-            assert lokasi.startswith("/uji?") and "pesan=" in lokasi
-            assert lokasi.endswith("#p-uji")
+            assert lokasi.startswith("/sambutan?") and "pesan=" in lokasi
+            assert lokasi.endswith("#p-welcome")
 
         # JSON tetap JSON
         async with session.post(
@@ -331,7 +362,13 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
             assert resp.status == 200 and data["ok"] is True
             assert "terkirim" in data["message"]
 
-        # Fitur mati → 400 + alasan
+        # Fitur mati: form HTML → redirect ⚠️, JSON → 400 + alasan
+        async with session.post(
+            f"{base}/api/uji",
+            data={"token": TOKEN, "guild": str(GID), "action": "uji.goodbye"},
+            allow_redirects=False,
+        ) as resp:
+            assert resp.status == 303 and "ok=0" in resp.headers["Location"]
         async with session.post(
             f"{base}/api/uji",
             json={"token": TOKEN, "guild": str(GID), "action": "uji.goodbye"},
@@ -426,6 +463,12 @@ async def test_uji_digest_ai_dan_ekspor(monkeypatch):
     async def jawab(system, contents, **kwargs):
         return "siap"
 
+    # Tanpa key → alasan jelas, tanpa memanggil AI
+    monkeypatch.setattr(ca, "GEMINI_API_KEY", "", raising=False)
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ai")
+    assert ok is False and "GEMINI_API_KEY" in pesan
+
+    monkeypatch.setattr(ca, "GEMINI_API_KEY", "kunci-uji", raising=False)
     monkeypatch.setattr(ca, "_call_gemini_agent", jawab)
     ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ai")
     assert ok and "koneksi sehat" in pesan
@@ -434,7 +477,7 @@ async def test_uji_digest_ai_dan_ekspor(monkeypatch):
         ca, "_call_gemini_agent", lambda *a, **k: _kosong()
     )
     ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ai")
-    assert ok is False and "GEMINI_API_KEY" in pesan
+    assert ok is False and "tidak menjawab" in pesan
 
     monkeypatch.setattr(
         analytics_export, "build_csv",

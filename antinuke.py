@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 import discord
+import channel_targets
 
 from config import ANTINUKE_FILE, DATA_DIR
 
@@ -514,17 +515,18 @@ def build_alert_embed(guild, member, violation: dict, taken: str, *, extras: lis
 
 
 async def _notify(bot, guild, cfg, embed: discord.Embed) -> None:
-    channel_id = cfg.get("log_channel_id")
-    channel = None
-    if channel_id and callable(getattr(bot, "get_channel", None)):
-        channel = bot.get_channel(int(channel_id))
-    if channel is None:
-        channel = getattr(guild, "system_channel", None)
-    if channel is not None:
-        try:
-            await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+    ids = channel_targets.daftar(cfg, "log_channel_id")
+
+    async def _kirim(channel):
+        await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+    if not await channel_targets.sebarkan(bot, ids, _kirim):
+        sistem = getattr(guild, "system_channel", None)
+        if sistem is not None:
+            try:
+                await _kirim(sistem)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
 
     if not cfg.get("dm_owner", True):
         return

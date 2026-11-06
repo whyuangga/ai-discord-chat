@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 import discord
+import channel_targets
 
 from config import (
     DATA_DIR,
@@ -741,21 +742,19 @@ async def run_level_season_check(bot) -> int:
         guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
         snapshot = reset_season(gid)
         reset_count += 1
-        channel_id = _to_int(cfg.get("announce_channel_id"))
-        if guild is None or not channel_id or not cfg.get("season_announce", True):
+        ids = channel_targets.daftar(cfg, "announce_channel_id")
+        if guild is None or not ids or not cfg.get("season_announce", True):
             continue
-        channel = bot.get_channel(channel_id) if callable(getattr(bot, "get_channel", None)) else None
-        if channel is None:
-            continue
-        try:
+        embed = build_season_announce_embed(
+            guild, snapshot, next_season=_to_int(cfg.get("season"), 1)
+        )
+
+        async def _kirim(channel, embed=embed):
             await channel.send(
-                embed=build_season_announce_embed(
-                    guild, snapshot, next_season=_to_int(cfg.get("season"), 1)
-                ),
-                allowed_mentions=discord.AllowedMentions.none(),
+                embed=embed, allowed_mentions=discord.AllowedMentions.none()
             )
-        except Exception:  # pragma: no cover - izin kurang
-            continue
+
+        await channel_targets.sebarkan(bot, ids, _kirim)
     if reset_count:
         await save_levels_to_disk()
     return reset_count

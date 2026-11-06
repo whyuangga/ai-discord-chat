@@ -317,7 +317,9 @@ async def test_http_unggah_pratinjau_dan_kirim(tmp_path, monkeypatch):
                            content_type="image/png")
             async with session.post(f"{base}/api/unggah", data=form) as resp:
                 body = await resp.text()
-                assert resp.status == 400 and "bukan gambar" in body
+                # Gagal → kembali ke panel dengan kotak ⚠️ (bukan halaman buntu)
+                assert resp.status == 200 and "ok=0" in str(resp.url)
+                assert "bukan gambar" in body and 'class="flash galat"' in body
 
             # Kirim embed memakai banner tersimpan
             form = aiohttp.FormData()
@@ -378,9 +380,10 @@ async def test_unggahan_kebesaran_ditolak_dengan_pesan(tmp_path, monkeypatch):
                            content_type="image/png")
             async with session.post(f"{base_url(port)}/api/unggah", data=form) as resp:
                 body = await resp.text()
-                assert resp.status == 400
-                # Ditolak oleh validasi ukuran (bukan 413 bawaan aiohttp 1 MB)
-                assert "melebihi" in body
+                # Ditolak oleh validasi ukuran (bukan 413 bawaan aiohttp 1 MB),
+                # lalu kembali ke panel dengan kotak ⚠️.
+                assert resp.status == 200 and "ok=0" in str(resp.url)
+                assert "melebihi" in body and 'class="flash galat"' in body
     finally:
         await web_dashboard.stop_dashboard()
 

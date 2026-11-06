@@ -250,7 +250,9 @@ async def test_http_ganti_dan_hapus_banner_panel(tmp_path, monkeypatch):
             form.add_field("action", "banner.panel:m1")
             async with session.post(f"{base}/api/konten", data=form) as resp:
                 body = await resp.text()
-                assert resp.status == 400 and "lebih dulu" in body
+                # Gagal → kembali ke halaman Panel dengan kotak ⚠️
+                assert resp.status == 200 and "ok=0" in str(resp.url)
+                assert "lebih dulu" in body and 'class="flash galat"' in body
 
             # Unggah berkas baru sekaligus ganti banner
             form = aiohttp.FormData()

@@ -156,8 +156,8 @@ async def test_simpan_setelan_redirect_ke_panel_dan_tampilkan_pesan(monkeypatch,
             lokasi = resp.headers["Location"]
             assert "pesan=" in lokasi and "ok=1" in lokasi
             # Redirect kembali ke HALAMAN asal (setelan), bukan ke "/"
-            assert lokasi.startswith("/setelan?")
-            assert lokasi.endswith("#p-setelan")
+            assert lokasi.startswith("/inti?")
+            assert lokasi.endswith("#p-inti")
 
         # Ikuti redirect: kotak pesan tampil dan nilai sudah nonaktif
         async with session.get(base + lokasi) as resp:
@@ -167,14 +167,15 @@ async def test_simpan_setelan_redirect_ke_panel_dan_tampilkan_pesan(monkeypatch,
             assert '<option value="off" selected>' in body
 
         # Nilai tidak balik jadi "on" pada muat berikutnya (halaman setelan)
-        async with session.get(f"{base}/setelan?token=tok-ux&guild={GID}") as resp:
+        async with session.get(f"{base}/inti?token=tok-ux&guild={GID}") as resp:
             assert '<option value="off" selected>' in await resp.text()
         assert levels.is_leveling_active(GID) is False
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 
 
-async def test_simpan_gagal_tetap_halaman_hasil_dengan_anchor(monkeypatch, tmp_path):
+async def test_simpan_gagal_kembali_ke_panel_dengan_kotak_peringatan(monkeypatch, tmp_path):
+    """Gagal tidak lagi berakhir di halaman buntu: redirect + kotak ⚠️."""
     bot = _Bot()
 
     async def skenario(session, base):
@@ -184,10 +185,18 @@ async def test_simpan_gagal_tetap_halaman_hasil_dengan_anchor(monkeypatch, tmp_p
                   "action": "set.bukan.kunci", "value": "x"},
             allow_redirects=False,
         ) as resp:
+            assert resp.status == 303
+            lokasi = resp.headers["Location"]
+            assert lokasi.startswith("/inti?")
+            assert "ok=0" in lokasi and "pesan=" in lokasi
+            assert lokasi.endswith("#p-inti")        # kembali ke panel yang sama
+
+        # Kotak peringatan tampil di halaman fiturnya
+        async with session.get(base + lokasi) as resp:
             body = await resp.text()
-            assert resp.status == 400
-            assert "Kembali ke dashboard" in body
-            assert "#p-setelan" in body              # kembali ke panel yang sama
+            assert resp.status == 200
+            assert 'class="flash galat"' in body and "⚠️" in body
+            assert "tidak dikenal" in body.lower()
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 
@@ -225,7 +234,7 @@ async def test_json_tetap_json_tanpa_redirect(monkeypatch, tmp_path):
 
 
 def test_anchor_per_aksi():
-    assert web_dashboard._anchor_aksi("set.tiket.aktif") == "p-setelan"
+    assert web_dashboard._anchor_aksi("set.tiket.aktif") == "p-tiket"
     assert web_dashboard._anchor_aksi("level") == "p-kontrol"
     assert web_dashboard._anchor_konten("buat.panel") == "p-buat"
     assert web_dashboard._anchor_konten("hapus.panel:m1") == "p-konten"
