@@ -124,28 +124,49 @@ Halaman **Kirim** punya panel *Kartu sambutan & perpisahan* dengan tiga slot:
 | **Perpisahan** | member keluar (otomatis bila gambarnya ada) | `data/media/goodbye_<id>.png` |
 | **Boost** | member nge-boost server | `data/media/boost_<id>.png` |
 
+> Contoh gambar siap pakai (1024×420) bisa dibuat sendiri dengan AI image generator —
+> gaya gelap `#0D0D0F` dengan aksen ungu/emas paling menyatu dengan kartu bot.
+
 - Unggah: **PNG/JPG/GIF/WEBP**, maksimal 8 MB, isi berkas diperiksa lewat *magic bytes*
   (file `.exe` yang di-rename tetap ditolak). Gambar ditimpa per jenis, jadi tidak menumpuk.
 - Pratinjau tampil langsung di dashboard (`/api/kartu/<jenis>?token=…`, wajib token).
 - Tombol **Hapus kartu** mengembalikan bot ke tampilan teks/embed biasa.
-- Pemilih **Tampilan kartu sambutan** (Teks saja / Kartu statis / Kartu dinamis) ada di panel
-  yang sama — tidak perlu pindah ke Discord. Ukuran ideal **1024×420 px**.
+- Pemilih **Tampilan kartu sambutan** ada di panel yang sama. Ukuran gambar ideal **1024×420 px**.
+
+### Bedanya “Kartu statis” dan “Kartu dinamis”
+
+| Mode | Yang dikirim bot | Cocok untuk |
+| :--- | :--- | :--- |
+| 💬 **Teks saja** | pesan teks polos, tanpa gambar | server hemat kuota / tanpa gambar |
+| 🖼️ **Kartu statis** | *embed*: gambar kartu yang kamu unggah dipakai apa adanya, plus **foto profil kecil** & teks sambutan | paling ringan — gambar dipakai ulang tanpa diolah |
+| ✨ **Kartu dinamis** | bot **membuat gambar baru setiap kali** (Pillow): gambar kartu jadi latar, lalu ditimpa **foto profil bulat + nama member + “Member ke-N” + nama server** | server yang ingin tiap member dapat kartu bertuliskan namanya |
+
+Ringkasnya: **statis = gambar buatanmu dikirim utuh**; **dinamis = gambar buatanmu dipakai
+sebagai latar, lalu bot menambahkan nama & foto profil member**. Keduanya butuh gambar kartu
+yang sudah diunggah — tanpa gambar, bot otomatis memakai mode teks.
 
 ### Uji fitur tanpa menunggu event (`/uji`)
 
 Halaman **🧪 Uji** punya tombol tes untuk fitur yang punya pemicu sendiri:
 
-| Fitur | Yang dikirim | Catatan |
+| Fitur | Pilihan subjek | Yang terjadi |
 | :--- | :--- | :--- |
-| 👋 Sambutan member baru | kartu/teks sambutan + sapaan asing | memakai `force=True`, jadi dedup dilewati |
-| 👣 Pesan perpisahan | kartu perpisahan | butuh channel pamit aktif |
-| 💎 Ucapan boost | ucapan terima kasih boost | hanya 1× per member (dedup bawaan Discord) |
+| 👋 Sambutan member baru | ID member (opsional) | kirim contoh sambutan + sapaan asing ke channel sambutan (`force=True`, dedup dilewati) |
+| 👣 Pesan perpisahan | ID member (opsional) | kirim contoh kartu perpisahan |
+| 💎 Ucapan boost | ID member (opsional) | kirim contoh ucapan boost |
+| ⏰ Pengumuman terjadwal | daftar pengumuman tersimpan | kirim satu pengumuman **sekarang** (jadwal aslinya tidak digeser) |
+| 🧩 Panel menu | daftar panel tersimpan | segarkan panel di Discord supaya tombol/dropdown terbaru tampil |
+| 📰 Koran pagi (digest) | — | buat contoh rubrik pagi; **tidak dikirim** ke channel |
+| 🎫 Panel tiket | channel | pasang ulang panel **Buka Tiket** di channel itu |
+| 🤖 Koneksi AI (Gemini) | — | satu panggilan AI kecil; membuktikan API key, kuota, & jaringan sehat |
+| 📥 Ekspor CSV | — | bangun CSV level; melaporkan jumlah baris data |
 
 Kolom **ID member** opsional: kosongkan untuk memakai akun bot sebagai contoh, atau isi ID
-member agar contohnya atas nama member itu. Tiap tes memakai **1 panggilan AI**, mengirim
-pesan **sungguhan** ke channel tujuan, dan hasilnya tampil sebagai kotak ✅/⚠️ di halaman
-`/uji` (atau JSON bila dipanggil sebagai API). Fitur yang belum aktif menampilkan tombol
-**Atur di Setelan** alih-alih tombol tes.
+member agar contohnya atas nama member itu. Tes yang memakai AI (sambutan, perpisahan, boost,
+koran pagi, koneksi AI) memakan **1 panggilan AI**; tes sambutan/boost/pengumuman/panel tiket
+mengirim pesan **sungguhan** ke channel. Hasilnya tampil sebagai kotak ✅/⚠️ di halaman
+`/uji` (atau JSON bila dipanggil sebagai API). Fitur ber-channel yang belum aktif menampilkan
+tombol **Atur di Setelan** alih-alih tombol tes.
 
 ### Setelan yang bisa diubah dari web (52 fitur)
 

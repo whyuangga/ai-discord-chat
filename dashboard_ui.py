@@ -510,39 +510,68 @@ def render_kartu_block(guild_id: int, token: str) -> str:
 
 
 def render_uji_block(bot, guild_id: int, token: str) -> str:
-    """Panel tombol tes fitur (sambutan, perpisahan, boost) — kirim contoh nyata."""
+    """Panel tombol tes fitur — dikelompokkan per jenis fitur."""
     import dashboard_uji
 
     status = dashboard_uji.status_uji(guild_id)
-    baris = ""
+    kanal = getattr(bot, "guilds", None) or []
+    guild = bot.get_guild(int(guild_id or 0)) if callable(getattr(bot, "get_guild", None)) else None
+    channel_opsi = ""
+    for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
+        channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
+    if not channel_opsi:
+        channel_opsi = '<option value="0">(belum ada channel)</option>'
+    _ = kanal
+
+    grup_terlihat: list[str] = []
+    baris_per_grup: dict[str, str] = {}
     for item in dashboard_uji.UJI:
         keadaan = status.get(item["kunci"]) or {}
+        grup = keadaan.get("grup") or "Lainnya"
         aktif = bool(keadaan.get("aktif"))
         channel_id = int(keadaan.get("channel_id") or 0)
         if aktif and channel_id:
-            nama_channel = f"<code>#{channel_id}</code>"
             getter = getattr(bot, "get_channel", None)
             ch = getter(channel_id) if callable(getter) else None
-            if ch is not None and getattr(ch, "name", ""):
-                nama_channel = f"<code>#{_esc(ch.name)}</code>"
-            lencana = f'✅ aktif → {nama_channel}'
+            nama_channel = f"<code>#{_esc(getattr(ch, 'name', ''))}</code>" if ch else f"<code>#{channel_id}</code>"
+            lencana = f"✅ aktif → {nama_channel}"
         elif aktif:
-            lencana = "✅ aktif"
+            lencana = "✅ siap diuji"
         else:
             lencana = "⬜ belum aktif"
 
-        tombol = (
-            '<form method="post" action="/api/uji">'
-            f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
-            '<input type="text" name="member" inputmode="numeric" placeholder="ID member (opsional)">'
-            '<button type="submit">Kirim tes</button></form>'
-            if aktif
-            else (
+        kolom = keadaan.get("kolom") or ""
+        if aktif:
+            masukan = ""
+            if kolom == "member":
+                masukan = ('<input type="text" name="opsi" inputmode="numeric" '
+                           'placeholder="ID member (opsional)">')
+            elif kolom in ("id", "ref"):
+                pilihan = keadaan.get("pilihan") or []
+                if pilihan:
+                    masukan = '<select name="opsi">' + "".join(
+                        f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
+                    ) + "</select>"
+                else:
+                    masukan = ('<input type="text" name="opsi" inputmode="numeric" '
+                               'placeholder="Kosongkan = pilih otomatis">')
+            elif kolom == "channel":
+                masukan = f'<select name="opsi">{channel_opsi}</select>'
+            tombol = (
+                '<form method="post" action="/api/uji">'
+                f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
+                f'{masukan}<button type="submit">Kirim tes</button></form>'
+            )
+        else:
+            tombol = (
                 '<a class="tombol-unduh" href="/setelan?token='
                 f'{_esc(token)}&amp;guild={int(guild_id or 0)}#p-setelan">Atur di Setelan</a>'
             )
-        )
-        baris += (
+
+        if grup not in baris_per_grup:
+            baris_per_grup[grup] = ""
+            grup_terlihat.append(grup)
+        baris_per_grup[grup] += (
             '<div class="uji-baris">'
             '<div>'
             f'<b>{item["emoji"]} {_esc(item["label"])}</b> '
@@ -552,12 +581,18 @@ def render_uji_block(bot, guild_id: int, token: str) -> str:
             f"{tombol}"
             "</div>"
         )
-    catatan = (
-        '<p class="muted">Tes memakai <b>1 panggilan AI</b> dan mengirim pesan sungguhan ke '
-        "channel tujuan — member lain akan melihatnya. Isi <b>ID member</b> bila ingin contoh "
-        "atas nama member tertentu (kosongkan untuk memakai akun bot).</p>"
+
+    isi = "".join(
+        f'<div class="subpanel"><h3>{_esc(grup)}</h3>{baris_per_grup[grup]}</div>'
+        for grup in grup_terlihat
     )
-    return baris + catatan
+    catatan = (
+        '<p class="muted">Sambutan, perpisahan, boost, koran pagi, dan koneksi AI memakai '
+        "<b>1 panggilan AI</b> per tes. Tes sambutan/perpisahan/boost mengirim pesan "
+        "sungguhan ke channel tujuan — member lain akan melihatnya. Sisi kanan memilih "
+        "subjek: ID member, pengumuman/panel tersimpan, atau channel.</p>"
+    )
+    return isi + catatan
 
 
 def render_konten_block(guild_id: int, konten: dict, token: str) -> str:

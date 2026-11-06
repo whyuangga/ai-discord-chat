@@ -191,12 +191,21 @@ async def test_jalankan_uji_melaporkan_kegagalan_kirim(monkeypatch):
 def test_panel_uji_punya_tombol_dan_tautan_setelan():
     community_agent.set_welcome_config(GID, 505, enabled=True)
     html = dashboard_ui.render_uji_block(_Bot(), GID, TOKEN)
-    assert html.count('class="uji-baris"') == 3
+    # Semua fitur yang punya tes tampil, dikelompokkan per grup
+    assert html.count('class="uji-baris"') == len(dashboard_uji.UJI) == 9
+    assert html.count("<h3>") == len({item["grup"] for item in dashboard_uji.UJI})
     assert 'action="/api/uji"' in html and "uji.welcome" in html
     assert "ID member (opsional)" in html
     assert "#sambutan" in html                     # nama channel tampil
     assert "Atur di Setelan" in html               # fitur yang belum aktif
     assert "1 panggilan AI" in html
+    # Fitur tanpa config tetap bisa dites & punya pemilih subjek
+    for kunci in ("pengumuman", "panel", "tiket", "ai", "ekspor"):
+        assert f'name="action" value="uji.{kunci}"' in html, kunci
+    # Fitur ber-config yang belum aktif tetap tampil (dengan tautan Setelan)
+    for kunci in ("goodbye", "boost", "digest"):
+        assert dashboard_uji.UJI_MAP[kunci]["label"] in html, kunci
+    assert "Koran pagi (digest)" in html
 
 
 # ==============================================================================
@@ -336,3 +345,138 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
             assert resp.status == 401
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
+
+
+# ==============================================================================
+# SEMUA FITUR YANG PUNYA TES
+# ==============================================================================
+def test_registry_uji_lengkap_dan_berkelompok():
+    kunci = [item["kunci"] for item in dashboard_uji.UJI]
+    assert kunci == ["welcome", "goodbye", "boost", "pengumuman", "panel",
+                     "digest", "tiket", "ai", "ekspor"]
+    for item in dashboard_uji.UJI:
+        for wajib in ("kunci", "label", "emoji", "grup", "contoh"):
+            assert item.get(wajib), (item["kunci"], wajib)
+        assert item["kunci"] in dashboard_uji.UJI_MAP
+
+
+async def test_uji_pengumuman_memakai_yang_tersimpan(monkeypatch):
+    import engagement
+
+    dikirim = {}
+
+    async def kirim(bot, aid, guild_id=None):
+        dikirim["id"] = aid
+        return "ok", {"channel_id": 909}
+
+    monkeypatch.setattr(engagement, "send_announcement_now", kirim)
+    engagement.announcements.clear()
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "pengumuman")
+    assert ok is False and "Belum ada pengumuman" in pesan
+
+    engagement.announcements[31] = {"guild_id": GID, "title": "Kopi darat"}
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "pengumuman")
+    assert ok and dikirim["id"] == 31 and "<#909>" in pesan
+
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "uji.pengumuman", opsi="31")
+    assert ok
+
+
+async def test_uji_panel_menyegarkan_panel_terpasang(monkeypatch):
+    import menu_builder
+
+    disegarkan = []
+
+    async def refresh(bot, menu):
+        disegarkan.append(menu["id"])
+        return True
+
+    monkeypatch.setattr(menu_builder, "refresh_panel", refresh)
+    monkeypatch.setattr(menu_builder, "list_menus", lambda gid: [])
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "panel")
+    assert ok is False and "Belum ada panel" in pesan
+
+    monkeypatch.setattr(
+        menu_builder, "list_menus",
+        lambda gid: [{"id": "m1", "title": "Panel utama", "message_id": None}],
+    )
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "panel")
+    assert ok is False and "belum terpasang" in pesan
+
+    monkeypatch.setattr(
+        menu_builder, "list_menus",
+        lambda gid: [{"id": "m1", "title": "Panel utama", "message_id": 55}],
+    )
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "panel", opsi="m1")
+    assert ok and disegarkan == ["m1"] and "disegarkan" in pesan
+
+
+async def test_uji_digest_ai_dan_ekspor(monkeypatch):
+    import analytics_export
+    import community_agent as ca
+
+    async def digest(gid, nama, **kwargs):
+        return "☀️ Selamat pagi! 📰 Sorotan hari ini…", None
+
+    monkeypatch.setattr(ca, "generate_morning_digest", digest)
+    ca.digest_agent_guilds[GID] = {"enabled": True, "channel_id": 606}
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "digest")
+    assert ok and "Contoh koran pagi" in pesan and "tidak dikirim" in pesan
+
+    async def jawab(system, contents, **kwargs):
+        return "siap"
+
+    monkeypatch.setattr(ca, "_call_gemini_agent", jawab)
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ai")
+    assert ok and "koneksi sehat" in pesan
+
+    monkeypatch.setattr(
+        ca, "_call_gemini_agent", lambda *a, **k: _kosong()
+    )
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ai")
+    assert ok is False and "GEMINI_API_KEY" in pesan
+
+    monkeypatch.setattr(
+        analytics_export, "build_csv",
+        lambda kind, gid: ("a,b\n1,2\n3,4\n", "level.csv", ""),
+    )
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ekspor")
+    assert ok and "2 baris" in pesan
+
+    monkeypatch.setattr(analytics_export, "build_csv", lambda kind, gid: (None, "", "gagal"))
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "ekspor")
+    assert ok is False and pesan == "gagal"
+
+
+async def _kosong():
+    return None
+
+
+async def test_uji_tiket_memilih_channel(monkeypatch):
+    import dashboard_tiket
+
+    dipanggil = {}
+
+    async def pasang(bot, gid, data):
+        dipanggil.update(data)
+        return True, "Panel tiket terpasang."
+
+    monkeypatch.setattr(dashboard_tiket, "pasang_panel", pasang)
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "tiket")
+    assert ok is False and "Pilih channel" in pesan
+    ok, pesan = await dashboard_uji.jalankan_uji(_Bot(), GID, "tiket", opsi="101")
+    assert ok and dipanggil == {"channel": 101}
+
+
+def test_status_uji_memberi_pilihan_pengumuman_dan_panel(monkeypatch):
+    import engagement
+    import menu_builder
+
+    engagement.announcements.clear()
+    engagement.announcements[7] = {"guild_id": GID, "title": "Event"}
+    monkeypatch.setattr(menu_builder, "list_menus", lambda gid: [{"id": "m1", "title": "Panel"}])
+
+    status = dashboard_uji.status_uji(GID)
+    assert status["pengumuman"]["pilihan"] == [("7", "#7 · Event")]
+    assert status["panel"]["pilihan"] == [("m1", "Panel")]
+    assert status["ai"]["aktif"] is True and status["ai"]["kolom"] == ""

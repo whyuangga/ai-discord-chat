@@ -1571,11 +1571,11 @@ async def start_dashboard(bot) -> bool:
         kunci = aksi.split(":", 1)[1].strip() if ":" in aksi else aksi.removeprefix("uji.").strip()
         getter = getattr(bot, "get_guild", None)
         guild = getter(gid) if callable(getter) else None
-        member = dashboard_uji.cari_member(guild, payload.get("member"))
-        if member is None and str(payload.get("member") or "").strip().isdigit():
-            logger.info("Uji %s: member %s tidak ditemukan, memakai akun bot.", kunci,
-                        payload.get("member"))
-        ok, message = await dashboard_uji.jalankan_uji(bot, gid, kunci, member)
+        opsi = str(payload.get("opsi") or payload.get("member") or "").strip()
+        member = dashboard_uji.cari_member(guild, opsi) if opsi.isdigit() else None
+        if member is None and opsi.isdigit() and kunci in ("welcome", "goodbye", "boost"):
+            logger.info("Uji %s: member %s tidak ditemukan, memakai akun bot.", kunci, opsi)
+        ok, message = await dashboard_uji.jalankan_uji(bot, gid, kunci, member, opsi)
         logger.info("Dashboard uji %s (server %s): %s", kunci, gid, message)
         return _jawab(gid, ok, message, "p-uji", request)
 
