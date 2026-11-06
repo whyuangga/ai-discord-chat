@@ -12,7 +12,9 @@
 
 Dari pertanyaan ini muncul dua hal berbeda yang sering tercampur:
 
-1. **Mengatur fitur bot dari browser** → ini sudah ada (`web_dashboard.py`).
+1. **Mengatur fitur bot dari browser** → ini sudah ada (`web_dashboard.py` +
+   `dashboard_admin.py`): 39 setelan, kirim embed/webhook, serta pengelolaan pengumuman,
+   tautan, dan panel.
 2. **Pengguna lain memasukkan rahasia sendiri** (token bot, API key) → ini fitur baru, dan
    sebagian **tidak mungkin** dilakukan.
 
@@ -25,7 +27,7 @@ Dari pertanyaan ini muncul dua hal berbeda yang sering tercampur:
 | **Gemini API key** | ✅ Bisa (BYOK) | Panggilan AI per guild bisa memakai key guild tersebut, fallback ke key operator. |
 | **Lavalink host/password** | ⚠️ Praktisnya per proses | Bot ini memakai node global; per-guild hanya menambah kebingungan. |
 | Channel/role/prefix/bahasa/toggle fitur | ✅ Sudah per guild | Sudah berjalan di versi sekarang. |
-| **`DASHBOARD_TOKEN`** | ⚠️ Sekarang satu password global | Kalau dashboard dibuka untuk publik, harus naik ke **OAuth2 Discord** + cek *Manage Server*. |
+| **`DASHBOARD_TOKEN`** | ⚠️ Sekarang satu password global | Kalau dashboard dibuka untuk publik (banyak admin berbeda), harus naik ke **OAuth2 Discord** + cek *Manage Server*. |
 
 ## 3. Cara kerja bot besar yang punya dashboard (pola industri)
 

@@ -221,6 +221,7 @@ async def kirim_sebagai(
     avatar: str | None = None,
     warna: discord.Colour | None = None,
     footer: str | None = None,
+    berkas=None,
 ) -> tuple[bool, str]:
     """Kirim pesan dengan identitas kustom. `(berhasil, keterangan)`."""
     ok, alasan = valid_name(nama)
@@ -242,6 +243,9 @@ async def kirim_sebagai(
         warna=warna,
         footer=footer,
     )
+    if berkas is not None:
+        # Lampiran (mis. banner) — embed memakai `attachment://<nama berkas>`.
+        kwargs["file"] = berkas
     try:
         await webhook.send(**kwargs)
     except (discord.Forbidden, discord.HTTPException) as exc:

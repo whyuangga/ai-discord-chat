@@ -272,7 +272,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="✅ Verifikasi & Sticky (`/verifikasi`, `/sticky`)",
             value=(
-                "• `/verifikasi pasang channel:#verifikasi role:@Member` — member baru klik **✅ Verifikasi Saya** untuk membuka akses.\n"
+                "• `/verifikasi pasang channel:#verifikasi role:@Member` — member baru klik **✅ Verifikasi Saya** untuk membuka akses "
+                "(atau pasang panelnya dari **dashboard web** → Editor panel).\n"
                 "• `/sticky pasang isi:... channel:#umum` — pesan petunjuk yang otomatis tetap di bawah channel."
             ),
             inline=False,
@@ -338,7 +339,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="🎟️ Tiket Dukungan (`/tiket`)",
             value=(
-                "• `/tiket panel channel:#bantuan staff_role:@Staf log_channel:#log-tiket` *(Admin)*.\n"
+                "• `/tiket panel channel:#bantuan staff_role:@Staf log_channel:#log-tiket` *(Admin)* — "
+                "bisa juga dipasang dari **dashboard web** → Kotak masuk tiket.\n"
                 "• Member klik **🎟️ Buat Tiket** → bot membuat **private thread** "
                 "(tidak memakai slot channel server).\n"
                 "• Staf memakai tombol **🙋 Klaim** & **🔒 Tutup Tiket** di dalam thread.\n"
