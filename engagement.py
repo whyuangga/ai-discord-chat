@@ -23,6 +23,8 @@ from pathlib import Path
 
 import discord
 
+import message_template
+
 try:  # Python 3.9+
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 except ImportError:  # pragma: no cover - Python lama
@@ -44,6 +46,10 @@ birthday_guilds: dict[int, dict] = {}    # guild_id -> {channel_id, hour, minute
 birthdays: dict[str, dict] = {}          # "guild_id:user_id" -> {day, month, year, user_id, guild_id}
 auto_reply_channels: dict[int, dict] = {}  # channel_id -> {guild_id, enabled, cooldown, rules, last_fired}
 announcements: dict[int, dict] = {}      # announcement_id -> data pengumuman terjadwal
+
+# Jadwal berulang berbasis interval: minimal 2 jam (batas Discohook), maksimal seminggu.
+MIN_INTERVAL_MINUTES = 120
+MAX_INTERVAL_MINUTES = 7 * 24 * 60
 
 _giveaway_seq: int = 0
 _announcement_seq: int = 0
@@ -212,16 +218,26 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
             content = str(data.get("content") or "").strip()
             if not content:
                 continue
+            kind = str(data.get("kind") or "harian")
+            if kind == "interval":
+                # Data lama/rusak: interval di luar batas dirapikan, 0 dianggap harian.
+                menit = _to_int(data.get("interval_minutes"))
+                if menit <= 0:
+                    kind = "harian"
+                menit = min(MAX_INTERVAL_MINUTES, max(MIN_INTERVAL_MINUTES, menit))
+            else:
+                menit = _to_int(data.get("interval_minutes"))
             announcements[aid] = {
                 "id": aid,
                 "guild_id": _to_int(data.get("guild_id")),
                 "channel_id": _to_int(data.get("channel_id")),
                 "title": str(data.get("title") or "")[:200],
                 "content": content[:1900],
-                "kind": str(data.get("kind") or "harian"),
+                "kind": kind,
                 "hour": min(23, max(0, _to_int(data.get("hour"), 8))),
                 "minute": min(59, max(0, _to_int(data.get("minute"), 0))),
                 "weekday": _to_int(data.get("weekday"), 0) % 7,
+                "interval_minutes": menit,
                 "next_run_at": float(data.get("next_run_at") or 0),
                 "last_sent_at": float(data.get("last_sent_at") or 0),
                 "enabled": bool(data.get("enabled", True)),
@@ -620,10 +636,7 @@ async def run_birthday_check(bot: discord.Client) -> int:
     """Mengirim ucapan ulang tahun sekali sehari pada jam yang diatur Admin."""
     sent = 0
     for guild_id, cfg in list(birthday_guilds.items()):
-        channel = None
-        get_channel = getattr(bot, "get_channel", None)
-        if callable(get_channel):
-            channel = get_channel(_to_int(cfg.get("channel_id")))
+        channel = await resolve_channel(bot, cfg.get("channel_id"))
         if channel is None:
             continue
 
@@ -795,8 +808,9 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     - `08:00` atau `harian 08:00`      ➔ setiap hari
     - `senin 19:00` / `mingguan sabtu 20:30` ➔ setiap minggu
     - `sekali 31-12-2026 23:59`        ➔ satu kali
+    - `setiap 3 jam` / `tiap 90 menit` ➔ berulang tiap interval (min. 2 jam)
 
-    Mengembalikan `{kind, hour, minute, weekday, once_at}` atau `None`.
+    Mengembalikan `{kind, hour, minute, weekday, once_at, interval_minutes}` atau `None`.
     """
     text = str(raw or "").strip().lower()
     if not text:
@@ -804,6 +818,24 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     text = re.sub(r"\s+", " ", text)
 
     kind = "harian"
+    if text.startswith(("setiap", "tiap", "interval")):
+        kind = "interval"
+        text = re.sub(r"^(setiap|tiap|interval)\s*", "", text).strip()
+        cocok = re.search(r"(\d{1,4})\s*(menit|mnt|min|jam|j|hr|hours?)", text)
+        if not cocok:
+            return None
+        jumlah = int(cocok.group(1))
+        satuan = cocok.group(2)
+        menit = jumlah if satuan in ("menit", "mnt", "min") else jumlah * 60
+        if not (MIN_INTERVAL_MINUTES <= menit <= MAX_INTERVAL_MINUTES):
+            return None
+        return {
+            "kind": "interval",
+            "interval_minutes": menit,
+            "hour": 0,
+            "minute": 0,
+            "weekday": 0,
+        }
     if text.startswith("sekali"):
         kind = "sekali"
         text = text[len("sekali"):].strip()
@@ -843,14 +875,20 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     if hour is None:
         return None
 
+    # "senin 19:00" tanpa kata "mingguan" tetap dianggap mingguan — dulu nama hari
+    # diabaikan sehingga jadwalnya berjalan SETIAP HARI.
     weekday = 0
-    if kind == "mingguan":
-        for idx, name in enumerate(_WEEKDAYS):
-            if name in text:
-                weekday = idx
-                break
-        else:
-            return None
+    ada_hari = False
+    for idx, name in enumerate(_WEEKDAYS):
+        if re.search(rf"\b{name}\b", text):
+            weekday = idx
+            ada_hari = True
+            break
+
+    if kind == "harian" and ada_hari:
+        kind = "mingguan"
+    if kind == "mingguan" and not ada_hari:
+        return None
 
     return {
         "kind": kind,
@@ -863,6 +901,12 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
 def compute_next_run(spec: dict, *, tz_name: str | None = None, reference: datetime | None = None) -> float:
     """Menghitung epoch kapan pengumuman berikutnya harus dikirim."""
     now = reference or now_in(tz_name)
+    if spec.get("kind") == "interval":
+        menit = min(
+            MAX_INTERVAL_MINUTES,
+            max(MIN_INTERVAL_MINUTES, _to_int(spec.get("interval_minutes"), MIN_INTERVAL_MINUTES)),
+        )
+        return (now + timedelta(minutes=menit)).timestamp()
     if spec.get("kind") == "sekali":
         once_at: datetime = spec["once_at"]
         localized = once_at.replace(tzinfo=get_timezone(tz_name))
@@ -879,6 +923,32 @@ def compute_next_run(spec: dict, *, tz_name: str | None = None, reference: datet
     elif candidate <= now:
         candidate += timedelta(days=1)
     return candidate.timestamp()
+
+
+def advance_interval_next_run(
+    interval_minutes: int,
+    last_ts: float,
+    *,
+    now: float | None = None,
+) -> float:
+    """Jadwal interval berikutnya setelah `last_ts` — tanpa menumpuk kiriman yang terlewat.
+
+    Bot yang sempat mati lama tidak akan mengirim puluhan pengumuman sekaligus: semua
+    jadwal yang sudah lewat dilewati, lalu diambil satu titik berikutnya.
+    """
+    menit = min(
+        MAX_INTERVAL_MINUTES,
+        max(MIN_INTERVAL_MINUTES, _to_int(interval_minutes, MIN_INTERVAL_MINUTES)),
+    )
+    langkah = menit * 60
+    sekarang = time.time() if now is None else float(now)
+    nxt = float(last_ts or 0)
+    if not nxt:
+        return sekarang + langkah
+    if nxt > sekarang:
+        return nxt
+    lewat = int((sekarang - nxt) // langkah) + 1
+    return nxt + lewat * langkah
 
 
 def add_announcement(
@@ -912,12 +982,87 @@ def add_announcement(
         "hour": int(spec.get("hour") or 0),
         "minute": int(spec.get("minute") or 0),
         "weekday": int(spec.get("weekday") or 0),
+        "interval_minutes": _to_int(spec.get("interval_minutes")),
         "next_run_at": compute_next_run(spec, tz_name=tz_name),
         "last_sent_at": 0.0,
         "enabled": True,
         "created_by": int(created_by),
     }
     announcements[_announcement_seq] = cfg
+    return "ok", cfg
+
+
+def update_announcement(
+    announcement_id: int,
+    guild_id: int | None = None,
+    *,
+    content: str | None = None,
+    title: str | None = None,
+    spec: dict | None = None,
+    tz_name: str | None = None,
+) -> tuple[str, dict | None]:
+    """Ubah isi/judul/jadwal pengumuman tanpa menghapusnya.
+
+    Status: `ok`, `tidak_ada` (ID bukan milik server ini), `kosong` (isi jadi kosong).
+    """
+    cfg = announcements.get(int(announcement_id))
+    if cfg is None or (guild_id is not None and cfg.get("guild_id") != int(guild_id)):
+        return "tidak_ada", None
+
+    if content is not None:
+        body = str(content).strip()
+        if not body:
+            return "kosong", None
+        cfg["content"] = body[:1900]
+    if title is not None:
+        cfg["title"] = str(title)[:200]
+    if spec is not None:
+        cfg["kind"] = spec.get("kind") or cfg.get("kind") or "harian"
+        cfg["hour"] = int(spec.get("hour") or 0)
+        cfg["minute"] = int(spec.get("minute") or 0)
+        cfg["weekday"] = int(spec.get("weekday") or 0)
+        cfg["interval_minutes"] = _to_int(spec.get("interval_minutes"))
+        cfg["next_run_at"] = compute_next_run(spec, tz_name=tz_name)
+        cfg["enabled"] = True
+    return "ok", cfg
+
+
+async def send_announcement_now(
+    bot: discord.Client,
+    announcement_id: int,
+    guild_id: int | None = None,
+) -> tuple[str, dict | None]:
+    """Kirim pengumuman saat ini juga, tanpa menunggu jadwal.
+
+    Status: `ok`, `tidak_ada`, `channel` (channel hilang/tanpa izin).
+    Jadwal pengumuman **tidak** digeser — `next_run_at` tetap seperti semula.
+    """
+    cfg = announcements.get(int(announcement_id))
+    if cfg is None or (guild_id is not None and cfg.get("guild_id") != int(guild_id)):
+        return "tidak_ada", None
+
+    channel = await resolve_channel(bot, cfg.get("channel_id"))
+    if channel is None:
+        return "channel", cfg
+
+    try:
+        await channel.send(
+            embed=build_announcement_embed(
+                cfg,
+                guild=getattr(channel, "guild", None),
+                channel=channel,
+            ),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning("Gagal kirim pengumuman %s sekarang: %s", announcement_id, sanitize_error_message(exc))
+        return "channel", cfg
+
+    cfg["last_sent_at"] = time.time()
+    if cfg.get("kind") == "sekali":
+        cfg["enabled"] = False
+        cfg["next_run_at"] = 0.0
+    await save_engagement_to_disk()
     return "ok", cfg
 
 
@@ -954,18 +1099,54 @@ def describe_announcement(cfg: dict) -> str:
         return f"setiap {_WEEKDAYS[int(cfg.get('weekday') or 0) % 7].capitalize()} {clock}"
     if kind == "sekali":
         return f"sekali pada {clock}"
+    if kind == "interval":
+        menit = min(
+            MAX_INTERVAL_MINUTES,
+            max(MIN_INTERVAL_MINUTES, _to_int(cfg.get("interval_minutes"), MIN_INTERVAL_MINUTES)),
+        )
+        if menit % 60 == 0:
+            return f"setiap {menit // 60} jam"
+        if menit > 60:
+            return f"setiap {menit // 60} jam {menit % 60} menit"
+        return f"setiap {menit} menit"
     return f"setiap hari {clock}"
 
 
-def build_announcement_embed(cfg: dict, *, tz_label: str = "WIB") -> discord.Embed:
+def build_announcement_embed(
+    cfg: dict,
+    *,
+    tz_label: str = "WIB",
+    guild: discord.Guild | None = None,
+    channel: discord.abc.GuildChannel | None = None,
+) -> discord.Embed:
+    """Embed pengumuman; variabel `{server.*}`/`{now}` dirender saat dikirim."""
+    judul = message_template.render(cfg.get("title") or "", guild=guild, channel=channel)
+    isi = message_template.render(str(cfg.get("content") or ""), guild=guild, channel=channel)
     embed = discord.Embed(
-        title=cfg.get("title") or "📢 Pengumuman",
-        description=str(cfg.get("content") or "")[:4000],
+        title=(judul[:256] or "📢 Pengumuman"),
+        description=isi[:4000],
         color=discord.Color.blurple(),
         timestamp=datetime.now(timezone.utc),
     )
     embed.set_footer(text=f"Pengumuman terjadwal • {describe_announcement(cfg)} ({tz_label})")
     return embed
+
+
+async def resolve_channel(bot: discord.Client, channel_id: int):
+    """Cari channel dari cache; kalau tidak ada (mis. thread), ambil lewat API."""
+    getter = getattr(bot, "get_channel", None)
+    channel = getter(_to_int(channel_id)) if callable(getter) else None
+    if channel is not None:
+        return channel
+    fetcher = getattr(bot, "fetch_channel", None)
+    if callable(fetcher):
+        try:
+            return await fetcher(_to_int(channel_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+        except Exception:  # pragma: no cover - jaring aman
+            return None
+    return None
 
 
 async def run_announcement_check(bot: discord.Client) -> int:
@@ -979,16 +1160,17 @@ async def run_announcement_check(bot: discord.Client) -> int:
         if not next_run or next_run > now:
             continue
 
-        channel = None
-        get_channel = getattr(bot, "get_channel", None)
-        if callable(get_channel):
-            channel = get_channel(_to_int(cfg.get("channel_id")))
+        channel = await resolve_channel(bot, cfg.get("channel_id"))
 
         delivered = False
         if channel is not None:
             try:
                 await channel.send(
-                    embed=build_announcement_embed(cfg),
+                    embed=build_announcement_embed(
+                        cfg,
+                        guild=getattr(channel, "guild", None),
+                        channel=channel,
+                    ),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
                 delivered = True
@@ -1000,6 +1182,10 @@ async def run_announcement_check(bot: discord.Client) -> int:
         if cfg.get("kind") == "sekali":
             cfg["enabled"] = False
             cfg["next_run_at"] = 0.0
+        elif cfg.get("kind") == "interval":
+            cfg["next_run_at"] = advance_interval_next_run(
+                cfg.get("interval_minutes"), next_run, now=now
+            )
         else:
             cfg["next_run_at"] = compute_next_run(cfg)
 

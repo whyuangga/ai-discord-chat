@@ -1,6 +1,6 @@
 # 📋 Daftar Lengkap Command & Tombol
 
-Referensi lengkap **52 command utama** beserta subcommand dan tombol panel, disusun per area
+Referensi lengkap **53 command utama** beserta subcommand dan tombol panel, disusun per area
 fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom yang tertera).
 
 - Kembali ke [README](../README.md) · penjelasan tiap fitur ada di [dokumentasi fitur](fitur.md).
@@ -66,6 +66,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/saran hapus` | `id` | *(Admin)* Hapus saran beserta pesannya. |
 | `/embed buat` | `channel`, `warna` | *(Staff)* Buat pengumuman embed lewat formulir. |
 | `/embed cepat` | `channel`, `judul`, `isi`, `warna`, `gambar` | *(Staff)* Kirim embed tanpa formulir. |
+| `/embed variabel` | — | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … yang bisa dipakai di judul/isi. |
+| `/embed sebagai` | `nama`, `isi`, `channel`, `judul`, `avatar`, `warna` | *(Staff)* Kirim pesan dengan nama & avatar sendiri lewat webhook (butuh *Manage Webhooks*). |
+| `/embed webhook` | `channel`, `hapus` | *(Staff)* Cek atau hapus webhook identitas yang dipakai bot di channel itu. |
+| `/embed tautan buat` | `url`, `judul`, `isi`, `gambar`, `sampul`, `warna`, `provider`, `situs` | *(Staff)* Buat tautan yang tampil sebagai embed (`/l/<kode>` di situs) dan mengarah ke `url`. |
+| `/embed tautan daftar` | — | Lihat tautan embed yang pernah dibuat di server ini. |
+| `/embed tautan hapus` | `tautan` | *(Staff)* Hapus tautan dari daftar server (halaman tetap hidup). |
 | `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
 | `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
 | `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |
@@ -157,10 +163,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/jawab-otomatis hapus` | `pemicu`, `channel` | *(Admin)* Hapus satu aturan. |
 | `/jawab-otomatis daftar` | `channel` | Lihat aturan yang aktif + jeda aman. |
 | `/jawab-otomatis atur` | `channel`, `aktif`, `jeda` | *(Admin)* Aktifkan/nonaktifkan & atur jeda (0–300 detik). |
-| `/pengumuman tambah` | `isi`, `jadwal`, `judul`, `channel` | *(Admin)* Jadwalkan pengumuman (harian / mingguan / sekali). |
+| `/pengumuman tambah` | `isi`, `jadwal`, `judul`, `channel` | *(Admin)* Jadwalkan pengumuman (harian / mingguan / sekali) ke channel atau thread. |
 | `/pengumuman daftar` | — | Lihat seluruh jadwal & kiriman berikutnya. |
 | `/pengumuman hapus` | `id` | *(Admin)* Hapus pengumuman terjadwal. |
 | `/pengumuman atur` | `id`, `aktif` | *(Admin)* Jeda atau aktifkan lagi tanpa menghapus. |
+| `/pengumuman kirim` | `id` | *(Admin)* Kirim sekarang juga; jadwal berikutnya tidak berubah. |
+| `/pengumuman ubah` | `id`, `isi`, `judul`, `jadwal` | *(Admin)* Ubah isi/judul/jadwal tanpa menghapus. |
 
 ## 8. Slash Commands Level & Tiket (`/level`, `/tiket`)
 
@@ -236,17 +244,38 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 
 ---
 
+> **Command pengelola disembunyikan otomatis.** Command yang jelas khusus Admin/Manage Server
+> (`/menu`, `/antinuke`, `/backup`, `/raid`, `/log`, `/autorole`, …) diberi izin minimum sehingga
+> **member biasa tidak melihatnya sama sekali** di daftar slash. Dari 288 entri, ±139 entri
+> hanya muncul untuk pengelola — sisanya (±149) terlihat semua orang. Jalankan
+> `python tools/command_audit.py` untuk melihat pembagiannya.
+
 ## 12. Slash Commands Menu Builder (`/menu`)
 
 | Command | Parameter | Fungsi |
 | :--- | :--- | :--- |
-| `/menu buat` | `judul`, `deskripsi`, `channel`, `banner`, `banner_url` | *(Admin)* Buat panel + kirim ke channel. |
+| `/menu buat` | `judul`, `deskripsi`, `channel`, `banner`, `banner_url` | *(Admin)* Buat panel + kirim ke channel/thread/forum. |
 | `/menu tombol-role` | `role`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Tombol role (toggle). |
 | `/menu tombol-link` | `label`, `url`, `menu`, `emoji` | *(Admin)* Tombol tautan. |
 | `/menu tombol-command` | `aksi`, `menu`, `label`, `emoji`, `visibilitas`, `gaya` | *(Admin)* Tombol yang menjalankan command info. |
 | `/menu dropdown-role` | `role1`…`role5`, `menu`, `placeholder`, `eksklusif`, `emoji1`…`emoji5` | *(Admin)* Dropdown role. |
+| `/menu alur` | `aksi`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Tombol yang menjalankan **alur aksi**: `+role:123 > pesan:Halo {member.mention} > thread:tiket`. |
+| `/menu alur-bantuan` | — | Panduan menulis alur (`role`, `pesan`, `umum`, `thread`, `tunggu`, `stop`, `syarat`, `webhook`, `hapus`). |
+| `/menu form buat` | `nama`, `kolom`, `tujuan`, `judul`, `penjelasan`, `hasil`, `warna` | *(Admin)* Buat **formulir (modal)** dengan kolom sendiri, mis. `kolom:"Nama \| Umur \| Alasan:panjang?"`. |
+| `/menu form ubah` | `form`, `nama`, `judul`, `penjelasan`, `hasil`, `tujuan`, `kolom`, `warna` | *(Admin)* Ubah formulir (kirim `-` untuk mengosongkan penjelasan/hasil). |
+| `/menu form tombol` | `form`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Pasang formulir sebagai tombol di panel. |
+| `/menu form daftar` | — | Lihat semua formulir, kolom, tujuan, dan jumlah jawaban. |
+| `/menu form uji` | `form` | *(Admin)* Coba isi formulir; hasilnya hanya pratinjau untukmu. |
+| `/menu form hapus` | `form` | *(Admin)* Hapus formulir beserta tombolnya di panel. |
+| `/menu pemicu tambah` | `aksi`, `channel`, `umur_akun` | *(Admin)* Alur yang jalan otomatis saat member baru bergabung. |
+| `/menu pemicu daftar` | — | Lihat alur gabung yang aktif. |
+| `/menu pemicu hapus` | — | *(Admin)* Matikan alur gabung. |
 | `/menu hapus-item` | `item`, `menu` | *(Admin)* Hapus tombol/opsi. |
-| `/menu kirim` | `menu`, `channel` | *(Admin)* Kirim ulang panel. |
+| `/menu ubah` | `menu`, `judul`, `deskripsi` | *(Admin)* Ubah teks panel yang sudah terkirim (pesan ikut berubah, tanpa kirim ulang). |
+| `/menu ekspor` | `menu` | *(Admin)* Unduh panel sebagai berkas JSON (backup / pindah server). |
+| `/menu bagikan` | `menu` | *(Admin)* Buat tautan bagikan panel: URL pratinjau `/​p/<kode>` di situs + kode impor. |
+| `/menu impor` | `berkas`, `judul`, `kode` | *(Admin)* Buat panel baru dari berkas JSON `/menu ekspor` **atau** tautan/kode `/menu bagikan`. |
+| `/menu kirim` | `menu`, `channel` | *(Admin)* Kirim ulang panel ke channel, thread, atau forum. |
 | `/menu daftar` | — | Daftar panel & isinya. |
 | `/menu hapus` | `menu` | *(Admin)* Hapus panel dari daftar bot. |
 

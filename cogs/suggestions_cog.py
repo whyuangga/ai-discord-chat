@@ -7,7 +7,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import link_embed
+import message_template
 import suggestions as sg
+import webhook_identity
 import ui_kit
 import ui_theme
 from views import SuggestionVoteView
@@ -321,15 +324,21 @@ class EmbedBuilderModal(discord.ui.Modal, title="Buat Pesan Embed"):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
+        ctx = {
+            "member": getattr(interaction, "user", None),
+            "guild": getattr(interaction, "guild", None),
+            "channel": self.channel,
+        }
+        judul = message_template.render(str(self.judul or ""), **ctx)
         embed = discord.Embed(
-            title=str(self.judul) or None,
-            description=str(self.deskripsi)[:4000],
+            title=judul[:256] or None,
+            description=message_template.render(str(self.deskripsi), **ctx)[:4000],
             colour=self.color,
         )
         image = str(self.gambar or "").strip()
         if image.startswith(("http://", "https://")):
             embed.set_image(url=image)
-        footer = str(self.footer or "").strip()
+        footer = message_template.render(str(self.footer or ""), **ctx).strip()
         if footer:
             embed.set_footer(text=footer[:200])
         await self.channel.send(embed=embed)
@@ -386,8 +395,11 @@ async def embed_cepat_cmd(
         )
         return
 
+    ctx = {"member": interaction.user, "guild": interaction.guild, "channel": channel}
+    judul_teks = message_template.render(judul, **ctx)
+    isi_teks = message_template.render(isi, **ctx)
     embed = discord.Embed(
-        title=judul[:256], description=isi[:4000], colour=parse_color(warna)
+        title=judul_teks[:256] or None, description=isi_teks[:4000], colour=parse_color(warna)
     )
     if gambar and gambar.startswith(("http://", "https://")):
         embed.set_image(url=gambar)
@@ -398,15 +410,340 @@ async def embed_cepat_cmd(
     except (discord.Forbidden, discord.HTTPException) as exc:
         await interaction.response.send_message(f"⚠️ Gagal mengirim embed: {exc}", ephemeral=True)
         return
+    peringatan = message_template.check(f"{judul}\n{isi}", member=interaction.user)
+    catatan = ("\n" + "\n".join(f"-# ⚠️ {p}" for p in peringatan)) if peringatan else ""
     await interaction.response.send_message(
-        f"✅ Embed terkirim ke {channel.mention}.", ephemeral=True
+        f"✅ Embed terkirim ke {channel.mention}.{catatan}", ephemeral=True
+    )
+
+
+@embed_group.command(
+    name="sebagai",
+    description="Kirim pesan dengan nama & avatar sendiri lewat webhook (butuh Manage Webhooks)",
+)
+@app_commands.describe(
+    nama="Nama yang tampil di pesan, mis. `📢 Pengumuman Server`",
+    isi="Isi pesan",
+    channel="Channel tujuan (bawaan: channel ini)",
+    judul="Judul bila ingin tampil sebagai embed (opsional)",
+    avatar="URL avatar khusus untuk pesan ini (opsional)",
+    warna="Warna embed: #9B59B6 / ungu / biru / merah / hijau (opsional)",
+)
+async def embed_sebagai_cmd(
+    interaction: discord.Interaction,
+    nama: str,
+    isi: str,
+    channel: discord.TextChannel | discord.Thread | None = None,
+    judul: str | None = None,
+    avatar: str | None = None,
+    warna: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **staff** (Manage Messages / Manage Server).", ephemeral=True
+        )
+        return
+
+    target = channel or interaction.channel
+    if target is None or not hasattr(target, "webhooks"):
+        await interaction.response.send_message(
+            "⚠️ Pilih channel teks atau thread sebagai tujuan.", ephemeral=True
+        )
+        return
+
+    ctx = {"member": interaction.user, "guild": interaction.guild, "channel": target}
+    ok_nama, nama_bersih = webhook_identity.valid_name(
+        message_template.render(nama, **ctx)
+    )
+    if not ok_nama:
+        await interaction.response.send_message(f"⚠️ {nama_bersih}", ephemeral=True)
+        return
+    ok_avatar, avatar_bersih = webhook_identity.valid_avatar(avatar)
+    if not ok_avatar:
+        await interaction.response.send_message(
+            "⚠️ `avatar` harus URL `http://` atau `https://`.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    berhasil, keterangan = await webhook_identity.kirim_sebagai(
+        target,
+        nama=nama_bersih,
+        isi=message_template.render(isi, **ctx),
+        judul=message_template.render(judul, **ctx) if judul else None,
+        avatar=avatar_bersih,
+        warna=parse_color(warna) if warna else None,
+    )
+    if not berhasil:
+        await interaction.followup.send(f"⚠️ {keterangan}", ephemeral=True)
+        return
+
+    await webhook_identity.save_to_disk()
+    await interaction.followup.send(
+        f"✅ Pesan terkirim ke {getattr(target, 'mention', 'channel')} dengan nama **{nama_bersih}**.\n"
+        "-# Pesan dikirim lewat webhook, bukan sebagai bot — mention massal dinonaktifkan.",
+        ephemeral=True,
+    )
+
+
+@embed_group.command(
+    name="webhook",
+    description="Cek / hapus webhook identitas kustom yang dipakai bot di sebuah channel",
+)
+@app_commands.describe(channel="Channel yang diperiksa", hapus="True untuk menghapus webhook-nya")
+async def embed_webhook_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel | discord.Thread | None = None,
+    hapus: bool = False,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **staff** (Manage Messages / Manage Server).", ephemeral=True
+        )
+        return
+
+    target = channel or interaction.channel
+    if target is None or not hasattr(target, "webhooks"):
+        await interaction.response.send_message("⚠️ Pilih channel teks atau thread.", ephemeral=True)
+        return
+
+    if hapus:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        berhasil, keterangan = await webhook_identity.hapus_webhook(target)
+        if berhasil:
+            await webhook_identity.save_to_disk()
+            await interaction.followup.send(
+                f"🧹 Webhook identitas di {getattr(target, 'mention', 'channel')} sudah dihapus. "
+                "Bot akan membuat ulang saat `/embed sebagai` dipakai lagi.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(f"⚠️ {keterangan}", ephemeral=True)
+        return
+
+    webhook_id = webhook_identity.cached_webhook_id(target)
+    await interaction.response.send_message(
+        (
+            f"🔗 Webhook identitas **aktif** di {getattr(target, 'mention', 'channel')} "
+            f"(ID `{webhook_id}`).\n"
+            "-# Hapus dengan `/embed webhook hapus:True` bila ingin bot berhenti memakainya."
+        )
+        if webhook_id
+        else (
+            f"ℹ️ Belum ada webhook identitas di {getattr(target, 'mention', 'channel')}. "
+            "Bot membuatnya otomatis saat `/embed sebagai` pertama kali dipakai."
+        ),
+        ephemeral=True,
+    )
+
+
+@embed_group.command(
+    name="variabel",
+    description="Daftar variabel yang bisa dipakai di judul/isi embed (mis. {server.members})",
+)
+async def embed_variabel_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    kelompok = (
+        ("👤 Member", message_template.MEMBER_TOKENS),
+        ("🏠 Server", message_template.SERVER_TOKENS),
+        ("💬 Channel", message_template.CHANNEL_TOKENS),
+        ("⏰ Waktu", message_template.MISC_TOKENS),
+        ("🔁 Alias lama", message_template.ALIAS_TOKENS),
+    )
+    embed = ui_theme.status_embed(
+        interaction.guild.id,
+        "info",
+        "Variabel Pesan",
+        "Tulis variabel di bawah ini pada judul/isi `/embed` atau `/pengumuman` — "
+        "nilainya diisi otomatis saat pesan dikirim.",
+    )
+    for judul, tokens in kelompok:
+        embed.add_field(
+            name=judul,
+            value="\n".join(message_template.help_lines(tokens))[:1024],
+            inline=False,
+        )
+    embed.set_footer(text="Variabel tak dikenal dibiarkan apa adanya agar salah ketik terlihat.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ==============================================================================
+# TAUTAN EMBED — /embed tautan (halaman /l/<kode> di situs Vercel)
+# ==============================================================================
+def _hex_warna(value: str | None) -> str:
+    """Nama warna atau `#RRGGBB` → `rrggbb` (dipakai halaman `/l/<kode>`)."""
+    if not value:
+        return ""
+    return format(parse_color(value).value & 0xFFFFFF, "06x")
+
+
+tautan_group = app_commands.Group(
+    name="tautan",
+    description="Tautan yang tampil sebagai embed cantik di Discord (halaman /l/<kode>)",
+)
+
+
+@tautan_group.command(name="buat", description="Buat tautan embed: tampil cantik, klik = buka URL tujuan")
+@app_commands.describe(
+    judul="Judul yang muncul di embed",
+    isi="Deskripsi singkat di embed (boleh beberapa baris)",
+    url="URL tujuan saat tautan diklik (wajib http/https)",
+    gambar="URL gambar besar di embed (opsional)",
+    sampul="URL thumbnail kecil di kanan (opsional)",
+    warna="Warna garis embed: ungu / biru / merah / hijau / emas / abu / 9B59B6",
+    provider="Nama sumber yang tampil di embed (opsional)",
+    situs="Nama situs (opsional, bawaan: nama server)",
+)
+async def tautan_buat_cmd(
+    interaction: discord.Interaction,
+    url: str,
+    judul: str | None = None,
+    isi: str | None = None,
+    gambar: str | None = None,
+    sampul: str | None = None,
+    warna: str | None = None,
+    provider: str | None = None,
+    situs: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **staff** (Manage Messages / Manage Server).", ephemeral=True
+        )
+        return
+
+    record, galat = link_embed.create_link(
+        interaction.guild.id,
+        title=judul or "",
+        description=isi or "",
+        url=url,
+        image=gambar or "",
+        thumbnail=sampul or "",
+        color=_hex_warna(warna),
+        provider=provider or "",
+        site=situs or interaction.guild.name,
+        created_by=interaction.user.id,
+    )
+    if record is None:
+        await interaction.response.send_message(
+            "⚠️ Tautan belum bisa dibuat:\n" + "\n".join(f"• {g}" for g in galat)[:1500],
+            ephemeral=True,
+        )
+        return
+
+    await link_embed.save_to_disk()
+    embed = ui_theme.status_embed(
+        interaction.guild.id,
+        "ok",
+        "Tautan embed siap",
+        f"**{record['title']}**\n```{record['url']}```\n"
+        "Tempel tautan itu di pesan — Discord akan menampilkan embed dari halaman situs. "
+        "Klik tautannya tetap membuka URL tujuan.",
+        footer="Hapus dari daftar dengan /embed tautan hapus",
+    )
+    embed.add_field(
+        name="Pratinjau isi",
+        value=(
+            f"**Judul:** {judul or '—'}\n"
+            f"**Tujuan:** {url[:180]}\n"
+            f"**Panjang URL:** {len(record['url'])} karakter"
+        )[:1000],
+        inline=False,
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@tautan_group.command(name="daftar", description="Lihat tautan embed yang pernah dibuat di server ini")
+async def tautan_daftar_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+    rows = link_embed.list_links(interaction.guild.id)
+    if not rows:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                interaction.guild.id,
+                "info",
+                "Belum ada tautan embed",
+                "Buat yang pertama: `/embed tautan url:https://situs.kamu judul:\"Panduan Server\"`.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    baris = [
+        f"**{record['title']}** (`{record['id']}`)\n-# {record['url']}"
+        for record in rows
+    ]
+    info = link_embed.stats(interaction.guild.id)
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "info",
+            f"🔗 Tautan Embed ({info['total']}/{info['maks']})",
+            "\n\n".join(baris)[:3800],
+            footer="Tautan tetap hidup walau dihapus dari daftar — halaman ada di situs.",
+        ),
+        ephemeral=True,
+    )
+
+
+@tautan_group.command(name="hapus", description="Hapus tautan embed dari daftar server")
+@app_commands.describe(tautan="ID (mis. l1a2b3c4) atau judul tautan")
+async def tautan_hapus_cmd(interaction: discord.Interaction, tautan: str):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **staff** (Manage Messages / Manage Server).", ephemeral=True
+        )
+        return
+
+    record = link_embed.delete_link(interaction.guild.id, tautan)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                interaction.guild.id, "warn", "Tautan tidak ditemukan",
+                "Lihat daftarnya lewat `/embed tautan daftar`.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    await link_embed.save_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Tautan dihapus dari daftar",
+            f"**{record['title']}** tidak lagi muncul di `/embed tautan daftar`.\n"
+            "-# Tautan lama tetap bisa dibuka; hapus pesannya bila ingin benar-benar hilang.",
+        ),
+        ephemeral=True,
     )
 
 
 def register_suggestions_cog(bot: commands.Bot) -> None:
     """Mendaftarkan `/saran` & `/embed`."""
+    embed_group.add_command(tautan_group)
     bot.tree.add_command(saran_group)
     bot.tree.add_command(embed_group)
 
 
-__all__ = ["register_suggestions_cog", "saran_group", "embed_group", "EmbedBuilderModal", "parse_color"]
+__all__ = [
+    "register_suggestions_cog",
+    "saran_group",
+    "embed_group",
+    "tautan_group",
+    "EmbedBuilderModal",
+    "parse_color",
+]

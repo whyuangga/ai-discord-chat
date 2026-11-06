@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 52
+TOP_LEVEL_COUNT = 53
 import ui_kit
 
 

@@ -23,11 +23,14 @@
     {{- with .Description | default ($.Param "description") }}
     <meta name="description" content="{{ . }}">
     {{- end }}
-    <meta name="keywords" content="Documentation, Hugo, Hugo Theme, Bootstrap" />
-    <meta name="author" content="Colin Wilson - Lotus Labs" />
-    <meta name="email" content="support@aigis.uk" />
-    <meta name="website" content="https://lotusdocs.dev" />
-    <meta name="Version" content="v0.1.0" />
+    {{- /* TAMBALAN (lihat site/README.md): dulu meta bawaan tema —
+           keywords "Documentation, Hugo, Hugo Theme, Bootstrap", author
+           "Colin Wilson - Lotus Labs", email support@aigis.uk, website
+           lotusdocs.dev, Version v0.1.0. */}}
+    {{- with .Site.Params.keywords }}
+    <meta name="keywords" content="{{ . }}" />
+    {{- end }}
+    <meta name="author" content="{{ .Site.Params.author | default .Site.Title }}" />
     <!-- favicon -->
     {{ block "favicon" . }}{{ partialCached (printf "%s/%s" ($.Scratch.Get "pathName") "head/favicon.html") . }}{{ end }}
     {{- partial (printf "%s/%s" ($.Scratch.Get "pathName") "head/opengraph") . }}
@@ -57,10 +60,10 @@
     <!-- Google Fonts -->
     {{- partialCached "google-fonts" . }}
     <!-- Custom CSS -->
-    {{- $options := dict "enableSourceMap" true }}
-    {{- if hugo.IsProduction}}
-        {{- $options := dict "enableSourceMap" false "outputStyle" "compressed" }}
-    {{- end }}
+    {{- /* TAMBALAN: dulu `:=` di dalam if membuat $options baru (variabel
+           ter-shadow), sehingga source map 900 KB tetap dibuat & ikut ter-deploy
+           di produksi. */ -}}
+    {{- $options := cond hugo.IsProduction (dict "enableSourceMap" false "outputStyle" "compressed") (dict "enableSourceMap" true) }}
     {{- $style := resources.Get (printf "/%s/%s" ($.Scratch.Get "pathName") "scss/style.scss") }}
     {{- $style = $style | resources.ExecuteAsTemplate (printf "/%s/%s" ($.Scratch.Get "pathName") "scss/style.scss") . | css.Sass $options }}
     {{- if hugo.IsProduction }}
@@ -69,10 +72,8 @@
     <link rel="stylesheet" href="{{ $style.RelPermalink }}" {{ if hugo.IsProduction }}integrity="{{ $style.Data.Integrity }}"{{ end -}} crossorigin="anonymous">
     <!-- Katex CSS -->
     {{- if .Params.katex -}}
-    {{- $options := dict "enableSourceMap" true }}
-    {{- if hugo.IsProduction}}
-        {{- $options := dict "enableSourceMap" false "outputStyle" "compressed" }}
-    {{- end -}}
+    {{- /* TAMBALAN: sama seperti CSS utama — hindari variabel ter-shadow. */ -}}
+    {{- $options := cond hugo.IsProduction (dict "enableSourceMap" false "outputStyle" "compressed") (dict "enableSourceMap" true) -}}
     {{- $katexCSS := resources.Get (printf "/%s/%s" ($.Scratch.Get "pathName") "scss/katex.scss") }}
     {{- $katexCSS = $katexCSS | resources.ExecuteAsTemplate (printf "/%s/%s" ($.Scratch.Get "pathName") "scss/katex.scss") . | css.Sass $options }}
     {{- if hugo.IsProduction }}

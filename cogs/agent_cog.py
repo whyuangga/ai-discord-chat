@@ -2,6 +2,8 @@ import io
 import logging
 
 import discord
+
+import message_template
 from discord import app_commands
 from discord.ext import commands
 
@@ -219,11 +221,13 @@ async def trigger_member_boost(
         "🎉 Terima kasih **{user}** sudah nge-boost **{guild}**! "
         "Server ini jadi lebih keren karena kamu 💜"
     )
-    text = (
-        template.replace("{user}", member.mention)
-        .replace("{guild}", guild.name)
-        .replace("{name}", getattr(member, "display_name", "kamu"))
-    )[:1900]
+    text = message_template.render(
+        template,
+        member=member,
+        guild=guild,
+        channel=target_ch,
+        limit=1900,
+    )
 
     try:
         payload = await build_greeting_payload(

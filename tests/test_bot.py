@@ -2206,6 +2206,7 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "serverstats", "autorole", "fakta", "keamanan",
         "panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan",
         "musik",
+        "mulai",  # wizard pemasangan cepat (admin awam)
         # v1.8.0-beta (Tier 2A): fitur keramaian server tanpa kuota AI
         "giveaway", "ultah", "jawab-otomatis", "pengumuman",
         # v1.10.0-beta (Tier 2C): leveling & tiket dukungan
@@ -3915,7 +3916,14 @@ async def test_engagement_command_structure_and_views():
     assert jawab_group.name == "jawab-otomatis"
     assert {c.name for c in jawab_group.commands} == {"tambah", "hapus", "daftar", "atur"}
     assert pengumuman_group.name == "pengumuman"
-    assert {c.name for c in pengumuman_group.commands} == {"tambah", "daftar", "hapus", "atur"}
+    assert {c.name for c in pengumuman_group.commands} == {
+        "tambah",
+        "daftar",
+        "hapus",
+        "atur",
+        "kirim",
+        "ubah",
+    }
 
     # Batas keras Discord: deskripsi grup maksimal 100 karakter
     for group in (giveaway_group, ultah_group, jawab_group, pengumuman_group):
@@ -5857,7 +5865,14 @@ async def test_suggestions_voting_status_and_persistence():
 
     # 10. Command terdaftar
     assert {c.name for c in saran_group.commands} == {"pasang", "kirim", "daftar", "status", "hapus"}
-    assert {c.name for c in embed_group.commands} == {"buat", "cepat"}
+    assert {c.name for c in embed_group.commands} == {
+        "buat",
+        "cepat",
+        "sebagai",
+        "tautan",
+        "variabel",
+        "webhook",
+    }
 
     sg.suggestion_settings.pop(gid, None)
     sg.suggestion_items.pop(gid, None)

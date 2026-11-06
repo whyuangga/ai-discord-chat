@@ -35,6 +35,27 @@ Dokumen ini memuat penjelasan panjang **23 area fitur** bot. Sengaja dipisah dar
 
 ---
 
+## 🚀 Mulai cepat: `/mulai`
+
+Bagi admin baru, cara tercepat memasang bot adalah **satu command** ini — tanpa perlu tahu
+nama command lain:
+
+```text
+/mulai paket:🏡 Server Komunitas channel_sambutan:#sambutan role_otomatis:@Member channel_log:#log
+```
+
+| Paket | Menyalakan |
+| :--- | :--- |
+| 🏡 **Server Komunitas** | Sambutan + auto role + log moderasi + pengumuman terjadwal |
+| 🎮 **Server Gaming** | Auto role + sambutan + pengumuman event |
+| 🎓 **Server Sekolah** | Sambutan + auto role kelas + log moderasi |
+
+- Semua parameter opsional: `/mulai` saja akan menampilkan daftar paket & contoh pemakaian.
+- Tambahkan `pratinjau:True` untuk melihat rencananya **tanpa mengubah apa pun** — cocok untuk
+  memastikan channel/role yang dipilih sudah benar.
+- Setelah dipasang, bot merangkum apa yang aktif dan apa yang masih perlu diatur (mis. isi
+  pengumuman). Semua tetap bisa diubah/dimatikan lewat command masing-masing.
+
 ## A. Fitur Ruang Sesi Privat (`/sesi`)
 
 Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assistant`) menggunakan `/sesi panel` (atau `!setup_panel`). Dari panel tersebut, setiap member dapat membuka ruang privat (*Private Thread*) yang hanya bisa dilihat oleh member itu sendiri.
@@ -470,8 +491,38 @@ Pengaman:
 | :--- | :--- |
 | `/embed buat channel:#pengumuman warna:ungu` | Buka **formulir** (judul, isi, URL banner, footer) → langsung terkirim |
 | `/embed cepat channel:#x judul:"..." isi:"..."` | Kirim cepat tanpa formulir |
+| `/embed variabel` | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … |
+| `/embed sebagai nama:"📢 Pengumuman" isi:"..."` | Kirim dengan **nama & avatar sendiri** lewat webhook |
+| `/embed webhook` | Cek / hapus webhook identitas yang dipakai bot |
 
 Warna menerima `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. Hanya **staff** (Manage Messages/Server) yang bisa mengirim.
+
+**Identitas kustom (webhook).** `/embed sebagai` mengirim pesan sebagai *siapa pun* pilihanmu
+("📢 Pengumuman Server", "🎉 Tim Event") lengkap dengan avatar — ide dari Discohook. Bot membuat
+satu webhook per channel lalu memakainya ulang (`data/webhooks.json`), jadi tidak membuat webhook
+baru setiap kali. Butuh izin **Manage Webhooks**; mention massal dinonaktifkan agar tidak bisa
+dipakai men-*ping* `@everyone` diam-diam. Tujuan bisa channel teks **atau thread**.
+
+**Tautan embed (`/embed tautan`).** Ingin tautan yang tampil sebagai **embed cantik** di Discord
+(judul, deskripsi, gambar) tetapi saat diklik membuka situsmu — persis *Link Embeds*-nya Discohook?
+Bot membuat tautan ke halaman `/l/<kode>` di situs dokumentasi (Vercel) ini:
+
+```text
+/embed tautan url:https://situs.kamu/panduan judul:"Panduan Server" isi:"Semua aturan & tips" gambar:https://…/banner.png
+→ https://ai-discord-chat-site.vercel.app/l/eyJ0IjoiUGFuZHVhbiBTZXJ2ZXIiLCJkIjoi…
+```
+
+- Halaman itu memuat tag `og:` (judul, deskripsi, gambar) sehingga Discord menampilkan embed, lalu
+  **mengalihkan pengunjung** ke `url` tujuan lewat `<meta http-equiv="refresh">`.
+- **Tanpa database**: seluruh isi embed dipaketkan ke dalam kode pada URL, jadi tautan lama tetap
+  hidup walau bot mati dan tidak ada data yang tersimpan di server bot.
+- Batasan: URL maksimal ±1.300 karakter (kode ≤1.200), jadi ringkas judul/isi — gambar memakai
+  tautan, bukan unggahan. Maksimal **50 tautan** tercatat per server.
+- `/embed tautan daftar` melihat yang sudah dibuat; `/embed tautan hapus` hanya menghapus catatan
+  (halaman tetap bisa dibuka — hapus pesannya bila ingin benar-benar hilang).
+- Alamat situs diatur lewat env `SITE_BASE_URL` (bawaan `https://ai-discord-chat-site.vercel.app`).
+  Caranya: `site/api/l/[id].js` + rewrite `/l/:id` di `site/vercel.json` — keduanya sudah ada di repo,
+  jadi cukup deploy `site/` seperti biasa. Kalau situs belum dideploy, tautan akan 404.
 
 ### 10. 🔊 Temp Voice: Voice Room Sementara (`/tempvoice`)
 
@@ -648,8 +699,16 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/pengumuman tambah isi:... jadwal:senin 19:00`** | Setiap minggu (nama hari Indonesia). |
 | **`/pengumuman tambah isi:... jadwal:sekali 31-12-2026 23:59`** | Satu kali saja, lalu otomatis nonaktif. |
 | **`/pengumuman daftar`** / **`hapus id:3`** / **`atur id:3 aktif:False`** | Kelola jadwal tanpa menghapus isi. |
+| **`/pengumuman kirim id:3`** | Kirim **sekarang** tanpa menunggu jadwal — jadwal berikutnya tidak digeser. |
+| **`/pengumuman ubah id:3 isi:... judul:... jadwal:...`** | Ubah isi/judul/jadwal tanpa menghapus; jadwal baru langsung dihitung. |
 
-- Format jadwal ringkas: `08:00`, `harian 20:30`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- Format jadwal ringkas: `08:00`, `harian 20:30`, `senin 19:00`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- **Berulang tiap interval:** `setiap 3 jam`, `tiap 90 menit`, `interval 8 jam` — minimal **2 jam**
+  (batas aman agar tidak dianggap spam), maksimal **168 jam** (seminggu). Jadwal dihitung dari
+  waktu pemasangan, dan kalau bot sempat mati lama, semua jadwal yang terlewat **dilewati** —
+  hanya satu kiriman berikutnya yang diambil, jadi pengumuman tidak menumpuk.
+- Isi pengumuman boleh memakai variabel (`{server.name}`, `{server.members}`, `{now_relative}`) yang diisi **saat dikirim**.
+- Tujuan boleh **thread** (bukan hanya channel teks). Pengumuman ulang tahun juga ikut mendukung thread.
 - Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.
 - Batas `ANNOUNCEMENT_MAX_PER_GUILD` (default 15) pengumuman per server.
 
@@ -1022,6 +1081,17 @@ Menjawab pertanyaan "server ini tumbuh atau mati?" — **0 kuota AI**.
 - Data di `data/growth.json`: statistik harian **30 hari**, data member **90 hari**, maksimal 2000 member terlacak per server.
 - **Tidak menyimpan isi pesan** sama sekali.
 
+### Dashboard web (baca-saja)
+
+Bot menjalankan dashboard kecil di port privat (`DASHBOARD_PORT`, token di env) berisi
+**status bot, pemakaian AI, papan level, dan peta fitur per server**: fitur apa yang sudah
+dipakai (panel menu, formulir, pengumuman terjadwal, tautan embed, pemicu gabung) beserta
+**command yang dipakai mengubahnya di Discord**. Dashboard ini sengaja tidak menulis setting
+apa pun — sumber kebenaran tetap Discord, jadi tidak ada risiko konfigurasi ganda.
+
+Endpoint: `GET /` (halaman), `GET /api/status`, `GET /api/pemakaian`, `GET /api/level`,
+`GET /api/fitur` — semuanya butuh `?token=…`.
+
 ## Q. Menu Builder & Self Roles v2 (`/menu`)
 
 Bikin panel sendiri — mirip *Self Roles* milik bot Discohook, tapi isinya tidak harus role:
@@ -1034,10 +1104,112 @@ satu panel bisa memuat **tombol role, tombol link, dan tombol command** sekaligu
 | **`/menu tombol-link menu:… label:Support url:https://…`** | Tombol tautan (buka URL, tanpa aksi bot) |
 | **`/menu tombol-command menu:… aksi:serverstats [visibilitas]`** | Tombol yang menjalankan command info |
 | **`/menu dropdown-role menu:… role1:@A role2:@B [eksklusif]`** | Dropdown role (maks 25 role, bisa eksklusif) |
+| **`/menu alur menu:… label:… aksi:…`** | Tombol yang menjalankan **alur aksi** berurutan (lihat di bawah) |
+| **`/menu alur-bantuan`** | Panduan singkat menulis alur |
+| **`/menu form buat nama:… kolom:… tujuan:#x`** | **Formulir (modal)** buatan sendiri: kolom bebas (lihat di bawah) |
+| **`/menu form tombol form:… menu:… [label]`** | Pasang formulir sebagai tombol di panel |
+| **`/menu form daftar`** / **`/menu form uji form:…`** | Lihat semua formulir / coba isi tanpa mengirim hasil |
 | **`/menu hapus-item menu:… item:2`** *(Admin)* | Hapus tombol/opsi (nomor urut, ID, atau label) |
+| **`/menu ubah menu:… judul:… deskripsi:…`** *(Admin)* | Ubah teks panel; pesan yang sudah terkirim ikut berubah |
+| **`/menu ekspor menu:…`** *(Admin)* | Unduh panel sebagai JSON (backup / pindah server) |
+| **`/menu impor berkas:…`** *(Admin)* | Buat panel baru dari JSON hasil ekspor |
 | **`/menu kirim menu:… [channel]`** *(Admin)* | Kirim ulang panel ke channel lain |
 | **`/menu daftar`** | Lihat semua panel beserta isinya |
 | **`/menu hapus menu:…`** *(Admin)* | Hapus panel dari daftar bot |
+
+### Alur aksi tombol (`/menu alur`)
+Satu tombol bisa menjalankan **beberapa aksi berurutan** — ide yang dipinjam dari *flows* Discohook.
+Langkah dipisah `>` dan teksnya boleh memakai variabel (`{member.mention}`, `{server.name}`):
+
+```text
+/menu alur menu:1 label:Buka Tiket aksi:+role:123456 > pesan:Halo {member.mention}, tiketmu siap! > thread:tiket-{member.name}
+```
+
+| Langkah | Arti |
+| :--- | :--- |
+| `role:<id>` | Toggle role (dapat bila belum punya, lepas bila sudah) |
+| `+role:<id>` / `-role:<id>` | Tambah / lepas role |
+| `syarat:<id>` | Berhenti diam-diam bila member **tidak** punya role itu |
+| `pesan:<teks>` | Balasan pribadi (*ephemeral*) |
+| `umum:<teks>` | Balasan yang terlihat semua orang |
+| `thread:<nama>` | Buat thread publik di channel panel |
+| `tunggu:<detik>` | Jeda (maks 15 detik) |
+| `stop[:<teks>]` | Hentikan alur, opsional kirim alasan |
+| `webhook:<nama>\|<teks>` | Kirim pesan sebagai **nama sendiri** lewat webhook (butuh *Manage Webhooks*) |
+| `hapus` | Hapus balasan bot yang sudah dikirim alur ini (pasangan `umum:… > tunggu:5 > hapus`) |
+
+Batas: **10 langkah** per tombol, 1000 karakter per pesan. Role tetap wajib di bawah role bot.
+
+### Pemicu saat member bergabung (`/menu pemicu`)
+Alur yang sama bisa dijalankan **tanpa klik tombol** — dipicu ketika ada member baru masuk:
+
+```text
+/menu pemicu tambah aksi:"+role:123456 > umum:Selamat datang {member.mention}!" channel:#umum umur_akun:7
+```
+
+- Pilih `channel` untuk pesan/thread sambutan; `umur_akun` menolak akun yang terlalu baru
+  (bawaan 0 = semua akun) — pengaman saat server kena raid.
+- Langkah yang butuh interaksi (`pesan`, `hapus`) dilewati karena tidak ada yang mengklik apa pun;
+  `role`, `syarat`, `umum`, `webhook`, `thread`, `tunggu`, `stop` tetap berlaku.
+- Satu alur gabung per server; `/menu pemicu daftar` melihatnya, `/menu pemicu hapus` mematikannya.
+  Data disimpan di `data/flow_triggers.json`.
+
+### Formulir (modal) buatan sendiri — `/menu form`
+`/agent panel` punya modal dengan kolom tetap. Lewat `/menu form`, **Admin merancang sendiri**
+isinya: sebut kolom yang diinginkan, pasang sebagai tombol, dan jawaban anggota dikirim rapi ke
+channel pilihan — cocok untuk lamaran staff, laporan bug, atau pendaftaran event.
+
+```text
+/menu form buat nama:"Lamaran Staff" kolom:"Nama | Umur | Alasan:panjang?" tujuan:#lamaran
+/menu form tombol form:"Lamaran Staff" menu:Pusat menu label:"📝 Daftar Staff"
+```
+
+| Tulis di `kolom` | Artinya |
+| :--- | :--- |
+| `Nama` | Kolom pendek, wajib diisi |
+| `Nama?` | Kolom pendek, boleh kosong |
+| `Alasan:panjang` | Kolom paragraf (bisa beberapa baris) |
+| `Catatan:panjang?` | Paragraf, boleh kosong (urutan penanda bebas) |
+
+- Kolom dipisah `|`; **maksimal 5** kolom — atau **4** bila memakai `penjelasan` (kalimat pengantar
+  di dalam modal memakan satu slot).
+- `hasil` mengatur bentuk pesan yang masuk ke channel, mis.
+  `hasil:"**Nama:** {form.nama}
+**Umur:** {form.umur}
+**Alasan:** {form.alasan}"`.
+  Kosongkan untuk daftar otomatis (`**Kolom**` lalu jawabannya).
+- `{form.<kolom>}` diisi jawaban anggota; variabel biasa (`{member.mention}`, `{server.name}`,
+  `{now_relative}`) tetap jalan.
+- **Tanpa mention:** hasil dikirim dengan *mention* dimatikan, jadi jawaban anggota tidak bisa
+  dipakai men-*ping* `@everyone`.
+- Jawaban **tidak disimpan** bot — hanya diteruskan ke channel tujuan; yang dicatat cuma jumlahnya.
+- `/menu form uji` menampilkan pratinjau hasil tanpa mengirim ke channel. Satu formulir per
+  server dibatasi **20**, dan `/menu form hapus` ikut membersihkan tombolnya di panel.
+- Berkas data: `data/forms.json`. Tombol formulir **tidak ikut** `/menu ekspor` (formulirnya
+  terpisah) — pesan ekspor akan menyebutkan tombol mana yang dilewati.
+
+### Variabel pesan
+Judul/isi `/embed`, `/pengumuman`, `/menu`, dan teks alur bisa memakai variabel yang diisi saat
+pesan dikirim: `{member.name}`, `{member.display_name}`, `{member.mention}`, `{member.created_relative}`,
+`{server.name}`, `{server.members}`, `{server.boosts}`, `{channel.mention}`, `{now_relative}`, dll.
+Daftar lengkap: `/embed variabel`. Variabel yang tidak dikenal dibiarkan apa adanya agar salah
+ketik terlihat; variabel yang datanya tidak ada (mis. `{member.name}` di pengumuman terjadwal)
+diganti kosong.
+
+### Backup panel
+`/menu ekspor` menghasilkan berkas JSON (`ai-discord-chat/panel` v1) berisi judul, deskripsi,
+banner, tombol (role/link/command/alur), dan dropdown — tanpa ID guild/channel/pesan.
+`/menu impor` memulihkannya sebagai panel baru di server mana pun; ID role tetap milik server
+asal, jadi di server lain role perlu dibuat ulang sebelum tombolnya dipakai.
+
+**Tautan bagikan (tanpa berkas).** `/menu bagikan` membuat kode ringkas dari panel itu dan
+sebuah URL pratinjau `https://<situs>/p/<kode>` (halaman situs, lengkap dengan tag `og:` jadi
+tampil rapi saat ditempel di Discord). Siapa pun bisa memasangnya dengan
+`/menu impor kode:<tautan atau kode>` — menerima URL penuh, `ai-discord-chat/panel:<kode>`,
+maupun kodenya saja. Tidak ada database: isi panel ikut di dalam kode.
+Kode diringkas dengan **zlib + base64** (awalan `z.`), jadi panel berisi 20 tombol pun
+masih muat (±430 karakter). Kode lama tanpa awalan tetap bisa diimpor. Batas kerasnya
+1.500 karakter — panel yang lebih besar ditolak dengan saran memakai `/menu ekspor`.
 
 ### Tombol yang bisa menjalankan command
 Klik tombol = bot menjalankan **command yang sama** atas nama **member yang mengklik**, jadi semua
@@ -1069,6 +1241,9 @@ cek izin tetap berlaku. Contoh isi panel "Pusat Info":
 | `campuran` | **Banner + tombol + dropdown** — persis gaya Self Roles Discohook |
 
 Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besar di atas panel.
+
+**Target kirim:** panel bisa dikirim ke **channel teks**, **thread**, atau **forum channel**
+(untuk forum, panel menjadi post baru dengan judul panel sebagai nama post).
 
 ### Batas & pengaman
 | Hal | Nilai |

@@ -135,28 +135,68 @@
 
     {{ $len := (len $list) -}}
 
-    {{ range $index, $element := $list -}}
-        index.add(
-            {
-                id: {{ $index }},
-                href: "{{ .RelPermalink }}",
-                title: {{ .Title }},
-                {{ with .Description -}}
-                    description: {{ . }},
-                {{ else -}}
-                description: {{ .Summary | htmlUnescape | plainify }},
-                {{ end -}}
-                content: {{ .Content | htmlUnescape | plainify }}
-            }
-        );
-    {{ end -}}
+    {{/*
+    TAMBALAN (lihat site/README.md): indeks pencarian dibuat sebagai berkas JSON
+    terpisah dan baru diunduh saat kotak pencarian dipakai. Sebelumnya seluruh
+    teks 26 halaman ditempel ke dalam HTML *setiap* halaman (± 110 KB / halaman).
+    */}}
+    {{ $docs := slice }}
+    {{ range $index, $page := $list }}
+        {{ $deskripsi := $page.Description }}
+        {{ if not $deskripsi }}{{ $deskripsi = $page.Summary | htmlUnescape | plainify }}{{ end }}
+        {{ $docs = $docs | append (dict
+            "id" $index
+            "href" $page.RelPermalink
+            "title" $page.Title
+            "description" $deskripsi
+            "content" ($page.Content | htmlUnescape | plainify)
+        ) }}
+    {{ end }}
+    {{ $indeks := resources.FromString "search/index.json" ($docs | jsonify) | fingerprint "sha256" }}
+
+    const searchIndexURL = "{{ $indeks.RelPermalink }}";
+    let searchIndexSiap = false;
+    let searchIndexMuat = null;
+
+    function muatIndeksPencarian() {
+        if (searchIndexSiap) return Promise.resolve();
+        if (!searchIndexMuat) {
+            searchIndexMuat = fetch(searchIndexURL)
+                .then(function (respons) {
+                    if (!respons.ok) throw new Error('HTTP ' + respons.status);
+                    return respons.json();
+                })
+                .then(function (daftar) {
+                    for (const dokumen of daftar) index.add(dokumen);
+                    searchIndexSiap = true;
+                })
+                .catch(function (galat) {
+                    console.error('Indeks pencarian gagal dimuat:', galat);
+                    searchIndexMuat = null; // biar bisa dicoba lagi saat mengetik
+                });
+        }
+        return searchIndexMuat;
+    }
+
+    // Mulai unduh lebih awal: saat kotak difokuskan atau Ctrl+/ ditekan.
+    search.addEventListener('focus', muatIndeksPencarian, { once: true });
+    document.addEventListener('keydown', function (e) {
+        if (e.ctrlKey && e.key === '/') muatIndeksPencarian();
+    });
 
     search.addEventListener('input', show_results, true);
 
     function show_results(){
+        if (!searchIndexSiap) {
+            muatIndeksPencarian().then(function () {
+                if (search.value.trim()) show_results();
+            });
+            return;
+        }
+
         const maxResult = {{ .Site.Params.flexsearch.maxResult | default 5}};
         const minlength = {{ .Site.Params.flexsearch.minQueryChar | default 0}};
-        var searchQuery = sanitizeHTML(this.value);
+        var searchQuery = sanitizeHTML(search.value); // bukan `this`: fungsi ini juga dipanggil ulang setelah indeks termuat
         var results = index.search(searchQuery, {limit: maxResult, enrich: true});
 
         // flatten results since index.search() returns results for each indexed field

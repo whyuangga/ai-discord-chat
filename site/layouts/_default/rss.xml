@@ -1,0 +1,32 @@
+{{- /*
+    Feed RSS ringkas (menggantikan templat bawaan Hugo).
+
+    Templat bawaan menyisipkan isi penuh setiap halaman lewat <content:encoded>,
+    sehingga `/index.xml` menjadi 232 KB — seluruh dokumentasi terkirim ulang
+    setiap kali feed dibaca. Berkas ini hanya mengirim judul, tautan, dan
+    deskripsi singkat per halaman.
+*/ -}}
+{{- $judul := cond .IsHome .Site.Title (printf "%s — %s" .Title .Site.Title) -}}
+{{- printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>{{ $judul }}</title>
+    <link>{{ .Permalink }}</link>
+    <description>{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description | default .Site.Title }}{{ end }}</description>
+    <language>{{ .Site.Language.Lang }}</language>
+    {{- with .OutputFormats.Get "rss" }}
+    <atom:link href="{{ .Permalink }}" rel="self" type="application/rss+xml" />
+    {{- end }}
+    {{- range .RegularPagesRecursive }}
+    <item>
+      <title>{{ .Title }}</title>
+      <link>{{ .Permalink }}</link>
+      <guid isPermaLink="true">{{ .Permalink }}</guid>
+      {{- if not .Date.IsZero }}
+      <pubDate>{{ .Date.Format "Mon, 02 Jan 2006 15:04:05 -0700" }}</pubDate>
+      {{- end }}
+      <description>{{ with .Description }}{{ . }}{{ else }}{{ .Summary | plainify | truncate 200 }}{{ end }}</description>
+    </item>
+    {{- end }}
+  </channel>
+</rss>

@@ -19,20 +19,25 @@ Keamanan:
 """
 
 import asyncio
+import base64
 import io
 import json
 import logging
 import os
 import secrets
 import time
+import zlib
 from pathlib import Path
 
 import discord
 from discord import ui
 
+import flows
+import message_template
+import modal_forms
 import ui_kit
 import ui_theme
-from config import DATA_DIR, MENU_FILE
+from config import DATA_DIR, MENU_FILE, SITE_BASE_URL
 
 logger = logging.getLogger("gemini_bot.menu_builder")
 
@@ -44,6 +49,8 @@ _lock = asyncio.Lock()
 KIND_ROLE = "role"
 KIND_LINK = "link"
 KIND_COMMAND = "command"
+KIND_FLOW = "flow"      # tombol dengan alur aksi (lihat flows.py)
+KIND_FORM = "form"      # tombol yang membuka formulir/modal (lihat modal_forms.py)
 
 VIS_AUTO = "auto"          # ikuti keputusan command (bawaan)
 VIS_PUBLIK = "publik"      # paksa tampil di channel
@@ -185,6 +192,267 @@ def create_menu(
     return menu
 
 
+# ------------------------------------------------------------------------------
+# EKSPOR / IMPOR (backup & pindah server)
+# ------------------------------------------------------------------------------
+EXPORT_FORMAT = "ai-discord-chat/panel"
+EXPORT_VERSION = 1
+MAX_IMPORT_BYTES = 256 * 1024
+
+# Tautan bagikan: panel → kode base64url → halaman `SITE_BASE_URL/p/<kode>`.
+SHARE_PREFIX = "ai-discord-chat/panel:"
+MAX_SHARE_CODE = 1500     # batas agar URL masih nyaman di Discord
+SHARE_ZLIB_PREFIX = "z."  # penanda kode terkompresi (kode lama tanpa awalan tetap terbaca)
+MAX_SHARE_RAW = 64 * 1024  # batas hasil dekompresi (jaga-jaga kode "bom")
+
+
+def export_menu(menu: dict) -> dict:
+    """Payload portabel untuk satu panel — tanpa ID guild/channel/pesan."""
+    return {
+        "format": EXPORT_FORMAT,
+        "version": EXPORT_VERSION,
+        "title": menu.get("title"),
+        "description": menu.get("description"),
+        "banner_url": menu.get("banner_url"),
+        "buttons": [
+            {k: v for k, v in item.items() if k != "id"} for item in menu.get("buttons", [])
+        ],
+        "dropdowns": [
+            {
+                "placeholder": dropdown.get("placeholder"),
+                "exclusive": bool(dropdown.get("exclusive")),
+                "group": dropdown.get("group"),
+                "options": [
+                    {k: v for k, v in opt.items() if k != "id"}
+                    for opt in dropdown.get("options", [])
+                ],
+            }
+            for dropdown in menu.get("dropdowns", [])
+        ],
+    }
+
+
+# ------------------------------------------------------------------------------
+# TAUTAN BAGIKAN (kode / URL, tanpa berkas)
+# ------------------------------------------------------------------------------
+def encode_share(menu: dict) -> tuple[str, list[str]]:
+    """Panel → kode bagikan base64url. `("", galat)` bila panelnya terlalu besar."""
+    teks = json.dumps(export_menu(menu), ensure_ascii=False, separators=(",", ":"))
+    kode = base64.urlsafe_b64encode(zlib.compress(teks.encode("utf-8"), 9)).decode("ascii")
+    kode = SHARE_ZLIB_PREFIX + kode.rstrip("=")
+    if len(kode) > MAX_SHARE_CODE:
+        return "", [
+            f"Panel ini terlalu besar untuk tautan bagikan ({len(kode)} dari "
+            f"{MAX_SHARE_CODE} karakter). Ringkas teks/tombolnya atau pakai `/menu ekspor` "
+            "(berkas JSON)."
+        ]
+    return kode, []
+
+
+def share_url(kode: str, base: str | None = None) -> str:
+    """URL halaman pratinjau panel di situs dokumentasi."""
+    akar = str(base or SITE_BASE_URL).rstrip("/")
+    return f"{akar}/p/{kode}"
+
+
+def extract_share_code(text: str) -> str:
+    """Ambil kode dari URL `/p/<kode>`, kode berawalan `ai-discord-chat/panel:`, atau kode polos."""
+    bersih = str(text or "").strip()
+    if "/p/" in bersih:
+        bersih = bersih.split("/p/", 1)[1]
+    bersih = bersih.split("#", 1)[0].split("?", 1)[0].strip()
+    if bersih.startswith(SHARE_PREFIX):
+        bersih = bersih[len(SHARE_PREFIX):]
+    return bersih.strip("/ ")
+
+
+def decode_share(text: str) -> tuple[dict | None, list[str]]:
+    """Kode/URL bagikan → payload siap `import_menu`. Kembalikan `(payload, galat)`."""
+    kode = extract_share_code(text)
+    if not kode:
+        return None, ["Tautan bagikan kosong. Tempel kode dari `/menu bagikan`."]
+    if len(kode) > MAX_SHARE_CODE:
+        return None, [f"Kode terlalu panjang (maksimal {MAX_SHARE_CODE} karakter)."]
+    terkompresi = kode.startswith(SHARE_ZLIB_PREFIX)
+    if terkompresi:
+        kode = kode[len(SHARE_ZLIB_PREFIX):]
+    padding = "=" * (-len(kode) % 4)
+    try:
+        mentah = base64.urlsafe_b64decode(kode + padding)
+        if terkompresi:
+            mentah = zlib.decompressobj().decompress(mentah, MAX_SHARE_RAW)
+        payload = json.loads(mentah.decode("utf-8"))
+    except Exception:
+        return None, ["Kode tidak bisa dibaca — pastikan menyalin seluruh tautannya."]
+    if not isinstance(payload, dict):
+        return None, ["Kode bukan ekspor panel bot ini."]
+    return payload, []
+
+
+def import_menu(
+    guild_id: int,
+    payload: dict,
+    *,
+    title: str | None = None,
+) -> tuple[dict | None, list[str]]:
+    """Buat panel dari payload ekspor. Kembalikan `(menu, galat)`."""
+    galat: list[str] = []
+    if not isinstance(payload, dict):
+        return None, ["Isi berkas bukan objek JSON."]
+    if str(payload.get("format") or "").strip() not in ("", EXPORT_FORMAT):
+        return None, ["Berkas ini bukan ekspor panel bot ini."]
+    versi = _to_int(payload.get("version") or EXPORT_VERSION)
+    if versi > EXPORT_VERSION:
+        return None, [f"Versi ekspor {versi} lebih baru dari yang didukung bot ({EXPORT_VERSION})."]
+
+    tombol_masuk = payload.get("buttons") or []
+    dropdown_masuk = payload.get("dropdowns") or []
+    if not isinstance(tombol_masuk, list) or not isinstance(dropdown_masuk, list):
+        return None, ["Bagian `buttons`/`dropdowns` harus berupa daftar."]
+
+    menu = create_menu(
+        guild_id,
+        (title or payload.get("title") or "Panel Impor"),
+        description=str(payload.get("description") or "")[:MAX_DESCRIPTION],
+        banner_url=(str(payload.get("banner_url"))[:400] if payload.get("banner_url") else None),
+    )
+    if menu is None:
+        return None, [f"Kuota panel server penuh (maksimal {MAX_MENUS_PER_GUILD}) atau judul kosong."]
+
+    for item in tombol_masuk[:MAX_BUTTONS]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "")
+        label = str(item.get("label") or "")[:80]
+        style = str(item.get("style") or "abu")
+        emoji = item.get("emoji") or None
+        if kind == KIND_ROLE:
+            role_id = _to_int(item.get("role_id"))
+            if not role_id:
+                galat.append(f"Tombol role “{label}” dilewati (ID role tidak ada).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_ROLE,
+                    "label": label or "Role",
+                    "emoji": emoji,
+                    "style": style if style in BUTTON_STYLES else "abu",
+                    "role_id": role_id,
+                    "group": (str(item.get("group"))[:40] if item.get("group") else None),
+                }
+            )
+        elif kind == KIND_LINK:
+            url = str(item.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                galat.append(f"Tombol tautan “{label}” dilewati (URL tidak valid).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_LINK,
+                    "label": label or "Buka",
+                    "emoji": emoji,
+                    "url": url[:400],
+                }
+            )
+        elif kind == KIND_COMMAND:
+            key = str(item.get("command") or "")
+            spec = SAFE_COMMANDS.get(key)
+            if spec is None:
+                galat.append(f"Tombol command “{label}” dilewati (command tidak ada di daftar aman).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_COMMAND,
+                    "label": (label or spec["label"])[:80],
+                    "emoji": emoji or spec.get("emoji"),
+                    "style": style if style in BUTTON_STYLES else "biru",
+                    "command": key,
+                    "visibility": str(item.get("visibility") or VIS_AUTO),
+                }
+            )
+        elif kind == KIND_FLOW:
+            langkah = flows.sanitize_steps(item.get("flow"))
+            if not langkah:
+                galat.append(f"Tombol alur “{label}” dilewati (alur kosong/tidak valid).")
+                continue
+            menu["buttons"].append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_FLOW,
+                    "label": label or "Aksi",
+                    "emoji": emoji,
+                    "style": style if style in BUTTON_STYLES else "biru",
+                    "flow": langkah,
+                }
+            )
+        elif kind == KIND_FORM:
+            galat.append(
+                f"Tombol formulir “{label}” dilewati — formulir tidak ikut diekspor. "
+                "Buat ulang lewat `/menu form buat`."
+            )
+
+    for dropdown in dropdown_masuk[:MAX_DROPDOWNS]:
+        if not isinstance(dropdown, dict):
+            continue
+        opsi: list[dict] = []
+        for opt in (dropdown.get("options") or [])[:MAX_OPTIONS]:
+            if not isinstance(opt, dict):
+                continue
+            role_id = _to_int(opt.get("role_id"))
+            if not role_id:
+                continue
+            opsi.append(
+                {
+                    "id": _new_item_id(menu),
+                    "kind": KIND_ROLE,
+                    "role_id": role_id,
+                    "label": str(opt.get("label") or "Role")[:100],
+                    "emoji": opt.get("emoji") or None,
+                    "description": (str(opt.get("description") or "")[:100] or None),
+                }
+            )
+        if not opsi:
+            continue
+        menu["dropdowns"].append(
+            {
+                "id": "d" + secrets.token_hex(3),
+                "placeholder": str(dropdown.get("placeholder") or "Pilih role…")[:150],
+                "exclusive": bool(dropdown.get("exclusive")),
+                "group": str(dropdown.get("group") or "dropdown")[:40],
+                "options": opsi,
+            }
+        )
+
+    if not menu["buttons"] and not menu["dropdowns"]:
+        delete_menu(guild_id, menu["id"])
+        galat.append("Tidak ada tombol/dropdown yang bisa dipulihkan dari berkas itu.")
+        return None, galat
+
+    return menu, galat
+
+
+def update_menu_text(
+    menu: dict,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> list[str]:
+    """Ubah judul/deskripsi panel yang sudah terkirim (tanpa kirim ulang)."""
+    galat: list[str] = []
+    if title is not None:
+        bersih = str(title).strip()[:MAX_TITLE]
+        if not bersih:
+            galat.append("Judul tidak boleh kosong.")
+        else:
+            menu["title"] = bersih
+    if description is not None:
+        menu["description"] = str(description).strip()[:MAX_DESCRIPTION]
+    return galat
+
+
 def delete_menu(guild_id: int, menu_id: str) -> bool:
     bucket = menus.get(int(guild_id)) or {}
     return bucket.pop(str(menu_id), None) is not None
@@ -289,6 +557,56 @@ def add_command_button(
         "style": style if style in BUTTON_STYLES else "biru",
         "command": str(command_key),
         "visibility": visibility if visibility in (VIS_AUTO, VIS_PUBLIK, VIS_EPHEMERAL) else VIS_AUTO,
+    }
+    menu["buttons"].append(item)
+    return item
+
+
+def add_flow_button(
+    menu: dict,
+    label: str,
+    steps: list[dict],
+    *,
+    emoji: str | None = None,
+    style: str = "biru",
+) -> dict | None:
+    """Tombol yang menjalankan alur aksi (lihat `flows.py`)."""
+    if len(menu["buttons"]) >= MAX_BUTTONS:
+        return None
+    bersih = flows.sanitize_steps(steps)
+    if not bersih:
+        return None
+    item = {
+        "id": _new_item_id(menu),
+        "kind": KIND_FLOW,
+        "label": (str(label or "Aksi")[:80] or "Aksi"),
+        "emoji": emoji or "⚡",
+        "style": style if style in BUTTON_STYLES else "biru",
+        "flow": bersih,
+    }
+    menu["buttons"].append(item)
+    return item
+
+
+def add_form_button(
+    menu: dict,
+    form: dict,
+    *,
+    label: str | None = None,
+    emoji: str | None = None,
+    style: str = "biru",
+) -> dict | None:
+    """Tombol yang membuka formulir (modal) buatan Admin — lihat `modal_forms.py`."""
+    if len(menu["buttons"]) >= MAX_BUTTONS or not isinstance(form, dict):
+        return None
+    label = (str(label or "").strip() or str(form.get("name") or "Formulir"))[:80]
+    item = {
+        "id": _new_item_id(menu),
+        "kind": KIND_FORM,
+        "label": label,
+        "emoji": emoji or "📝",
+        "style": style if style in BUTTON_STYLES else "biru",
+        "form_id": str(form.get("id")),
     }
     menu["buttons"].append(item)
     return item
@@ -687,6 +1005,14 @@ async def handle_button(interaction: discord.Interaction, menu_id: str, item_id:
     if kind == KIND_COMMAND:
         await run_command_item(interaction, str(item.get("command")), str(item.get("visibility") or VIS_AUTO))
         return
+    if kind == KIND_FLOW:
+        await flows.run_flow(interaction, item.get("flow") or [], guild=guild, member=interaction.user)
+        return
+    if kind == KIND_FORM:
+        await modal_forms.open_form_modal(
+            interaction, modal_forms.get_form(guild.id, str(item.get("form_id") or ""))
+        )
+        return
 
 
 async def handle_select(interaction: discord.Interaction, menu_id: str, dropdown_id: str) -> None:
@@ -739,14 +1065,24 @@ def _item_button(menu: dict, item: dict) -> ui.Button:
     return button
 
 
-def build_panel_items(menu: dict, *, banner_override: str | None = None) -> list:
-    """Menyusun daftar komponen (container + action rows) untuk sebuah menu."""
+def build_panel_items(
+    menu: dict,
+    *,
+    banner_override: str | None = None,
+    guild=None,
+) -> list:
+    """Menyusun daftar komponen (container + action rows) untuk sebuah menu.
+
+    `guild` dipakai untuk mengisi variabel seperti `{server.members}` pada judul/deskripsi.
+    """
     guild_id = _to_int(menu.get("guild_id")) or None
     container = ui.Container(accent_colour=ui_theme.accent_color(guild_id))
 
-    head = f"# {menu.get('title') or 'Menu'}"
-    if menu.get("description"):
-        head += f"\n{menu['description']}"
+    judul = message_template.render(str(menu.get("title") or "Menu"), guild=guild)
+    deskripsi = message_template.render(str(menu.get("description") or ""), guild=guild)
+    head = f"# {judul}"
+    if deskripsi:
+        head += f"\n{deskripsi}"
     container.add_item(ui.TextDisplay(head[:4000]))
 
     banner = banner_override or menu.get("banner_url")
@@ -796,10 +1132,10 @@ def build_panel_items(menu: dict, *, banner_override: str | None = None) -> list
     return items
 
 
-def build_view(menu: dict, *, banner_override: str | None = None) -> ui.LayoutView:
+def build_view(menu: dict, *, banner_override: str | None = None, guild=None) -> ui.LayoutView:
     """`LayoutView` persisten (timeout=None) untuk sebuah menu."""
     view = ui.LayoutView(timeout=None)
-    for item in build_panel_items(menu, banner_override=banner_override):
+    for item in build_panel_items(menu, banner_override=banner_override, guild=guild):
         view.add_item(item)
     return view
 
@@ -824,6 +1160,12 @@ def build_fallback_embed(menu: dict) -> discord.Embed:
     )
 
 
+def is_forum_channel(channel) -> bool:
+    """Channel forum (butuh `create_thread`, bukan `send`)."""
+    forum_cls = getattr(discord, "ForumChannel", None)
+    return bool(forum_cls is not None and isinstance(channel, forum_cls))
+
+
 async def send_panel(
     bot,
     menu: dict,
@@ -832,8 +1174,37 @@ async def send_panel(
     banner_file: discord.File | None = None,
     banner_ref: str | None = None,
 ) -> discord.Message | None:
-    """Mengirim panel menu ke channel & menyimpan `message_id` + URL banner."""
-    view = build_view(menu, banner_override=banner_ref)
+    """Mengirim panel menu ke channel, thread, atau forum & menyimpan `message_id`."""
+    guild = getattr(channel, "guild", None)
+    view = build_view(menu, banner_override=banner_ref, guild=guild)
+    if is_forum_channel(channel):
+        # Forum: panel menjadi post baru (judul panel = nama post)
+        nama_post = message_template.render(str(menu.get("title") or "Panel"), guild=guild)[:100]
+        try:
+            kwargs: dict = {"name": nama_post or "Panel", "view": view}
+            if banner_file is not None:
+                kwargs["file"] = banner_file
+            hasil = await channel.create_thread(**kwargs)
+        except (discord.HTTPException, TypeError, ValueError) as exc:
+            logger.warning("Panel V2 ke forum ditolak (%s) — memakai embed klasik.", exc)
+            try:
+                hasil = await channel.create_thread(
+                    name=nama_post or "Panel",
+                    content=(menu.get("description") or "Panel")[:2000],
+                    embed=build_fallback_embed(menu),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                return None
+        thread = getattr(hasil, "thread", None)
+        message = getattr(hasil, "message", None)
+        menu["channel_id"] = getattr(thread, "id", None) or getattr(channel, "id", None)
+        menu["message_id"] = getattr(message, "id", None)
+        try:
+            bot.add_view(view, message_id=menu["message_id"])
+        except Exception as exc:  # pragma: no cover - depends on client state
+            logger.debug("Pendaftaran view forum dilewati: %s", exc)
+        return message
+
     try:
         if banner_file is not None:
             message = await channel.send(view=view, file=banner_file)
@@ -872,6 +1243,14 @@ async def refresh_panel(bot, menu: dict) -> bool:
     getter = getattr(bot, "get_channel", None)
     if callable(getter) and menu.get("channel_id"):
         channel = getter(int(menu["channel_id"]))
+    if channel is None and menu.get("channel_id"):
+        # thread/forum post biasanya tidak ada di cache
+        fetcher = getattr(bot, "fetch_channel", None)
+        if callable(fetcher):
+            try:
+                channel = await fetcher(int(menu["channel_id"]))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+                channel = None
     if channel is None:
         return False
     try:
@@ -879,7 +1258,7 @@ async def refresh_panel(bot, menu: dict) -> bool:
     except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
         return False
 
-    view = build_view(menu)
+    view = build_view(menu, guild=guild)
     try:
         await message.edit(view=view)
     except (discord.HTTPException, TypeError, ValueError) as exc:
@@ -903,7 +1282,11 @@ def register_menus(bot) -> int:
             if not menu.get("buttons") and not menu.get("dropdowns"):
                 continue
             try:
-                view = build_view(menu)
+                guild = None
+                getter = getattr(bot, "get_guild", None)
+                if callable(getter) and menu.get("guild_id"):
+                    guild = getter(int(menu["guild_id"]))
+                view = build_view(menu, guild=guild)
                 if menu.get("message_id"):
                     bot.add_view(view, message_id=int(menu["message_id"]))
                 else:
@@ -930,6 +1313,23 @@ def _menu_payload(menu: dict) -> dict:
         "dropdowns": menu.get("dropdowns", []),
         "created_at": menu.get("created_at"),
     }
+
+
+def _sanitize_buttons(buttons) -> list[dict]:
+    """Tombol dari disk: alur aksi divalidasi ulang (jangan percaya JSON)."""
+    hasil: list[dict] = []
+    for tombol in buttons or []:
+        if not isinstance(tombol, dict):
+            continue
+        if tombol.get("kind") == KIND_FLOW:
+            langkah = flows.sanitize_steps(tombol.get("flow"))
+            if not langkah:
+                continue
+            tombol = {**tombol, "flow": langkah}
+        if tombol.get("kind") == KIND_FORM and not str(tombol.get("form_id") or "").strip():
+            continue  # tombol formulir tanpa rujukan tidak bisa dijalankan
+        hasil.append(tombol)
+    return hasil
 
 
 def load_menus_from_disk() -> int:
@@ -963,7 +1363,7 @@ def load_menus_from_disk() -> int:
                 "description": str(data.get("description") or "")[:MAX_DESCRIPTION],
                 "banner_url": (str(data.get("banner_url"))[:400] if data.get("banner_url") else None),
                 "kind": str(data.get("kind") or MENU_KIND_MENU),
-                "buttons": [b for b in (data.get("buttons") or []) if isinstance(b, dict)],
+                "buttons": _sanitize_buttons(data.get("buttons")),
                 "dropdowns": [d for d in (data.get("dropdowns") or []) if isinstance(d, dict)],
                 "created_at": float(data.get("created_at") or 0),
             }
