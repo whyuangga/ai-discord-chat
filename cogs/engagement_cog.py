@@ -629,7 +629,7 @@ pengumuman_group = app_commands.Group(
 
 @pengumuman_group.command(name="tambah", description="Jadwalkan pengumuman baru")
 @app_commands.describe(
-    isi="Isi pengumuman",
+    isi="Isi pengumuman — boleh pakai variabel `{server.name}`, `{server.members}`, `{now_relative}`",
     jadwal="`08:00` (harian), `senin 19:00` (mingguan), `sekali 31-12-2026 23:59`",
     judul="Judul pengumuman (opsional)",
     channel="Channel tujuan (default: channel ini)",
@@ -744,6 +744,110 @@ async def pengumuman_hapus_cmd(interaction: discord.Interaction, id: int):
         return
     await engagement.save_engagement_to_disk()
     await interaction.response.send_message(f"🗑️ Pengumuman `#{id}` dihapus.", ephemeral=True)
+
+
+@pengumuman_group.command(name="kirim", description="Kirim pengumuman sekarang juga (jadwal tidak berubah)")
+@app_commands.describe(id="ID pengumuman (lihat di /pengumuman daftar)")
+async def pengumuman_kirim_cmd(interaction: discord.Interaction, id: int):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    status, cfg = await engagement.send_announcement_now(
+        interaction.client, int(id), guild_id=interaction.guild.id
+    )
+    if status == "tidak_ada":
+        await interaction.followup.send(
+            f"⚠️ Pengumuman dengan ID `{id}` tidak ditemukan di server ini.", ephemeral=True
+        )
+        return
+    if status == "channel":
+        await interaction.followup.send(
+            f"⚠️ Gagal mengirim `#{id}` — channel tujuannya hilang atau bot tidak punya izin.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.followup.send(
+        f"📤 Pengumuman `#{id}` dikirim ke <#{cfg['channel_id']}>.\n"
+        f"-# Jadwal berikutnya tetap: {engagement.format_timestamp(float(cfg['next_run_at'] or 0), 'R')}"
+        if float(cfg.get("next_run_at") or 0)
+        else f"📤 Pengumuman `#{id}` dikirim. Jadwal sekali-kirim sudah selesai.",
+        ephemeral=True,
+    )
+
+
+@pengumuman_group.command(name="ubah", description="Ubah isi / judul / jadwal pengumuman tanpa menghapusnya")
+@app_commands.describe(
+    id="ID pengumuman",
+    isi="Isi baru (boleh variabel `{server.name}`)",
+    judul="Judul baru",
+    jadwal="Jadwal baru: `08:00`, `senin 19:00`, atau `sekali 31-12-2026 23:59`",
+)
+async def pengumuman_ubah_cmd(
+    interaction: discord.Interaction,
+    id: int,
+    isi: str | None = None,
+    judul: str | None = None,
+    jadwal: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+    if isi is None and judul is None and jadwal is None:
+        await interaction.response.send_message(
+            "⚠️ Isi minimal salah satu: `isi`, `judul`, atau `jadwal`.", ephemeral=True
+        )
+        return
+
+    spec = None
+    if jadwal is not None:
+        spec = engagement.parse_announcement_schedule(jadwal)
+        if spec is None:
+            await interaction.response.send_message(
+                "⚠️ Format jadwal tidak dikenali.\n"
+                "• Harian: `08:00`\n• Mingguan: `senin 19:00`\n• Sekali: `sekali 31-12-2026 23:59`",
+                ephemeral=True,
+            )
+            return
+
+    status, cfg = engagement.update_announcement(
+        int(id),
+        guild_id=interaction.guild.id,
+        content=isi,
+        title=judul,
+        spec=spec,
+        tz_name=_guild_timezone(interaction.guild.id),
+    )
+    if status == "tidak_ada":
+        await interaction.response.send_message(
+            f"⚠️ Pengumuman dengan ID `{id}` tidak ditemukan di server ini.", ephemeral=True
+        )
+        return
+    if status == "kosong":
+        await interaction.response.send_message(
+            "⚠️ Isi pengumuman tidak boleh kosong — pakai `/pengumuman hapus` bila ingin membuangnya.",
+            ephemeral=True,
+        )
+        return
+
+    await engagement.save_engagement_to_disk()
+    keterangan = (
+        f"\n• Jadwal: **{engagement.describe_announcement(cfg)}** "
+        f"({get_realtime_time_context(_guild_timezone(interaction.guild.id)).get('tz_label', 'WIB')})"
+        if spec is not None
+        else ""
+    )
+    await interaction.response.send_message(
+        f"✅ Pengumuman `#{id}` diperbarui.{keterangan}\n"
+        f"> {str(cfg.get('content') or '')[:200]}",
+        ephemeral=True,
+    )
 
 
 @pengumuman_group.command(name="atur", description="Aktifkan/nonaktifkan pengumuman tanpa menghapusnya")

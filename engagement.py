@@ -23,6 +23,8 @@ from pathlib import Path
 
 import discord
 
+import message_template
+
 try:  # Python 3.9+
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 except ImportError:  # pragma: no cover - Python lama
@@ -843,14 +845,20 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     if hour is None:
         return None
 
+    # "senin 19:00" tanpa kata "mingguan" tetap dianggap mingguan — dulu nama hari
+    # diabaikan sehingga jadwalnya berjalan SETIAP HARI.
     weekday = 0
-    if kind == "mingguan":
-        for idx, name in enumerate(_WEEKDAYS):
-            if name in text:
-                weekday = idx
-                break
-        else:
-            return None
+    ada_hari = False
+    for idx, name in enumerate(_WEEKDAYS):
+        if re.search(rf"\b{name}\b", text):
+            weekday = idx
+            ada_hari = True
+            break
+
+    if kind == "harian" and ada_hari:
+        kind = "mingguan"
+    if kind == "mingguan" and not ada_hari:
+        return None
 
     return {
         "kind": kind,
@@ -921,6 +929,80 @@ def add_announcement(
     return "ok", cfg
 
 
+def update_announcement(
+    announcement_id: int,
+    guild_id: int | None = None,
+    *,
+    content: str | None = None,
+    title: str | None = None,
+    spec: dict | None = None,
+    tz_name: str | None = None,
+) -> tuple[str, dict | None]:
+    """Ubah isi/judul/jadwal pengumuman tanpa menghapusnya.
+
+    Status: `ok`, `tidak_ada` (ID bukan milik server ini), `kosong` (isi jadi kosong).
+    """
+    cfg = announcements.get(int(announcement_id))
+    if cfg is None or (guild_id is not None and cfg.get("guild_id") != int(guild_id)):
+        return "tidak_ada", None
+
+    if content is not None:
+        body = str(content).strip()
+        if not body:
+            return "kosong", None
+        cfg["content"] = body[:1900]
+    if title is not None:
+        cfg["title"] = str(title)[:200]
+    if spec is not None:
+        cfg["kind"] = spec.get("kind") or cfg.get("kind") or "harian"
+        cfg["hour"] = int(spec.get("hour") or 0)
+        cfg["minute"] = int(spec.get("minute") or 0)
+        cfg["weekday"] = int(spec.get("weekday") or 0)
+        cfg["next_run_at"] = compute_next_run(spec, tz_name=tz_name)
+        cfg["enabled"] = True
+    return "ok", cfg
+
+
+async def send_announcement_now(
+    bot: discord.Client,
+    announcement_id: int,
+    guild_id: int | None = None,
+) -> tuple[str, dict | None]:
+    """Kirim pengumuman saat ini juga, tanpa menunggu jadwal.
+
+    Status: `ok`, `tidak_ada`, `channel` (channel hilang/tanpa izin).
+    Jadwal pengumuman **tidak** digeser — `next_run_at` tetap seperti semula.
+    """
+    cfg = announcements.get(int(announcement_id))
+    if cfg is None or (guild_id is not None and cfg.get("guild_id") != int(guild_id)):
+        return "tidak_ada", None
+
+    get_channel = getattr(bot, "get_channel", None)
+    channel = get_channel(_to_int(cfg.get("channel_id"))) if callable(get_channel) else None
+    if channel is None:
+        return "channel", cfg
+
+    try:
+        await channel.send(
+            embed=build_announcement_embed(
+                cfg,
+                guild=getattr(channel, "guild", None),
+                channel=channel,
+            ),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning("Gagal kirim pengumuman %s sekarang: %s", announcement_id, sanitize_error_message(exc))
+        return "channel", cfg
+
+    cfg["last_sent_at"] = time.time()
+    if cfg.get("kind") == "sekali":
+        cfg["enabled"] = False
+        cfg["next_run_at"] = 0.0
+    await save_engagement_to_disk()
+    return "ok", cfg
+
+
 def remove_announcement(announcement_id: int, guild_id: int | None = None) -> bool:
     cfg = announcements.get(int(announcement_id))
     if cfg is None:
@@ -957,10 +1039,19 @@ def describe_announcement(cfg: dict) -> str:
     return f"setiap hari {clock}"
 
 
-def build_announcement_embed(cfg: dict, *, tz_label: str = "WIB") -> discord.Embed:
+def build_announcement_embed(
+    cfg: dict,
+    *,
+    tz_label: str = "WIB",
+    guild: discord.Guild | None = None,
+    channel: discord.abc.GuildChannel | None = None,
+) -> discord.Embed:
+    """Embed pengumuman; variabel `{server.*}`/`{now}` dirender saat dikirim."""
+    judul = message_template.render(cfg.get("title") or "", guild=guild, channel=channel)
+    isi = message_template.render(str(cfg.get("content") or ""), guild=guild, channel=channel)
     embed = discord.Embed(
-        title=cfg.get("title") or "📢 Pengumuman",
-        description=str(cfg.get("content") or "")[:4000],
+        title=(judul[:256] or "📢 Pengumuman"),
+        description=isi[:4000],
         color=discord.Color.blurple(),
         timestamp=datetime.now(timezone.utc),
     )
@@ -988,7 +1079,11 @@ async def run_announcement_check(bot: discord.Client) -> int:
         if channel is not None:
             try:
                 await channel.send(
-                    embed=build_announcement_embed(cfg),
+                    embed=build_announcement_embed(
+                        cfg,
+                        guild=getattr(channel, "guild", None),
+                        channel=channel,
+                    ),
                     allowed_mentions=discord.AllowedMentions.none(),
                 )
                 delivered = True

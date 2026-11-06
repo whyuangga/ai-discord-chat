@@ -72,6 +72,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/saran hapus` | `id` | *(Admin)* Hapus saran beserta pesannya. |
 | `/embed buat` | `channel`, `warna` | *(Staff)* Buat pengumuman embed lewat formulir. |
 | `/embed cepat` | `channel`, `judul`, `isi`, `warna`, `gambar` | *(Staff)* Kirim embed tanpa formulir. |
+| `/embed variabel` | — | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … yang bisa dipakai di judul/isi. |
 | `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
 | `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
 | `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |
@@ -167,6 +168,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/pengumuman daftar` | — | Lihat seluruh jadwal & kiriman berikutnya. |
 | `/pengumuman hapus` | `id` | *(Admin)* Hapus pengumuman terjadwal. |
 | `/pengumuman atur` | `id`, `aktif` | *(Admin)* Jeda atau aktifkan lagi tanpa menghapus. |
+| `/pengumuman kirim` | `id` | *(Admin)* Kirim sekarang juga; jadwal berikutnya tidak berubah. |
+| `/pengumuman ubah` | `id`, `isi`, `judul`, `jadwal` | *(Admin)* Ubah isi/judul/jadwal tanpa menghapus. |
 
 ## 8. Slash Commands Level & Tiket (`/level`, `/tiket`)
 
@@ -251,7 +254,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/menu tombol-link` | `label`, `url`, `menu`, `emoji` | *(Admin)* Tombol tautan. |
 | `/menu tombol-command` | `aksi`, `menu`, `label`, `emoji`, `visibilitas`, `gaya` | *(Admin)* Tombol yang menjalankan command info. |
 | `/menu dropdown-role` | `role1`…`role5`, `menu`, `placeholder`, `eksklusif`, `emoji1`…`emoji5` | *(Admin)* Dropdown role. |
+| `/menu alur` | `aksi`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Tombol yang menjalankan **alur aksi**: `+role:123 > pesan:Halo {member.mention} > thread:tiket`. |
+| `/menu alur-bantuan` | — | Panduan menulis alur (`role`, `pesan`, `umum`, `thread`, `tunggu`, `stop`, `syarat`). |
 | `/menu hapus-item` | `item`, `menu` | *(Admin)* Hapus tombol/opsi. |
+| `/menu ubah` | `menu`, `judul`, `deskripsi` | *(Admin)* Ubah teks panel yang sudah terkirim (pesan ikut berubah, tanpa kirim ulang). |
+| `/menu ekspor` | `menu` | *(Admin)* Unduh panel sebagai berkas JSON (backup / pindah server). |
+| `/menu impor` | `berkas`, `judul` | *(Admin)* Buat panel baru dari berkas JSON hasil `/menu ekspor`. |
 | `/menu kirim` | `menu`, `channel` | *(Admin)* Kirim ulang panel. |
 | `/menu daftar` | — | Daftar panel & isinya. |
 | `/menu hapus` | `menu` | *(Admin)* Hapus panel dari daftar bot. |

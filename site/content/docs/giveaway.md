@@ -58,8 +58,11 @@ toc: true
 | **`/pengumuman tambah isi:... jadwal:senin 19:00`** | Setiap minggu (nama hari Indonesia). |
 | **`/pengumuman tambah isi:... jadwal:sekali 31-12-2026 23:59`** | Satu kali saja, lalu otomatis nonaktif. |
 | **`/pengumuman daftar`** / **`hapus id:3`** / **`atur id:3 aktif:False`** | Kelola jadwal tanpa menghapus isi. |
+| **`/pengumuman kirim id:3`** | Kirim **sekarang** tanpa menunggu jadwal — jadwal berikutnya tidak digeser. |
+| **`/pengumuman ubah id:3 isi:... judul:... jadwal:...`** | Ubah isi/judul/jadwal tanpa menghapus; jadwal baru langsung dihitung. |
 
-- Format jadwal ringkas: `08:00`, `harian 20:30`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- Format jadwal ringkas: `08:00`, `harian 20:30`, `senin 19:00`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- Isi pengumuman boleh memakai variabel (`{server.name}`, `{server.members}`, `{now_relative}`) yang diisi **saat dikirim**.
 - Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.
 - Batas `ANNOUNCEMENT_MAX_PER_GUILD` (default 15) pengumuman per server.
 
