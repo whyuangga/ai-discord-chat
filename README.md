@@ -31,7 +31,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, kontrol fitur dari browser | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **39 setelan** + kirim embed/webhook dari browser | 0 |
 
 ---
 
@@ -324,7 +324,7 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `DASHBOARD_TOKEN` | Opsional | Kosong | Kata sandi akses dashboard web. Kosong = dashboard nonaktif. |
 | `DASHBOARD_PORT` | Opsional | `0` | Port dashboard (`0` = ambil otomatis dari `SERVER_PORT`/`PORT` panel). |
 | `DASHBOARD_HOST` | Opsional | `0.0.0.0` | Alamat bind server dashboard (jangan diganti kecuali perlu). |
-| `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). |
+| `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). Isi `0` untuk mematikan (dianjurkan bila sering mengisi form dari HP). |
 | `TRANSLATE_RATE_LIMIT_SEC` | — | `3` | (internal, `translate_tools.py`) Jeda minimal antar-terjemahan per channel. |
 | `TICKET_MAX_OPEN_PER_USER` | Opsional | `2` | Batas tiket aktif per member. |
 | `TICKET_MAX_TRANSCRIPT_LINES` | Opsional | `400` | Jumlah baris pesan pada transkrip tiket. |
