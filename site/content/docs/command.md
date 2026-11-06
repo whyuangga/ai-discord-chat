@@ -250,6 +250,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 
 ---
 
+> **Command pengelola disembunyikan otomatis.** Command yang jelas khusus Admin/Manage Server
+> (`/menu`, `/antinuke`, `/backup`, `/raid`, `/log`, `/autorole`, …) diberi izin minimum sehingga
+> **member biasa tidak melihatnya sama sekali** di daftar slash. Dari 288 entri, ±139 entri
+> hanya muncul untuk pengelola — sisanya (±149) terlihat semua orang. Jalankan
+> `python tools/command_audit.py` untuk melihat pembagiannya.
+
 ## 12. Slash Commands Menu Builder (`/menu`)
 
 | Command | Parameter | Fungsi |

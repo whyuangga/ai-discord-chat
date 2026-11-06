@@ -54,6 +54,7 @@ from menu_builder import (
     load_menus_from_disk,
     save_menus_to_disk,
 )
+import command_policy
 import flow_triggers
 import link_embed
 import modal_forms
@@ -502,6 +503,9 @@ class GeminiDiscordBot(commands.Bot):
 
 bot = GeminiDiscordBot()
 register_all_cogs(bot)
+
+# Sembunyikan command khusus pengelola dari member biasa (lihat command_policy.py).
+_policy = command_policy.apply(bot.tree)
 
 # Alias kompatibilitas untuk pemanggilan langsung dari modul/pengujian
 slash_ringkas = ringkas_chat_cmd
