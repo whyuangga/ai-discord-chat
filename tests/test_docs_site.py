@@ -116,6 +116,52 @@ def test_landing_tidak_memuat_angka_tes_usang():
     assert all(int(a) >= 150 for a in angka), f"angka tes usang: {angka}"
 
 
+def test_halaman_depan_punya_meta_sendiri():
+    """Halaman depan dulu memakai meta bawaan tema: deskripsi "A Lightweight, Modern
+    Documentation Theme for Hugo", author "Colin Wilson - Lotus Labs", dan tanpa kartu
+    Open Graph — pratinjau tautan di Google/Discord jadi salah atau kosong."""
+    override = ROOT / "site" / "layouts" / "partials" / "head.html"
+    assert override.is_file(), "parsial head.html tema harus ditimpa di site/layouts/"
+    isi = override.read_text(encoding="utf-8")
+    assert 'partial "docs/head/opengraph.html"' in isi
+    assert 'partial "docs/head/twitter_cards.html"' in isi
+    # meta tidak boleh lagi ditulis mati (hardcode) seperti versi tema
+    assert 'content="A Lightweight, Modern Documentation Theme for Hugo"' not in isi
+    assert '{{ .Site.Params.author | default .Site.Title }}' in isi
+    assert '<link rel="canonical"' in isi
+
+    index = (ROOT / "site" / "content" / "_index.md").read_text(encoding="utf-8")
+    deskripsi = re.search(r'^description:\s*"([^"]+)"', index, re.MULTILINE)
+    assert deskripsi, "content/_index.md harus punya description"
+    assert 70 <= len(deskripsi.group(1)) <= 200, "deskripsi halaman depan kepanjangan/pendek"
+
+    config = (ROOT / "site" / "hugo.toml").read_text(encoding="utf-8")
+    for kunci in ("keywords =", "author ="):
+        assert kunci in config, f"hugo.toml kehilangan params {kunci!r}"
+
+
+_HUGO = shutil.which("hugo") or str(ROOT / ".venv" / "bin" / "hugo")
+
+
+@pytest.mark.skipif(not Path(_HUGO).is_file(), reason="butuh hugo untuk build")
+def test_meta_halaman_depan_hasil_build(tmp_path):
+    """Uji hasil build: meta & kartu OG halaman depan harus milik situs ini."""
+    out = tmp_path / "public"
+    subprocess.run(
+        [_HUGO, "--quiet", "--minify", "--baseURL", "https://contoh.test/", "--destination", str(out)],
+        cwd=ROOT / "site",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    head = (out / "index.html").read_text(encoding="utf-8").split("</head>")[0]
+    assert "Lightweight, Modern Documentation Theme" not in head
+    assert "Colin Wilson" not in head
+    for tag in ("og:title", "og:description", "og:image", "twitter:card"):
+        assert tag in head, f"halaman depan tidak punya {tag}"
+    assert "https://contoh.test/opengraph/" in head, "kartu OG halaman depan tidak terbentuk"
+
+
 # Berkas hasil build yang memang tidak perlu dilacak git.
 _ARTEFAK_BUILD = ("site/public/", "site/resources/", "site/.hugo_build.lock")
 

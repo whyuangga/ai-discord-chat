@@ -19,6 +19,11 @@ disableKinds = ["taxonomy", "term"]
     unsafe = true
 
 [params]
+  # Meta halaman depan; deskripsinya ada di content/_index.md (lihat
+  # layouts/partials/head.html). Dipakai juga sebagai cadangan og:description.
+  keywords = "AI Discord Chat, bot Discord, dokumentasi bot Discord, Discord bot Bahasa Indonesia, Lavalink, open source"
+  author = "AI Discord Chat"
+
   [params.footer]
     copyright = "Dokumentasi AI Discord Chat & Community Agent — MIT"
 

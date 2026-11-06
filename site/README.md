@@ -83,6 +83,9 @@ tanpa perlu mengubah `hugo.toml`.
 | `site/data/landing.yaml` | hero + 6 kartu halaman depan (tema tidak menyediakannya) |
 | `site/layouts/robots.txt` | menambah baris `Sitemap:` — templat bawaan Hugo hanya `User-agent: *` |
 | `disableKinds = ["taxonomy", "term"]` di `hugo.toml` | mencegah `/categories/` & `/tags/` kosong ikut ke sitemap |
+| `site/layouts/partials/head.html` | menimpa `<head>` halaman depan: meta tema ("A Lightweight, Modern Documentation Theme…", author Colin Wilson, email support@aigis.uk) diganti deskripsi/keywords/author situs + kartu Open Graph & Twitter |
+| `site/content/_index.md` | sumber `title` & `description` halaman depan; halaman depan tetap dirender dari `data/landing.yaml`, isi berkas ini tidak tampil |
+| `keywords` / `author` di `[params]` `hugo.toml` | dipakai `site/layouts/partials/head.html` |
 
 ## Isi tema & asal-usulnya (untuk update manual)
 
