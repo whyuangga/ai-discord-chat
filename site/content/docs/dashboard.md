@@ -37,10 +37,11 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | Bagian | Isi |
 | :--- | :--- |
 | **Pemilih server** | dropdown server di pojok atas (muncul otomatis bila bot ada di lebih dari satu server) — tanpa login, cukup token |
+| **Menu ☰ & navigasi** | header menempel di atas + menu anchor ke tiap panel; di HP menu berubah jadi **hamburger** (CSS murni, tanpa JavaScript) |
 | **Status & pemakaian** | uptime, RAM, latensi, server/member, status Gemini, token masuk/keluar, cache hit, FAQ lokal |
 | **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
-| **Kontrol Cepat** | 5 sakelar lama: level, ekonomi, pertumbuhan, anti-spam, anti-nuke |
+| **Kontrol Cepat** | sakelar level, ekonomi, & pertumbuhan dengan **tombol yang mengikuti keadaan** (“Nonaktifkan” saat aktif, “Aktifkan” saat mati) + mode anti-spam & aksi anti-nuke |
 | **Setelan server** | **48 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
@@ -51,6 +52,33 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Panel verifikasi** | pasang/matikan gerbang verifikasi (tombol sekali klik → role) tanpa command |
 | **Ekspor CSV** | unduh data level, moderasi, tiket, & pemakaian AI langsung dari browser |
 | **Riwayat perubahan** | 8 perubahan terakhir dari dashboard (siapa-waktu-nilai-hasil) |
+
+### Navigasi dashboard (menu ☰ di HP)
+
+Halaman dashboard itu panjang (status → setelan → kirim → tiket → panel → banner).
+Supaya tidak perlu menggulir buta:
+
+| Bagian | Perilaku |
+| :--- | :--- |
+| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: nama bot, versi, waktu baca, & pemilih server |
+| **Menu anchor** | baris tombol 📡 Status · 📊 Pemakaian · 📈 Tren · 🏆 Level · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🎫 Tiket · 🧩 Panel · 🖼️ Banner · 📥 Ekspor · 🗂️ Konten · 🧾 Riwayat |
+| **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
+| **Lompatan rapi** | setiap panel punya `id` (`#p-setelan`, `#p-tiket`, …) dan `scroll-margin-top`, jadi judulnya tidak tertutup header |
+
+### Setelah menekan Simpan
+
+Form memakai pola **POST → redirect (303) → GET**: setelah menyimpan, kamu kembali ke
+panel yang sama (`#p-…`) dan melihat kotak pesan ✅ berisi hasilnya — nilai barunya sudah
+terbaca dari JSON, jadi tidak perlu klik “kembali” atau muat ulang. Kalau gagal, pesan ⚠️
+dan alasannya tampil di halaman hasil dengan tautan kembali ke panel yang sama.
+Endpoint JSON (`Content-Type: application/json`) tetap menerima `200`/`400` + `{"ok": …}`
+tanpa redirect.
+
+> 🐞 **Perbaikan**: saklar **Level & XP** dulu kembali ke “Aktif” setelah disimpan jadi
+> “Nonaktif”, karena pembacaan setelan memakai `get_level_config()` yang membuat konfigurasi
+> default (`enabled: True`) dan `set_level_config(aktif=False)` menghapus konfigurasi.
+> Sekarang dashboard memakai `peek_level_config()` (baca tanpa membuat config) dan
+> `set_level_enabled()` (menyimpan `enabled: False` tanpa menghapus setelan XP/channel/season).
 
 ### Setelan yang bisa diubah dari web (48 fitur)
 

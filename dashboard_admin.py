@@ -137,10 +137,27 @@ def _set_kanal_sederhana(nama: str, label: str, *, key: str, getter: str = "set_
 # FITUR: LEVEL & EKONOMI
 # ==============================================================================
 def _baca_level(key: str, bawaan=None):
+    """Baca setelan level tanpa efek samping (jangan membuat config default)."""
+
     def baca(guild_id: int) -> str:
-        return str(_cfg("levels", guild_id, "get_level_config").get(key, bawaan))
+        try:
+            data = _mod("levels").peek_level_config(int(guild_id))
+        except Exception:  # pragma: no cover - jaring aman
+            data = {}
+        return str(data.get(key, bawaan))
 
     return baca
+
+
+def _set_level_aktif(guild_id: int, nilai: str) -> tuple[bool, str]:
+    """Saklar Level & XP: matikan tanpa menghapus setelan XP/channel/season."""
+    aktif = str(nilai).strip().lower() == "on"
+    levels = _mod("levels")
+    if hasattr(levels, "set_level_enabled"):
+        levels.set_level_enabled(int(guild_id), aktif)
+    else:  # pragma: no cover - versi lama
+        levels.set_level_config(int(guild_id), enabled=aktif)
+    return _pesan("Level & XP", aktif)
 
 
 def _set_level_flag(key: str, label: str):
@@ -733,7 +750,7 @@ FITUR_LIST = [
     # --- Inti & angka ---------------------------------------------------------
     _f("level.aktif", "Level & XP", "saklar",
        lambda g: "on" if _mod("levels").is_leveling_active(int(g)) else "off",
-       _set_level_flag("enabled", "Level & XP"), "levels"),
+       _set_level_aktif, "levels"),
     _f("level.pengumuman", "Pengumuman naik level", "saklar",
        lambda g: "on" if _cfg("levels", g, "get_level_config").get("announce", True) else "off",
        _set_level_flag("announce", "Pengumuman naik level"), "levels"),

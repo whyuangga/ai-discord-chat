@@ -6,14 +6,17 @@ Prinsip desain:
 1. **Proses yang sama** — memakai `aiohttp.web` di event loop bot yang sudah jalan
    (aiohttp sudah jadi dependency sejak awal), jadi tidak menambah proses & sangat
    hemat RAM (±2–4 MB).
-2. **Baca + tulis terkendali** — halaman `GET /` tidak pernah mengubah apa pun.
+2. **Baca + tulis terkendali** — halaman `GET /` tidak pernah mengubah apa pun
+   (tidak ada efek samping saat membaca setelan).
    Semua perubahan lewat `POST /api/aksi` (setelan), `POST /api/kirim` (pesan/embed),
    dan `POST /api/konten` (pengumuman/tautan/panel/hapus) yang selalu memeriksa token
    dan hanya menjalankan aksi dari whitelist `dashboard_admin`.
 3. **Opt-in** — dashboard hanya menyala bila `DASHBOARD_TOKEN` diisi **dan** ada port
    (`DASHBOARD_PORT`, atau `SERVER_PORT`/`PORT` dari panel hosting seperti Wispbyte).
 4. **Tanpa JavaScript wajib** — HTML dirender di server + `meta refresh`, sehingga
-   tetap ringan dibuka dari HP.
+   tetap ringan dibuka dari HP. Menu ☰ dibuat dengan CSS (`#nav-buka:checked`), dan
+   submit form memakai pola POST → redirect (303) → GET supaya nilai baru langsung
+   terlihat di panel yang sama.
 
 Endpoint:
 
@@ -32,7 +35,7 @@ Endpoint:
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
 | `GET /api/tiket` · `POST /api/tiket` | Kotak masuk tiket: daftar, balas (`balas:<id>`), tutup (`tutup:<id>`), pasang panel (`panel`), matikan (`matikan`) |
 | `GET /api/panel` · `POST /api/panel` | Editor panel: daftar item, tambah (`tambah:<id>`), hapus (`hapus:<id>:<ref>`), pasang/matikan verifikasi (`verifikasi` / `verifikasi:matikan`) |
-| `GET /api/ekspor?jenis=<level\|moderasi\|tiket\|pemakaian>` | unduh CSV analitik server (wajib token) |
+| `GET /api/ekspor?jenis=<level/moderasi/tiket/pemakaian>` | unduh CSV analitik server (wajib token) |
 | `GET /api/unggahan/<nama>` | Pratinjau banner tersimpan (butuh token) |
 | `/healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
@@ -343,6 +346,27 @@ _PAGE_TEMPLATE = """<!doctype html>
   body {{ margin: 0; padding: 20px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
          background: #0f1117; color: #e6e6f0; }}
   h1 {{ font-size: 20px; margin: 0 0 4px; }}
+  /* --- header lengket + menu (tanpa JavaScript) --- */
+  .topbar {{ position: sticky; top: 0; z-index: 20; margin: -20px -20px 14px; padding: 10px 20px;
+      background: rgba(15, 17, 23, .96); border-bottom: 1px solid #242838;
+      backdrop-filter: blur(6px); }}
+  .topbar .baris {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
+  .topbar .judul {{ font-weight: 600; font-size: 16px; }}
+  .topbar .meta {{ color: #8b90a3; font-size: 12px; }}
+  .menu-btn {{ margin-left: auto; display: none; cursor: pointer; user-select: none;
+      padding: 8px 14px; border-radius: 10px; border: 1px solid #3a4152; background: #1d2433;
+      font-size: 15px; }}
+  .nav-buka {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
+  #nav-buka:focus-visible + .baris .menu-btn {{ outline: 2px solid #8ea2ff; outline-offset: 2px; }}
+  nav.menu {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
+  nav.menu a {{ padding: 6px 11px; border-radius: 999px; border: 1px solid #2a2f3d;
+      background: #171b25; color: #cbd0e0; text-decoration: none; font-size: 12.5px;
+      white-space: nowrap; }}
+  nav.menu a:hover {{ background: #263049; color: #fff; }}
+  .panel, .subpanel, section[id] {{ scroll-margin-top: 110px; }}
+  .flash {{ border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; font-size: 13px;
+      border: 1px solid #2f7d52; background: #12291d; }}
+  .flash.galat {{ border-color: #8a4a3a; background: #2a1714; }}
   .muted {{ color: #8b90a3; font-size: 12px; }}
   .kontrol {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }}
   .kontrol label {{ min-width: 190px; font-size: 13px; }}
@@ -425,6 +449,15 @@ _PAGE_TEMPLATE = """<!doctype html>
       text-decoration: none; font-size: 13px; }}
   a.tombol-unduh:hover {{ background: #263049; }}
   /* --- layar HP --- */
+  @media (max-width: 820px) {{
+    /* menu jadi hamburger: disembunyikan sampai kotak ☰ dicentang */
+    .menu-btn {{ display: inline-block; }}
+    nav.menu {{ display: none; flex-direction: column; gap: 4px; }}
+    nav.menu a {{ padding: 9px 12px; border-radius: 10px; font-size: 14px; }}
+    #nav-buka:checked ~ nav.menu {{ display: flex; }}
+    .topbar {{ margin: -12px -12px 12px; padding: 10px 12px; }}
+    .panel, .subpanel, section[id] {{ scroll-margin-top: 150px; }}
+  }}
   @media (max-width: 620px) {{
     body {{ padding: 12px; }}
     .panel {{ padding: 12px; }}
@@ -445,10 +478,33 @@ _PAGE_TEMPLATE = """<!doctype html>
 </style>
 </head>
 <body>
-  <h1>{heading}</h1>
-  {guild_picker}
-  <div class="muted">v{version} • panel admin • tanpa kuota AI • diperbarui {checked_at}{refresh_info}</div>
+  <header class="topbar">
+    <input type="checkbox" id="nav-buka" class="nav-buka">
+    <div class="baris">
+      <span class="judul">{heading}</span>
+      <span class="meta">v{version} • {checked_at}{refresh_info}</span>
+      <label class="menu-btn" for="nav-buka">☰ Menu</label>
+    </div>
+    <nav class="menu">
+      <a href="#p-status">📡 Status</a>
+      <a href="#p-pemakaian">📊 Pemakaian</a>
+      <a href="#p-tren">📈 Tren</a>
+      <a href="#p-level">🏆 Level</a>
+      <a href="#p-setelan">🛠️ Setelan</a>
+      <a href="#p-kirim">✉️ Kirim</a>
+      <a href="#p-buat">➕ Buat</a>
+      <a href="#p-tiket">🎫 Tiket</a>
+      <a href="#p-panel">🧩 Panel</a>
+      <a href="#p-banner">🖼️ Banner</a>
+      <a href="#p-ekspor">📥 Ekspor</a>
+      <a href="#p-konten">🗂️ Konten</a>
+      <a href="#p-riwayat">🧾 Riwayat</a>
+    </nav>
+    <div class="baris" style="margin-top:8px">{guild_picker}</div>
+  </header>
+  {flash}
 
+  <section id="p-status">
   <div class="grid">
     <div class="card">Uptime<b>{uptime}</b></div>
     <div class="card">RAM<b>{ram_mb} MB</b></div>
@@ -457,8 +513,9 @@ _PAGE_TEMPLATE = """<!doctype html>
     <div class="card">Gemini<b class="{ai_class}">{ai_label}</b></div>
     <div class="card">Operasi AI Hari Ini<b>{total}</b></div>
   </div>
+  </section>
 
-  <div class="panel">
+  <div class="panel" id="p-pemakaian">
     <h2>📊 Pemakaian AI — {date}</h2>
     <table>
       <tr><th>Token masuk</th><td>{tokens_in:,}</td><th>Token keluar</th><td>{tokens_out:,}</td></tr>
@@ -467,27 +524,27 @@ _PAGE_TEMPLATE = """<!doctype html>
     </table>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-jenis">
     <h2>🧩 Jenis Operasi</h2>
     {kinds_table}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-tren">
     <h2>📈 Tren {tren_hari} hari</h2>
     {tren_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-channel">
     <h2>📍 Channel Paling Ramai</h2>
     {channels_table}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-level">
     <h2>🏆 Papan Peringkat Level</h2>
     {levels_table}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-kontrol">
     <h2>⚙️ Kontrol Cepat</h2>
     <p class="muted">Menyala/mematikan fitur per server. Butuh token dashboard yang sah.</p>
     {fitur_block}
@@ -495,57 +552,57 @@ _PAGE_TEMPLATE = """<!doctype html>
     {kontrol_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-setelan">
     <h2>🛠️ Setelan server</h2>
     <p class="muted">Semua fitur di bawah bisa diubah dari sini. Pilih nilai lalu <b>Simpan</b> —
     perubahan langsung tersimpan ke JSON bot (tanpa restart) dan tercatat di riwayat.</p>
     {setelan_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-kirim">
     <h2>✉️ Kirim pesan &amp; embed</h2>
     <p class="muted">Kirim pengumuman sekali jalan, atau pakai identitas webhook supaya
     nama &amp; avatar pengirim bisa berbeda dari bot.</p>
     {kirim_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-buat">
     <h2>➕ Buat konten</h2>
     {buat_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-ekspor">
     <h2>📥 Ekspor CSV</h2>
     {ekspor_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-panel">
     <h2>🧩 Editor panel (tombol &amp; dropdown)</h2>
     <p class="muted">Tambah atau hapus tombol/role/dropdown tanpa membuka Discord.</p>
     {panel_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-tiket">
     <h2>🎫 Kotak masuk tiket</h2>
     <p class="muted">Balas atau tutup tiket dari HP — tanpa membuka Discord.</p>
     {tiket_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-banner">
     <h2>🖼️ Banner &amp; gambar</h2>
     <p class="muted">Unggah gambar lalu pakai untuk banner panel atau gambar embed —
     tanpa perlu URL publik. Berkas disimpan di <code>data/uploads/</code>.</p>
     {banner_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-konten">
     <h2>🗂️ Konten tersimpan</h2>
     <p class="muted">Klik Hapus untuk membuang konten. Pesan yang sudah terkirim di Discord
     tidak ikut terhapus.</p>
     {konten_block}
   </div>
 
-  <div class="panel">
+  <div class="panel" id="p-riwayat">
     <h2>🧾 Riwayat perubahan</h2>
     {audit_block}
   </div>
@@ -583,6 +640,50 @@ def _levels_table(payload: dict) -> str:
     )
 
 
+def _anchor_aksi(aksi: str) -> str:
+    """Panel tujuan setelah submit: setelan, kontrol cepat, atau default."""
+    kunci = str(aksi or "").strip().lower()
+    if kunci.startswith("set."):
+        return "p-setelan"
+    if kunci in ("level", "ekonomi", "tumbuh", "antispam", "antinuke"):
+        return "p-kontrol"
+    return "p-setelan"
+
+
+def _anchor_konten(aksi: str) -> str:
+    """Panel tujuan untuk aksi konten (buat/hapus/banner)."""
+    kunci = str(aksi or "").strip().lower()
+    if kunci.startswith(("banner.", "hapusbanner.")):
+        return "p-konten"
+    if kunci.startswith("hapus."):
+        return "p-konten"
+    if kunci.startswith("unggah."):
+        return "p-banner"
+    return "p-buat"
+
+
+def _teks_pesan(pesan: str) -> str:
+    """Escape HTML lalu ubah `**tebal**` menjadi <b> (pesan bot memakai markdown)."""
+    aman = html.escape(str(pesan or "").strip())
+    bagian = aman.split("**")
+    if len(bagian) < 3:
+        return aman
+    hasil = bagian[0]
+    for urutan, potongan in enumerate(bagian[1:], start=1):
+        hasil += (f"<b>{potongan}</b>" if urutan % 2 else potongan)
+    return hasil
+
+
+def _flash_box(pesan: str, ok: bool = True) -> str:
+    """Kotak pesan setelah submit (pengganti halaman hasil terpisah)."""
+    teks = str(pesan or "").strip()
+    if not teks:
+        return ""
+    kelas = "flash" if ok else "flash galat"
+    tanda = "✅" if ok else "⚠️"
+    return f'<div class="{kelas}">{tanda} {_teks_pesan(teks)}</div>'
+
+
 def render_dashboard_html(
     *,
     status: dict,
@@ -599,6 +700,8 @@ def render_dashboard_html(
     audit_block: str = "",
     banner_block: str = "",
     guild_picker: str = "",
+    flash_pesan: str = "",
+    flash_ok: bool = True,
     ekspor_block: str = "",
     panel_block: str = "",
     tiket_block: str = "",
@@ -656,6 +759,7 @@ def render_dashboard_html(
         audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
         banner_block=banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         guild_picker=guild_picker,
+        flash=_flash_box(flash_pesan, flash_ok),
         ekspor_block=ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
         panel_block=panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
         tiket_block=tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
@@ -684,7 +788,8 @@ def dashboard_controls(guild_id: int) -> dict:
     import levels
 
     gid = int(guild_id or 0)
-    level_cfg = levels.get_level_config(gid) if gid else {}
+    # Level dibaca lewat `is_leveling_active` (tidak membuat config default seperti
+    # `get_level_config` — dulu itu membuat fitur menyala lagi setelah dimatikan).
     econ_cfg = economy.get_config(gid) if gid else {}
     growth_cfg = growth_tracker.get_config(gid) if gid else {}
     spam_cfg = antispam.get_spam_config(gid) if gid else {}
@@ -692,7 +797,7 @@ def dashboard_controls(guild_id: int) -> dict:
 
     return {
         "guild": gid,
-        "level": "on" if level_cfg.get("enabled") else "off",
+        "level": "on" if levels.is_leveling_active(gid) else "off",
         "ekonomi": "on" if econ_cfg.get("enabled") else "off",
         "tumbuh": "on" if growth_cfg.get("enabled", True) else "off",
         "antispam": str(spam_cfg.get("mode")) if spam_cfg.get("enabled") else "off",
@@ -717,7 +822,11 @@ async def apply_dashboard_action(guild_id: int, action: str, value: str) -> tupl
     if act == "level":
         if val not in ("on", "off"):
             return False, "Nilai level harus `on` atau `off`."
-        levels.set_level_config(gid, enabled=(val == "on"))
+        setter = getattr(levels, "set_level_enabled", None)
+        if callable(setter):
+            setter(gid, val == "on")
+        else:  # pragma: no cover - versi lama
+            levels.set_level_config(gid, enabled=(val == "on"))
         await levels.save_levels_to_disk()
         return True, f"Level & XP sekarang **{'aktif' if val == 'on' else 'nonaktif'}**."
 
@@ -757,7 +866,7 @@ async def apply_dashboard_action(guild_id: int, action: str, value: str) -> tupl
 
 
 def render_controls_block(guild_id: int, token: str) -> str:
-    """Form HTML sederhana untuk menyalakan/mematikan fitur dari browser."""
+    """Saklar cepat: tombolnya mengikuti keadaan (Aktif → "Nonaktifkan")."""
     import antinuke
     import antispam
 
@@ -767,7 +876,22 @@ def render_controls_block(guild_id: int, token: str) -> str:
         f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
     )
 
-    def _form(action: str, label: str, options: list[tuple[str, str]], current: str) -> str:
+    def _saklar(action: str, label: str, aktif: bool) -> str:
+        """Satu tombol: label menyebut aksi berikutnya, bukan keadaan sekarang."""
+        tujuan = "off" if aktif else "on"
+        teks = "Nonaktifkan" if aktif else "Aktifkan"
+        kelas = "danger" if aktif else ""
+        tanda = "✅" if aktif else "⬜"
+        return (
+            f'<form method="post" action="/api/aksi" class="kontrol">'
+            f'{hidden}<input type="hidden" name="action" value="{action}">'
+            f'<input type="hidden" name="value" value="{tujuan}">'
+            f'<label>{tanda} {html.escape(label)} '
+            f'<span class="muted">({"aktif" if aktif else "nonaktif"})</span></label>'
+            f'<button type="submit" class="{kelas}">{teks}</button></form>'
+        )
+
+    def _pilih(action: str, label: str, options: list[tuple[str, str]], current: str) -> str:
         opts = "".join(
             f'<option value="{html.escape(value)}"'
             + (" selected" if value == current else "")
@@ -785,14 +909,15 @@ def render_controls_block(guild_id: int, token: str) -> str:
     sp_options = [("off", "Mati")] + [(key, key.capitalize()) for key in antispam.SPAM_MODES]
     nuke_options = [(key, key) for key in antinuke.PUNISH_CHOICES]
 
-    forms = [
-        _form("level", "📈 Level & XP", LEVEL_OPTIONS, state["level"]),
-        _form("ekonomi", "💰 Ekonomi koin", LEVEL_OPTIONS, state["ekonomi"]),
-        _form("tumbuh", "🌱 Pertumbuhan & invite", LEVEL_OPTIONS, state["tumbuh"]),
-        _form("antispam", "🚨 Anti-spam", sp_options, state["antispam"]),
-        _form("antinuke", "🛡️ Anti-Nuke (aksi)", nuke_options, state["antinuke"]),
-    ]
-    return "".join(forms)
+    return "".join(
+        [
+            _saklar("level", "📈 Level & XP", state["level"] == "on"),
+            _saklar("ekonomi", "💰 Ekonomi koin", state["ekonomi"] == "on"),
+            _saklar("tumbuh", "🌱 Pertumbuhan & invite", state["tumbuh"] == "on"),
+            _pilih("antispam", "🚨 Anti-spam", sp_options, state["antispam"]),
+            _pilih("antinuke", "🛡️ Anti-Nuke (aksi)", nuke_options, state["antinuke"]),
+        ]
+    )
 
 
 # ==============================================================================
@@ -869,9 +994,16 @@ async def start_dashboard(bot) -> bool:
             expected=cfg["token"],
         )
 
-    def _halaman_hasil(ok: bool, pesan: str):
-        """Halaman kecil setelah submit form: pesan + tautan kembali."""
+    def _halaman_hasil(ok: bool, pesan: str, anchor: str = ""):
+        """Halaman kecil untuk submit yang **gagal**: pesan jelas + tautan kembali.
+
+        Submit yang berhasil tidak memakai halaman ini lagi — lihat `_kembali()`
+        supaya pengguna langsung berada di panel yang sama dan melihat nilai baru.
+        """
         token_url = html.escape(cfg["token"], quote=True)
+        tujuan = f"/?token={token_url}"
+        if anchor:
+            tujuan += f"#{html.escape(anchor, quote=True)}"
         page = (
             "<!doctype html><html lang=id><head><meta charset=utf-8>"
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -879,12 +1011,39 @@ async def start_dashboard(bot) -> bool:
             "<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e6e6f0;"
             "padding:28px;line-height:1.5}a{color:#8ea2ff}</style></head><body>"
             f"<h1>{'✅' if ok else '⚠️'}</h1>"
-            f'<p style="font-size:16px">{html.escape(pesan)}</p>'
-            f'<p><a href="/?token={token_url}">← Kembali ke dashboard</a></p>'
+            f'<p style="font-size:16px">{_teks_pesan(pesan)}</p>'
+            f'<p><a href="{tujuan}">← Kembali ke dashboard</a></p>'
             "</body></html>"
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8",
                             status=200 if ok else 400)
+
+    def _kembali(gid: int, pesan: str, anchor: str):
+        """303 kembali ke panel yang sama + kotak pesan (POST → redirect → GET)."""
+        from urllib.parse import urlencode
+
+        kueri = urlencode(
+            {
+                "token": cfg["token"],
+                "guild": int(gid or 0),
+                "pesan": str(pesan or "")[:300],
+                "ok": "1",
+            }
+        )
+        tujuan = f"/?{kueri}"
+        if anchor:
+            tujuan += f"#{anchor}"
+        return web.Response(status=303, headers={"Location": tujuan})
+
+    def _jawab(gid: int, ok: bool, pesan: str, anchor: str, request):
+        """JSON untuk otomasi; form HTML: redirect saat sukses, halaman hasil saat gagal."""
+        if str(request.content_type or "").startswith("application/json"):
+            return web.json_response(
+                {"ok": ok, "message": pesan, "guild": gid}, status=200 if ok else 400
+            )
+        if ok:
+            return _kembali(gid, pesan, anchor)
+        return _halaman_hasil(False, pesan, anchor)
 
     async def handle_health(_request):
         return web.Response(text="ok", content_type="text/plain")
@@ -894,6 +1053,8 @@ async def start_dashboard(bot) -> bool:
             return web.Response(text="401 Unauthorized — tambahkan ?token=...", status=401)
         gid, guild_name = _guild_hint(bot, request)
         token = cfg["token"]
+        flash_pesan = str(request.query.get("pesan") or "")[:300]
+        flash_ok = str(request.query.get("ok") or "1") != "0"
 
         def _blok(pembuat, bawaan: str) -> str:
             """Gambar satu blok; kegagalan satu blok tidak mematikan halaman."""
@@ -973,6 +1134,8 @@ async def start_dashboard(bot) -> bool:
             audit_block=audit_block,
             banner_block=banner_block,
             guild_picker=guild_picker,
+            flash_pesan=flash_pesan,
+            flash_ok=flash_ok,
             ekspor_block=ekspor_block,
             panel_block=panel_block,
             tiket_block=tiket_block,
@@ -1027,11 +1190,7 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = await apply_dashboard_action(gid, aksi, nilai)
         logger.info("Dashboard aksi %s=%s (server %s): %s", aksi, nilai, gid, message)
-
-        if str(request.content_type or "").startswith("application/json"):
-            return web.json_response({"ok": ok, "message": message, "guild": gid},
-                                     status=200 if ok else 400)
-        return _halaman_hasil(ok, message)
+        return _jawab(gid, ok, message, _anchor_aksi(aksi), request)
 
     async def handle_kirim(request):
         """Kirim pesan/embed ke channel (opsional lewat identitas webhook)."""
@@ -1071,11 +1230,7 @@ async def start_dashboard(bot) -> bool:
 
         ok, message = await dashboard_pesan.kirim(bot, gid, payload, banner=banner)
         logger.info("Dashboard kirim (server %s): %s", gid, message)
-
-        if str(request.content_type or "").startswith("application/json"):
-            return web.json_response({"ok": ok, "message": message, "guild": gid},
-                                     status=200 if ok else 400)
-        return _halaman_hasil(ok, message)
+        return _jawab(gid, ok, message, "p-kirim", request)
 
     async def handle_konten(request):
         """Buat / hapus konten: `action=buat.<jenis>` atau `hapus.<jenis>:<id>`."""
@@ -1148,11 +1303,7 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = False, f"Aksi konten `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard konten %s (server %s): %s", aksi, gid, message)
-
-        if str(request.content_type or "").startswith("application/json"):
-            return web.json_response({"ok": ok, "message": message, "guild": gid},
-                                     status=200 if ok else 400)
-        return _halaman_hasil(ok, message)
+        return _jawab(gid, ok, message, _anchor_konten(aksi), request)
 
     async def handle_panel(request):
         """Editor panel: daftar item (GET) atau tambah/hapus item (POST)."""
@@ -1190,11 +1341,7 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = False, f"Aksi panel `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard panel %s (server %s): %s", aksi, gid, message)
-
-        if str(request.content_type or "").startswith("application/json"):
-            return web.json_response({"ok": ok, "message": message, "guild": gid},
-                                     status=200 if ok else 400)
-        return _halaman_hasil(ok, message)
+        return _jawab(gid, ok, message, "p-panel", request)
 
     async def handle_tiket(request):
         """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
@@ -1230,11 +1377,7 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = False, f"Aksi tiket `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard tiket %s (server %s): %s", aksi, gid, message)
-
-        if str(request.content_type or "").startswith("application/json"):
-            return web.json_response({"ok": ok, "message": message, "guild": gid},
-                                     status=200 if ok else 400)
-        return _halaman_hasil(ok, message)
+        return _jawab(gid, ok, message, "p-tiket", request)
 
     async def handle_ekspor(request):
         """Unduh CSV analitik server (level/moderasi/tiket/pemakaian)."""
@@ -1287,11 +1430,7 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = False, f"Aksi unggah `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard unggah %s (server %s): %s", aksi, gid, message)
-
-        if str(request.content_type or "").startswith("application/json"):
-            return web.json_response({"ok": ok, "message": message, "guild": gid},
-                                     status=200 if ok else 400)
-        return _halaman_hasil(ok, message)
+        return _jawab(gid, ok, message, "p-banner", request)
 
     async def handle_berkas(request):
         """Sajikan banner tersimpan untuk pratinjau di halaman dashboard."""
