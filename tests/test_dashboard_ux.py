@@ -235,3 +235,36 @@ def test_flash_di_escape():
     assert "&lt;b&gt;" in html_ok and 'class="flash"' in html_ok
     html_gagal = web_dashboard._flash_box("Gagal", False)
     assert "flash galat" in html_gagal and "⚠️" in html_gagal
+
+
+def test_auto_refresh_dibersihkan_setelah_ada_pesan():
+    """Kotak ✅ tidak boleh menempel selamanya di layar yang auto-refresh."""
+    html = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, refresh=30,
+        flash_pesan="Tersimpan", alamat_bersih="/?token=t&guild=1",
+    )
+    assert 'content="30;url=/?token=t&amp;guild=1"' in html
+
+    # Tanpa pesan: refresh biasa, tanpa url.
+    bersih = web_dashboard.render_dashboard_html(status={}, usage={}, levels={}, refresh=30)
+    assert 'content="30"' in bersih
+    assert "url=" not in bersih
+
+    # refresh <= 0 tetap berarti tanpa meta refresh.
+    mati = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={}, refresh=0, flash_pesan="Halo",
+        alamat_bersih="/?token=t&guild=1",
+    )
+    assert "http-equiv" not in mati
+
+
+def test_tidak_ada_atribut_class_kosong(monkeypatch):
+    monkeypatch.setattr(
+        web_dashboard, "dashboard_controls",
+        lambda gid: {"guild": gid, "level": "on", "ekonomi": "off", "tumbuh": "on",
+                     "antispam": "off", "antinuke": "timeout"},
+    )
+    html = web_dashboard.render_controls_block(1, "t")
+    assert 'class=""' not in html
+    # Saklar yang aktif menawarkan "Nonaktifkan", yang mati menawarkan "Aktifkan".
+    assert "Nonaktifkan" in html and "Aktifkan" in html

@@ -702,6 +702,7 @@ def render_dashboard_html(
     guild_picker: str = "",
     flash_pesan: str = "",
     flash_ok: bool = True,
+    alamat_bersih: str = "",
     ekspor_block: str = "",
     panel_block: str = "",
     tiket_block: str = "",
@@ -717,8 +718,15 @@ def render_dashboard_html(
     ai_ready = bool(status.get("ai_ready"))
     detik = int(refresh or 0)
     # refresh <= 0 = tanpa auto-refresh (lebih nyaman saat mengisi form panjang).
+    # Saat ada kotak pesan, auto-refresh diarahkan ke alamat tanpa `pesan` supaya
+    # notifikasinya hilang sendiri (dan tidak terkirim ulang tiap 30 detik).
+    tujuan_refresh = (
+        f";url={html.escape(alamat_bersih, quote=True)}" if flash_pesan and alamat_bersih else ""
+    )
     meta_refresh = (
-        f'<meta http-equiv="refresh" content="{max(5, detik)}">' if detik > 0 else ""
+        f'<meta http-equiv="refresh" content="{max(5, detik)}{tujuan_refresh}">'
+        if detik > 0
+        else ""
     )
     refresh_info = f" (auto-refresh {detik}s)" if detik > 0 else " (auto-refresh mati)"
     return _PAGE_TEMPLATE.format(
@@ -880,7 +888,7 @@ def render_controls_block(guild_id: int, token: str) -> str:
         """Satu tombol: label menyebut aksi berikutnya, bukan keadaan sekarang."""
         tujuan = "off" if aktif else "on"
         teks = "Nonaktifkan" if aktif else "Aktifkan"
-        kelas = "danger" if aktif else ""
+        kelas = ' class="danger"' if aktif else ""
         tanda = "✅" if aktif else "⬜"
         return (
             f'<form method="post" action="/api/aksi" class="kontrol">'
@@ -888,7 +896,7 @@ def render_controls_block(guild_id: int, token: str) -> str:
             f'<input type="hidden" name="value" value="{tujuan}">'
             f'<label>{tanda} {html.escape(label)} '
             f'<span class="muted">({"aktif" if aktif else "nonaktif"})</span></label>'
-            f'<button type="submit" class="{kelas}">{teks}</button></form>'
+            f'<button type="submit"{kelas}>{teks}</button></form>'
         )
 
     def _pilih(action: str, label: str, options: list[tuple[str, str]], current: str) -> str:
@@ -1136,6 +1144,7 @@ async def start_dashboard(bot) -> bool:
             guild_picker=guild_picker,
             flash_pesan=flash_pesan,
             flash_ok=flash_ok,
+            alamat_bersih=f"/?token={token}&guild={int(gid or 0)}",
             ekspor_block=ekspor_block,
             panel_block=panel_block,
             tiket_block=tiket_block,
