@@ -35,6 +35,27 @@ Dokumen ini memuat penjelasan panjang **23 area fitur** bot. Sengaja dipisah dar
 
 ---
 
+## 🚀 Mulai cepat: `/mulai`
+
+Bagi admin baru, cara tercepat memasang bot adalah **satu command** ini — tanpa perlu tahu
+nama command lain:
+
+```text
+/mulai paket:🏡 Server Komunitas channel_sambutan:#sambutan role_otomatis:@Member channel_log:#log
+```
+
+| Paket | Menyalakan |
+| :--- | :--- |
+| 🏡 **Server Komunitas** | Sambutan + auto role + log moderasi + pengumuman terjadwal |
+| 🎮 **Server Gaming** | Auto role + sambutan + pengumuman event |
+| 🎓 **Server Sekolah** | Sambutan + auto role kelas + log moderasi |
+
+- Semua parameter opsional: `/mulai` saja akan menampilkan daftar paket & contoh pemakaian.
+- Tambahkan `pratinjau:True` untuk melihat rencananya **tanpa mengubah apa pun** — cocok untuk
+  memastikan channel/role yang dipilih sudah benar.
+- Setelah dipasang, bot merangkum apa yang aktif dan apa yang masih perlu diatur (mis. isi
+  pengumuman). Semua tetap bisa diubah/dimatikan lewat command masing-masing.
+
 ## A. Fitur Ruang Sesi Privat (`/sesi`)
 
 Admin cukup memasang satu panel permanen di channel khusus (misalnya `#ai-assistant`) menggunakan `/sesi panel` (atau `!setup_panel`). Dari panel tersebut, setiap member dapat membuka ruang privat (*Private Thread*) yang hanya bisa dilihat oleh member itu sendiri.

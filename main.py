@@ -507,6 +507,11 @@ register_all_cogs(bot)
 # Sembunyikan command khusus pengelola dari member biasa (lihat command_policy.py).
 _policy = command_policy.apply(bot.tree)
 
+# Wizard pemasangan cepat untuk admin awam.
+from cogs.mulai_cog import mulai_cmd  # noqa: E402
+
+bot.tree.add_command(mulai_cmd)
+
 # Alias kompatibilitas untuk pemanggilan langsung dari modul/pengujian
 slash_ringkas = ringkas_chat_cmd
 slash_ringkas_link = ringkas_link_cmd

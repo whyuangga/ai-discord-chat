@@ -2206,6 +2206,7 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "serverstats", "autorole", "fakta", "keamanan",
         "panel-role", "poll", "ingatkan", "starboard", "verifikasi", "sticky", "info", "perawatan",
         "musik",
+        "mulai",  # wizard pemasangan cepat (admin awam)
         # v1.8.0-beta (Tier 2A): fitur keramaian server tanpa kuota AI
         "giveaway", "ultah", "jawab-otomatis", "pengumuman",
         # v1.10.0-beta (Tier 2C): leveling & tiket dukungan
