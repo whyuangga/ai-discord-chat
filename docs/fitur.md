@@ -877,6 +877,8 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Setelan server** | **52 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
+| **Kartu sambutan** | **unggah sendiri** gambar kartu **sambutan**, **perpisahan**, & **ucapan boost** (disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa) + pemilih mode kartu |
+| **Tes fitur** | tombol **Kirim tes** untuk sambutan / perpisahan / boost — mengirim satu contoh nyata ke channel tujuan (member tertentu lewat ID, atau akun bot) |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web, plus **pasang panel tiket** |
@@ -910,8 +912,9 @@ karena memuat 52 setelan — dibanding ±63 KB sekaligus di versi lama):
 | :--- | :--- | :--- |
 | `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level | 6 |
 | `/setelan` | Kontrol cepat + **52 setelan** (5 grup) | 2 |
-| `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan | 2 |
+| `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan, **kartu sambutan** | 3 |
 | `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan | 2 |
+| `/uji` | **Tes fitur** sambutan / perpisahan / boost (kirim contoh nyata) | 1 |
 | `/tiket` | Kotak masuk tiket + pasang panel tiket | 1 |
 | `/panel` | Editor tombol & dropdown + gerbang verifikasi | 1 |
 | `/ekspor` | Ekspor CSV + riwayat perubahan | 2 |
@@ -920,7 +923,7 @@ Aturan mainnya:
 
 | Bagian | Perilaku |
 | :--- | :--- |
-| **Menu halaman** | 📡 Ringkasan · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🎫 Tiket · 🧩 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
+| **Menu halaman** | 📡 Ringkasan · 🛠️ Setelan · ✉️ Kirim · ➕ Buat · 🧪 Uji · 🎫 Tiket · 🧩 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
 | **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
 | **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
 | **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
@@ -942,6 +945,39 @@ tanpa redirect.
 > default (`enabled: True`) dan `set_level_config(aktif=False)` menghapus konfigurasi.
 > Sekarang dashboard memakai `peek_level_config()` (baca tanpa membuat config) dan
 > `set_level_enabled()` (menyimpan `enabled: False` tanpa menghapus setelan XP/channel/season).
+
+#### Kartu sambutan sendiri (unggah dari dashboard)
+
+Halaman **Kirim** punya panel *Kartu sambutan & perpisahan* dengan tiga slot:
+
+| Slot | Dipakai saat | Berkas |
+| :--- | :--- | :--- |
+| **Sambutan** | member baru bergabung (mode kartu *statis* / *dinamis*) | `data/media/welcome_<id>.png` |
+| **Perpisahan** | member keluar (otomatis bila gambarnya ada) | `data/media/goodbye_<id>.png` |
+| **Boost** | member nge-boost server | `data/media/boost_<id>.png` |
+
+- Unggah: **PNG/JPG/GIF/WEBP**, maksimal 8 MB, isi berkas diperiksa lewat *magic bytes*
+  (file `.exe` yang di-rename tetap ditolak). Gambar ditimpa per jenis, jadi tidak menumpuk.
+- Pratinjau tampil langsung di dashboard (`/api/kartu/<jenis>?token=…`, wajib token).
+- Tombol **Hapus kartu** mengembalikan bot ke tampilan teks/embed biasa.
+- Pemilih **Tampilan kartu sambutan** (Teks saja / Kartu statis / Kartu dinamis) ada di panel
+  yang sama — tidak perlu pindah ke Discord. Ukuran ideal **1024×420 px**.
+
+#### Uji fitur tanpa menunggu event (`/uji`)
+
+Halaman **🧪 Uji** punya tombol tes untuk fitur yang punya pemicu sendiri:
+
+| Fitur | Yang dikirim | Catatan |
+| :--- | :--- | :--- |
+| 👋 Sambutan member baru | kartu/teks sambutan + sapaan asing | memakai `force=True`, jadi dedup dilewati |
+| 👣 Pesan perpisahan | kartu perpisahan | butuh channel pamit aktif |
+| 💎 Ucapan boost | ucapan terima kasih boost | hanya 1× per member (dedup bawaan Discord) |
+
+Kolom **ID member** opsional: kosongkan untuk memakai akun bot sebagai contoh, atau isi ID
+member agar contohnya atas nama member itu. Tiap tes memakai **1 panggilan AI**, mengirim
+pesan **sungguhan** ke channel tujuan, dan hasilnya tampil sebagai kotak ✅/⚠️ di halaman
+`/uji` (atau JSON bila dipanggil sebagai API). Fitur yang belum aktif menampilkan tombol
+**Atur di Setelan** alih-alih tombol tes.
 
 #### Setelan yang bisa diubah dari web (52 fitur)
 

@@ -225,6 +225,35 @@ CSS_HALAMAN = f"""
   .kartu-banner code.kecil {{ font-size: 10px; color: var(--redup); overflow-wrap: anywhere; }}
   input[type=file] {{ width: 100%; font-size: 12px; color: rgba(255,255,255,.82); }}
 
+  /* --- kartu sambutan (unggah gambar sendiri) --- */
+  .kartu-sambutan {{
+    display: grid; gap: 10px; margin: 12px 0 8px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }}
+  .kartu-slot {{
+    background: var(--kartu-2); border: 1px solid var(--garis); border-radius: 12px;
+    padding: 12px; display: grid; gap: 8px; align-content: start;
+  }}
+  .kartu-slot h4 {{ margin: 0; font-size: 13px; font-weight: 600; }}
+  .kartu-slot img {{ width: 100%; height: 120px; object-fit: cover; border-radius: 9px;
+                     background: var(--latar); border: 1px solid var(--garis); }}
+  .kartu-slot .kosong {{
+    height: 120px; border-radius: 9px; border: 1px dashed var(--garis-kuat);
+    display: grid; place-items: center; color: var(--redup-2); font-size: 12px;
+  }}
+  .kartu-slot form {{ margin: 0; }}
+  .kartu-slot .medan label {{ font-size: 11.5px; }}
+
+  /* --- tes fitur --- */
+  .uji-baris {{
+    display: flex; gap: 12px; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; padding: 11px 0; border-bottom: 1px solid var(--garis);
+  }}
+  .uji-baris:last-of-type {{ border-bottom: 0; }}
+  .uji-baris b {{ font-size: 13.5px; }}
+  .uji-baris form {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
+  .uji-baris input[type=text] {{ width: 175px; padding: 7px 9px; font-size: 12.5px; }}
+
   /* --- pemilih server --- */
   .pemilih-server {{ display: flex; gap: 8px; align-items: center; margin: 8px 0 0; flex-wrap: wrap; }}
   .pemilih-server label {{ font-size: 12px; color: var(--redup); }}

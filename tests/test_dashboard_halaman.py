@@ -26,9 +26,9 @@ def _panel(html: str, anchor: str) -> bool:
 # ==============================================================================
 # STRUKTUR HALAMAN
 # ==============================================================================
-def test_tujuh_halaman_sesuai_kelompok_fitur():
+def test_halaman_sesuai_kelompok_fitur():
     slug = [h["slug"] for h in web_dashboard.HALAMAN]
-    assert slug == ["", "setelan", "kirim", "buat", "tiket", "panel", "ekspor"]
+    assert slug == ["", "setelan", "kirim", "buat", "uji", "tiket", "panel", "ekspor"]
 
     # Semua panel lama tetap punya halaman — tidak ada yang hilang
     semua = [a for h in web_dashboard.HALAMAN for a in h["panel"]]

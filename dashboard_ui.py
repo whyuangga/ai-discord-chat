@@ -443,6 +443,123 @@ banner per server. Semua berkas diperiksa isinya (bukan hanya ekstensi).</p>
     return unggah + f'<div class="galeri">{kartu}</div>'
 
 
+def render_kartu_block(guild_id: int, token: str) -> str:
+    """Panel unggah kartu sambutan / perpisahan / boost (disimpan di `data/media/`)."""
+    info = dashboard_unggah.kartu_info(guild_id)
+    slot = ""
+    for jenis in dashboard_unggah.JENIS_KARTU:
+        data = info.get(jenis)
+        label = dashboard_unggah.LABEL_KARTU[jenis]
+        if data:
+            url = f"/api/kartu/{jenis}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
+            pratinjau = f'<img src="{url}" alt="{_esc(data["nama"])}" loading="lazy">'
+            keterangan = (
+                f'<div class="muted">{int(data["ukuran_kb"])} KB · {_esc(data["dibuat"])}</div>'
+                f'<code class="kecil">{_esc(data["nama"])}</code>'
+            )
+            hapus = (
+                '<form method="post" action="/api/unggah">'
+                f'{_hidden(guild_id, token, "kartu.hapus:" + jenis)}'
+                '<button type="submit" class="danger">Hapus kartu</button></form>'
+            )
+        else:
+            pratinjau = '<div class="kosong">Belum ada gambar</div>'
+            keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
+            hapus = ""
+        slot += (
+            '<div class="kartu-slot">'
+            f'<h4>{_esc(label.capitalize())}</h4>'
+            f'{pratinjau}{keterangan}'
+            '<form method="post" action="/api/unggah" class="formgrid" '
+            'enctype="multipart/form-data">'
+            f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
+            f'{_medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")}'
+            f'<button type="submit">Unggah kartu {_esc(label)}</button>'
+            "</form>"
+            f"{hapus}"
+            "</div>"
+        )
+
+    mode = "statis"
+    try:
+        import community_agent
+
+        mode = str(
+            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
+            .get("card_mode")
+            or "mati"
+        )
+    except Exception:  # pragma: no cover - jaring aman
+        mode = "statis"
+    opsi = "".join(
+        f'<option value="{nilai}"{" selected" if nilai == mode else ""}>{teks}</option>'
+        for nilai, teks in (("mati", "💬 Teks saja"), ("statis", "🖼️ Kartu statis"),
+                            ("dinamis", "✨ Kartu dinamis"))
+    )
+    pengaturan = (
+        '<form method="post" action="/api/aksi" class="kontrol">'
+        f'{_hidden(guild_id, token, "set.sambutan.kartu")}'
+        '<label for="mode-kartu">Tampilan kartu sambutan</label>'
+        f'<select name="value" id="mode-kartu">{opsi}</select>'
+        '<button type="submit">Simpan mode</button></form>'
+        '<p class="muted">Kartu <b>perpisahan</b> &amp; <b>boost</b> otomatis dipakai bila '
+        "gambarnya ada. Ukuran ideal 1024×420 px, maksimal "
+        f"{dashboard_unggah.batas_mb()} MB.</p>"
+    )
+    return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}'
+
+
+def render_uji_block(bot, guild_id: int, token: str) -> str:
+    """Panel tombol tes fitur (sambutan, perpisahan, boost) — kirim contoh nyata."""
+    import dashboard_uji
+
+    status = dashboard_uji.status_uji(guild_id)
+    baris = ""
+    for item in dashboard_uji.UJI:
+        keadaan = status.get(item["kunci"]) or {}
+        aktif = bool(keadaan.get("aktif"))
+        channel_id = int(keadaan.get("channel_id") or 0)
+        if aktif and channel_id:
+            nama_channel = f"<code>#{channel_id}</code>"
+            getter = getattr(bot, "get_channel", None)
+            ch = getter(channel_id) if callable(getter) else None
+            if ch is not None and getattr(ch, "name", ""):
+                nama_channel = f"<code>#{_esc(ch.name)}</code>"
+            lencana = f'✅ aktif → {nama_channel}'
+        elif aktif:
+            lencana = "✅ aktif"
+        else:
+            lencana = "⬜ belum aktif"
+
+        tombol = (
+            '<form method="post" action="/api/uji">'
+            f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
+            '<input type="text" name="member" inputmode="numeric" placeholder="ID member (opsional)">'
+            '<button type="submit">Kirim tes</button></form>'
+            if aktif
+            else (
+                '<a class="tombol-unduh" href="/setelan?token='
+                f'{_esc(token)}&amp;guild={int(guild_id or 0)}#p-setelan">Atur di Setelan</a>'
+            )
+        )
+        baris += (
+            '<div class="uji-baris">'
+            '<div>'
+            f'<b>{item["emoji"]} {_esc(item["label"])}</b> '
+            f'<span class="muted">{lencana}</span>'
+            f'<div class="muted">{_esc(item["contoh"])}</div>'
+            "</div>"
+            f"{tombol}"
+            "</div>"
+        )
+    catatan = (
+        '<p class="muted">Tes memakai <b>1 panggilan AI</b> dan mengirim pesan sungguhan ke '
+        "channel tujuan — member lain akan melihatnya. Isi <b>ID member</b> bila ingin contoh "
+        "atas nama member tertentu (kosongkan untuk memakai akun bot).</p>"
+    )
+    return baris + catatan
+
+
 def render_konten_block(guild_id: int, konten: dict, token: str) -> str:
     """Daftar pengumuman/tautan/panel/formulir/webhook + tombol hapus."""
     return "".join(

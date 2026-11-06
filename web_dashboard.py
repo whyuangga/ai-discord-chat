@@ -55,6 +55,7 @@ import dashboard_tema
 import dashboard_tiket
 import dashboard_ui
 import dashboard_unggah
+import dashboard_uji
 import insights
 from config import (
     AI_DAILY_CAP_PER_GUILD,
@@ -464,7 +465,7 @@ HALAMAN: tuple[dict, ...] = (
         "menu": "✉️ Kirim",
         "judul": "✉️ Kirim pesan & banner",
         "keterangan": "Kirim pesan/embed, pratinjau dulu, dan unggah banner.",
-        "panel": ("p-kirim", "p-banner"),
+        "panel": ("p-kirim", "p-banner", "p-kartu"),
     },
     {
         "slug": "buat",
@@ -472,6 +473,13 @@ HALAMAN: tuple[dict, ...] = (
         "judul": "➕ Buat konten",
         "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan.",
         "panel": ("p-buat", "p-konten"),
+    },
+    {
+        "slug": "uji",
+        "menu": "🧪 Uji",
+        "judul": "🧪 Uji fitur",
+        "keterangan": "Kirim contoh nyata sambutan, perpisahan, dan ucapan boost untuk memastikan semuanya jalan.",
+        "panel": ("p-uji",),
     },
     {
         "slug": "tiket",
@@ -660,6 +668,24 @@ def _panel_banner(d: dict) -> str:
     )
 
 
+def _panel_kartu(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-kartu">\n'
+        '    <h2>🖼️ Kartu sambutan &amp; perpisahan</h2>\n'
+        '    <p class="muted">Unggah gambar sendiri untuk latar kartu sambutan, perpisahan, dan '
+        'ucapan boost. Berkas disimpan di <code>data/media/</code> dan dikirim ulang sebagai '
+        'lampiran, jadi tidak pernah kedaluwarsa seperti URL CDN Discord.</p>\n'
+        f'    {d["kartu_block"]}\n  </div>'
+    )
+
+
+def _panel_uji(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-uji">\n    <h2>🧪 Tes fitur</h2>\n'
+        f'    {d["uji_block"]}\n  </div>'
+    )
+
+
 def _panel_riwayat(d: dict) -> str:
     return (
         '<div class="panel" id="p-riwayat">\n    <h2>🧾 Riwayat perubahan</h2>\n'
@@ -683,6 +709,8 @@ PANEL: dict[str, object] = {
     "p-panel": _panel_panel,
     "p-tiket": _panel_tiket,
     "p-banner": _panel_banner,
+    "p-kartu": _panel_kartu,
+    "p-uji": _panel_uji,
     "p-riwayat": _panel_riwayat,
 }
 
@@ -721,6 +749,8 @@ def render_dashboard_html(
     panel_block: str = "",
     tiket_block: str = "",
     tren_block: str = "",
+    kartu_block: str = "",
+    uji_block: str = "",
     tren_hari: int = 7,
     halaman: str | None = None,
     menu: str = "",
@@ -786,6 +816,8 @@ def render_dashboard_html(
         "konten_block": konten_block,
         "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
         "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
+        "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
+        "uji_block": uji_block or '<div class="muted">Tes fitur tidak tersedia.</div>',
         "ekspor_block": ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
         "panel_block": panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
         "tiket_block": tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
@@ -1171,6 +1203,14 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_ui.render_banner_block(gid, token),
             '<div class="muted">Unggahan tidak tersedia.</div>',
         )
+        kartu_block = _blok(
+            lambda: dashboard_ui.render_kartu_block(gid, token),
+            '<div class="muted">Kartu sambutan tidak tersedia.</div>',
+        )
+        uji_block = _blok(
+            lambda: dashboard_ui.render_uji_block(bot, gid, token),
+            '<div class="muted">Tes fitur tidak tersedia.</div>',
+        )
         audit_block = _blok(
             lambda: dashboard_ui.render_audit_block(dashboard_admin.audit_terakhir(gid, limit=8)),
             '<div class="muted">Riwayat tidak tersedia.</div>',
@@ -1200,6 +1240,8 @@ async def start_dashboard(bot) -> bool:
             konten_block=konten_block,
             audit_block=audit_block,
             banner_block=banner_block,
+            kartu_block=kartu_block,
+            uji_block=uji_block,
             guild_picker=guild_picker,
             flash_pesan=flash_pesan,
             flash_ok=flash_ok,
@@ -1496,6 +1538,12 @@ async def start_dashboard(bot) -> bool:
                 ok, message = False, "Pilih berkas gambar lebih dulu."
             else:
                 ok, message = True, f"Banner tersimpan: `{nama}`."
+        elif aksi.startswith("kartu.simpan:"):
+            ok, message = dashboard_unggah.simpan_kartu(
+                gid, payload.get("banner"), aksi.split(":", 1)[1]
+            )
+        elif aksi.startswith("kartu.hapus:"):
+            ok, message = dashboard_unggah.hapus_kartu(gid, aksi.split(":", 1)[1])
         elif aksi.startswith("hapus.banner:"):
             nama = aksi.split(":", 1)[1]
             ok = dashboard_unggah.hapus(gid, nama)
@@ -1503,7 +1551,48 @@ async def start_dashboard(bot) -> bool:
         else:
             ok, message = False, f"Aksi unggah `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard unggah %s (server %s): %s", aksi, gid, message)
-        return _jawab(gid, ok, message, "p-banner", request)
+        return _jawab(gid, ok, message, "p-kartu" if aksi.startswith("kartu.") else "p-banner",
+                      request)
+
+    async def handle_uji(request):
+        """Kirim satu contoh nyata untuk fitur yang bisa dites (sambutan/perpisahan/boost)."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        kunci = aksi.split(":", 1)[1].strip() if ":" in aksi else aksi.removeprefix("uji.").strip()
+        getter = getattr(bot, "get_guild", None)
+        guild = getter(gid) if callable(getter) else None
+        member = dashboard_uji.cari_member(guild, payload.get("member"))
+        if member is None and str(payload.get("member") or "").strip().isdigit():
+            logger.info("Uji %s: member %s tidak ditemukan, memakai akun bot.", kunci,
+                        payload.get("member"))
+        ok, message = await dashboard_uji.jalankan_uji(bot, gid, kunci, member)
+        logger.info("Dashboard uji %s (server %s): %s", kunci, gid, message)
+        return _jawab(gid, ok, message, "p-uji", request)
+
+    async def handle_kartu(request):
+        """Sajikan gambar kartu sambutan tersimpan (pratinjau di dashboard)."""
+        if not _authorized(request):
+            return web.Response(text="401 Unauthorized", status=401)
+        jenis = str(request.match_info.get("jenis") or "")
+        gid, _nama = _guild_hint(bot, request)
+        isi, tipe = dashboard_unggah.baca_kartu(gid, jenis)
+        if isi is None:
+            return web.Response(text="404 Not Found", status=404)
+        return web.Response(
+            body=isi,
+            content_type=tipe,
+            headers={"Cache-Control": "private, max-age=60"},
+        )
 
     async def handle_berkas(request):
         """Sajikan banner tersimpan untuk pratinjau di halaman dashboard."""
@@ -1557,6 +1646,8 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/kirim", handle_kirim)
     app.router.add_post("/api/konten", handle_konten)
     app.router.add_post("/api/unggah", handle_unggah)
+    app.router.add_post("/api/uji", handle_uji)
+    app.router.add_get("/api/kartu/{jenis}", handle_kartu)
     app.router.add_get("/api/ekspor", handle_ekspor)
     app.router.add_get("/api/panel", handle_panel)
     app.router.add_post("/api/panel", handle_panel)
