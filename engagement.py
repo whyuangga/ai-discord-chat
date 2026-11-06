@@ -622,10 +622,7 @@ async def run_birthday_check(bot: discord.Client) -> int:
     """Mengirim ucapan ulang tahun sekali sehari pada jam yang diatur Admin."""
     sent = 0
     for guild_id, cfg in list(birthday_guilds.items()):
-        channel = None
-        get_channel = getattr(bot, "get_channel", None)
-        if callable(get_channel):
-            channel = get_channel(_to_int(cfg.get("channel_id")))
+        channel = await resolve_channel(bot, cfg.get("channel_id"))
         if channel is None:
             continue
 
@@ -977,8 +974,7 @@ async def send_announcement_now(
     if cfg is None or (guild_id is not None and cfg.get("guild_id") != int(guild_id)):
         return "tidak_ada", None
 
-    get_channel = getattr(bot, "get_channel", None)
-    channel = get_channel(_to_int(cfg.get("channel_id"))) if callable(get_channel) else None
+    channel = await resolve_channel(bot, cfg.get("channel_id"))
     if channel is None:
         return "channel", cfg
 
@@ -1059,6 +1055,23 @@ def build_announcement_embed(
     return embed
 
 
+async def resolve_channel(bot: discord.Client, channel_id: int):
+    """Cari channel dari cache; kalau tidak ada (mis. thread), ambil lewat API."""
+    getter = getattr(bot, "get_channel", None)
+    channel = getter(_to_int(channel_id)) if callable(getter) else None
+    if channel is not None:
+        return channel
+    fetcher = getattr(bot, "fetch_channel", None)
+    if callable(fetcher):
+        try:
+            return await fetcher(_to_int(channel_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+        except Exception:  # pragma: no cover - jaring aman
+            return None
+    return None
+
+
 async def run_announcement_check(bot: discord.Client) -> int:
     """Mengirim pengumuman yang jadwalnya sudah tiba, lalu menghitung jadwal berikutnya."""
     now = time.time()
@@ -1070,10 +1083,7 @@ async def run_announcement_check(bot: discord.Client) -> int:
         if not next_run or next_run > now:
             continue
 
-        channel = None
-        get_channel = getattr(bot, "get_channel", None)
-        if callable(get_channel):
-            channel = get_channel(_to_int(cfg.get("channel_id")))
+        channel = await resolve_channel(bot, cfg.get("channel_id"))
 
         delivered = False
         if channel is not None:

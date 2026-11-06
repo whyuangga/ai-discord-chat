@@ -1059,6 +1059,12 @@ def build_fallback_embed(menu: dict) -> discord.Embed:
     )
 
 
+def is_forum_channel(channel) -> bool:
+    """Channel forum (butuh `create_thread`, bukan `send`)."""
+    forum_cls = getattr(discord, "ForumChannel", None)
+    return bool(forum_cls is not None and isinstance(channel, forum_cls))
+
+
 async def send_panel(
     bot,
     menu: dict,
@@ -1067,8 +1073,37 @@ async def send_panel(
     banner_file: discord.File | None = None,
     banner_ref: str | None = None,
 ) -> discord.Message | None:
-    """Mengirim panel menu ke channel & menyimpan `message_id` + URL banner."""
-    view = build_view(menu, banner_override=banner_ref, guild=getattr(channel, "guild", None))
+    """Mengirim panel menu ke channel, thread, atau forum & menyimpan `message_id`."""
+    guild = getattr(channel, "guild", None)
+    view = build_view(menu, banner_override=banner_ref, guild=guild)
+    if is_forum_channel(channel):
+        # Forum: panel menjadi post baru (judul panel = nama post)
+        nama_post = message_template.render(str(menu.get("title") or "Panel"), guild=guild)[:100]
+        try:
+            kwargs: dict = {"name": nama_post or "Panel", "view": view}
+            if banner_file is not None:
+                kwargs["file"] = banner_file
+            hasil = await channel.create_thread(**kwargs)
+        except (discord.HTTPException, TypeError, ValueError) as exc:
+            logger.warning("Panel V2 ke forum ditolak (%s) — memakai embed klasik.", exc)
+            try:
+                hasil = await channel.create_thread(
+                    name=nama_post or "Panel",
+                    content=(menu.get("description") or "Panel")[:2000],
+                    embed=build_fallback_embed(menu),
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                return None
+        thread = getattr(hasil, "thread", None)
+        message = getattr(hasil, "message", None)
+        menu["channel_id"] = getattr(thread, "id", None) or getattr(channel, "id", None)
+        menu["message_id"] = getattr(message, "id", None)
+        try:
+            bot.add_view(view, message_id=menu["message_id"])
+        except Exception as exc:  # pragma: no cover - depends on client state
+            logger.debug("Pendaftaran view forum dilewati: %s", exc)
+        return message
+
     try:
         if banner_file is not None:
             message = await channel.send(view=view, file=banner_file)
@@ -1107,6 +1142,14 @@ async def refresh_panel(bot, menu: dict) -> bool:
     getter = getattr(bot, "get_channel", None)
     if callable(getter) and menu.get("channel_id"):
         channel = getter(int(menu["channel_id"]))
+    if channel is None and menu.get("channel_id"):
+        # thread/forum post biasanya tidak ada di cache
+        fetcher = getattr(bot, "fetch_channel", None)
+        if callable(fetcher):
+            try:
+                channel = await fetcher(int(menu["channel_id"]))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+                channel = None
     if channel is None:
         return False
     try:

@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **52 command utama** · **218 tes otomatis** · tanpa dependency baru
+> **Versi `v1.40.0-beta`** · **52 command utama** · **239 tes otomatis** · tanpa dependency baru
 > sejak v1.20 · detail tiap fitur ada di [daftar isi](#-daftar-isi) atau situs dokumentasi
 > (`site/`, cara deploy di [`site/README.md`](site/README.md)).
 

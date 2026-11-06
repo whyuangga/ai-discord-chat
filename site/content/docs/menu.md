@@ -92,6 +92,9 @@ cek izin tetap berlaku. Contoh isi panel "Pusat Info":
 
 Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besar di atas panel.
 
+**Target kirim:** panel bisa dikirim ke **channel teks**, **thread**, atau **forum channel**
+(untuk forum, panel menjadi post baru dengan judul panel sebagai nama post).
+
 ## Batas & pengaman
 | Hal | Nilai |
 | :--- | :--- |

@@ -76,7 +76,7 @@ def _menu_or_error(interaction: discord.Interaction, gid: int, ref: str | None) 
 @app_commands.describe(
     judul="Judul panel, misal: Pusat Info Server",
     deskripsi="Penjelasan singkat (opsional) — boleh pakai variabel `{server.members}`",
-    channel="Channel tujuan panel (bawaan: channel sekarang)",
+    channel="Channel/thread/forum tujuan (bawaan: channel sekarang)",
     banner="Unggah gambar banner .png/.jpg (opsional)",
     banner_url="Atau tempel URL gambar banner (opsional)",
 )
@@ -84,7 +84,7 @@ async def menu_buat_cmd(
     interaction: discord.Interaction,
     judul: str,
     deskripsi: str | None = None,
-    channel: discord.TextChannel | None = None,
+    channel: discord.TextChannel | discord.Thread | discord.ForumChannel | None = None,
     banner: discord.Attachment | None = None,
     banner_url: str | None = None,
 ):
@@ -183,7 +183,7 @@ async def menu_buat_cmd(
 async def menu_kirim_cmd(
     interaction: discord.Interaction,
     menu: str,
-    channel: discord.TextChannel | None = None,
+    channel: discord.TextChannel | discord.Thread | discord.ForumChannel | None = None,
 ):
     if interaction.guild is None:
         return

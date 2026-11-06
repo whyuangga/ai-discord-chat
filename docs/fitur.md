@@ -470,8 +470,17 @@ Pengaman:
 | :--- | :--- |
 | `/embed buat channel:#pengumuman warna:ungu` | Buka **formulir** (judul, isi, URL banner, footer) → langsung terkirim |
 | `/embed cepat channel:#x judul:"..." isi:"..."` | Kirim cepat tanpa formulir |
+| `/embed variabel` | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … |
+| `/embed sebagai nama:"📢 Pengumuman" isi:"..."` | Kirim dengan **nama & avatar sendiri** lewat webhook |
+| `/embed webhook` | Cek / hapus webhook identitas yang dipakai bot |
 
 Warna menerima `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. Hanya **staff** (Manage Messages/Server) yang bisa mengirim.
+
+**Identitas kustom (webhook).** `/embed sebagai` mengirim pesan sebagai *siapa pun* pilihanmu
+("📢 Pengumuman Server", "🎉 Tim Event") lengkap dengan avatar — ide dari Discohook. Bot membuat
+satu webhook per channel lalu memakainya ulang (`data/webhooks.json`), jadi tidak membuat webhook
+baru setiap kali. Butuh izin **Manage Webhooks**; mention massal dinonaktifkan agar tidak bisa
+dipakai men-*ping* `@everyone` diam-diam. Tujuan bisa channel teks **atau thread**.
 
 ### 10. 🔊 Temp Voice: Voice Room Sementara (`/tempvoice`)
 
@@ -653,6 +662,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 - Format jadwal ringkas: `08:00`, `harian 20:30`, `senin 19:00`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
 - Isi pengumuman boleh memakai variabel (`{server.name}`, `{server.members}`, `{now_relative}`) yang diisi **saat dikirim**.
+- Tujuan boleh **thread** (bukan hanya channel teks). Pengumuman ulang tahun juga ikut mendukung thread.
 - Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.
 - Batas `ANNOUNCEMENT_MAX_PER_GUILD` (default 15) pengumuman per server.
 
@@ -1112,6 +1122,9 @@ cek izin tetap berlaku. Contoh isi panel "Pusat Info":
 | `campuran` | **Banner + tombol + dropdown** — persis gaya Self Roles Discohook |
 
 Tambah **`banner`** (unggah `.png/.jpg`) atau **`banner_url`** untuk gambar besar di atas panel.
+
+**Target kirim:** panel bisa dikirim ke **channel teks**, **thread**, atau **forum channel**
+(untuk forum, panel menjadi post baru dengan judul panel sebagai nama post).
 
 ### Batas & pengaman
 | Hal | Nilai |

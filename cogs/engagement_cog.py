@@ -454,14 +454,14 @@ jawab_group = app_commands.Group(
     pemicu="Kata/frasa pemicu, misal: cara daftar",
     balasan="Isi balasan bot ketika pemicu muncul",
     persis="True bila harus sama persis (bukan sekadar mengandung kata pemicu)",
-    channel="Channel tujuan (default: channel ini)",
+    channel="Channel/thread tujuan (default: channel ini)",
 )
 async def jawab_tambah_cmd(
     interaction: discord.Interaction,
     pemicu: str,
     balasan: str,
     persis: bool = False,
-    channel: discord.TextChannel | None = None,
+    channel: discord.TextChannel | discord.Thread | None = None,
 ):
     if interaction.guild is None:
         return

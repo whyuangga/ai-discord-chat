@@ -73,6 +73,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/embed buat` | `channel`, `warna` | *(Staff)* Buat pengumuman embed lewat formulir. |
 | `/embed cepat` | `channel`, `judul`, `isi`, `warna`, `gambar` | *(Staff)* Kirim embed tanpa formulir. |
 | `/embed variabel` | — | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … yang bisa dipakai di judul/isi. |
+| `/embed sebagai` | `nama`, `isi`, `channel`, `judul`, `avatar`, `warna` | *(Staff)* Kirim pesan dengan nama & avatar sendiri lewat webhook (butuh *Manage Webhooks*). |
+| `/embed webhook` | `channel`, `hapus` | *(Staff)* Cek atau hapus webhook identitas yang dipakai bot di channel itu. |
 | `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
 | `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
 | `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |
@@ -164,7 +166,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/jawab-otomatis hapus` | `pemicu`, `channel` | *(Admin)* Hapus satu aturan. |
 | `/jawab-otomatis daftar` | `channel` | Lihat aturan yang aktif + jeda aman. |
 | `/jawab-otomatis atur` | `channel`, `aktif`, `jeda` | *(Admin)* Aktifkan/nonaktifkan & atur jeda (0–300 detik). |
-| `/pengumuman tambah` | `isi`, `jadwal`, `judul`, `channel` | *(Admin)* Jadwalkan pengumuman (harian / mingguan / sekali). |
+| `/pengumuman tambah` | `isi`, `jadwal`, `judul`, `channel` | *(Admin)* Jadwalkan pengumuman (harian / mingguan / sekali) ke channel atau thread. |
 | `/pengumuman daftar` | — | Lihat seluruh jadwal & kiriman berikutnya. |
 | `/pengumuman hapus` | `id` | *(Admin)* Hapus pengumuman terjadwal. |
 | `/pengumuman atur` | `id`, `aktif` | *(Admin)* Jeda atau aktifkan lagi tanpa menghapus. |
@@ -249,7 +251,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 
 | Command | Parameter | Fungsi |
 | :--- | :--- | :--- |
-| `/menu buat` | `judul`, `deskripsi`, `channel`, `banner`, `banner_url` | *(Admin)* Buat panel + kirim ke channel. |
+| `/menu buat` | `judul`, `deskripsi`, `channel`, `banner`, `banner_url` | *(Admin)* Buat panel + kirim ke channel/thread/forum. |
 | `/menu tombol-role` | `role`, `menu`, `label`, `emoji`, `gaya` | *(Admin)* Tombol role (toggle). |
 | `/menu tombol-link` | `label`, `url`, `menu`, `emoji` | *(Admin)* Tombol tautan. |
 | `/menu tombol-command` | `aksi`, `menu`, `label`, `emoji`, `visibilitas`, `gaya` | *(Admin)* Tombol yang menjalankan command info. |
@@ -260,7 +262,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/menu ubah` | `menu`, `judul`, `deskripsi` | *(Admin)* Ubah teks panel yang sudah terkirim (pesan ikut berubah, tanpa kirim ulang). |
 | `/menu ekspor` | `menu` | *(Admin)* Unduh panel sebagai berkas JSON (backup / pindah server). |
 | `/menu impor` | `berkas`, `judul` | *(Admin)* Buat panel baru dari berkas JSON hasil `/menu ekspor`. |
-| `/menu kirim` | `menu`, `channel` | *(Admin)* Kirim ulang panel. |
+| `/menu kirim` | `menu`, `channel` | *(Admin)* Kirim ulang panel ke channel, thread, atau forum. |
 | `/menu daftar` | — | Daftar panel & isinya. |
 | `/menu hapus` | `menu` | *(Admin)* Hapus panel dari daftar bot. |
 

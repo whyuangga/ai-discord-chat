@@ -77,8 +77,17 @@ toc: true
 | :--- | :--- |
 | `/embed buat channel:#pengumuman warna:ungu` | Buka **formulir** (judul, isi, URL banner, footer) → langsung terkirim |
 | `/embed cepat channel:#x judul:"..." isi:"..."` | Kirim cepat tanpa formulir |
+| `/embed variabel` | Daftar variabel `{member.mention}`, `{server.members}`, `{now_relative}`, … |
+| `/embed sebagai nama:"📢 Pengumuman" isi:"..."` | Kirim dengan **nama & avatar sendiri** lewat webhook |
+| `/embed webhook` | Cek / hapus webhook identitas yang dipakai bot |
 
 Warna menerima `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. Hanya **staff** (Manage Messages/Server) yang bisa mengirim.
+
+**Identitas kustom (webhook).** `/embed sebagai` mengirim pesan sebagai *siapa pun* pilihanmu
+("📢 Pengumuman Server", "🎉 Tim Event") lengkap dengan avatar — ide dari Discohook. Bot membuat
+satu webhook per channel lalu memakainya ulang (`data/webhooks.json`), jadi tidak membuat webhook
+baru setiap kali. Butuh izin **Manage Webhooks**; mention massal dinonaktifkan agar tidak bisa
+dipakai men-*ping* `@everyone` diam-diam. Tujuan bisa channel teks **atau thread**.
 
 ## 10. 🔊 Temp Voice: Voice Room Sementara (`/tempvoice`)
 
