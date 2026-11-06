@@ -1,12 +1,15 @@
-"""Dashboard web ringan **read-only** (status bot & `/pemakaian`) — 0 kuota AI.
+"""Dashboard web ringan: status bot, pemakaian AI, **setelan server**, dan
+pengiriman embed/webhook — 0 kuota AI.
 
 Prinsip desain:
 
 1. **Proses yang sama** — memakai `aiohttp.web` di event loop bot yang sudah jalan
    (aiohttp sudah jadi dependency sejak awal), jadi tidak menambah proses & sangat
    hemat RAM (±2–4 MB).
-2. **Read-only** — semua endpoint hanya `GET`, tidak ada tombol/aksi yang bisa
-   mengubah konfigurasi server. Aman bila tautannya tersebar.
+2. **Baca + tulis terkendali** — halaman `GET /` tidak pernah mengubah apa pun.
+   Semua perubahan lewat `POST /api/aksi` (setelan), `POST /api/kirim` (pesan/embed),
+   dan `POST /api/konten` (pengumuman/tautan/panel/hapus) yang selalu memeriksa token
+   dan hanya menjalankan aksi dari whitelist `dashboard_admin`.
 3. **Opt-in** — dashboard hanya menyala bila `DASHBOARD_TOKEN` diisi **dan** ada port
    (`DASHBOARD_PORT`, atau `SERVER_PORT`/`PORT` dari panel hosting seperti Wispbyte).
 4. **Tanpa JavaScript wajib** — HTML dirender di server + `meta refresh`, sehingga
@@ -20,6 +23,12 @@ Endpoint:
 | `/api/status` | JSON status bot (uptime, RAM, latensi, server, versi) |
 | `/api/pemakaian?guild=<id>` | JSON pemakaian AI hari ini (operasi, token, cache, kuota) |
 | `/api/level?guild=<id>` | JSON papan peringkat level |
+| `/api/kontrol?guild=<id>` | JSON status 5 sakelar cepat (level, ekonomi, tumbuh, antispam, antinuke) |
+| `/api/fitur?guild=<id>` | JSON peta fitur server |
+| `/api/setelan?guild=<id>` | JSON semua setelan (39 fitur) + nilai sekarang |
+| `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
+| `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
+| `POST /api/konten` | Buat/hapus pengumuman, tautan, panel |
 | `/healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
 Autentikasi: `?token=...`, header `X-Dashboard-Token`, atau `Authorization: Bearer ...`.
@@ -30,6 +39,9 @@ import logging
 import os
 import time
 
+import dashboard_admin
+import dashboard_pesan
+import dashboard_ui
 import insights
 from config import (
     AI_DAILY_CAP_PER_GUILD,
@@ -62,7 +74,7 @@ def dashboard_config() -> dict:
         "host": str(DASHBOARD_HOST or "0.0.0.0"),
         "port": port,
         "token": token,
-        "refresh": max(5, int(DASHBOARD_REFRESH_SEC or 30)),
+        "refresh": max(0, int(DASHBOARD_REFRESH_SEC if DASHBOARD_REFRESH_SEC is not None else 30)),
         "reason": (
             "aktif"
             if (port > 0 and token)
@@ -284,7 +296,7 @@ _PAGE_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="{refresh}">
+{meta_refresh}
 <title>Dashboard {bot_name} — v{version}</title>
 <style>
   :root {{ color-scheme: dark; }}
@@ -310,12 +322,25 @@ _PAGE_TEMPLATE = """<!doctype html>
   td, th {{ text-align: left; padding: 6px 4px; border-bottom: 1px solid #1d2130; }}
   th {{ color: #8b90a3; font-weight: 500; }}
   .ok {{ color: #58d68d; }} .warn {{ color: #f5b041; }}
+  .subpanel {{ margin: 14px 0 6px; }}
+  .subpanel h3 {{ font-size: 13px; margin: 8px 0 4px; color: #cbd0e0; }}
+  .formgrid {{ display: grid; gap: 10px; margin: 8px 0 4px; }}
+  .medan {{ display: grid; gap: 4px; }}
+  .medan label {{ font-size: 12px; color: #9aa0b5; }}
+  input[type=text], input[type=number], input[type=url], textarea {{
+      width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid #2a2f3d;
+      background: #171b25; color: #e6e6f0; font-size: 13px; font-family: inherit; }}
+  textarea {{ resize: vertical; min-height: 90px; }}
+  .formgrid button {{ justify-self: start; }}
+  button.danger {{ background: #b23b3b; border-color: #b23b3b; }}
+  .riwayat {{ padding-left: 18px; font-size: 13px; }}
+  .riwayat li {{ margin: 8px 0; }}
   footer {{ margin-top: 18px; }}
 </style>
 </head>
 <body>
   <h1>{heading}</h1>
-  <div class="muted">v{version} • read-only • tanpa kuota AI • diperbarui {checked_at} (auto-refresh {refresh}s)</div>
+  <div class="muted">v{version} • panel admin • tanpa kuota AI • diperbarui {checked_at}{refresh_info}</div>
 
   <div class="grid">
     <div class="card">Uptime<b>{uptime}</b></div>
@@ -356,6 +381,37 @@ _PAGE_TEMPLATE = """<!doctype html>
     {fitur_block}
 
     {kontrol_block}
+  </div>
+
+  <div class="panel">
+    <h2>🛠️ Setelan server</h2>
+    <p class="muted">Semua fitur di bawah bisa diubah dari sini. Pilih nilai lalu <b>Simpan</b> —
+    perubahan langsung tersimpan ke JSON bot (tanpa restart) dan tercatat di riwayat.</p>
+    {setelan_block}
+  </div>
+
+  <div class="panel">
+    <h2>✉️ Kirim pesan &amp; embed</h2>
+    <p class="muted">Kirim pengumuman sekali jalan, atau pakai identitas webhook supaya
+    nama &amp; avatar pengirim bisa berbeda dari bot.</p>
+    {kirim_block}
+  </div>
+
+  <div class="panel">
+    <h2>➕ Buat konten</h2>
+    {buat_block}
+  </div>
+
+  <div class="panel">
+    <h2>🗂️ Konten tersimpan</h2>
+    <p class="muted">Klik Hapus untuk membuang konten. Pesan yang sudah terkirim di Discord
+    tidak ikut terhapus.</p>
+    {konten_block}
+  </div>
+
+  <div class="panel">
+    <h2>🧾 Riwayat perubahan</h2>
+    {audit_block}
   </div>
 
   <footer class="muted">
@@ -400,6 +456,11 @@ def render_dashboard_html(
     heading: str = "🛰️ Dashboard Bot",
     kontrol_block: str = '<div class="muted">Kontrol tidak tersedia.</div>',
     fitur_block: str = "",
+    setelan_block: str = "",
+    kirim_block: str = "",
+    buat_block: str = "",
+    konten_block: str = "",
+    audit_block: str = "",
 ) -> str:
     """Merender halaman HTML dashboard (string). Aman untuk data kosong."""
     guild_limit = int(usage.get("guild_limit") or 0)
@@ -408,8 +469,15 @@ def render_dashboard_html(
         f"{guild_used} / {guild_limit}" if guild_limit else f"{guild_used} (tanpa batas)"
     )
     ai_ready = bool(status.get("ai_ready"))
+    detik = int(refresh or 0)
+    # refresh <= 0 = tanpa auto-refresh (lebih nyaman saat mengisi form panjang).
+    meta_refresh = (
+        f'<meta http-equiv="refresh" content="{max(5, detik)}">' if detik > 0 else ""
+    )
+    refresh_info = f" (auto-refresh {detik}s)" if detik > 0 else " (auto-refresh mati)"
     return _PAGE_TEMPLATE.format(
-        refresh=max(5, int(refresh)),
+        refresh_info=refresh_info,
+        meta_refresh=meta_refresh,
         version=html.escape(str(status.get("version") or "-")),
         bot_name=html.escape(str(status.get("bot_name") or "Bot")),
         heading=html.escape(heading),
@@ -438,6 +506,11 @@ def render_dashboard_html(
         levels_table=_levels_table(levels),
         kontrol_block=kontrol_block,
         fitur_block=fitur_block,
+        setelan_block=setelan_block or '<div class="muted">Setelan tidak tersedia.</div>',
+        kirim_block=kirim_block,
+        buat_block=buat_block,
+        konten_block=konten_block,
+        audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
     )
 
 
@@ -615,6 +688,41 @@ async def start_dashboard(bot) -> bool:
             expected=cfg["token"],
         )
 
+    async def _payload(request) -> dict:
+        """Baca body JSON atau form; selalu dict (kosong bila gagal)."""
+        try:
+            if str(request.content_type or "").startswith("application/json"):
+                return dict(await request.json())
+            return dict(await request.post())
+        except Exception:
+            return {}
+
+    def _izin(request, payload: dict) -> bool:
+        """Token boleh lewat query/header (API) atau field tersembunyi (form HTML)."""
+        if _authorized(request):
+            return True
+        return is_authorized(
+            query_token=str((payload or {}).get("token") or ""),
+            expected=cfg["token"],
+        )
+
+    def _halaman_hasil(ok: bool, pesan: str):
+        """Halaman kecil setelah submit form: pesan + tautan kembali."""
+        token_url = html.escape(cfg["token"], quote=True)
+        page = (
+            "<!doctype html><html lang=id><head><meta charset=utf-8>"
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            "<title>Dashboard — hasil</title>"
+            "<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e6e6f0;"
+            "padding:28px;line-height:1.5}a{color:#8ea2ff}</style></head><body>"
+            f"<h1>{'✅' if ok else '⚠️'}</h1>"
+            f'<p style="font-size:16px">{html.escape(pesan)}</p>'
+            f'<p><a href="/?token={token_url}">← Kembali ke dashboard</a></p>'
+            "</body></html>"
+        )
+        return web.Response(text=page, content_type="text/html", charset="utf-8",
+                            status=200 if ok else 400)
+
     async def handle_health(_request):
         return web.Response(text="ok", content_type="text/plain")
 
@@ -622,14 +730,54 @@ async def start_dashboard(bot) -> bool:
         if not _authorized(request):
             return web.Response(text="401 Unauthorized — tambahkan ?token=...", status=401)
         gid, guild_name = _guild_hint(bot, request)
+        token = cfg["token"]
+
+        def _blok(pembuat, bawaan: str) -> str:
+            """Gambar satu blok; kegagalan satu blok tidak mematikan halaman."""
+            try:
+                return pembuat()
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Blok dashboard gagal dirender: %s", exc)
+                return bawaan
+
+        setelan_block = _blok(
+            lambda: dashboard_ui.render_setelan_block(
+                dashboard_admin.read_values(gid), bot, gid, token
+            ),
+            '<div class="muted">Setelan tidak tersedia.</div>',
+        )
+        kirim_block = _blok(
+            lambda: dashboard_ui.render_kirim_block(bot, gid, token),
+            '<div class="muted">Form kirim tidak tersedia.</div>',
+        )
+        buat_block = _blok(
+            lambda: dashboard_ui.render_buat_block(bot, gid, token),
+            '<div class="muted">Form konten tidak tersedia.</div>',
+        )
+        konten_block = _blok(
+            lambda: dashboard_ui.render_konten_block(
+                gid, dashboard_pesan.daftar_konten(gid, bot), token
+            ),
+            '<div class="muted">Daftar konten tidak tersedia.</div>',
+        )
+        audit_block = _blok(
+            lambda: dashboard_ui.render_audit_block(dashboard_admin.audit_terakhir(gid, limit=8)),
+            '<div class="muted">Riwayat tidak tersedia.</div>',
+        )
+
         page = render_dashboard_html(
             status=collect_status(bot),
             usage=collect_usage(gid),
             levels=collect_levels(gid),
             refresh=cfg["refresh"],
             heading=f"🛰️ Dashboard {guild_name}" if guild_name else "🛰️ Dashboard Bot",
-            kontrol_block=render_controls_block(gid, cfg["token"]),
+            kontrol_block=render_controls_block(gid, token),
             fitur_block=render_features_block(gid),
+            setelan_block=setelan_block,
+            kirim_block=kirim_block,
+            buat_block=buat_block,
+            konten_block=konten_block,
+            audit_block=audit_block,
         )
         return web.Response(text=page, content_type="text/html", charset="utf-8")
 
@@ -658,45 +806,93 @@ async def start_dashboard(bot) -> bool:
                                   "controls": dashboard_controls(gid)})
 
     async def handle_aksi(request):
-        if not _authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
+        """Ubah setelan. Body JSON atau form HTML (token boleh di body)."""
         if request.method != "POST":
             return web.json_response({"error": "gunakan POST"}, status=405)
-
-        payload: dict = {}
-        try:
-            if request.content_type.startswith("application/json"):
-                payload = dict(await request.json())
-            else:
-                payload = dict(await request.post())
-        except Exception:
-            return web.json_response({"error": "body tidak valid"}, status=400)
+        payload = await _payload(request)
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
 
         raw_guild = str(payload.get("guild") or "").strip()
         gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
-        ok, message = await apply_dashboard_action(
-            gid, str(payload.get("action") or ""), str(payload.get("value") or "")
-        )
-        logger.info("Dashboard aksi %s=%s (server %s): %s", payload.get("action"),
-                    payload.get("value"), gid, message)
+        aksi = str(payload.get("action") or "").strip()
+        nilai = str(payload.get("value") or "")
 
-        if request.content_type.startswith("application/json"):
+        if aksi.lower().startswith("set."):
+            kunci = aksi[4:]
+            ok, message = await dashboard_admin.apply(gid, kunci, dashboard_admin.normalisasi(kunci, nilai))
+        else:
+            ok, message = await apply_dashboard_action(gid, aksi, nilai)
+        logger.info("Dashboard aksi %s=%s (server %s): %s", aksi, nilai, gid, message)
+
+        if str(request.content_type or "").startswith("application/json"):
             return web.json_response({"ok": ok, "message": message, "guild": gid},
                                      status=200 if ok else 400)
+        return _halaman_hasil(ok, message)
 
-        # Form browser → kembali ke dashboard dengan pesan singkat
-        safe = html.escape(message)
-        page = (
-            "<!doctype html><html lang=id><head><meta charset=utf-8>"
-            "<title>Dashboard — hasil</title>"
-            "<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#e6e6f0;"
-            "padding:32px}a{color:#8ea2ff}</style></head><body>"
-            f"<h1>{'✅' if ok else '⚠️'} {safe}</h1>"
-            f'<p><a href="/?token={html.escape(cfg["token"])}">← Kembali ke dashboard</a></p>'
-            "</body></html>"
+    async def handle_kirim(request):
+        """Kirim pesan/embed ke channel (opsional lewat identitas webhook)."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        ok, message = await dashboard_pesan.kirim(bot, gid, payload)
+        logger.info("Dashboard kirim (server %s): %s", gid, message)
+
+        if str(request.content_type or "").startswith("application/json"):
+            return web.json_response({"ok": ok, "message": message, "guild": gid},
+                                     status=200 if ok else 400)
+        return _halaman_hasil(ok, message)
+
+    async def handle_konten(request):
+        """Buat / hapus konten: `action=buat.<jenis>` atau `hapus.<jenis>:<id>`."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+
+        if aksi == "buat.pengumuman":
+            ok, message = await dashboard_pesan.tambah_pengumuman(gid, payload)
+        elif aksi == "buat.tautan":
+            ok, message = await dashboard_pesan.tambah_tautan(gid, payload)
+        elif aksi == "buat.panel":
+            ok, message = await dashboard_pesan.buat_panel(bot, gid, payload)
+        elif aksi.startswith("hapus."):
+            sisa = aksi[len("hapus."):]
+            jenis, _, ref = sisa.partition(":")
+            ok, message = await dashboard_pesan.hapus(bot, gid, jenis, ref)
+        else:
+            ok, message = False, f"Aksi konten `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard konten %s (server %s): %s", aksi, gid, message)
+
+        if str(request.content_type or "").startswith("application/json"):
+            return web.json_response({"ok": ok, "message": message, "guild": gid},
+                                     status=200 if ok else 400)
+        return _halaman_hasil(ok, message)
+
+    async def handle_setelan(request):
+        """JSON semua setelan + nilai sekarang (untuk otomasi/tes)."""
+        if not _authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        gid, guild_name = _guild_hint(bot, request)
+        return web.json_response(
+            {
+                "guild": gid,
+                "guild_name": guild_name,
+                "ringkasan": dashboard_admin.ringkasan(),
+                "nilai": dashboard_admin.read_values(gid),
+                "riwayat": dashboard_admin.audit_terakhir(gid, limit=10),
+            }
         )
-        return web.Response(text=page, content_type="text/html", charset="utf-8",
-                            status=200 if ok else 400)
 
     app.router.add_get("/api/kontrol", handle_kontrol)
 
@@ -707,7 +903,10 @@ async def start_dashboard(bot) -> bool:
         return web.json_response(collect_features(gid))
 
     app.router.add_get("/api/fitur", handle_features)
+    app.router.add_get("/api/setelan", handle_setelan)
     app.router.add_post("/api/aksi", handle_aksi)
+    app.router.add_post("/api/kirim", handle_kirim)
+    app.router.add_post("/api/konten", handle_konten)
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/pemakaian", handle_usage)
@@ -720,9 +919,11 @@ async def start_dashboard(bot) -> bool:
         _site = web.TCPSite(_runner, cfg["host"], cfg["port"])
         await _site.start()
         logger.info(
-            "🛰️ Dashboard web aktif di http://%s:%s/?token=*** (read-only, 0 kuota AI)",
+            "🛰️ Dashboard web aktif di http://%s:%s/?token=*** "
+            "(%s setelan, kirim embed/webhook, 0 kuota AI)",
             cfg["host"],
             cfg["port"],
+            len(dashboard_admin.FITUR),
         )
         return True
     except Exception as exc:  # pragma: no cover - port bentrok/ditolak panel

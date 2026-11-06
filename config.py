@@ -260,8 +260,9 @@ DASHBOARD_PORT: int = _env_int("DASHBOARD_PORT", 0, minimum=0)
 DASHBOARD_HOST: str = os.getenv("DASHBOARD_HOST") or "0.0.0.0"
 # Token rahasia di URL (?token=...) — WAJIB diisi untuk mengaktifkan dashboard.
 DASHBOARD_TOKEN: str = os.getenv("DASHBOARD_TOKEN") or ""
-# Interval auto-refresh halaman (detik).
-DASHBOARD_REFRESH_SEC: int = _env_int("DASHBOARD_REFRESH_SEC", 30, minimum=5)
+# Interval auto-refresh halaman (detik). 0 = tanpa auto-refresh (dianjurkan bila
+# sering mengisi form embed/setelan di dashboard, supaya ketikan tidak ter-reset).
+DASHBOARD_REFRESH_SEC: int = _env_int("DASHBOARD_REFRESH_SEC", 30, minimum=0)
 
 # ==============================================================================
 # SISTEM TIKET DUKUNGAN (Tier 2C) — default NONAKTIF

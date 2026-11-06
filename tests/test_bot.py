@@ -6501,9 +6501,11 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     finally:
         await web_dashboard.stop_dashboard()
 
-    # 6. Satu-satunya jalur tulis hanya `/api/aksi` (tanpa PUT/DELETE/PATCH)
+    # 6. Jalur tulis dibatasi 3 endpoint POST (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    assert src.count("add_post(") == 1 and 'add_post("/api/aksi"' in src
+    assert src.count("add_post(") == 3
+    for jalur in ('add_post("/api/aksi"', 'add_post("/api/kirim"', 'add_post("/api/konten"'):
+        assert jalur in src, f"endpoint tulis {jalur} hilang"
     for needle in ("add_put(", "add_delete(", "add_patch("):
         assert needle not in src, f"dashboard tidak boleh punya {needle}"
     assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()
