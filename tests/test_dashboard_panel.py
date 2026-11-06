@@ -773,3 +773,16 @@ async def test_http_panel_verifikasi(monkeypatch, tmp_path):
         assert catatan["config"]["enabled"] is False
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
+
+
+def test_halaman_memuat_blok_baru_dan_css_hp():
+    page = web_dashboard.render_dashboard_html(
+        status={}, usage={}, levels={},
+        ekspor_block="EKSPOR-UJI", panel_block="PANEL-UJI", tiket_block="TIKET-UJI",
+    )
+    assert "📥 Ekspor CSV" in page and "EKSPOR-UJI" in page
+    assert "Editor panel (tombol &amp; dropdown)" in page and "PANEL-UJI" in page
+    assert "TIKET-UJI" in page
+    # tata letak HP: grid jadi satu kolom
+    assert "@media (max-width: 620px)" in page
+    assert ".baris-kolom { grid-template-columns: 1fr" in page

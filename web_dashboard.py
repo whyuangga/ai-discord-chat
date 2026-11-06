@@ -424,6 +424,17 @@ _PAGE_TEMPLATE = """<!doctype html>
       background: #1d2433; border: 1px solid #2a2f3d; color: #e6e6f0;
       text-decoration: none; font-size: 13px; }}
   a.tombol-unduh:hover {{ background: #263049; }}
+  /* --- layar HP --- */
+  @media (max-width: 620px) {{
+    body {{ padding: 12px; }}
+    .panel {{ padding: 12px; }}
+    .baris-kolom {{ grid-template-columns: 1fr; gap: 4px; }}
+    .panel-item {{ flex-wrap: wrap; }}
+    .tiket-form input[type=text] {{ flex: 1 1 100%; }}
+    .ekspor a.tombol-unduh {{ flex: 1 1 45%; text-align: center; }}
+    .kontrol label {{ min-width: 100%; }}
+    table {{ font-size: 12px; }}
+  }}
   form.banner-form {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
   form.banner-form input[type=file] {{ width: auto; max-width: 190px; }}
   form.banner-form select {{ padding: 5px 8px; border-radius: 8px; border: 1px solid #2a2f3d;
