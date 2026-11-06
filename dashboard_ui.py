@@ -83,6 +83,15 @@ def opsi_untuk(kunci: str, bot, guild_id: int) -> list[tuple[str, str]]:
     return []
 
 
+def _opsi_html(daftar: list[tuple[str, str]], terpilih: str = "") -> str:
+    """Rangkai `<option>` dari pasangan `(nilai, label)`."""
+    hasil = ""
+    for nilai, label in daftar:
+        pilih = " selected" if str(nilai) == str(terpilih) else ""
+        hasil += f'<option value="{_esc(nilai)}"{pilih}>{_esc(label)}</option>'
+    return hasil
+
+
 def _nama_channel(bot, guild_id: int, cid: str) -> str:
     for value, label in pilihan_channel(bot, guild_id)[1:]:
         if value == str(cid):
@@ -648,7 +657,222 @@ def render_pratinjau_html(
 # ==============================================================================
 # KOTAK MASUK TIKET
 # ==============================================================================
-def render_tiket_block(guild_id: int, data: dict, token: str) -> str:
+# ==============================================================================
+# EDITOR PANEL (tombol & dropdown tanpa Discord)
+# ==============================================================================
+def _form_tambah_item(bot, guild_id: int, token: str, menu_id: str) -> str:
+    """Form satu baris untuk menambah tombol/dropdown ke sebuah panel."""
+    import dashboard_panel
+
+    jenis = "".join(
+        f'<option value="{_esc(kunci)}">{_esc(kunci)}</option>'
+        for kunci in dashboard_panel.JENIS_ITEM
+    )
+    perintah = _opsi_html(dashboard_panel.daftar_perintah())
+    formulir = ""
+    try:
+        import modal_forms
+
+        formulir = _opsi_html(
+            [(str(f.get("id")), str(f.get("title") or f.get("id")))
+             for f in modal_forms.list_forms(int(guild_id or 0))]
+        )
+    except Exception:  # pragma: no cover - jaring aman
+        formulir = ""
+    if not formulir:
+        formulir = '<option value="">(belum ada formulir)</option>'
+    role = _opsi_html(pilihan_role(bot, guild_id)[1:])
+    role_lain = _opsi_html(pilihan_role(bot, guild_id))
+    return f"""
+<form method="post" action="/api/panel" class="tambah-item">
+  {_hidden(guild_id, token, "tambah:" + str(menu_id))}
+  <div class="medan"><label>Jenis item</label>
+    <select name="jenis">{jenis}</select></div>
+  {_medan("Label tombol", "label", place="Gamer / Buka situs / Statistik")}
+  {_medan("Emoji", "emoji", place="🎮 (opsional)")}
+  <div class="medan"><label>Gaya tombol</label>
+    <select name="gaya">
+      <option value="biru">biru</option><option value="abu">abu</option>
+      <option value="hijau">hijau</option><option value="merah">merah</option>
+    </select></div>
+  <div class="medan"><label>Role (peran / dropdown)</label>
+    <select name="role">{role}</select></div>
+  <div class="medan"><label>Role tambahan (dropdown)</label>
+    <select name="role2">{role_lain}</select></div>
+  <div class="medan"><label>Role ke-3 (dropdown)</label>
+    <select name="role3">{role_lain}</select></div>
+  {_medan("URL (tautan)", "url", place="https://contoh.id")}
+  <div class="medan"><label>Perintah (perintah)</label>
+    <select name="perintah">{perintah}</select></div>
+  <div class="medan"><label>Formulir (formulir)</label>
+    <select name="formulir">{formulir}</select></div>
+  {_medan("Alur (alur)", "alur", place="+role:123 > pesan:Halo {member.mention}")}
+  <div class="medan"><label>Visibilitas perintah</label>
+    <select name="visibilitas">
+      <option value="auto">auto</option><option value="publik">publik</option>
+      <option value="ephemeral">hanya pengklik</option>
+    </select></div>
+  <label class="centang"><input type="checkbox" name="eksklusif" value="on"> dropdown eksklusif (satu role saja)</label>
+  <button type="submit">Tambah ke panel</button>
+</form>
+<p class="muted">Isi hanya kolom yang sesuai dengan <b>jenis</b> yang dipilih: <b>peran</b> pakai Role,
+<b>tautan</b> pakai URL, <b>perintah</b> pakai daftar perintah, <b>alur</b> pakai teks alur,
+<b>formulir</b> pakai daftar formulir, <b>dropdown</b> pakai Role 1–3 + Label (placeholder).</p>
+"""
+
+
+def _baris_item(panel_id: str, guild_id: int, token: str, nomor: int, item: dict) -> str:
+    return (
+        f'<div class="panel-item"><span class="nomor">{nomor}</span>'
+        f'<div><b>{_esc(item.get("label"))}</b> '
+        f'<span class="muted">· {_esc(item.get("jenis"))}</span>'
+        f'<div class="muted kecil">{_esc(item.get("detail"))}</div></div>'
+        '<form method="post" action="/api/panel">'
+        + _hidden(guild_id, token, f"hapus:{panel_id}:{item.get('ref')}")
+        + '<button type="submit" class="danger">Hapus</button></form></div>'
+    )
+
+
+def _form_verifikasi(bot, guild_id: int, token: str, status: dict) -> str:
+    """Form pasang/matikan gerbang verifikasi (setara `/verifikasi pasang`)."""
+    channel = _opsi_html(pilihan_channel(bot, guild_id))
+    role = _opsi_html(pilihan_role(bot, guild_id)[1:])
+    aktif = bool((status or {}).get("aktif"))
+    ringkas = (
+        f"🛡️ Gerbang verifikasi: <b>{'aktif' if aktif else 'nonaktif'}</b>"
+        + (
+            f' · channel <code>{_esc(status.get("channel"))}</code> · '
+            f'role <code>{_esc(status.get("role"))}</code>'
+            if aktif
+            else ""
+        )
+    )
+    matikan = ""
+    if aktif:
+        matikan = (
+            '<form method="post" action="/api/panel" class="tiket-form">'
+            + _hidden(guild_id, token, "verifikasi:matikan")
+            + '<button type="submit" class="danger">Matikan verifikasi</button></form>'
+        )
+    return f"""
+<div class="subpanel"><h3>{ringkas}</h3>
+<details><summary class="muted">🛡️ Pasang panel verifikasi (setara /verifikasi pasang)</summary>
+<form method="post" action="/api/panel" class="formgrid">
+  {_hidden(guild_id, token, "verifikasi")}
+  <div class="medan"><label>Channel panel</label>
+    <select name="channel">{channel}</select></div>
+  <div class="medan"><label>Role setelah verifikasi</label>
+    <select name="role">{role}</select></div>
+  {_medan("Catatan tambahan", "catatan", place="Baca aturan dulu ya (opsional)")}
+  <button type="submit">Pasang panel verifikasi</button>
+</form>
+{matikan}
+<p class="muted">Member menekan tombol <b>Verifikasi Saya</b> sekali → langsung mendapat role
+tersebut. Padukan dengan auto-role untuk role tambahan.</p>
+</details></div>
+"""
+
+
+def render_ekspor_block(guild_id: int, token: str) -> str:
+    """Tautan unduh CSV analitik (level, moderasi, tiket, pemakaian AI)."""
+    tombol = ""
+    for kunci, label in (
+        ("level", "📈 Level & XP"),
+        ("moderasi", "🛡️ Kasus moderasi"),
+        ("tiket", "🎟️ Tiket & rating"),
+        ("pemakaian", "📊 Pemakaian AI"),
+    ):
+        url = f"/api/ekspor?jenis={kunci}&amp;guild={int(guild_id or 0)}&amp;token={_esc(token)}"
+        tombol += f'<a class="tombol-unduh" href="{url}">{_esc(label)}</a>'
+    return (
+        '<p class="muted">Unduh data server sebagai CSV (bisa dibuka di Excel/Sheets):</p>'
+        f'<div class="ekspor">{tombol}</div>'
+        '<p class="muted">CSV dibuat ulang setiap kali diunduh — tidak ada data yang disimpan '
+        "ke disk dan tidak memakai kuota AI.</p>"
+    )
+
+
+def render_panel_block(bot, guild_id: int, data: dict, token: str) -> str:
+    """Daftar panel + isi tombol/dropdown + form tambah/hapus item."""
+    paket = data or {}
+    panel = paket.get("items") or []
+    stat = paket.get("statistik") or {}
+    ringkas = (
+        f'<p class="muted">🧩 Panel: <b>{int(stat.get("panel") or 0)}</b> · '
+        f'tombol: {int(stat.get("tombol") or 0)} · dropdown: {int(stat.get("dropdown") or 0)}</p>'
+    )
+    if not panel:
+        return (
+            ringkas
+            + '<div class="muted">Belum ada panel. Buat dulu di bagian <b>Buat konten</b> '
+            "(panel menu), lalu tombol/dropdown-nya bisa diatur di sini.</div>"
+            + _form_verifikasi(bot, guild_id, token, paket.get("verifikasi") or {})
+        )
+
+    isi = ""
+    for grup in panel:
+        pid = str(grup.get("id"))
+        nomor = 1
+        baris = ""
+        for item in grup.get("tombol") or []:
+            baris += _baris_item(pid, guild_id, token, nomor, item)
+            nomor += 1
+        for dropdown in grup.get("dropdown") or []:
+            baris += (
+                f'<div class="panel-item dropdown"><span class="nomor">▾</span>'
+                f'<div><b>{_esc(dropdown.get("label"))}</b>'
+                f'<span class="muted"> · dropdown · {_esc(dropdown.get("ringkas"))}</span></div></div>'
+            )
+            for opsi in dropdown.get("opsi") or []:
+                baris += _baris_item(pid, guild_id, token, nomor, opsi)
+                nomor += 1
+        if not baris:
+            baris = '<div class="muted">Panel ini belum punya tombol. Tambahkan di bawah.</div>'
+        kirim = "sudah terkirim" if grup.get("terkirim") else "belum terkirim"
+        isi += (
+            f'<div class="daftar-panel"><h4>🧩 {_esc(grup.get("judul"))} '
+            f'<span class="muted">· {int(grup.get("jumlah") or 0)} item · {kirim}</span></h4>'
+            + (f'<p class="muted">{_esc(grup.get("deskripsi"))}</p>' if grup.get("deskripsi") else "")
+            + baris
+            + '<details><summary class="muted">➕ Tambah tombol / dropdown</summary>'
+            + _form_tambah_item(bot, guild_id, token, pid)
+            + "</details></div>"
+        )
+    return ringkas + isi + _form_verifikasi(bot, guild_id, token, paket.get("verifikasi") or {})
+
+
+# ==============================================================================
+# KOTAK MASUK TIKET
+# ==============================================================================
+def _form_panel_tiket(bot, guild_id: int, token: str) -> str:
+    """Form pasang panel tiket (setara `/tiket panel`) + tombol matikan."""
+    channel = _opsi_html(pilihan_channel(bot, guild_id))
+    role = _opsi_html(pilihan_role(bot, guild_id))
+    return f"""
+<details><summary class="muted">🎟️ Pasang panel tiket (setara /tiket panel)</summary>
+<form method="post" action="/api/tiket" class="formgrid">
+  {_hidden(guild_id, token, "panel")}
+  <div class="medan"><label>Channel panel</label>
+    <select name="channel">{channel}</select></div>
+  <div class="medan"><label>Role staf</label>
+    <select name="staff_role">{role}</select></div>
+  <div class="medan"><label>Channel log transkrip</label>
+    <select name="log_channel">{channel}</select></div>
+  <div class="medan"><label>Maksimal tiket per member</label>
+    <input type="number" name="max_open" min="1" max="10" value="2"></div>
+  <button type="submit">Pasang panel tiket</button>
+</form>
+<form method="post" action="/api/tiket" class="tiket-form">
+  {_hidden(guild_id, token, "matikan")}
+  <button type="submit" class="danger">Matikan sistem tiket</button>
+</form>
+<p class="muted">Panel dikirim ke channel yang dipilih; member menekan tombol
+<b>Buat Tiket</b> untuk membuka thread privat.</p>
+</details>
+"""
+
+
+def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
     """Kotak masuk tiket: ringkasan + daftar tiket aktif + form balas/tutup."""
     paket = data or {}
     items = paket.get("items") or []
@@ -661,11 +885,13 @@ def render_tiket_block(guild_id: int, data: dict, token: str) -> str:
         + ("" if stat.get("aktifkan", True) else " · ⛔ Sistem tiket nonaktif")
         + "</p>"
     )
+    pasang = _form_panel_tiket(bot, guild_id, token) if bot is not None else ""
     if not items:
         return (
             ringkas
             + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
-            "member membukanya lewat panel `/tiket panel`.</div>"
+            "member menekan tombol <b>Buat Tiket</b> di panel.</div>"
+            + pasang
         )
 
     baris = ""
@@ -690,11 +916,12 @@ def render_tiket_block(guild_id: int, data: dict, token: str) -> str:
             + '<button type="submit" class="danger">Tutup</button></form>'
             "</div>"
         )
-    return ringkas + f'<div class="daftar-tiket">{baris}</div>'
+    return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang
 
 
 __all__ = [
     "daftar_server",
+    "render_panel_block",
     "kontrol_html",
     "opsi_banner",
     "opsi_untuk",
@@ -703,6 +930,7 @@ __all__ = [
     "render_audit_block",
     "render_banner_block",
     "render_buat_block",
+    "render_ekspor_block",
     "render_guild_picker",
     "render_konten_block",
     "render_kirim_block",

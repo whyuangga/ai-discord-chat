@@ -886,7 +886,7 @@ GRUP: tuple[dict, ...] = (
     {
         "kunci": "bantuan",
         "judul": "🎫 Tiket & sapaan harian",
-        "keterangan": "Setelah menyalakan tiket, kirim panelnya lewat /tiket panel di Discord.",
+        "keterangan": "Setelah menyalakan tiket, pasang panelnya di bagian Kotak masuk tiket (atau /tiket panel).",
         "fitur": ("tiket.aktif", "tiket.staff", "tiket.kategori", "tiket.log", "tiket.maks",
                   "tiket.ping", "tiket.rating", "ultah.channel"),
     },

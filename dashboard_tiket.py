@@ -228,4 +228,91 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
     )
 
 
-__all__ = ["STATUS_LABEL", "balas", "collect_tiket", "tutup"]
+# ==============================================================================
+# PANEL TIKET (setara /tiket panel, dari browser)
+# ==============================================================================
+async def _saluran(bot, guild_id: int, channel_id: int):
+    """Cari channel server ini (cache dulu, lalu fetch) — `None` bila tidak ada."""
+    return await _thread(bot, guild_id, channel_id)
+
+
+async def pasang_panel(bot, guild_id: int, data: dict) -> tuple[bool, str]:
+    """Pasang panel `Buat Tiket` di channel dari dashboard (setara `/tiket panel`)."""
+    import tickets
+    from views import send_ticket_panel
+
+    gid = _to_int(guild_id)
+    channel_id = _to_int((data or {}).get("channel"))
+    if channel_id <= 0:
+        return False, "Pilih channel tempat panel tiket dipasang."
+    channel = await _saluran(bot, gid, channel_id)
+    if channel is None:
+        return False, "Channel itu tidak ditemukan di server ini."
+
+    staf = _to_int((data or {}).get("staff_role")) or None
+    log = _to_int((data or {}).get("log_channel")) or None
+    maks = _to_int((data or {}).get("max_open")) or None
+    cfg = tickets.set_ticket_config(
+        gid,
+        enabled=True,
+        panel_channel_id=channel_id,
+        staff_role_id=staf,
+        log_channel_id=log,
+        max_open=maks,
+    )
+
+    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+    embed = tickets.build_panel_embed(
+        str(getattr(guild, "name", "") or "")[:100],
+        staff_role_id=cfg.get("staff_role_id"),
+    )
+    try:
+        pesan = await send_ticket_panel(channel, gid, embed)
+    except Exception as exc:
+        logger.warning("Panel tiket dari dashboard gagal dikirim: %s", exc)
+        return False, (
+            "Pengaturan tiket tersimpan, tetapi Discord menolak panelnya "
+            "(cek izin **Kirim Pesan** & **Embed Links**)."
+        )
+
+    tickets.set_ticket_config(gid, panel_message_id=_to_int(getattr(pesan, "id", 0)), enabled=True)
+    await tickets.save_tickets_to_disk()
+
+    acuan = str(getattr(channel, "mention", f"<#{channel_id}>"))
+    staf_info = f"<@&{cfg['staff_role_id']}>" if cfg.get("staff_role_id") else "_belum diatur_"
+    log_info = f"<#{log}>" if log else "_belum diatur_"
+    return True, (
+        f"🎟️ Panel tiket terpasang di {acuan}. "
+        f"Role staf: {staf_info} · log transkrip: {log_info} · "
+        f"maksimal {cfg.get('max_open')} tiket per member."
+    )
+
+
+async def matikan_tiket(guild_id: int) -> tuple[bool, str]:
+    """Matikan sistem tiket: panel lama tidak lagi membuat tiket baru."""
+    import tickets
+
+    gid = _to_int(guild_id)
+    try:
+        cfg = tickets.get_ticket_config(gid) or {}
+    except Exception:  # pragma: no cover - jaring aman
+        cfg = {}
+    if not cfg.get("enabled"):
+        return False, "Sistem tiket memang sudah nonaktif."
+    if not tickets.disable_tickets(gid):
+        return False, "Sistem tiket gagal dinonaktifkan."
+    await tickets.save_tickets_to_disk()
+    return True, (
+        "Sistem tiket dinonaktifkan. Panel lama tetap ada di Discord, tetapi tombolnya "
+        "tidak lagi membuat tiket baru sampai panel dipasang ulang."
+    )
+
+
+__all__ = [
+    "STATUS_LABEL",
+    "balas",
+    "collect_tiket",
+    "matikan_tiket",
+    "pasang_panel",
+    "tutup",
+]

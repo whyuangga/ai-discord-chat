@@ -30,7 +30,9 @@ Endpoint:
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
 | `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu; ganti/hapus banner panel |
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
-| `GET /api/tiket` · `POST /api/tiket` | Kotak masuk tiket: daftar, balas (`balas:<id>`), tutup (`tutup:<id>`) |
+| `GET /api/tiket` · `POST /api/tiket` | Kotak masuk tiket: daftar, balas (`balas:<id>`), tutup (`tutup:<id>`), pasang panel (`panel`), matikan (`matikan`) |
+| `GET /api/panel` · `POST /api/panel` | Editor panel: daftar item, tambah (`tambah:<id>`), hapus (`hapus:<id>:<ref>`), pasang/matikan verifikasi (`verifikasi` / `verifikasi:matikan`) |
+| `GET /api/ekspor?jenis=<level\|moderasi\|tiket\|pemakaian>` | unduh CSV analitik server (wajib token) |
 | `GET /api/unggahan/<nama>` | Pratinjau banner tersimpan (butuh token) |
 | `/healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
@@ -43,6 +45,7 @@ import os
 import time
 
 import dashboard_admin
+import dashboard_panel
 import dashboard_pesan
 import dashboard_tiket
 import dashboard_ui
@@ -404,6 +407,23 @@ _PAGE_TEMPLATE = """<!doctype html>
   form.tiket-form {{ display: flex; gap: 6px; flex-wrap: wrap; }}
   form.tiket-form input[type=text] {{ flex: 1 1 150px; padding: 6px 8px; border-radius: 8px;
       border: 1px solid #2a2f3d; background: #14161f; color: #e6e6f0; font-size: 12px; }}
+  .daftar-panel {{ border: 1px solid #2a2f3d; border-radius: 10px; padding: 10px;
+      background: #14161f; margin-bottom: 10px; }}
+  .daftar-panel h4 {{ margin: 2px 0 6px; font-size: 14px; }}
+  .panel-item {{ display: flex; gap: 8px; align-items: center; padding: 6px 0;
+      border-bottom: 1px solid #232734; }}
+  .panel-item .nomor {{ min-width: 22px; color: #8ea2ff; font-size: 12px; }}
+  .panel-item > div {{ flex: 1; }}
+  .panel-item form {{ margin: 0; }}
+  .panel-item.dropdown {{ background: #171b25; padding: 6px 8px; border-radius: 8px; margin-top: 6px; }}
+  form.tambah-item {{ display: grid; gap: 8px; margin: 8px 0; }}
+  form.tambah-item .medan label {{ font-size: 12px; }}
+  .kecil {{ font-size: 11px; }}
+  .ekspor {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+  a.tombol-unduh {{ display: inline-block; padding: 8px 12px; border-radius: 8px;
+      background: #1d2433; border: 1px solid #2a2f3d; color: #e6e6f0;
+      text-decoration: none; font-size: 13px; }}
+  a.tombol-unduh:hover {{ background: #263049; }}
   form.banner-form {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
   form.banner-form input[type=file] {{ width: auto; max-width: 190px; }}
   form.banner-form select {{ padding: 5px 8px; border-radius: 8px; border: 1px solid #2a2f3d;
@@ -484,6 +504,17 @@ _PAGE_TEMPLATE = """<!doctype html>
   </div>
 
   <div class="panel">
+    <h2>📥 Ekspor CSV</h2>
+    {ekspor_block}
+  </div>
+
+  <div class="panel">
+    <h2>🧩 Editor panel (tombol &amp; dropdown)</h2>
+    <p class="muted">Tambah atau hapus tombol/role/dropdown tanpa membuka Discord.</p>
+    {panel_block}
+  </div>
+
+  <div class="panel">
     <h2>🎫 Kotak masuk tiket</h2>
     <p class="muted">Balas atau tutup tiket dari HP — tanpa membuka Discord.</p>
     {tiket_block}
@@ -557,6 +588,8 @@ def render_dashboard_html(
     audit_block: str = "",
     banner_block: str = "",
     guild_picker: str = "",
+    ekspor_block: str = "",
+    panel_block: str = "",
     tiket_block: str = "",
     tren_block: str = "",
     tren_hari: int = 7,
@@ -612,6 +645,8 @@ def render_dashboard_html(
         audit_block=audit_block or '<div class="muted">Belum ada perubahan.</div>',
         banner_block=banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         guild_picker=guild_picker,
+        ekspor_block=ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
+        panel_block=panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
         tiket_block=tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
         tren_block=tren_block or '<div class="muted">Belum ada data tren.</div>',
         tren_hari=int(tren_hari or 7),
@@ -879,9 +914,19 @@ async def start_dashboard(bot) -> bool:
         )
         tiket_block = _blok(
             lambda: dashboard_ui.render_tiket_block(
-                gid, dashboard_tiket.collect_tiket(gid), token
+                gid, dashboard_tiket.collect_tiket(gid), token, bot
             ),
             '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
+        )
+        ekspor_block = _blok(
+            lambda: dashboard_ui.render_ekspor_block(gid, token),
+            '<div class="muted">Ekspor tidak tersedia.</div>',
+        )
+        panel_block = _blok(
+            lambda: dashboard_ui.render_panel_block(
+                bot, gid, dashboard_panel.collect_panel(gid), token
+            ),
+            '<div class="muted">Editor panel tidak tersedia.</div>',
         )
         banner_block = _blok(
             lambda: dashboard_ui.render_banner_block(gid, token),
@@ -917,6 +962,8 @@ async def start_dashboard(bot) -> bool:
             audit_block=audit_block,
             banner_block=banner_block,
             guild_picker=guild_picker,
+            ekspor_block=ekspor_block,
+            panel_block=panel_block,
             tiket_block=tiket_block,
             tren_block=tren_block,
             tren_hari=tren["hari"],
@@ -1096,6 +1143,48 @@ async def start_dashboard(bot) -> bool:
                                      status=200 if ok else 400)
         return _halaman_hasil(ok, message)
 
+    async def handle_panel(request):
+        """Editor panel: daftar item (GET) atau tambah/hapus item (POST)."""
+        if request.method == "GET":
+            if not _authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            gid, _name = _guild_hint(bot, request)
+            return web.json_response(dashboard_panel.collect_panel(gid))
+
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        jenis, _, ref = aksi.partition(":")
+
+        if jenis == "tambah":
+            ok, message = await dashboard_panel.tambah_item(
+                bot, gid, {**payload, "panel": ref}
+            )
+        elif jenis == "verifikasi" and ref.strip().lower() == "matikan":
+            ok, message = await dashboard_panel.matikan_verifikasi(gid)
+        elif jenis == "verifikasi":
+            ok, message = await dashboard_panel.pasang_verifikasi(bot, gid, payload)
+        elif jenis == "hapus":
+            panel_id, _, item_ref = ref.partition(":")
+            ok, message = await dashboard_panel.hapus_item(
+                bot, gid, {**payload, "panel": panel_id, "item": item_ref}
+            )
+        else:
+            ok, message = False, f"Aksi panel `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard panel %s (server %s): %s", aksi, gid, message)
+
+        if str(request.content_type or "").startswith("application/json"):
+            return web.json_response({"ok": ok, "message": message, "guild": gid},
+                                     status=200 if ok else 400)
+        return _halaman_hasil(ok, message)
+
     async def handle_tiket(request):
         """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
         if request.method == "GET":
@@ -1123,6 +1212,10 @@ async def start_dashboard(bot) -> bool:
             )
         elif jenis == "tutup":
             ok, message = await dashboard_tiket.tutup(bot, gid, ref)
+        elif jenis == "panel":
+            ok, message = await dashboard_tiket.pasang_panel(bot, gid, payload)
+        elif jenis == "matikan":
+            ok, message = await dashboard_tiket.matikan_tiket(gid)
         else:
             ok, message = False, f"Aksi tiket `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard tiket %s (server %s): %s", aksi, gid, message)
@@ -1131,6 +1224,27 @@ async def start_dashboard(bot) -> bool:
             return web.json_response({"ok": ok, "message": message, "guild": gid},
                                      status=200 if ok else 400)
         return _halaman_hasil(ok, message)
+
+    async def handle_ekspor(request):
+        """Unduh CSV analitik server (level/moderasi/tiket/pemakaian)."""
+        if not _authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        import analytics_export
+
+        gid, _name = _guild_hint(bot, request)
+        jenis = str(request.query.get("jenis") or "level").strip().lower()
+        isi, nama_berkas, galat = analytics_export.build_csv(jenis, gid)
+        if isi is None:
+            return web.Response(
+                text=galat or "Data belum tersedia.", status=404,
+                content_type="text/plain", charset="utf-8",
+            )
+        return web.Response(
+            body=analytics_export.csv_bytes(isi),
+            content_type="text/csv",
+            charset="utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
+        )
 
     async def handle_unggah(request):
         """Simpan / hapus banner. Multipart untuk berkas, form biasa untuk hapus."""
@@ -1220,6 +1334,9 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/kirim", handle_kirim)
     app.router.add_post("/api/konten", handle_konten)
     app.router.add_post("/api/unggah", handle_unggah)
+    app.router.add_get("/api/ekspor", handle_ekspor)
+    app.router.add_get("/api/panel", handle_panel)
+    app.router.add_post("/api/panel", handle_panel)
     app.router.add_get("/api/tiket", handle_tiket)
     app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
