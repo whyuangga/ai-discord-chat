@@ -9,6 +9,7 @@ from discord.ext import commands
 
 import message_template
 import suggestions as sg
+import webhook_identity
 import ui_kit
 import ui_theme
 from views import SuggestionVoteView
@@ -412,6 +413,130 @@ async def embed_cepat_cmd(
     catatan = ("\n" + "\n".join(f"-# ⚠️ {p}" for p in peringatan)) if peringatan else ""
     await interaction.response.send_message(
         f"✅ Embed terkirim ke {channel.mention}.{catatan}", ephemeral=True
+    )
+
+
+@embed_group.command(
+    name="sebagai",
+    description="Kirim pesan dengan nama & avatar sendiri lewat webhook (butuh Manage Webhooks)",
+)
+@app_commands.describe(
+    nama="Nama yang tampil di pesan, mis. `📢 Pengumuman Server`",
+    isi="Isi pesan",
+    channel="Channel tujuan (bawaan: channel ini)",
+    judul="Judul bila ingin tampil sebagai embed (opsional)",
+    avatar="URL avatar khusus untuk pesan ini (opsional)",
+    warna="Warna embed: #9B59B6 / ungu / biru / merah / hijau (opsional)",
+)
+async def embed_sebagai_cmd(
+    interaction: discord.Interaction,
+    nama: str,
+    isi: str,
+    channel: discord.TextChannel | discord.Thread | None = None,
+    judul: str | None = None,
+    avatar: str | None = None,
+    warna: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **staff** (Manage Messages / Manage Server).", ephemeral=True
+        )
+        return
+
+    target = channel or interaction.channel
+    if target is None or not hasattr(target, "webhooks"):
+        await interaction.response.send_message(
+            "⚠️ Pilih channel teks atau thread sebagai tujuan.", ephemeral=True
+        )
+        return
+
+    ctx = {"member": interaction.user, "guild": interaction.guild, "channel": target}
+    ok_nama, nama_bersih = webhook_identity.valid_name(
+        message_template.render(nama, **ctx)
+    )
+    if not ok_nama:
+        await interaction.response.send_message(f"⚠️ {nama_bersih}", ephemeral=True)
+        return
+    ok_avatar, avatar_bersih = webhook_identity.valid_avatar(avatar)
+    if not ok_avatar:
+        await interaction.response.send_message(
+            "⚠️ `avatar` harus URL `http://` atau `https://`.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    berhasil, keterangan = await webhook_identity.kirim_sebagai(
+        target,
+        nama=nama_bersih,
+        isi=message_template.render(isi, **ctx),
+        judul=message_template.render(judul, **ctx) if judul else None,
+        avatar=avatar_bersih,
+        warna=parse_color(warna) if warna else None,
+    )
+    if not berhasil:
+        await interaction.followup.send(f"⚠️ {keterangan}", ephemeral=True)
+        return
+
+    await webhook_identity.save_to_disk()
+    await interaction.followup.send(
+        f"✅ Pesan terkirim ke {getattr(target, 'mention', 'channel')} dengan nama **{nama_bersih}**.\n"
+        "-# Pesan dikirim lewat webhook, bukan sebagai bot — mention massal dinonaktifkan.",
+        ephemeral=True,
+    )
+
+
+@embed_group.command(
+    name="webhook",
+    description="Cek / hapus webhook identitas kustom yang dipakai bot di sebuah channel",
+)
+@app_commands.describe(channel="Channel yang diperiksa", hapus="True untuk menghapus webhook-nya")
+async def embed_webhook_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel | discord.Thread | None = None,
+    hapus: bool = False,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        await interaction.response.send_message(
+            "⚠️ Command ini khusus **staff** (Manage Messages / Manage Server).", ephemeral=True
+        )
+        return
+
+    target = channel or interaction.channel
+    if target is None or not hasattr(target, "webhooks"):
+        await interaction.response.send_message("⚠️ Pilih channel teks atau thread.", ephemeral=True)
+        return
+
+    if hapus:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        berhasil, keterangan = await webhook_identity.hapus_webhook(target)
+        if berhasil:
+            await webhook_identity.save_to_disk()
+            await interaction.followup.send(
+                f"🧹 Webhook identitas di {getattr(target, 'mention', 'channel')} sudah dihapus. "
+                "Bot akan membuat ulang saat `/embed sebagai` dipakai lagi.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(f"⚠️ {keterangan}", ephemeral=True)
+        return
+
+    webhook_id = webhook_identity.cached_webhook_id(target)
+    await interaction.response.send_message(
+        (
+            f"🔗 Webhook identitas **aktif** di {getattr(target, 'mention', 'channel')} "
+            f"(ID `{webhook_id}`).\n"
+            "-# Hapus dengan `/embed webhook hapus:True` bila ingin bot berhenti memakainya."
+        )
+        if webhook_id
+        else (
+            f"ℹ️ Belum ada webhook identitas di {getattr(target, 'mention', 'channel')}. "
+            "Bot membuatnya otomatis saat `/embed sebagai` pertama kali dipakai."
+        ),
+        ephemeral=True,
     )
 
 
