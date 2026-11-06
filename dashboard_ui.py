@@ -330,6 +330,24 @@ contoh: <code>Nama | Umur | Alasan:panjang?</code>. Pasang sebagai tombol panel 
 # ==============================================================================
 # DAFTAR KONTEN (dengan tombol hapus)
 # ==============================================================================
+def _form_banner_panel(menu_id: str, guild_id: int, token: str) -> str:
+    """Form kecil: ganti/hapus banner panel yang sudah terkirim."""
+    unggah = (
+        '<form method="post" action="/api/konten" class="banner-form" '
+        'enctype="multipart/form-data">'
+        + _hidden(guild_id, token, "banner.panel:" + str(menu_id))
+        + '<input type="file" name="banner" accept="image/png,image/jpeg,image/gif,image/webp">'
+        f'<select name="banner_tersimpan">{opsi_banner(guild_id)}</select>'
+        '<button type="submit" class="ghost">Ganti banner</button></form>'
+    )
+    hapus = (
+        '<form method="post" action="/api/konten">'
+        + _hidden(guild_id, token, "hapusbanner.panel:" + str(menu_id))
+        + '<button type="submit" class="ghost">Hapus banner</button></form>'
+    )
+    return '<div class="aksi-banner">' + unggah + hapus + "</div>"
+
+
 def _tabel_konten(judul: str, jenis: str, items: list[dict], token: str, guild_id: int) -> str:
     if not items:
         return f'<div class="subpanel"><h3>{_esc(judul)}</h3><div class="muted">Belum ada.</div></div>'
@@ -345,9 +363,12 @@ def _tabel_konten(judul: str, jenis: str, items: list[dict], token: str, guild_i
                 + _hidden(guild_id, token, aksi_jeda)
                 + f'<button type="submit" class="ghost">{label}</button></form>'
             )
+        extra = ""
+        if jenis == "panel" and item.get("terkirim"):
+            extra = _form_banner_panel(str(item.get("id")), guild_id, token)
         baris += (
             f'<tr><td><b>{_esc(item.get("judul"))}</b>'
-            f'<div class="muted">{_esc(item.get("ringkas") or "")}</div></td>'
+            f'<div class="muted">{_esc(item.get("ringkas") or "")}</div>{extra}</td>'
             f'<td class="aksi">{tombol_jeda}'
             f'<form method="post" action="/api/konten">{_hidden(guild_id, token, aksi)}'
             '<button type="submit" class="danger">Hapus</button></form></td></tr>'

@@ -28,7 +28,7 @@ Endpoint:
 | `/api/setelan?guild=<id>` | JSON semua setelan (48 fitur) + nilai sekarang |
 | `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
-| `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu |
+| `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu; ganti/hapus banner panel |
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
 | `GET /api/unggahan/<nama>` | Pratinjau banner tersimpan (butuh token) |
 | `/healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
@@ -346,6 +346,11 @@ _PAGE_TEMPLATE = """<!doctype html>
                        background: #0f1117; }}
   .kartu-banner code.kecil {{ font-size: 10px; color: #8b90a3; overflow-wrap: anywhere; }}
   input[type=file] {{ width: 100%; font-size: 12px; color: #cbd0e0; }}
+  .aksi-banner {{ display: grid; gap: 6px; margin-top: 8px; }}
+  form.banner-form {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
+  form.banner-form input[type=file] {{ width: auto; max-width: 190px; }}
+  form.banner-form select {{ padding: 5px 8px; border-radius: 8px; border: 1px solid #2a2f3d;
+      background: #171b25; color: #e6e6f0; font-size: 12px; max-width: 210px; }}
   .riwayat {{ padding-left: 18px; font-size: 13px; }}
   .riwayat li {{ margin: 8px 0; }}
   footer {{ margin-top: 18px; }}
@@ -944,6 +949,25 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi.startswith(("banner.panel:", "hapusbanner.panel:")):
+            ref_panel = aksi.split(":", 1)[1]
+            if aksi.startswith("hapusbanner."):
+                ok, message = await dashboard_pesan.ganti_banner_panel(
+                    bot, gid, ref_panel, banner=None
+                )
+            else:
+                banner, galat_banner, _nama = dashboard_unggah.siapkan(
+                    gid, payload.get("banner"), str(payload.get("banner_tersimpan") or "")
+                )
+                if galat_banner:
+                    return _halaman_hasil(False, galat_banner)
+                if banner is None:
+                    return _halaman_hasil(
+                        False, "Pilih berkas banner atau banner tersimpan lebih dulu."
+                    )
+                ok, message = await dashboard_pesan.ganti_banner_panel(
+                    bot, gid, ref_panel, banner=banner
+                )
         elif aksi.startswith("hapus."):
             sisa = aksi[len("hapus."):]
             jenis, _, ref = sisa.partition(":")

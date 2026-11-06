@@ -1132,6 +1132,7 @@ Banner bisa diunggah langsung dari HP — tidak perlu hosting gambar atau URL pu
 | **1. Unggah** | Panel **🖼️ Banner & gambar** → pilih berkas → **Unggah banner**. Berkas disimpan di `data/uploads/`. |
 | **2. Pakai** | Di form **Kirim pesan & embed** atau **Panel menu**, pilih berkas di kolom *Unggah banner* **atau** pilih dari dropdown *banner tersimpan*. |
 | **3. Hasil** | Embed memakai `attachment://<nama>` sehingga gambar ikut terkirim; panel menyimpan URL lampirannya sebagai `banner_url`. |
+| **4. Panel lama** | Di daftar **Panel** (bagian *Konten tersimpan*), setiap panel yang sudah terkirim punya tombol **Ganti banner** dan **Hapus banner** — pesan aslinya langsung disunting, tanpa kirim ulang. |
 | **Bersih-bersih** | Setiap banner di galeri punya tombol **Hapus** (kuota 20 berkas per server). |
 
 Batasan & pengamanan:
@@ -1142,8 +1143,12 @@ Batasan & pengamanan:
   menyesuaikan nilai ini — bukan 1 MB bawaan aiohttp.
 - Nama berkas selalu dibuat ulang (`<guild>_<waktu>_<acak>.<ext>`), jadi aman dari path
   traversal dan tabrakan nama. Pratinjau hanya bisa dibuka dengan token pemilik server.
-- Untuk panel, banner dikirim saat panel dibuat. Untuk panel yang **sudah terkirim**,
-  ganti bannernya dari Discord (`/menu ubah`) — atau buat panel baru.
+- **Ganti banner panel lama tidak menghapus pesannya**: bot menyunting pesan panel yang
+  sama (`message.edit`) dengan lampiran baru, lalu memperbarui `banner_url` di
+  `data/menus.json`. Tombol/dropdown yang sudah ada tetap berfungsi karena view didaftarkan
+  ulang. Kalau Discord menolak komponen V2 (mis. klien lama), bot otomatis memakai versi
+  embed klasik dengan banner yang sama. Tombol **Hapus banner** menghapus lampiran lama
+  tanpa menyentuh isi panel.
 
 #### Keamanan bertingkat
 
@@ -1165,7 +1170,7 @@ Batasan & pengamanan:
 | `GET /api/setelan` | semua nilai setelan + ringkasan grup + riwayat |
 | `POST /api/aksi` | ubah setelan: `action=set.<kunci>` (token boleh lewat body form) |
 | `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar` |
-| `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` |
+| `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` / `banner.panel:<id>` / `hapusbanner.panel:<id>` |
 | `POST /api/unggah` | `action=unggah.simpan` (multipart, field `banner`) / `hapus.banner:<nama>` |
 | `GET /api/unggahan/<nama>?guild=<id>` | pratinjau banner tersimpan (wajib token) |
 | `GET /healthz` | `ok` polos (tanpa token, untuk uptime monitor) |

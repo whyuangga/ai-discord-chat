@@ -273,6 +273,96 @@ async def buat_panel(bot, guild_id: int, data: dict, banner=None) -> tuple[bool,
 
 
 # ==============================================================================
+# GANTI / HAPUS BANNER PANEL YANG SUDAH TERKIRIM
+# ==============================================================================
+async def _pesan_panel(bot, guild_id: int, menu: dict):
+    """Ambil (channel, message) untuk panel yang sudah terkirim. `(None, None)` bila gagal."""
+    channel = await _ambil_channel(bot, guild_id, _to_int(menu.get("channel_id")))
+    if channel is None:
+        return None, None
+    try:
+        message = await channel.fetch_message(_to_int(menu.get("message_id")))
+    except Exception:  # pragma: no cover - NotFound/Forbidden/HTTP
+        return channel, None
+    return channel, message
+
+
+def _lampiran_panel(menu: dict, nama_banner: str, guild=None):
+    """View panel dengan referensi banner `attachment://` (atau tanpa banner)."""
+    import menu_builder
+
+    ref = f"attachment://{nama_banner}" if nama_banner else ""
+    return menu_builder.build_view(menu, banner_override=ref or "", guild=guild)
+
+
+async def ganti_banner_panel(bot, guild_id: int, ref: str, banner=None) -> tuple[bool, str]:
+    """Ganti banner panel yang sudah terkirim (edit pesan asli, tanpa kirim ulang).
+
+    `banner` = `discord.File` dari unggahan dashboard. `None` berarti **hapus** banner.
+    """
+    import menu_builder
+
+    gid = _to_int(guild_id)
+    menu = menu_builder.get_menu(gid, str(ref or "")) if gid else None
+    if menu is None:
+        return False, "Panel tidak ditemukan."
+
+    if not menu.get("message_id"):
+        return False, (
+            "Panel ini belum terkirim, jadi belum punya banner. Kirim dulu lewat "
+            "`/menu kirim` (atau buat panel baru), lalu ganti bannernya dari sini."
+        )
+    channel, message = await _pesan_panel(bot, gid, menu)
+    if channel is None:
+        return False, "Channel panel tidak ditemukan (mungkin sudah dihapus)."
+    if message is None:
+        return False, (
+            "Pesan panel tidak ditemukan. Kirim ulang panelnya dulu lewat "
+            "`/menu kirim`, lalu ganti bannernya dari sini."
+        )
+
+    nama = str(getattr(banner, "filename", "") or "") if banner is not None else ""
+    guild = _guild_dari(bot, gid)
+    # Untuk menghapus banner, kosongkan dulu agar `build_view` tidak memakai URL lama.
+    if not nama:
+        menu_builder.set_banner(menu, None)
+    view = _lampiran_panel(menu, nama, guild)
+
+    try:
+        if banner is not None:
+            await message.edit(view=view, attachments=[banner])
+        else:
+            await message.edit(view=view, attachments=[])
+    except Exception as exc:
+        logger.warning("Ganti banner panel gagal (%s) — mencoba versi embed klasik.", exc)
+        try:
+            embed = menu_builder.build_fallback_embed(menu)
+            if banner is not None:
+                await message.edit(embed=embed, view=None, attachments=[banner])
+            else:
+                await message.edit(embed=embed, view=None, attachments=[])
+        except Exception as exc2:
+            logger.warning("Ganti banner panel gagal total: %s", exc2)
+            return False, "Discord menolak perubahan banner (cek izin bot di channel itu)."
+
+    if banner is not None:
+        lampiran = list(getattr(message, "attachments", None) or [])
+        if lampiran:
+            menu_builder.set_banner(menu, str(getattr(lampiran[0], "url", "") or "")[:400])
+    try:
+        bot.add_view(
+            menu_builder.build_view(menu, guild=guild),
+            message_id=_to_int(menu.get("message_id")),
+        )
+    except Exception:  # pragma: no cover - depends on client state
+        pass
+    await menu_builder.save_menus_to_disk()
+    if banner is None:
+        return True, f"Banner panel **{menu.get('title') or ref}** dihapus."
+    return True, f"Banner panel **{menu.get('title') or ref}** diganti."
+
+
+# ==============================================================================
 # FORMULIR (MODAL)
 # ==============================================================================
 async def tambah_formulir(guild_id: int, data: dict) -> tuple[bool, str]:
@@ -514,6 +604,7 @@ async def hapus(bot, guild_id: int, jenis: str, ref: str) -> tuple[bool, str]:
 __all__ = [
     "JENIS_KONTEN",
     "buat_panel",
+    "ganti_banner_panel",
     "daftar_konten",
     "hapus",
     "kirim",
