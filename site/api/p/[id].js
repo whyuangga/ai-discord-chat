@@ -1,5 +1,7 @@
 'use strict';
 
+const zlib = require('zlib');
+
 /**
  * Halaman pratinjau panel: `/p/<kode>`.
  *
@@ -13,6 +15,8 @@
  */
 
 const MAX_CODE = 1500;
+const ZLIB_PREFIX = 'z.';        // kode dari `/menu bagikan` versi terkompresi
+const MAX_RAW = 64 * 1024;       // batas hasil dekompresi
 const MAX_BUTTONS = 25;
 const MAX_OPTIONS = 25;
 
@@ -27,7 +31,7 @@ const KIND_LABEL = {
 function decodeBase64Url(code) {
   const b64 = String(code).replace(/-/g, '+').replace(/_/g, '/');
   const padding = '='.repeat((4 - (b64.length % 4)) % 4);
-  return Buffer.from(b64 + padding, 'base64').toString('utf8');
+  return Buffer.from(b64 + padding, 'base64');
 }
 
 function tear(value, limit) {
@@ -40,11 +44,16 @@ function httpOnly(value) {
 
 function parsePanel(code) {
   if (!code || typeof code !== 'string' || code.length > MAX_CODE) return null;
-  if (!/^[A-Za-z0-9_-]+$/.test(code)) return null;
+
+  const terkompresi = code.startsWith(ZLIB_PREFIX);
+  const inti = terkompresi ? code.slice(ZLIB_PREFIX.length) : code;
+  if (!/^[A-Za-z0-9_-]+$/.test(inti)) return null;
 
   let data;
   try {
-    data = JSON.parse(decodeBase64Url(code));
+    let mentah = decodeBase64Url(inti);
+    if (terkompresi) mentah = zlib.inflateSync(mentah, { maxOutputLength: MAX_RAW });
+    data = JSON.parse(mentah.toString('utf8'));
   } catch (err) {
     return null;
   }

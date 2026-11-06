@@ -61,14 +61,21 @@ def test_decode_menolak_kode_rusak(teks):
 
 
 def test_panel_terlalu_besar_ditolak():
-    menu = mb.create_menu(999, "Besar")
+    # Label acak (tidak berulang) supaya zlib pun tidak bisa memampatkannya di bawah batas.
+    import hashlib
+
+    acak = lambda teks: hashlib.sha256(teks.encode()).hexdigest()
+    menu = mb.create_menu(999, "Besar " + acak("judul"))
     for i in range(20):
-        mb.add_role_button(menu, 1000 + i, f"Tombol dengan label panjang sekali nomor {i}")
+        mb.add_role_button(menu, 1000 + i, f"{i}-{acak(str(i))}-{acak(str(i) + 'x')}")
     for i in range(2):
         mb.add_dropdown(
             menu,
-            f"Pilih role panjang sekali {i}",
-            [{"role_id": 5000 + i * 30 + n, "label": f"Role panjang {n}"} for n in range(25)],
+            "Pilih " + acak(f"dd{i}"),
+            [
+                {"role_id": 5000 + i * 30 + n, "label": f"{n}-{acak(f'{i}{n}')}"}
+                for n in range(25)
+            ],
         )
     kode, galat = mb.encode_share(menu)
     assert kode == "" and any("terlalu besar" in g for g in galat)
@@ -149,3 +156,51 @@ def test_rewrite_vercel_untuk_halaman_panel():
         r.get("source") == "/p/:id" and r.get("destination") == "/api/p/:id"
         for r in konfigurasi.get("rewrites", [])
     )
+
+
+# ------------------------------------------------------------------------------
+# KOMPRESI KODE BAGIKAN (zlib)
+# ------------------------------------------------------------------------------
+def _panel_besar():
+    menu = mb.create_menu(999, "Panel Besar")
+    for i in range(20):
+        mb.add_role_button(menu, 1000 + i, f"Tombol dengan label panjang nomor {i}")
+    return menu
+
+
+def test_kode_dikompresi_dan_masih_terbaca():
+    kode, galat = mb.encode_share(_panel())
+    assert galat == [] and kode.startswith(mb.SHARE_ZLIB_PREFIX)
+    assert mb.decode_share(kode)[0]["title"] == "Pusat Info"
+
+
+def test_panel_besar_kini_muat_di_batas_tautan():
+    import base64
+    import json
+
+    menu = _panel_besar()
+    kode, galat = mb.encode_share(menu)
+    mentah = base64.urlsafe_b64encode(
+        json.dumps(mb.export_menu(menu), separators=(",", ":")).encode()
+    ).decode()
+    assert len(mentah) > mb.MAX_SHARE_CODE          # tanpa kompresi memang tidak muat
+    assert galat == [] and len(kode) <= mb.MAX_SHARE_CODE
+    assert len(mb.decode_share(kode)[0]["buttons"]) == 20
+
+
+def test_kode_lama_tanpa_kompresi_tetap_terbaca():
+    import base64
+    import json
+
+    menu = mb.create_menu(999, "Lama")
+    mb.add_link_button(menu, "Support", "https://contoh.id")
+    lama = base64.urlsafe_b64encode(
+        json.dumps(mb.export_menu(menu), separators=(",", ":")).encode()
+    ).decode().rstrip("=")
+    assert not lama.startswith(mb.SHARE_ZLIB_PREFIX)
+    assert mb.decode_share(lama)[0]["title"] == "Lama"
+
+
+def test_kode_kompresi_rusak_ditolak():
+    payload, galat = mb.decode_share(mb.SHARE_ZLIB_PREFIX + "bukan-zlib")
+    assert payload is None and galat

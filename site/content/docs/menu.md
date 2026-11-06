@@ -105,7 +105,9 @@ sebuah URL pratinjau `https://<situs>/p/<kode>` (halaman situs, lengkap dengan t
 tampil rapi saat ditempel di Discord). Siapa pun bisa memasangnya dengan
 `/menu impor kode:<tautan atau kode>` — menerima URL penuh, `ai-discord-chat/panel:<kode>`,
 maupun kodenya saja. Tidak ada database: isi panel ikut di dalam kode.
-Panel yang terlalu besar (±1.500 karakter kode) ditolak dengan saran memakai `/menu ekspor`.
+Kode diringkas dengan **zlib + base64** (awalan `z.`), jadi panel berisi 20 tombol pun
+masih muat (±430 karakter). Kode lama tanpa awalan tetap bisa diimpor. Batas kerasnya
+1.500 karakter — panel yang lebih besar ditolak dengan saran memakai `/menu ekspor`.
 
 ## Tombol yang bisa menjalankan command
 Klik tombol = bot menjalankan **command yang sama** atas nama **member yang mengklik**, jadi semua

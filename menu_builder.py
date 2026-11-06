@@ -26,6 +26,7 @@ import logging
 import os
 import secrets
 import time
+import zlib
 from pathlib import Path
 
 import discord
@@ -201,6 +202,8 @@ MAX_IMPORT_BYTES = 256 * 1024
 # Tautan bagikan: panel → kode base64url → halaman `SITE_BASE_URL/p/<kode>`.
 SHARE_PREFIX = "ai-discord-chat/panel:"
 MAX_SHARE_CODE = 1500     # batas agar URL masih nyaman di Discord
+SHARE_ZLIB_PREFIX = "z."  # penanda kode terkompresi (kode lama tanpa awalan tetap terbaca)
+MAX_SHARE_RAW = 64 * 1024  # batas hasil dekompresi (jaga-jaga kode "bom")
 
 
 def export_menu(menu: dict) -> dict:
@@ -235,7 +238,8 @@ def export_menu(menu: dict) -> dict:
 def encode_share(menu: dict) -> tuple[str, list[str]]:
     """Panel → kode bagikan base64url. `("", galat)` bila panelnya terlalu besar."""
     teks = json.dumps(export_menu(menu), ensure_ascii=False, separators=(",", ":"))
-    kode = base64.urlsafe_b64encode(teks.encode("utf-8")).decode("ascii").rstrip("=")
+    kode = base64.urlsafe_b64encode(zlib.compress(teks.encode("utf-8"), 9)).decode("ascii")
+    kode = SHARE_ZLIB_PREFIX + kode.rstrip("=")
     if len(kode) > MAX_SHARE_CODE:
         return "", [
             f"Panel ini terlalu besar untuk tautan bagikan ({len(kode)} dari "
@@ -269,10 +273,15 @@ def decode_share(text: str) -> tuple[dict | None, list[str]]:
         return None, ["Tautan bagikan kosong. Tempel kode dari `/menu bagikan`."]
     if len(kode) > MAX_SHARE_CODE:
         return None, [f"Kode terlalu panjang (maksimal {MAX_SHARE_CODE} karakter)."]
+    terkompresi = kode.startswith(SHARE_ZLIB_PREFIX)
+    if terkompresi:
+        kode = kode[len(SHARE_ZLIB_PREFIX):]
     padding = "=" * (-len(kode) % 4)
     try:
-        mentah = base64.urlsafe_b64decode(kode + padding).decode("utf-8")
-        payload = json.loads(mentah)
+        mentah = base64.urlsafe_b64decode(kode + padding)
+        if terkompresi:
+            mentah = zlib.decompressobj().decompress(mentah, MAX_SHARE_RAW)
+        payload = json.loads(mentah.decode("utf-8"))
     except Exception:
         return None, ["Kode tidak bisa dibaca — pastikan menyalin seluruh tautannya."]
     if not isinstance(payload, dict):
