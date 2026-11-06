@@ -12,11 +12,15 @@
     {
       "source": "/l/:id",
       "destination": "/api/l/:id"
+    },
+    {
+      "source": "/p/:id",
+      "destination": "/api/p/:id"
     }
   ],
   "headers": [
     {
-      "source": "/l/(.*)",
+      "source": "/(l|p)/(.*)",
       "headers": [
         {
           "key": "X-Robots-Tag",

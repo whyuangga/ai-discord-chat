@@ -264,7 +264,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/menu hapus-item` | `item`, `menu` | *(Admin)* Hapus tombol/opsi. |
 | `/menu ubah` | `menu`, `judul`, `deskripsi` | *(Admin)* Ubah teks panel yang sudah terkirim (pesan ikut berubah, tanpa kirim ulang). |
 | `/menu ekspor` | `menu` | *(Admin)* Unduh panel sebagai berkas JSON (backup / pindah server). |
-| `/menu impor` | `berkas`, `judul` | *(Admin)* Buat panel baru dari berkas JSON hasil `/menu ekspor`. |
+| `/menu bagikan` | `menu` | *(Admin)* Buat tautan bagikan panel: URL pratinjau `/​p/<kode>` di situs + kode impor. |
+| `/menu impor` | `berkas`, `judul`, `kode` | *(Admin)* Buat panel baru dari berkas JSON `/menu ekspor` **atau** tautan/kode `/menu bagikan`. |
 | `/menu kirim` | `menu`, `channel` | *(Admin)* Kirim ulang panel ke channel, thread, atau forum. |
 | `/menu daftar` | — | Daftar panel & isinya. |
 | `/menu hapus` | `menu` | *(Admin)* Hapus panel dari daftar bot. |

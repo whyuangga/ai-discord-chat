@@ -19,6 +19,7 @@ Keamanan:
 """
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -35,7 +36,7 @@ import message_template
 import modal_forms
 import ui_kit
 import ui_theme
-from config import DATA_DIR, MENU_FILE
+from config import DATA_DIR, MENU_FILE, SITE_BASE_URL
 
 logger = logging.getLogger("gemini_bot.menu_builder")
 
@@ -197,6 +198,10 @@ EXPORT_FORMAT = "ai-discord-chat/panel"
 EXPORT_VERSION = 1
 MAX_IMPORT_BYTES = 256 * 1024
 
+# Tautan bagikan: panel → kode base64url → halaman `SITE_BASE_URL/p/<kode>`.
+SHARE_PREFIX = "ai-discord-chat/panel:"
+MAX_SHARE_CODE = 1500     # batas agar URL masih nyaman di Discord
+
 
 def export_menu(menu: dict) -> dict:
     """Payload portabel untuk satu panel — tanpa ID guild/channel/pesan."""
@@ -222,6 +227,57 @@ def export_menu(menu: dict) -> dict:
             for dropdown in menu.get("dropdowns", [])
         ],
     }
+
+
+# ------------------------------------------------------------------------------
+# TAUTAN BAGIKAN (kode / URL, tanpa berkas)
+# ------------------------------------------------------------------------------
+def encode_share(menu: dict) -> tuple[str, list[str]]:
+    """Panel → kode bagikan base64url. `("", galat)` bila panelnya terlalu besar."""
+    teks = json.dumps(export_menu(menu), ensure_ascii=False, separators=(",", ":"))
+    kode = base64.urlsafe_b64encode(teks.encode("utf-8")).decode("ascii").rstrip("=")
+    if len(kode) > MAX_SHARE_CODE:
+        return "", [
+            f"Panel ini terlalu besar untuk tautan bagikan ({len(kode)} dari "
+            f"{MAX_SHARE_CODE} karakter). Ringkas teks/tombolnya atau pakai `/menu ekspor` "
+            "(berkas JSON)."
+        ]
+    return kode, []
+
+
+def share_url(kode: str, base: str | None = None) -> str:
+    """URL halaman pratinjau panel di situs dokumentasi."""
+    akar = str(base or SITE_BASE_URL).rstrip("/")
+    return f"{akar}/p/{kode}"
+
+
+def extract_share_code(text: str) -> str:
+    """Ambil kode dari URL `/p/<kode>`, kode berawalan `ai-discord-chat/panel:`, atau kode polos."""
+    bersih = str(text or "").strip()
+    if "/p/" in bersih:
+        bersih = bersih.split("/p/", 1)[1]
+    bersih = bersih.split("#", 1)[0].split("?", 1)[0].strip()
+    if bersih.startswith(SHARE_PREFIX):
+        bersih = bersih[len(SHARE_PREFIX):]
+    return bersih.strip("/ ")
+
+
+def decode_share(text: str) -> tuple[dict | None, list[str]]:
+    """Kode/URL bagikan → payload siap `import_menu`. Kembalikan `(payload, galat)`."""
+    kode = extract_share_code(text)
+    if not kode:
+        return None, ["Tautan bagikan kosong. Tempel kode dari `/menu bagikan`."]
+    if len(kode) > MAX_SHARE_CODE:
+        return None, [f"Kode terlalu panjang (maksimal {MAX_SHARE_CODE} karakter)."]
+    padding = "=" * (-len(kode) % 4)
+    try:
+        mentah = base64.urlsafe_b64decode(kode + padding).decode("utf-8")
+        payload = json.loads(mentah)
+    except Exception:
+        return None, ["Kode tidak bisa dibaca — pastikan menyalin seluruh tautannya."]
+    if not isinstance(payload, dict):
+        return None, ["Kode bukan ekspor panel bot ini."]
+    return payload, []
 
 
 def import_menu(

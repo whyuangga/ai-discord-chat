@@ -622,7 +622,7 @@ async def jawab_atur_cmd(
 # ==============================================================================
 pengumuman_group = app_commands.Group(
     name="pengumuman",
-    description="Pengumuman terjadwal: harian, mingguan, atau sekali (tanpa kuota AI)",
+    description="Pengumuman terjadwal: harian, mingguan, sekali, atau berulang tiap N jam",
     guild_only=True,
 )
 
@@ -630,7 +630,10 @@ pengumuman_group = app_commands.Group(
 @pengumuman_group.command(name="tambah", description="Jadwalkan pengumuman baru")
 @app_commands.describe(
     isi="Isi pengumuman — boleh pakai variabel `{server.name}`, `{server.members}`, `{now_relative}`",
-    jadwal="`08:00` (harian), `senin 19:00` (mingguan), `sekali 31-12-2026 23:59`",
+    jadwal=(
+        "`08:00` (harian), `senin 19:00` (mingguan), "
+        "`sekali 31-12-2026 23:59`, `setiap 3 jam` (berulang, min. 2 jam)"
+    ),
     judul="Judul pengumuman (opsional)",
     channel="Channel tujuan (default: channel ini)",
 )
@@ -658,7 +661,8 @@ async def pengumuman_tambah_cmd(
             "⚠️ Format jadwal tidak dikenali.\n"
             "• Harian: `08:00` atau `harian 08:00`\n"
             "• Mingguan: `senin 19:00` atau `mingguan sabtu 20:30`\n"
-            "• Sekali: `sekali 31-12-2026 23:59`",
+            "• Sekali: `sekali 31-12-2026 23:59`\n"
+            "• Berulang: `setiap 3 jam` (minimal 2 jam, maksimal 168 jam)",
             ephemeral=True,
         )
         return
@@ -785,7 +789,10 @@ async def pengumuman_kirim_cmd(interaction: discord.Interaction, id: int):
     id="ID pengumuman",
     isi="Isi baru (boleh variabel `{server.name}`)",
     judul="Judul baru",
-    jadwal="Jadwal baru: `08:00`, `senin 19:00`, atau `sekali 31-12-2026 23:59`",
+    jadwal=(
+        "Jadwal baru: `08:00`, `senin 19:00`, `sekali 31-12-2026 23:59`, "
+        "atau `setiap 3 jam`"
+    ),
 )
 async def pengumuman_ubah_cmd(
     interaction: discord.Interaction,
@@ -811,7 +818,9 @@ async def pengumuman_ubah_cmd(
         if spec is None:
             await interaction.response.send_message(
                 "⚠️ Format jadwal tidak dikenali.\n"
-                "• Harian: `08:00`\n• Mingguan: `senin 19:00`\n• Sekali: `sekali 31-12-2026 23:59`",
+                "• Harian: `08:00`\n• Mingguan: `senin 19:00`\n"
+                "• Sekali: `sekali 31-12-2026 23:59`\n"
+                "• Berulang: `setiap 3 jam` (minimal 2 jam)",
                 ephemeral=True,
             )
             return

@@ -98,6 +98,13 @@ banner, tombol (role/link/command/alur), dan dropdown — tanpa ID guild/channel
 `/menu impor` memulihkannya sebagai panel baru di server mana pun; ID role tetap milik server
 asal, jadi di server lain role perlu dibuat ulang sebelum tombolnya dipakai.
 
+**Tautan bagikan (tanpa berkas).** `/menu bagikan` membuat kode ringkas dari panel itu dan
+sebuah URL pratinjau `https://<situs>/p/<kode>` (halaman situs, lengkap dengan tag `og:` jadi
+tampil rapi saat ditempel di Discord). Siapa pun bisa memasangnya dengan
+`/menu impor kode:<tautan atau kode>` — menerima URL penuh, `ai-discord-chat/panel:<kode>`,
+maupun kodenya saja. Tidak ada database: isi panel ikut di dalam kode.
+Panel yang terlalu besar (±1.500 karakter kode) ditolak dengan saran memakai `/menu ekspor`.
+
 ## Tombol yang bisa menjalankan command
 Klik tombol = bot menjalankan **command yang sama** atas nama **member yang mengklik**, jadi semua
 cek izin tetap berlaku. Contoh isi panel "Pusat Info":

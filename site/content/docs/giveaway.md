@@ -62,6 +62,10 @@ toc: true
 | **`/pengumuman ubah id:3 isi:... judul:... jadwal:...`** | Ubah isi/judul/jadwal tanpa menghapus; jadwal baru langsung dihitung. |
 
 - Format jadwal ringkas: `08:00`, `harian 20:30`, `senin 19:00`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- **Berulang tiap interval:** `setiap 3 jam`, `tiap 90 menit`, `interval 8 jam` — minimal **2 jam**
+  (batas aman agar tidak dianggap spam), maksimal **168 jam** (seminggu). Jadwal dihitung dari
+  waktu pemasangan, dan kalau bot sempat mati lama, semua jadwal yang terlewat **dilewati** —
+  hanya satu kiriman berikutnya yang diambil, jadi pengumuman tidak menumpuk.
 - Isi pengumuman boleh memakai variabel (`{server.name}`, `{server.members}`, `{now_relative}`) yang diisi **saat dikirim**.
 - Tujuan boleh **thread** (bukan hanya channel teks). Pengumuman ulang tahun juga ikut mendukung thread.
 - Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.

@@ -47,6 +47,10 @@ birthdays: dict[str, dict] = {}          # "guild_id:user_id" -> {day, month, ye
 auto_reply_channels: dict[int, dict] = {}  # channel_id -> {guild_id, enabled, cooldown, rules, last_fired}
 announcements: dict[int, dict] = {}      # announcement_id -> data pengumuman terjadwal
 
+# Jadwal berulang berbasis interval: minimal 2 jam (batas Discohook), maksimal seminggu.
+MIN_INTERVAL_MINUTES = 120
+MAX_INTERVAL_MINUTES = 7 * 24 * 60
+
 _giveaway_seq: int = 0
 _announcement_seq: int = 0
 _last_auto_reply_at: dict[int, float] = {}
@@ -214,16 +218,26 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
             content = str(data.get("content") or "").strip()
             if not content:
                 continue
+            kind = str(data.get("kind") or "harian")
+            if kind == "interval":
+                # Data lama/rusak: interval di luar batas dirapikan, 0 dianggap harian.
+                menit = _to_int(data.get("interval_minutes"))
+                if menit <= 0:
+                    kind = "harian"
+                menit = min(MAX_INTERVAL_MINUTES, max(MIN_INTERVAL_MINUTES, menit))
+            else:
+                menit = _to_int(data.get("interval_minutes"))
             announcements[aid] = {
                 "id": aid,
                 "guild_id": _to_int(data.get("guild_id")),
                 "channel_id": _to_int(data.get("channel_id")),
                 "title": str(data.get("title") or "")[:200],
                 "content": content[:1900],
-                "kind": str(data.get("kind") or "harian"),
+                "kind": kind,
                 "hour": min(23, max(0, _to_int(data.get("hour"), 8))),
                 "minute": min(59, max(0, _to_int(data.get("minute"), 0))),
                 "weekday": _to_int(data.get("weekday"), 0) % 7,
+                "interval_minutes": menit,
                 "next_run_at": float(data.get("next_run_at") or 0),
                 "last_sent_at": float(data.get("last_sent_at") or 0),
                 "enabled": bool(data.get("enabled", True)),
@@ -794,8 +808,9 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     - `08:00` atau `harian 08:00`      ➔ setiap hari
     - `senin 19:00` / `mingguan sabtu 20:30` ➔ setiap minggu
     - `sekali 31-12-2026 23:59`        ➔ satu kali
+    - `setiap 3 jam` / `tiap 90 menit` ➔ berulang tiap interval (min. 2 jam)
 
-    Mengembalikan `{kind, hour, minute, weekday, once_at}` atau `None`.
+    Mengembalikan `{kind, hour, minute, weekday, once_at, interval_minutes}` atau `None`.
     """
     text = str(raw or "").strip().lower()
     if not text:
@@ -803,6 +818,24 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     text = re.sub(r"\s+", " ", text)
 
     kind = "harian"
+    if text.startswith(("setiap", "tiap", "interval")):
+        kind = "interval"
+        text = re.sub(r"^(setiap|tiap|interval)\s*", "", text).strip()
+        cocok = re.search(r"(\d{1,4})\s*(menit|mnt|min|jam|j|hr|hours?)", text)
+        if not cocok:
+            return None
+        jumlah = int(cocok.group(1))
+        satuan = cocok.group(2)
+        menit = jumlah if satuan in ("menit", "mnt", "min") else jumlah * 60
+        if not (MIN_INTERVAL_MINUTES <= menit <= MAX_INTERVAL_MINUTES):
+            return None
+        return {
+            "kind": "interval",
+            "interval_minutes": menit,
+            "hour": 0,
+            "minute": 0,
+            "weekday": 0,
+        }
     if text.startswith("sekali"):
         kind = "sekali"
         text = text[len("sekali"):].strip()
@@ -868,6 +901,12 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
 def compute_next_run(spec: dict, *, tz_name: str | None = None, reference: datetime | None = None) -> float:
     """Menghitung epoch kapan pengumuman berikutnya harus dikirim."""
     now = reference or now_in(tz_name)
+    if spec.get("kind") == "interval":
+        menit = min(
+            MAX_INTERVAL_MINUTES,
+            max(MIN_INTERVAL_MINUTES, _to_int(spec.get("interval_minutes"), MIN_INTERVAL_MINUTES)),
+        )
+        return (now + timedelta(minutes=menit)).timestamp()
     if spec.get("kind") == "sekali":
         once_at: datetime = spec["once_at"]
         localized = once_at.replace(tzinfo=get_timezone(tz_name))
@@ -884,6 +923,32 @@ def compute_next_run(spec: dict, *, tz_name: str | None = None, reference: datet
     elif candidate <= now:
         candidate += timedelta(days=1)
     return candidate.timestamp()
+
+
+def advance_interval_next_run(
+    interval_minutes: int,
+    last_ts: float,
+    *,
+    now: float | None = None,
+) -> float:
+    """Jadwal interval berikutnya setelah `last_ts` — tanpa menumpuk kiriman yang terlewat.
+
+    Bot yang sempat mati lama tidak akan mengirim puluhan pengumuman sekaligus: semua
+    jadwal yang sudah lewat dilewati, lalu diambil satu titik berikutnya.
+    """
+    menit = min(
+        MAX_INTERVAL_MINUTES,
+        max(MIN_INTERVAL_MINUTES, _to_int(interval_minutes, MIN_INTERVAL_MINUTES)),
+    )
+    langkah = menit * 60
+    sekarang = time.time() if now is None else float(now)
+    nxt = float(last_ts or 0)
+    if not nxt:
+        return sekarang + langkah
+    if nxt > sekarang:
+        return nxt
+    lewat = int((sekarang - nxt) // langkah) + 1
+    return nxt + lewat * langkah
 
 
 def add_announcement(
@@ -917,6 +982,7 @@ def add_announcement(
         "hour": int(spec.get("hour") or 0),
         "minute": int(spec.get("minute") or 0),
         "weekday": int(spec.get("weekday") or 0),
+        "interval_minutes": _to_int(spec.get("interval_minutes")),
         "next_run_at": compute_next_run(spec, tz_name=tz_name),
         "last_sent_at": 0.0,
         "enabled": True,
@@ -955,6 +1021,7 @@ def update_announcement(
         cfg["hour"] = int(spec.get("hour") or 0)
         cfg["minute"] = int(spec.get("minute") or 0)
         cfg["weekday"] = int(spec.get("weekday") or 0)
+        cfg["interval_minutes"] = _to_int(spec.get("interval_minutes"))
         cfg["next_run_at"] = compute_next_run(spec, tz_name=tz_name)
         cfg["enabled"] = True
     return "ok", cfg
@@ -1032,6 +1099,16 @@ def describe_announcement(cfg: dict) -> str:
         return f"setiap {_WEEKDAYS[int(cfg.get('weekday') or 0) % 7].capitalize()} {clock}"
     if kind == "sekali":
         return f"sekali pada {clock}"
+    if kind == "interval":
+        menit = min(
+            MAX_INTERVAL_MINUTES,
+            max(MIN_INTERVAL_MINUTES, _to_int(cfg.get("interval_minutes"), MIN_INTERVAL_MINUTES)),
+        )
+        if menit % 60 == 0:
+            return f"setiap {menit // 60} jam"
+        if menit > 60:
+            return f"setiap {menit // 60} jam {menit % 60} menit"
+        return f"setiap {menit} menit"
     return f"setiap hari {clock}"
 
 
@@ -1105,6 +1182,10 @@ async def run_announcement_check(bot: discord.Client) -> int:
         if cfg.get("kind") == "sekali":
             cfg["enabled"] = False
             cfg["next_run_at"] = 0.0
+        elif cfg.get("kind") == "interval":
+            cfg["next_run_at"] = advance_interval_next_run(
+                cfg.get("interval_minutes"), next_run, now=now
+            )
         else:
             cfg["next_run_at"] = compute_next_run(cfg)
 

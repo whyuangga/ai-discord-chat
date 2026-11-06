@@ -264,20 +264,114 @@ async def menu_ekspor_cmd(interaction: discord.Interaction, menu: str):
     )
 
 
-@menu_group.command(name="impor", description="Buat panel dari berkas JSON hasil /menu ekspor (Admin)")
+@menu_group.command(name="bagikan", description="Buat tautan bagikan panel (URL + kode impor) (Admin)")
+@app_commands.describe(menu="ID panel atau judulnya")
+async def menu_bagikan_cmd(interaction: discord.Interaction, menu: str):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+
+    record = _menu_or_error(interaction, gid, menu)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Lihat daftar lewat `/menu daftar`."),
+            ephemeral=True,
+        )
+        return
+
+    kode, galat = menu_builder.encode_share(record)
+    if not kode:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "warn", "Panel terlalu besar untuk tautan",
+                "\n".join(f"• {g}" for g in galat)[:1200],
+            ),
+            ephemeral=True,
+        )
+        return
+
+    tautan = menu_builder.share_url(kode)
+    jumlah = len(record["buttons"]) + sum(len(d.get("options", [])) for d in record["dropdowns"])
+    embed = ui_theme.status_embed(
+        gid,
+        "ok",
+        f"Tautan bagikan: {record['title']}",
+        f"**URL pratinjau** (halaman situs, ada tag og:):\n```{tautan}```\n"
+        f"**Kode impor** (tempel di `/menu impor kode:`):\n```{kode}```\n"
+        "-# Siapa pun yang punya tautan bisa memasang panel ini di servernya — "
+        "formulir & ID role tidak ikut, karena keduanya milik server asal.",
+        footer=f"{jumlah} item • {len(kode)} karakter",
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@menu_group.command(name="impor", description="Buat panel dari berkas JSON atau tautan bagikan (Admin)")
 @app_commands.describe(
     berkas="Berkas .json hasil `/menu ekspor`",
     judul="Judul baru (opsional — bawaan: judul di berkas)",
+    kode="Tautan bagikan dari `/menu bagikan` (bisa URL lengkap atau kodenya saja)",
 )
 async def menu_impor_cmd(
     interaction: discord.Interaction,
-    berkas: discord.Attachment,
+    berkas: discord.Attachment | None = None,
     judul: str | None = None,
+    kode: str | None = None,
 ):
     if interaction.guild is None:
         return
     gid = interaction.guild.id
     if not await _guard(interaction, gid):
+        return
+
+    if berkas is None:
+        if not kode:
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid, "info", "Pilih sumber panel",
+                    "Lampirkan `berkas` hasil `/menu ekspor`, atau tempel `kode` dari `/menu bagikan`.",
+                ),
+                ephemeral=True,
+            )
+            return
+        payload, galat_kode = menu_builder.decode_share(kode)
+        if payload is None:
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid, "error", "Kode tidak bisa dibaca",
+                    "\n".join(f"• {g}" for g in galat_kode)[:1500],
+                ),
+                ephemeral=True,
+            )
+            return
+        record, galat = menu_builder.import_menu(gid, payload, title=judul)
+        if record is None:
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid, "error", "Impor gagal",
+                    "\n".join(galat)[:1500] or "Kode tidak berisi panel.",
+                ),
+                ephemeral=True,
+            )
+            return
+        await menu_builder.save_menus_to_disk()
+        catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "ok", "Panel diimpor dari tautan",
+                f"**{record['title']}** (`{record['id']}`) siap — "
+                f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
+                f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
+            ),
+            ephemeral=True,
+        )
         return
 
     ukuran = int(getattr(berkas, "size", 0) or 0)

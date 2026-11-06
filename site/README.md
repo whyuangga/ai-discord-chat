@@ -71,7 +71,8 @@ menampilkan embed dari tag `og:` pada halaman yang ditautkan, jadi bot membuat t
 | Berkas | Fungsi |
 | :--- | :--- |
 | [`api/l/[id].js`](api/l/[id].js) | Function Node: mengubah kode (base64url) menjadi HTML bertag `og:` + pengalihan ke URL tujuan |
-| [`vercel.json`](vercel.json) | `rewrites`: `/l/:id` → `/api/l/:id`, plus header `X-Robots-Tag: noindex` |
+| [`api/p/[id].js`](api/p/[id].js) | Function Node: pratinjau **panel** dari `/menu bagikan` + kode impor |
+| [`vercel.json`](vercel.json) | `rewrites`: `/l/:id` → `/api/l/:id` dan `/p/:id` → `/api/p/:id`, plus header `X-Robots-Tag: noindex` |
 
 Tidak ada database: seluruh isi embed menempel di URL, jadi function ini hanya membaca,
 tidak menyimpan apa pun. Deploy tetap seperti biasa — folder `api/` otomatis dideteksi Vercel

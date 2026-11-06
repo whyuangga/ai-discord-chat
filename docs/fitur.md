@@ -682,6 +682,10 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/pengumuman ubah id:3 isi:... judul:... jadwal:...`** | Ubah isi/judul/jadwal tanpa menghapus; jadwal baru langsung dihitung. |
 
 - Format jadwal ringkas: `08:00`, `harian 20:30`, `senin 19:00`, `mingguan sabtu 20:30`, `sekali 31-12-2026 23:59`.
+- **Berulang tiap interval:** `setiap 3 jam`, `tiap 90 menit`, `interval 8 jam` — minimal **2 jam**
+  (batas aman agar tidak dianggap spam), maksimal **168 jam** (seminggu). Jadwal dihitung dari
+  waktu pemasangan, dan kalau bot sempat mati lama, semua jadwal yang terlewat **dilewati** —
+  hanya satu kiriman berikutnya yang diambil, jadi pengumuman tidak menumpuk.
 - Isi pengumuman boleh memakai variabel (`{server.name}`, `{server.members}`, `{now_relative}`) yang diisi **saat dikirim**.
 - Tujuan boleh **thread** (bukan hanya channel teks). Pengumuman ulang tahun juga ikut mendukung thread.
 - Pengumuman **sekali** otomatis dinonaktifkan setelah terkirim sehingga tidak pernah dobel.
@@ -1149,6 +1153,13 @@ diganti kosong.
 banner, tombol (role/link/command/alur), dan dropdown — tanpa ID guild/channel/pesan.
 `/menu impor` memulihkannya sebagai panel baru di server mana pun; ID role tetap milik server
 asal, jadi di server lain role perlu dibuat ulang sebelum tombolnya dipakai.
+
+**Tautan bagikan (tanpa berkas).** `/menu bagikan` membuat kode ringkas dari panel itu dan
+sebuah URL pratinjau `https://<situs>/p/<kode>` (halaman situs, lengkap dengan tag `og:` jadi
+tampil rapi saat ditempel di Discord). Siapa pun bisa memasangnya dengan
+`/menu impor kode:<tautan atau kode>` — menerima URL penuh, `ai-discord-chat/panel:<kode>`,
+maupun kodenya saja. Tidak ada database: isi panel ikut di dalam kode.
+Panel yang terlalu besar (±1.500 karakter kode) ditolak dengan saran memakai `/menu ekspor`.
 
 ### Tombol yang bisa menjalankan command
 Klik tombol = bot menjalankan **command yang sama** atas nama **member yang mengklik**, jadi semua
