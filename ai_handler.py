@@ -1018,6 +1018,147 @@ async def summarize_channel_messages(
     return None, f"⚠️ Gagal merangkum obrolan: {last_err}"
 
 
+async def _cari_jalur_berbayar(
+    session,
+    *,
+    query: str,
+    system_prompt: str,
+    active_keys: list[str],
+    include_sources_footer: bool,
+) -> tuple[str | None, str | None] | None:
+    """Jalur Paid Tier (tool `google_search` bawaan). `None` = lanjut ke jalur gratis."""
+    global _paid_google_search_available
+    paid_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+    for idx, model_id in enumerate(paid_models):
+        gen_config: dict = {"temperature": 0.3, "maxOutputTokens": 4096}
+        t_cfg = build_thinking_config(model_id, "low")
+        if t_cfg:
+            gen_config["thinkingConfig"] = t_cfg
+
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": query}]}],
+            "tools": [{"google_search": {}}],
+            "generationConfig": gen_config,
+        }
+        api_key = active_keys[idx % len(active_keys)]
+        url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+        try:
+            async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status == 200 and isinstance(data, dict):
+                    _record_token_usage(data)
+                    reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                    if reply_text:
+                        if include_sources_footer:
+                            sources = _extract_grounding_sources(data)
+                            footer = _format_grounding_footer(sources)
+                            max_body = max(500, 3850 - len(footer))
+                            clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+                            reply_text = f"{clipped}{footer}"
+                        return reply_text, None
+                    if block_msg and not should_retry:
+                        return None, block_msg
+                    continue
+
+                if resp.status == 429 and isinstance(data, dict):
+                    raw_msg = str((data.get("error") or {}).get("message") or "").lower()
+                    if "exceeded your current quota" in raw_msg or "billing" in raw_msg:
+                        _paid_google_search_available = False
+                        break
+                if resp.status in (500, 502, 503, 504):
+                    mark_model_unhealthy(model_id)
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            mark_model_unhealthy(model_id)
+
+    return None
+
+
+async def _cari_jalur_gratis(
+    session,
+    *,
+    query: str,
+    system_prompt: str,
+    active_keys: list[str],
+    include_sources_footer: bool,
+    last_err: str,
+) -> tuple[str | None, str | None, str]:
+    """Jalur Free Tier: hasil pencarian web/RSS gratis lalu dijawab model teks."""
+    live_ctx, live_sources = await free_live_web_search(query, http_session=session)
+    if live_ctx:
+        user_prompt = (
+            f"Pertanyaan Pengguna: {query}\n\n"
+            f"{live_ctx}\n\n"
+            "Berdasarkan hasil pencarian web & berita terbaru di atas, berikan jawaban yang akurat, "
+            "jelas, dan terstruktur dalam bahasa Indonesia!"
+        )
+    else:
+        user_prompt = (
+            f"Pertanyaan Pengguna: {query}\n\n"
+            "Jawablah pertanyaan di atas secara informatif dan jujur dalam bahasa Indonesia."
+        )
+
+    text_models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    # Tambahkan jeda ulang singkat bila seluruh model terkena lonjakan batas RPM sesaat
+    all_candidates = [*text_models, f"__retry__:{GEMINI_FAST_MODEL}"]
+
+    for idx, raw_model in enumerate(all_candidates):
+        if raw_model.startswith("__retry__:"):
+            await asyncio.sleep(1.5)
+            model_id = raw_model.split(":", 1)[1]
+        else:
+            model_id = raw_model
+
+        gen_config = {"temperature": 0.35, "maxOutputTokens": 3072}
+        t_cfg = build_thinking_config(model_id, "low")
+        if t_cfg:
+            gen_config["thinkingConfig"] = t_cfg
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": gen_config,
+        }
+        api_key = active_keys[idx % len(active_keys)]
+        url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+        try:
+            async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status == 200 and isinstance(data, dict):
+                    _record_token_usage(data)
+                    reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                    if reply_text:
+                        if include_sources_footer and live_sources:
+                            footer = _format_grounding_footer(live_sources)
+                            max_body = max(500, 3850 - len(footer))
+                            clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+                            reply_text = f"{clipped}{footer}"
+                        elif not live_ctx:
+                            reply_text += (
+                                "\n\n*(Catatan: Pencarian berita eksternal sedang tidak terjangkau — "
+                                "dijawab berdasarkan pengetahuan model)*"
+                            )
+                        return reply_text, None, last_err
+                    if block_msg and not should_retry:
+                        return None, block_msg, last_err
+                    continue
+
+                if resp.status in (500, 502, 503, 504):
+                    mark_model_unhealthy(model_id)
+                err_detail = (
+                    data.get("error", {}).get("message", f"HTTP {resp.status}")
+                    if isinstance(data, dict)
+                    else f"HTTP {resp.status}"
+                )
+                last_err = sanitize_error_message(err_detail)
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            mark_model_unhealthy(model_id)
+
+    return None, None, last_err
+
+
 async def search_web_with_gemini(
     query: str,
     *,
@@ -1025,7 +1166,6 @@ async def search_web_with_gemini(
     include_sources_footer: bool = True,
     http_session: aiohttp.ClientSession | None = None,
 ) -> tuple[str | None, str | None]:
-    """Mencari informasi/berita terbaru secara real-time (100% ramah Free Tier dengan pencari web mandiri + Gemini)."""
     global _paid_google_search_available
     if not is_gemini_key_configured():
         return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
@@ -1040,127 +1180,30 @@ async def search_web_with_gemini(
 
     active_keys = get_gemini_keys_rotated()
     last_err = "Layanan pencarian sedang sibuk, silakan coba beberapa detik lagi."
-
     async with _borrow_session(http_session, CHAT_TIMEOUT) as session:
-        # 1. Opsional Paid Tier: Gunakan tool google_search bawaan hanya bila GEMINI_PAID_SEARCH_ENABLED=true
+        # 1. Opsional Paid Tier: tool google_search hanya bila GEMINI_PAID_SEARCH_ENABLED=true
         if GEMINI_PAID_SEARCH_ENABLED and _paid_google_search_available:
-            paid_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
-            for idx, model_id in enumerate(paid_models):
-                gen_config: dict = {"temperature": 0.3, "maxOutputTokens": 4096}
-                t_cfg = build_thinking_config(model_id, "low")
-                if t_cfg:
-                    gen_config["thinkingConfig"] = t_cfg
-
-                payload = {
-                    "systemInstruction": {"parts": [{"text": system_prompt}]},
-                    "contents": [{"role": "user", "parts": [{"text": query}]}],
-                    "tools": [{"google_search": {}}],
-                    "generationConfig": gen_config,
-                }
-                api_key = active_keys[idx % len(active_keys)]
-                url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-                headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-
-                try:
-                    async with session.post(url, headers=headers, json=payload, timeout=CHAT_TIMEOUT) as resp:
-                        data = await resp.json(content_type=None)
-                        if resp.status == 200 and isinstance(data, dict):
-                            _record_token_usage(data)
-                            reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                            if reply_text:
-                                if include_sources_footer:
-                                    sources = _extract_grounding_sources(data)
-                                    footer = _format_grounding_footer(sources)
-                                    max_body = max(500, 3850 - len(footer))
-                                    clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
-                                    reply_text = f"{clipped}{footer}"
-                                return reply_text, None
-                            if block_msg and not should_retry:
-                                return None, block_msg
-                            continue
-
-                        if resp.status == 429 and isinstance(data, dict):
-                            raw_msg = str((data.get("error") or {}).get("message") or "").lower()
-                            if "exceeded your current quota" in raw_msg or "billing" in raw_msg:
-                                _paid_google_search_available = False
-                                break
-                        if resp.status in (500, 502, 503, 504):
-                            mark_model_unhealthy(model_id)
-                except (asyncio.TimeoutError, aiohttp.ClientError):
-                    mark_model_unhealthy(model_id)
-                    continue
-
-        # 2. Jalur Utama Free Tier: Ambil hasil pencarian web & berita real-time gratis (DuckDuckGo + Google News RSS)
-        live_ctx, live_sources = await free_live_web_search(query, http_session=session)
-        if live_ctx:
-            user_prompt = (
-                f"Pertanyaan Pengguna: {query}\n\n"
-                f"{live_ctx}\n\n"
-                "Berdasarkan hasil pencarian web & berita terbaru di atas, berikan jawaban yang akurat, "
-                "jelas, dan terstruktur dalam bahasa Indonesia!"
+            hasil = await _cari_jalur_berbayar(
+                session,
+                query=query,
+                system_prompt=system_prompt,
+                active_keys=active_keys,
+                include_sources_footer=include_sources_footer,
             )
-        else:
-            user_prompt = (
-                f"Pertanyaan Pengguna: {query}\n\n"
-                "Jawablah pertanyaan di atas secara informatif dan jujur dalam bahasa Indonesia."
-            )
+            if hasil is not None:
+                return hasil
 
-        text_models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-        # Tambahkan jeda ulang singkat bila seluruh model terkena lonjakan batas RPM sesaat
-        all_candidates = [*text_models, f"__retry__:{GEMINI_FAST_MODEL}"]
-
-        for idx, raw_model in enumerate(all_candidates):
-            if raw_model.startswith("__retry__:"):
-                await asyncio.sleep(1.5)
-                model_id = raw_model.split(":", 1)[1]
-            else:
-                model_id = raw_model
-
-            gen_config = {"temperature": 0.35, "maxOutputTokens": 3072}
-            t_cfg = build_thinking_config(model_id, "low")
-            if t_cfg:
-                gen_config["thinkingConfig"] = t_cfg
-            payload = {
-                "systemInstruction": {"parts": [{"text": system_prompt}]},
-                "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-                "generationConfig": gen_config,
-            }
-            api_key = active_keys[idx % len(active_keys)]
-            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-            try:
-                async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
-                    data = await resp.json(content_type=None)
-                    if resp.status == 200 and isinstance(data, dict):
-                        _record_token_usage(data)
-                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                        if reply_text:
-                            if include_sources_footer and live_sources:
-                                footer = _format_grounding_footer(live_sources)
-                                max_body = max(500, 3850 - len(footer))
-                                clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
-                                reply_text = f"{clipped}{footer}"
-                            elif not live_ctx:
-                                reply_text += (
-                                    "\n\n*(Catatan: Pencarian berita eksternal sedang tidak terjangkau — "
-                                    "dijawab berdasarkan pengetahuan model)*"
-                                )
-                            return reply_text, None
-                        if block_msg and not should_retry:
-                            return None, block_msg
-                        continue
-
-                    if resp.status in (500, 502, 503, 504):
-                        mark_model_unhealthy(model_id)
-                    err_detail = (
-                        data.get("error", {}).get("message", f"HTTP {resp.status}")
-                        if isinstance(data, dict)
-                        else f"HTTP {resp.status}"
-                    )
-                    last_err = sanitize_error_message(err_detail)
-            except (asyncio.TimeoutError, aiohttp.ClientError):
-                mark_model_unhealthy(model_id)
-                continue
+        # 2. Jalur Utama Free Tier: DuckDuckGo + Google News RSS lalu dijawab model teks
+        jawaban, galat, last_err = await _cari_jalur_gratis(
+            session,
+            query=query,
+            system_prompt=system_prompt,
+            active_keys=active_keys,
+            include_sources_footer=include_sources_footer,
+            last_err=last_err,
+        )
+        if jawaban is not None or galat is not None:
+            return jawaban, galat
 
     return None, f"⚠️ Gagal mencari informasi: {last_err}"
 
