@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "sosial",
+        "label": "Notifikasi sosial",
+        "emoji": "🔔",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Periksa semua langganan (YouTube/Twitch/TikTok/Reddit/RSS) tanpa memanggil jaringan.",
+    },
+    {
         "kunci": "curhat",
         "label": "Curhat anonim",
         "emoji": "💌",
@@ -206,6 +215,7 @@ ANCHOR_UJI: dict[str, str] = {
     "pantau": "p-pantau",
     "snipe": "p-snipe",
     "curhat": "p-curhat",
+    "sosial": "p-sosial",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -228,6 +238,8 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-giveaway": "**Giveaway**",
     "p-rank": "**Inti, level, & ekonomi**",
     "p-honeypot": "**Keamanan**",
+    "p-sosial": "**Konten & interaksi**",
+    "p-curhat": "**Konten & interaksi**",
 }
 
 
@@ -587,6 +599,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "sosial":
+            return _uji_sosial(gid)
         if kunci == "curhat":
             return _uji_curhat(gid)
         if kunci == "snipe":
@@ -611,6 +625,33 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_sosial(guild_id: int) -> tuple[bool, str]:
+    """Simulasi notifikasi sosial: periksa bentuk feed langganan, tanpa jaringan."""
+    import social_notify as sn
+
+    subs = sn.get_subscriptions(guild_id)
+    if not subs:
+        return False, (
+            "Belum ada langganan notifikasi sosial. Tambah di halaman **Konten & interaksi** → "
+            "panel *🔔 Notifikasi sosial* (atau `/sosial tambah`)."
+        )
+    baris = []
+    rusak = 0
+    for sub in subs[:6]:
+        meta = sn.PLATFORMS.get(str(sub.get("platform") or ""), {})
+        url = sn.feed_url(str(sub.get("platform") or ""), str(sub.get("target") or ""))
+        rapi = url.startswith(("http://", "https://"))
+        rusak += 0 if rapi else 1
+        baris.append(f'{meta.get("emoji", "🔔")} `{url[:70] or "-"}`{" ✅" if rapi else " ⚠️"}')
+    pesan = (
+        f"**{len(subs)}** langganan diperiksa (simulasi, tanpa memanggil jaringan): "
+        + " · ".join(baris)
+    )
+    if rusak:
+        pesan += f"\n⚠️ {rusak} langganan punya URL feed tidak valid — hapus lalu tambah ulang."
+    return True, pesan
 
 
 def _uji_curhat(guild_id: int) -> tuple[bool, str]:

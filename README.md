@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **60 command utama** (275 subcommand) · **860 tes otomatis**
+> **Versi `v1.40.0-beta`** · **60 command utama** (275 subcommand) · **874 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -596,6 +596,7 @@ ai-discord-chat/
 │   ├── dashboard_highlights.py # Panel highlight di halaman Konten & interaksi
 │   ├── confessions.py      # Curhat anonim (`/curhat`) — tanpa menyimpan isi curhat
 │   ├── dashboard_curhat.py # Panel curhat di halaman Konten & interaksi
+│   ├── dashboard_sosial.py # Panel notifikasi sosial (YouTube/Twitch/TikTok/Reddit/RSS)
 │   ├── snipe.py            # Snipe & EditSnipe — memori saja, maks 5 pesan/channel
 │   ├── dashboard_snipe.py  # Panel snipe di halaman Moderasi
 │   ├── dashboard_tags.py   # Panel tag di halaman Konten & interaksi
@@ -679,7 +680,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 47 berkas pytest → 860 tes (855 lulus, 5 dilewati)
+├── tests/                  # 48 berkas pytest → 874 tes (869 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

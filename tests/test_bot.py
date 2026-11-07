@@ -5851,11 +5851,11 @@ async def test_social_notify_seeding_and_dispatch(monkeypatch):
     info = await sn.diagnose(None)
     assert info["twitch_configured"] is False
     assert info["twitch_token_ok"] is False
-    assert set(info["counts"]) == {"youtube", "twitch", "tiktok"}
+    assert set(info["counts"]) == {"youtube", "twitch", "tiktok", "reddit", "rss"}
     assert info["total"] == len(sn.get_subscriptions(gid))
     tambah = next(c for c in sosial_group.commands if c.name == "tambah")
     platform_choices = tambah.parameters[0].choices
-    assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok"}
+    assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok", "reddit", "rss"}
 
     sn.social_guilds.pop(gid, None)
 

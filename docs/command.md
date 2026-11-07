@@ -44,7 +44,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/agent kartu` | `mode` | *(Admin)* Tampilan sambutan: teks, banner statis, atau kartu dinamis (avatar + nama). |
 | `/agent dm` | `aktif` | *(Admin)* Kirim salinan sambutan lewat DM ke member baru. |
 | `/agent boost` | `channel`, `aktif`, `pesan` | *(Admin)* Pesan terima kasih otomatis saat ada member boost server. |
-| `/sosial tambah` | `platform`, `target`, `channel`, `role`, `pesan` | *(Admin)* Pantau YouTube / Twitch / feed RSS lalu kirim notifikasi otomatis (0 kuota AI). |
+| `/sosial tambah` | `platform`, `target`, `channel`, `role`, `pesan` | *(Admin)* Pantau YouTube / Twitch / TikTok / **Reddit** / **RSS-Atom** lalu kirim notifikasi otomatis (0 kuota AI). |
 | `/sosial daftar` | — | Lihat semua langganan notifikasi + ID-nya. |
 | `/sosial hapus` | `id` | Hentikan pemantauan satu langganan. |
 | `/sosial tes` | `id` | Kirim contoh notifikasi sekarang untuk memastikan konfigurasi benar. |
