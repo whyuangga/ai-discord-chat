@@ -508,12 +508,115 @@ def theme_embed(guild: discord.Guild) -> discord.Embed:
     return emb
 
 
+def _theme_header(gid: int, guild_name: str):
+    """Judul editor tema."""
+    header = ui_kit.text(
+        ui_kit.title_line(
+            gid,
+            "theme",
+            "Tampilan & Branding",
+            f"Berlaku untuk **seluruh panel** di {guild_name} • langsung tersimpan",
+        )
+    )
+    return header
+
+
+def _theme_summary(theme: dict):
+    """Ringkasan nilai tema yang sedang aktif."""
+    current = ui_kit.text(
+        "\n".join(
+            [
+                ui_kit.status_line("Warna aksen", ui_theme.ACCENTS[theme["accent"]]["label"],
+                                   state="on"),
+                ui_kit.status_line("Emoji pack", ui_theme.EMOJI_PACKS[theme["emoji_pack"]]["label"]),
+                ui_kit.status_line("Kepadatan", ui_theme.DENSITIES[theme["density"]]["label"]),
+                ui_kit.status_line("Thumbnail", ui_theme.THUMBNAIL_MODES[theme["thumbnail"]]["label"]),
+                ui_kit.status_line("Navigasi", ui_theme.NAV_STYLES[theme["nav"]]["label"]),
+                ui_kit.status_line("Refresh", f"`{theme['refresh']} detik`"),
+            ]
+        )
+    )
+    return current
+
+
+def _theme_toggles(gid: int, theme: dict, on_footer, on_confirm):
+    """Tombol toggle Footer & Konfirmasi."""
+    toggles = ui_kit.action_row(
+        ui_kit.toggle_button(gid, "Footer", theme["footer"], custom_id="theme:footer", callback=on_footer),
+        ui_kit.toggle_button(gid, "Konfirmasi", theme["confirm"], custom_id="theme:confirm", callback=on_confirm),
+    )
+    return toggles
+
+
+def _theme_actions(gid: int, on_preview, on_reset):
+    """Tombol Pratinjau & Reset."""
+    actions = ui_kit.action_row(
+        ui_kit.button(
+            "Pratinjau",
+            emoji=ui_theme.emoji(gid, "preview", "👁️"),
+            custom_id="theme:preview",
+            callback=on_preview,
+        ),
+        ui_kit.button(
+            "Reset",
+            emoji=ui_theme.emoji(gid, "reset", "↺"),
+            style=discord.ButtonStyle.danger,
+            custom_id="theme:reset",
+            callback=on_reset,
+        ),
+    )
+    return actions
+
+
+def _theme_selects(gid: int, on_accent, on_pack, on_density, on_thumb, on_nav, on_refresh):
+    """Enam dropdown setelan tema."""
+    sel_accent = ui_kit.select_menu(
+        "theme:accent",
+        "🎨 Warna aksen panel…",
+        [
+            ui_kit.option(meta["label"], key, emoji=meta["emoji"], description="Warna kartu & embed")
+            for key, meta in ui_theme.ACCENTS.items()
+        ],
+        callback=on_accent,
+    )
+    sel_pack = ui_kit.select_menu(
+        "theme:emoji",
+        "😀 Gaya emoji…",
+        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.EMOJI_PACKS.items()],
+        callback=on_pack,
+    )
+    sel_density = ui_kit.select_menu(
+        "theme:density",
+        "🧾 Kepadatan informasi…",
+        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.DENSITIES.items()],
+        callback=on_density,
+    )
+    sel_thumb = ui_kit.select_menu(
+        "theme:thumb",
+        "🖼️ Thumbnail panel…",
+        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.THUMBNAIL_MODES.items()],
+        callback=on_thumb,
+    )
+    sel_nav = ui_kit.select_menu(
+        "theme:nav",
+        "📂 Gaya navigasi dashboard…",
+        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.NAV_STYLES.items()],
+        callback=on_nav,
+    )
+    sel_refresh = ui_kit.select_menu(
+        "theme:refresh",
+        "⏱️ Interval refresh panel musik…",
+        [ui_kit.option(label, str(value)) for value, label in ui_theme.REFRESH_CHOICES.items()],
+        callback=on_refresh,
+    )
+    return sel_accent, sel_pack, sel_density, sel_thumb, sel_nav, sel_refresh
+
+
 def make_theme_editor(guild: discord.Guild, requester_id: int) -> ui.LayoutView:
     """Editor tema interaktif (semua perubahan langsung disimpan)."""
     gid = guild.id
     theme = ui_theme.get_theme(gid)
     view = ui_kit.build_view(gid, timeout=900)
-
     async def persist(interaction: discord.Interaction) -> None:
         await ui_theme.save_ui_themes_to_disk()
         new_view = make_theme_editor(interaction.guild, requester_id)
@@ -561,88 +664,13 @@ def make_theme_editor(guild: discord.Guild, requester_id: int) -> ui.LayoutView:
             ephemeral=True,
         )
 
-    sel_accent = ui_kit.select_menu(
-        "theme:accent",
-        "🎨 Warna aksen panel…",
-        [
-            ui_kit.option(meta["label"], key, emoji=meta["emoji"], description="Warna kartu & embed")
-            for key, meta in ui_theme.ACCENTS.items()
-        ],
-        callback=on_accent,
+    sel_accent, sel_pack, sel_density, sel_thumb, sel_nav, sel_refresh = _theme_selects(
+        gid, on_accent, on_pack, on_density, on_thumb, on_nav, on_refresh
     )
-    sel_pack = ui_kit.select_menu(
-        "theme:emoji",
-        "😀 Gaya emoji…",
-        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.EMOJI_PACKS.items()],
-        callback=on_pack,
-    )
-    sel_density = ui_kit.select_menu(
-        "theme:density",
-        "🧾 Kepadatan informasi…",
-        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.DENSITIES.items()],
-        callback=on_density,
-    )
-    sel_thumb = ui_kit.select_menu(
-        "theme:thumb",
-        "🖼️ Thumbnail panel…",
-        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.THUMBNAIL_MODES.items()],
-        callback=on_thumb,
-    )
-    sel_nav = ui_kit.select_menu(
-        "theme:nav",
-        "📂 Gaya navigasi dashboard…",
-        [ui_kit.option(m["label"], k, emoji=m["emoji"]) for k, m in ui_theme.NAV_STYLES.items()],
-        callback=on_nav,
-    )
-    sel_refresh = ui_kit.select_menu(
-        "theme:refresh",
-        "⏱️ Interval refresh panel musik…",
-        [ui_kit.option(label, str(value)) for value, label in ui_theme.REFRESH_CHOICES.items()],
-        callback=on_refresh,
-    )
-
-    header = ui_kit.text(
-        ui_kit.title_line(
-            gid,
-            "theme",
-            "Tampilan & Branding",
-            f"Berlaku untuk **seluruh panel** di {guild.name} • langsung tersimpan",
-        )
-    )
-    current = ui_kit.text(
-        "\n".join(
-            [
-                ui_kit.status_line("Warna aksen", ui_theme.ACCENTS[theme["accent"]]["label"],
-                                   state="on"),
-                ui_kit.status_line("Emoji pack", ui_theme.EMOJI_PACKS[theme["emoji_pack"]]["label"]),
-                ui_kit.status_line("Kepadatan", ui_theme.DENSITIES[theme["density"]]["label"]),
-                ui_kit.status_line("Thumbnail", ui_theme.THUMBNAIL_MODES[theme["thumbnail"]]["label"]),
-                ui_kit.status_line("Navigasi", ui_theme.NAV_STYLES[theme["nav"]]["label"]),
-                ui_kit.status_line("Refresh", f"`{theme['refresh']} detik`"),
-            ]
-        )
-    )
-
-    toggles = ui_kit.action_row(
-        ui_kit.toggle_button(gid, "Footer", theme["footer"], custom_id="theme:footer", callback=on_footer),
-        ui_kit.toggle_button(gid, "Konfirmasi", theme["confirm"], custom_id="theme:confirm", callback=on_confirm),
-    )
-    actions = ui_kit.action_row(
-        ui_kit.button(
-            "Pratinjau",
-            emoji=ui_theme.emoji(gid, "preview", "👁️"),
-            custom_id="theme:preview",
-            callback=on_preview,
-        ),
-        ui_kit.button(
-            "Reset",
-            emoji=ui_theme.emoji(gid, "reset", "↺"),
-            style=discord.ButtonStyle.danger,
-            custom_id="theme:reset",
-            callback=on_reset,
-        ),
-    )
-
+    header = _theme_header(gid, guild.name)
+    current = _theme_summary(theme)
+    toggles = _theme_toggles(gid, theme, on_footer, on_confirm)
+    actions = _theme_actions(gid, on_preview, on_reset)
     view.add_item(ui_kit.card(gid, header, ui_kit.sep(), current))
     view.add_item(
         ui_kit.card(
