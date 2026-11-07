@@ -317,8 +317,20 @@ async def get_ai_response(
     bot_user_id: int | None = None,
     server_knowledge: str = "",
     safety_level: str | None = None,
+    user_id: int | None = None,
+    guild_id: int | None = None,
 ) -> str:
     """Mendapatkan balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search) dari Google Gemini API."""
+
+    # Setelan AI per member & kepribadian server (tanpa menambah kuota: hanya teks tambahan).
+    try:
+        import ai_user_settings
+
+        instruksi = ai_user_settings.gabung_instruksi(user_id, guild_id)
+        if instruksi:
+            prompt = f"{prompt}\n\n[Instruksi gaya — patuhi bila tidak bertentangan dengan aturan: {instruksi}]"
+    except Exception:  # pragma: no cover - jaring aman
+        pass
     global _paid_google_search_available
     if not is_gemini_key_configured():
         return (

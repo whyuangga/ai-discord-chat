@@ -39,6 +39,7 @@ from cogs.snipe_cog import register_snipe_cog, snipe_group
 from cogs.bangun_cog import bangun_group, register_bangun_cog
 from cogs.lencana_cog import lencana_group, register_lencana_cog
 from cogs.dataku_cog import register_dataku_cog
+from cogs.setelan_ai_cog import register_setelan_ai_cog
 from cogs.gambar_cog import register_gambar_cog
 from cogs.meme_cog import register_meme_cog
 from cogs.moderation_cog import banding_cmd, lapor_cmd, mod_group, register_moderation_cog
@@ -115,6 +116,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_meme_cog(bot)
     register_gambar_cog(bot)
     register_dataku_cog(bot)
+    register_setelan_ai_cog(bot)
     register_highlights_cog(bot)
     register_snipe_cog(bot)
     register_confessions_cog(bot)

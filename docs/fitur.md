@@ -2271,6 +2271,19 @@ berisi level/XP, koin, lencana, kata kunci pantau, ulang tahun, skor game, dan k
 milikmu. `/hapusdataku` menampilkan tombol konfirmasi lalu menghapus permanen data itu dari
 `data/*.json` (hanya milikmu — data member lain tidak tersentuh) dan langsung menyimpannya ke disk.
 
+### ⚙️ `/setelan-ai` — gaya AI per member + kepribadian AI server
+
+Dari purpleGPT (`/settings` & `/server_prompt`), tanpa biaya tambahan: instruksi hanya berupa
+**teks tambahan** pada prompt AI, jadi kuota tetap sama dan model tidak berubah.
+
+- **Per member** (`/setelan-ai atur`): **panjang jawaban** (`singkat` maks 3 kalimat / `normal` /
+  `detail` poin + contoh), **prompt pribadi** (maks 300 huruf, mis. *"pakai analogi sederhana"*),
+  dan **rasio gambar bawaan** untuk `/gambar`.
+- **Per server** (`/setelan-ai prompt-server`, khusus Admin): satu "kepribadian" yang ditempelkan
+  ke semua balasan AI di server itu (maks 500 huruf; kosongkan untuk menghapus).
+- `/setelan-ai lihat` menampilkan semua setelan yang sedang berlaku, `/setelan-ai reset`
+  mengembalikan ke bawaan. Data disimpan di `data/ai_settings.json`.
+
 ### 🖼️ `/meme teks_atas:"…" teks_bawah:"…" template:neon` menggambar meme sendiri dengan **Pillow**
 (tidak ada API gambar & tidak ada berkas aset): 6 gaya — `klasik`, `impact`, `drake` (dua panel
 ditolak/diterima), `neon`, `kertas`, `terminal`. Teks otomatis dibungkus (maks 6 baris × 120 huruf)

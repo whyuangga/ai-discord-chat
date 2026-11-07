@@ -76,6 +76,14 @@ async def _jawab_gambar(
         )
         return
 
+    if rasio is None:
+        try:
+            import ai_user_settings
+
+            rasio = ai_user_settings.rasio_bawaan(interaction.user.id) or None
+        except Exception:  # pragma: no cover - jaring aman
+            rasio = None
+
     parts, nama_acuan = await _part_dari_lampiran(lampiran)
     if edit and not parts:
         simpanan = _terakhir.get(int(interaction.channel_id or 0))

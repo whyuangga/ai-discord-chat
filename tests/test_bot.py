@@ -2254,7 +2254,7 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         # v1.40.0-beta (Paket D): kanal info yang menyegarkan dirinya sendiri
         "kanal-info",
         # v1.40.0-beta (Paket E): bangun server instan + meme lokal (0 kuota AI)
-        "bangun", "meme", "gambar", "dataku", "hapusdataku",
+        "bangun", "meme", "gambar", "dataku", "hapusdataku", "setelan-ai",
     }
     assert len(chat_cmds) <= 100
 

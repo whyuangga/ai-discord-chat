@@ -209,6 +209,8 @@ async def handle_private_session_message(bot: commands.Bot, message: discord.Mes
                         thread=message.channel,
                         bot_user_id=bot.user.id if bot.user else None,
                         server_knowledge=srv_knowledge,
+                        user_id=message.author.id,
+                        guild_id=message.guild.id if message.guild else None,
                     )
 
                     if warnings:

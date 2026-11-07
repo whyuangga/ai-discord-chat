@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 66
+TOP_LEVEL_COUNT = 67
 import ui_kit
 
 
@@ -648,7 +648,7 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/meme`** — meme lokal gratis.\n"
                 "• **`/gambar`** — gambar AI, 5 rasio.\n"
                 "• **`/dataku`** — ekspor/hapus data.\n"
-                "• **`/snipe`** — pesan terhapus terakhir.\n"
+                "• **`/setelan-ai`** — gaya AI per member.\n"
                 "• **`/curhat`** — anonim, satu channel.\n"
                 "• **`/kanal-info`** — info otomatis.\n"
                 "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`).\n"
@@ -673,11 +673,11 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
             value=(
                 "**📈 Retensi & Pelayanan**\n"
-                "• **`/level`** — kartu level, papan peringkat, role hadiah, & XP voice.\n"
+                "• **`/level`** — kartu level, papan, role, XP voice.\n"
                 "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
                 "**🎉 Keramaian Server**\n"
                 "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"
-                "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
+                "• **`/jawab-otomatis`** & **`/pengumuman`** — balasan & jadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
                 "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
                 "• **Dashboard web** — status, `/pemakaian`, & kontrol nyala/mati fitur dari browser (0 kuota).\n"
