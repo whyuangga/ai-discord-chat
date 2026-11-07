@@ -368,13 +368,11 @@ def dashboard_embed(guild: discord.Guild, tab: str) -> discord.Embed:
     )
 
 
-def make_dashboard(guild: discord.Guild, tab: str, requester_id: int) -> ui.LayoutView:
-    """Membangun dashboard V2 untuk satu tab (dibuat ulang setiap pindah tab)."""
+def _callback_dashboard(
+    guild: discord.Guild, tab: str, requester_id: int, view
+) -> dict:
+    """Buat callback navigasi dashboard (pindah tab, segarkan, tema, tutup)."""
     gid = guild.id
-    tab = tab if tab in TABS else "overview"
-    title, lines = _gather_themed(guild, tab)
-    view = ui_kit.build_view(gid, timeout=900)
-
     async def go(interaction: discord.Interaction, target: str) -> None:
         if interaction.guild is None:
             return
@@ -412,18 +410,17 @@ def make_dashboard(guild: discord.Guild, tab: str, requester_id: int) -> ui.Layo
                 timeout=None,
             )
         )
+    return {
+        "go": go,
+        "on_tab": on_tab,
+        "on_refresh": on_refresh,
+        "on_theme": on_theme,
+        "on_close": on_close,
+    }
 
-    icon = getattr(guild, "icon", None)
-    header = ui_kit.header(
-        gid,
-        "panel",
-        f"Control Center — {guild.name}",
-        f"`v{BOT_VERSION}` • tab **{TABS[tab]['label']}** • {TABS[tab]['desc']}",
-        thumbnail_url=getattr(icon, "url", None) if icon else None,
-    )
-    body = ui_kit.text("\n".join(ln for ln in lines if ln is not None))
 
-    # Navigasi: dropdown (default) atau baris tombol sesuai tema
+def _navigasi_dashboard(gid: int, tab: str, go, on_tab) -> list:
+    """Baris navigasi: dropdown (default) atau baris tombol sesuai tema."""
     nav_items = []
     if ui_theme.get_theme(gid)["nav"] == "tombol":
         tab_buttons = []
@@ -448,7 +445,35 @@ def make_dashboard(guild: discord.Guild, tab: str, requester_id: int) -> ui.Layo
             callback=on_tab,
         )
         nav_items.append(ui_kit.action_row(sel_tabs))
+    return nav_items
 
+
+def make_dashboard(guild: discord.Guild, tab: str, requester_id: int) -> ui.LayoutView:
+    """Membangun dashboard V2 untuk satu tab (dibuat ulang setiap pindah tab)."""
+    gid = guild.id
+    tab = tab if tab in TABS else "overview"
+    title, lines = _gather_themed(guild, tab)
+    view = ui_kit.build_view(gid, timeout=900)
+    cb = _callback_dashboard(guild, tab, requester_id, view)
+    on_tab, on_refresh, on_theme, on_close = (
+        cb["on_tab"],
+        cb["on_refresh"],
+        cb["on_theme"],
+        cb["on_close"],
+    )
+
+    icon = getattr(guild, "icon", None)
+    header = ui_kit.header(
+        gid,
+        "panel",
+        f"Control Center — {guild.name}",
+        f"`v{BOT_VERSION}` • tab **{TABS[tab]['label']}** • {TABS[tab]['desc']}",
+        thumbnail_url=getattr(icon, "url", None) if icon else None,
+    )
+    body = ui_kit.text("\n".join(ln for ln in lines if ln is not None))
+
+    # Navigasi: dropdown (default) atau baris tombol sesuai tema
+    nav_items = _navigasi_dashboard(gid, tab, cb["go"], on_tab)
     actions = ui_kit.action_row(
         ui_kit.button(
             "Segarkan",
