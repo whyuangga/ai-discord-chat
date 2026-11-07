@@ -114,6 +114,9 @@ Berkas: `engagement.py` · `tickets.py` · `levels.py` · `community_tools.py` �
    `dashboard_keamanan.py`), 5 aturan disimulasikan, hasil terakhir tersimpan per server.
 2. **Honeypot**: channel yang tidak boleh diposting siapa pun; siapa pun yang memposting
    langsung ditindak (self-bot & skrip raid tidak membaca aturan).
+   ✅ **Sudah jalan** (v1.40): `/keamanan honeypot` + modul `honeypot.py` (maks 3 channel,
+   aksi lapor/hapus/timeout/kick/ban, staf & bot aman) + panel & penguji simulasi di
+   halaman Keamanan, tersimpan di `data/honeypot.json`.
 3. **Statistik per aturan** ("kena hari ini / total") di halaman Keamanan.
    ✅ **Sudah jalan** (v1.40): penghitung `stats` per aturan di `data/antispam.json`,
    reset harian otomatis, ditampilkan di panel yang sama dengan penguji aturan.

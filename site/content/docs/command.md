@@ -107,6 +107,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/keamanan cek` | `link` | Periksa keamanan sebuah link (semua member). |
 | `/keamanan spam` | `aktif`, `mode`, `log_channel`, `ambang_banjir`, `jendela`, `mention_maks`, `link_maks`, `kapital`, `timeout_detik`, `kecualikan_channel`, `kecualikan_role` | *(Admin)* Anti-spam & anti-raid, **mode bawaan `lapor`** (tanpa menghapus apa pun). |
 | `/keamanan spam-status` | — | Lihat ambang deteksi, pengecualian, & statistik penjaga spam. |
+| `/keamanan honeypot` | `channel`, `aksi`, `timeout_detik`, `log_channel`, `abaikan_staf`, `aktif` | *(Admin)* Channel jebakan (maks 3): lapor / hapus / timeout / kick / ban. Bawaan hanya **melapor**, staf & bot selalu aman. |
 
 ## 5. Slash Commands Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)
 

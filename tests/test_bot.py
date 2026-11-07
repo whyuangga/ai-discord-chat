@@ -4485,7 +4485,10 @@ async def test_antispam_command_and_help_structure():
     """`/keamanan spam` & `/keamanan spam-status` terdaftar, plus panduan /bantuan diperbarui."""
     from cogs.server_cog import keamanan_group
 
-    assert {c.name for c in keamanan_group.commands} == {"phising", "cek", "spam", "spam-status"}
+    # v1.40: honeypot (channel jebakan) menambah satu subcommand
+    assert {c.name for c in keamanan_group.commands} == {
+        "phising", "cek", "spam", "spam-status", "honeypot"
+    }
     for cmd in keamanan_group.commands:
         assert len(cmd.description) <= 100
 

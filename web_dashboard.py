@@ -672,6 +672,7 @@ ANCHOR_HALAMAN.update({
     "p-uji": "",
     "p-rank": "inti",
     "p-aturan": "keamanan",
+    "p-honeypot": "keamanan",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -734,6 +735,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu",),
+    "keamanan": ("honeypot",),
 }
 
 
@@ -1006,6 +1008,7 @@ PANEL: dict[str, object] = {
         "p-keamanan", "🛡️ Keamanan",
         "Anti-spam, anti-nuke, pengaman raid, verifikasi, &amp; proteksi anti-phishing. "
         "Mode “Lapor” hanya mencatat — paling aman untuk memulai.",
+        "honeypot",
         "aturan",
     ),
     "p-konten": _panel_grup(
@@ -1070,6 +1073,7 @@ def render_dashboard_html(
     kartu_rank_block: str = "",
     starboard_block: str = "",
     aturan_block: str = "",
+    honeypot_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1151,6 +1155,8 @@ def render_dashboard_html(
         "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
         "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
+        "honeypot_block": honeypot_block
+        or '<div class="muted">Honeypot tidak tersedia.</div>',
         "aturan_block": aturan_block
         or '<div class="muted">Penguji aturan tidak tersedia.</div>',
         "starboard_block": starboard_block
@@ -1634,6 +1640,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_ui.render_kartu_rank_block(bot, gid, token),
             '<div class="muted">Kartu rank tidak tersedia.</div>',
         )
+        honeypot_block = _blok(
+            lambda: dashboard_ui.render_honeypot_block(bot, gid, token),
+            '<div class="muted">Honeypot tidak tersedia.</div>',
+        )
         aturan_block = _blok(
             lambda: dashboard_ui.render_aturan_block(
                 gid, token, dashboard_keamanan.collect(gid)
@@ -1699,6 +1709,7 @@ async def start_dashboard(bot) -> bool:
             kartu_rank_block=kartu_rank_block,
             starboard_block=starboard_block,
             aturan_block=aturan_block,
+            honeypot_block=honeypot_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1973,7 +1984,43 @@ async def start_dashboard(bot) -> bool:
         gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
         aksi = str(payload.get("action") or "").strip().lower()
 
-        if aksi == "uji-aturan":
+        if aksi == "honeypot-simpan":
+            import honeypot
+
+            cid = _id_aman(payload.get("channel_id"))
+            lama = honeypot.status(gid)
+            ids = list(lama["channel_ids"])
+            if cid and cid not in ids:
+                ids.append(cid)
+            ok, message = True, ""
+            honeypot.set_honeypot(
+                gid,
+                channel_ids=ids,
+                aksi=str(payload.get("aksi") or ""),
+                timeout_sec=_id_aman(payload.get("timeout_sec")) or None,
+                log_channel_id=_id_aman(payload.get("log_channel_id")),
+                abaikan_staf=str(payload.get("abaikan_staf") or "1") not in ("0", "false", "off"),
+            )
+            await honeypot.save_honeypot_to_disk()
+            data = honeypot.status(gid)
+            message = (
+                f"Honeypot disimpan: channel {', '.join(f'#{c}' for c in data['channel_ids'])} · "
+                f"tindakan {data['label_aksi']}."
+                if data["channel_ids"]
+                else "Honeypot disimpan, tapi belum ada channel jebakan yang dipilih."
+            )
+        elif aksi == "honeypot-hapus":
+            import honeypot
+
+            ok = honeypot.clear_honeypot(gid)
+            if ok:
+                await honeypot.save_honeypot_to_disk()
+            message = (
+                "Honeypot dimatikan & setelannya dihapus."
+                if ok
+                else "Belum ada setelan honeypot untuk dihapus."
+            )
+        elif aksi == "uji-aturan":
             ok, message = dashboard_keamanan.uji(
                 gid, str(payload.get("teks") or ""), ulang=_id_aman(payload.get("ulang"))
             )

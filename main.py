@@ -105,6 +105,7 @@ from antispam import (
     load_antispam_from_disk,
     save_antispam_to_disk,
 )
+from honeypot import load_honeypot_from_disk
 from engagement import (
     cleanup_engagement_runtime,
     load_engagement_from_disk,
@@ -291,6 +292,7 @@ class GeminiDiscordBot(commands.Bot):
             load_engagement_from_disk()
         )
         loaded_antispam = load_antispam_from_disk()
+        loaded_honeypot = load_honeypot_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
@@ -375,6 +377,7 @@ class GeminiDiscordBot(commands.Bot):
             loaded_announcements,
         )
         logger.info("Anti-Spam & Anti-Raid dimuat: %d server aktif.", loaded_antispam)
+        logger.info("Honeypot dimuat: %d server.", loaded_honeypot)
         logger.info(
             "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
             loaded_levels,

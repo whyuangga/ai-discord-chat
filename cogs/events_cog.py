@@ -36,6 +36,11 @@ from community_tools import (
     maybe_refresh_sticky,
     save_community_tools_to_disk,
 )
+from honeypot import (
+    handle_channel_delete as handle_honeypot_channel_delete,
+    handle_honeypot,
+    save_honeypot_to_disk,
+)
 from antispam import (
     handle_channel_delete as handle_antispam_channel_delete,
     handle_member_join_guard,
@@ -246,6 +251,8 @@ def register_events_cog(bot: commands.Bot) -> None:
         try:
             import antinuke
 
+            if handle_honeypot_channel_delete(channel):
+                await save_honeypot_to_disk()
             if antinuke.handle_channel_delete(getattr(channel, "id", 0)):
                 await antinuke.save_antinuke_to_disk()
         except Exception as exc:  # pragma: no cover - jaring aman
@@ -584,6 +591,15 @@ def register_events_cog(bot: commands.Bot) -> None:
                     return
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Anti-Phishing gagal memeriksa pesan: %s", exc)
+
+        # 1B-1. Honeypot: channel jebakan. Siapa pun yang menulis di sana hampir pasti
+        #       self-bot / skrip spam, jadi pemeriksaan ini didahulukan & tanpa ambang.
+        if message.guild is not None:
+            try:
+                if await handle_honeypot(message, bot=bot):
+                    return
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Honeypot gagal memeriksa pesan: %s", exc)
 
         # 1B-2. Penjaga Anti-Spam ringan (mode default: hanya lapor ke channel log).
         #       Admin, staf, bot, & channel/role pengecualian selalu diabaikan sehingga

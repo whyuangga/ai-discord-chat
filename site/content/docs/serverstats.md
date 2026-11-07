@@ -40,4 +40,33 @@ toc: true
 - **`/keamanan cek link:https://...`** bisa dipakai **semua member** untuk memeriksa keamanan link sebelum membuka.
 - Bisa dibatasi hanya ke channel tertentu, dan mode **ketat** (`ketat:True`) juga menindak link yang baru *mencurigakan*.
 
+## 5. 🪤 Honeypot — Channel Jebakan (`/keamanan honeypot`)
+
+> 🍯 **Filosofi: jebakan, bukan tongkat.** Channel jebakan **tidak boleh dipakai siapa pun**.
+> Warga asli membaca aturan dan tidak akan menyentuhnya; **self-bot, skrip promo, & bot raid**
+> justru menganggapnya sasaran empuk. Jadi pesan pertama di sana sudah menjadi bukti — tanpa
+> analisis teks, tanpa ambang, tanpa salah tuduh.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/keamanan honeypot channel:#promo-gratis`** *(Admin)* | Pasang channel jebakan (maks **3** channel per server). |
+| **`/keamanan honeypot channel:#promo aksi:timeout timeout_detik:600`** | Pilih tindakan: `lapor`, `hapus`, `timeout`, `kick`, atau `ban`. |
+| **`/keamanan honeypot channel:#promo log_channel:#mod-log`** | Kirim laporan kejadian ke channel log. |
+| **`/keamanan honeypot channel:#promo abaikan_staf:False`** | Ikut menindak staf (default **staf & pemilik aman**). |
+| **`/keamanan honeypot`** *(tanpa argumen)* | Lihat setelan & jumlah tangkapan. |
+| **`/keamanan honeypot aktif:False`** | Matikan sementara — daftar channel tetap tersimpan. |
+
+**Aturan main:**
+- **Bawaan `lapor`** — belum ada tindakan sampai Admin memilih yang lebih keras.
+- **Staf selalu aman** (`abaikan_staf` default aktif): Administrator / Manage Messages / Manage Guild.
+- **Bot diabaikan** (termasuk bot ini sendiri), supaya webhook & bot resmi tidak ikut kena.
+- Saat mode bertindak, pesan **selalu dihapus** dulu, lalu laporan dikirim ke channel log.
+- Channel jebakan yang dihapus otomatis dibuang dari daftar; honeypot mati bila daftar kosong.
+- **0 kuota AI**, data di `data/honeypot.json`, maksimal 3 channel/server.
+
+**Di dashboard:** halaman **🛡️ Keamanan** → panel *🪤 Honeypot*: pilih channel & tindakan,
+atur time-out, channel log, dan tombol **uji simulasi** (menampilkan keputusan honeypot untuk
+seorang member **tanpa** menghapus pesan atau menghukum siapa pun). Jalur tulis:
+`POST /api.keamanan` (`action=honeypot-simpan` / `honeypot-hapus`).
+
 ---

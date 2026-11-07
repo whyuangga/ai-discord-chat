@@ -601,6 +601,79 @@ def render_kartu_block(
     return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}{catatan_ukuran}'
 
 
+def render_honeypot_block(bot, guild_id: int, token: str) -> str:
+    """Panel honeypot: pilih channel jebakan, tindakan, log, & statistik tangkapan."""
+    import honeypot
+
+    gid = int(guild_id or 0)
+    data = honeypot.status(gid)
+    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+    kanal = list(getattr(guild, "text_channels", []) or [])[:80]
+    opsi_jebakan = "".join(
+        f'<option value="{int(getattr(ch, "id", 0))}"'
+        f'{" selected" if int(getattr(ch, "id", 0)) in data["channel_ids"] else ""}>'
+        f'#{_esc(getattr(ch, "name", "-"))}</option>'
+        for ch in kanal
+    ) or '<option value="0">(belum ada channel)</option>'
+    opsi_log = '<option value="0">— tanpa log —</option>' + "".join(
+        f'<option value="{int(getattr(ch, "id", 0))}"'
+        f'{" selected" if int(getattr(ch, "id", 0)) == data["log_channel_id"] else ""}>'
+        f'#{_esc(getattr(ch, "name", "-"))}</option>'
+        for ch in kanal
+    )
+    opsi_aksi = "".join(
+        f'<option value="{kunci}"{" selected" if kunci == data["aksi"] else ""}>'
+        f"{_esc(teks)}</option>"
+        for kunci, teks in honeypot.AKSI_HONEYPOT.items()
+    )
+    terakhir = data.get("terakhir") or {}
+    jejak = (
+        f'<p class="muted">Tangkapan terakhir: <b>{int(terakhir.get("user_id") or 0)}</b> di '
+        f'channel <code>{int(terakhir.get("channel_id") or 0)}</code> · '
+        f'aksi <code>{_esc(terakhir.get("aksi"))}</code></p>'
+        if terakhir
+        else ""
+    )
+    daftar = ", ".join(f"<code>#{cid}</code>" for cid in data["channel_ids"]) or "belum ada"
+    lencana = (
+        '<span class="lencana on">aktif</span>'
+        if data["aktif"]
+        else '<span class="lencana off">nonaktif</span>'
+    )
+    form = (
+        '<form method="post" action="/api/keamanan" class="formgrid">'
+        + _hidden(gid, token, "honeypot-simpan")
+        + '<div class="medan"><label>Channel jebakan</label>'
+        f'<select name="channel_id">{opsi_jebakan}</select></div>'
+        f'<div class="medan"><label>Tindakan</label><select name="aksi">{opsi_aksi}</select></div>'
+        '<div class="medan"><label>Lama time-out (detik, 60–86400)</label>'
+        f'<input type="number" name="timeout_sec" min="60" max="86400" value="{int(data["timeout_sec"])}"></div>'
+        f'<div class="medan"><label>Channel log</label><select name="log_channel_id">{opsi_log}</select></div>'
+        '<div class="medan"><label>Abaikan staf</label><select name="abaikan_staf">'
+        f'<option value="1"{" selected" if data["abaikan_staf"] else ""}>Ya — staf aman (disarankan)</option>'
+        f'<option value="0"{" selected" if not data["abaikan_staf"] else ""}>Tidak — semua orang kena</option>'
+        "</select></div>"
+        '<button type="submit">Simpan honeypot</button></form>'
+    )
+    tombol_hapus = ""
+    if data["aktif"] or data["channel_ids"]:
+        tombol_hapus = (
+            '<form method="post" action="/api/keamanan">'
+            + _hidden(gid, token, "honeypot-hapus")
+            + '<button type="submit" class="danger">Matikan &amp; hapus setelan</button></form>'
+        )
+    return (
+        '<div class="subpanel" id="p-honeypot"><h3>🪤 Honeypot (channel jebakan)</h3>'
+        '<p class="muted">Buat channel yang <b>tidak boleh dipakai siapa pun</b> (mis. '
+        "<code>#promo-gratis</code>). Warga asli membaca aturan dan menjauh; skrip spam &amp; "
+        "self-bot justru langsung menulis di sana. Pesan pertama sudah cukup jadi bukti — "
+        "tanpa ambang dan tanpa salah tuduh.</p>"
+        f'<p class="muted">Status: {lencana} · channel jebakan: {daftar} · tindakan '
+        f'<b>{_esc(data["label_aksi"])}</b> · total tertangkap <b>{data["tangkap"]}</b> '
+        f'· maks {data["batas_channel"]} channel</p>{jejak}{form}{tombol_hapus}</div>'
+    )
+
+
 def render_aturan_block(guild_id: int, token: str, data: dict) -> str:
     """Penguji aturan + statistik per aturan di halaman Keamanan."""
     import antispam

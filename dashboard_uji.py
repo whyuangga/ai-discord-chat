@@ -94,6 +94,15 @@ UJI: tuple[dict, ...] = (
         ),
     },
     {
+        "kunci": "honeypot",
+        "label": "Honeypot (channel jebakan)",
+        "emoji": "🪤",
+        "grup": "Keamanan",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
+    },
+    {
         "kunci": "kartu",
         "label": "Kartu rank PNG",
         "emoji": "🖼️",
@@ -135,6 +144,7 @@ ANCHOR_UJI: dict[str, str] = {
     "tiket": "p-tiket",
     "giveaway": "p-giveaway",
     "kartu": "p-rank",
+    "honeypot": "p-honeypot",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -156,6 +166,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-ekspor": "**Ekspor**",
     "p-giveaway": "**Giveaway**",
     "p-rank": "**Inti, level, & ekonomi**",
+    "p-honeypot": "**Keamanan**",
 }
 
 
@@ -515,6 +526,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "honeypot":
+            return _uji_honeypot(guild, gid, member, opsi)
         if kunci == "kartu":
             return await _uji_kartu(guild, gid, member, opsi)
         if kunci == "ai":
@@ -525,6 +538,47 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_honeypot(guild, guild_id: int, member=None, opsi: str = "") -> tuple[bool, str]:
+    """Simulasi keputusan honeypot untuk seorang member (**tanpa** tindakan)."""
+    import honeypot
+
+    data = honeypot.status(guild_id)
+    if not data["channel_ids"]:
+        return False, (
+            "Honeypot belum punya channel jebakan. Atur di halaman **Keamanan** → "
+            "panel *Honeypot* (atau `/keamanan honeypot channel:#promo-gratis`)."
+        )
+    orang = member
+    if orang is None:
+        orang = cari_member(guild, opsi) if guild is not None else None
+    is_staf = False
+    perms = getattr(orang, "guild_permissions", None)
+    if perms is not None:
+        is_staf = bool(
+            getattr(perms, "administrator", False)
+            or getattr(perms, "manage_messages", False)
+            or getattr(perms, "manage_guild", False)
+        )
+    channel_id = int(data["channel_ids"][0])
+    simulasi = honeypot.akan_tertangkap(
+        guild_id,
+        channel_id,
+        is_bot=bool(getattr(orang, "bot", False)),
+        is_staf=is_staf,
+    )
+    nama = _nama_member(orang) if orang is not None else "member contoh"
+    if simulasi["kena"]:
+        return True, (
+            f"Kalau **{nama}** menulis di <#{channel_id}>, honeypot akan bertindak: "
+            f"{honeypot.AKSI_HONEYPOT.get(simulasi['aksi'], simulasi['aksi'])}. "
+            "Simulasi saja — tidak ada pesan yang dihapus dan tidak ada yang dihukum."
+        )
+    return True, (
+        f"**{nama}** tidak akan ditindak di <#{channel_id}>: {simulasi['alasan']} "
+        "Tidak ada tindakan yang dijalankan."
+    )
 
 
 async def _uji_kartu(guild, guild_id: int, member=None, opsi: str = "") -> tuple[bool, str]:
