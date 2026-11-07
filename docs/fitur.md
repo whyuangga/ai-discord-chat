@@ -1260,8 +1260,15 @@ fitur dibagi ke **14 halaman** per grup, tanpa dependency baru dan tetap satu pr
 | **Warna teks** | `#FFFFFF`; teks sekunder memakai putih transparan (`rgba(255,255,255,.62)`) |
 | **Font** | **General Sans** (Fontshare, bobot 400/500/600/700) dimuat lewat `api.fontshare.com`; cadangan `Inter` → `system-ui` → `Segoe UI` bila CDN tidak terjangkau |
 | **Aksen** | ungu `#8B7CFF` (fokus, tautan), biru Discord `#5865F2` (tombol utama), hijau `#4ADE80` (berhasil), kuning `#FBBF24` (peringatan), merah `#E5484D` (tombol hapus/tutup) |
-| **Bentuk** | kartu radius 14 px, garis `rgba(255,255,255,.09)`, tanpa gradien norak, tanpa JavaScript |
-| **Aksesibilitas** | `color-scheme: dark`, outline fokus ungu 2 px pada input/select/tombol, `prefers-reduced-motion` mematikan transisi |
+| **Bentuk** | kartu radius 16 px, garis `rgba(255,255,255,.09)`, lapisan gradien/glow ungu yang halus, tanpa JavaScript |
+| **Layout** | sidebar tetap selebar 252 px di desktop (≥ 821 px), kartu statistik responsif bergaya bento; di HP menu tetap checkbox CSS |
+| **Aksesibilitas** | `color-scheme: dark`, outline fokus ungu 2 px, menu bisa dioperasikan keyboard, `prefers-reduced-motion` menghilangkan gerak |
+
+Arah visual mengadaptasi pola sidebar, status aktif, dan kartu metrik dari
+[hasil pencarian dashboard Dribbble](https://dribbble.com/search/dashboard),
+[Dashboard with Collapsible Sidebar](https://21st.dev/@uniquesonu/components/dashboard-with-collapsible-sidebar),
+dan [Stats Bento](https://21st.dev/@uilayout.contact/components/stats-bento) di 21st.dev.
+Yang diambil hanya pola visualnya—tidak menyalin React/Tailwind atau menambah dependency; halaman tetap HTML server-rendered tanpa JavaScript.
 
 Semua warna & font tinggal di satu modul, `dashboard_tema.py` (`LATAR`, `TEKS`,
 `FONT_STACK`, `CSS_HALAMAN`, `CSS_PRATINJAU`, `CSS_HASIL`) — mengganti tema cukup
@@ -1296,8 +1303,9 @@ Aturan mainnya:
 | :--- | :--- |
 | **Menu halaman** | 📡 Ringkasan · 🤖 AI & Privasi · 👋 Sambutan · ⚙️ Inti · 🛡️ Keamanan · 🚨 Moderasi · 🎫 Tiket · 🧩 Konten · 🏗️ Bangun · 🎁 Giveaway · ✉️ Kirim · ➕ Buat · 🎨 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
 | **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
-| **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
-| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
+| **Sidebar desktop** | di layar ≥ 821 px navigasi fitur menjadi sidebar tetap; halaman aktif ditandai ungu, sedangkan pilihan server & auto-refresh ada di bawah |
+| **Menu HP** | di layar ≤ 820 px sidebar berubah menjadi bar atas lengket dengan tombol **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
+| **Judul halaman** | judul + ringkasan fitur tampil di area konten; nama server, versi, waktu baca, dan interval refresh tetap terlihat di navigasi |
 | **Anchor tetap ada** | tiap panel & bagian masih punya `id` (`#p-welcome`, `#p-inti`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/sambutan#p-goodbye` bisa dipakai sebagai bookmark |
 | **Bookmark lama** | `/setelan` → `/inti`, `/perpisahan` & `/boost` → `/sambutan`, `/uji` → `/ai` (semua `303`); anchor lama (`#p-setelan` → `/inti`, `#p-perpisahan` → `/sambutan`) ikut diarahkan; `/api/*` tidak berubah |
 
