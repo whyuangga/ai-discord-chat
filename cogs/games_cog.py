@@ -73,129 +73,86 @@ async def _text_game_timeout_watcher(
         pass
 
 
-@game_group.command(
-    name="mulai",
-    description="Mulai ronde Mini-Game AI di channel ini dan rebut poin klasemen!",
-)
-@app_commands.describe(jenis="Pilih mode permainan (kosongkan untuk mode acak kejutan!)")
-@app_commands.choices(
-    jenis=[
-        app_commands.Choice(name="🎭 Tebak dari Emoji - +20 Poin", value="emoji"),
-        app_commands.Choice(name="🖼️ Tebak Gambar AI - +25 Poin", value="image_guess"),
-        app_commands.Choice(name="⛓️ Sambung Kata Indonesia - +5 Poin/Kata", value="word_chain"),
-        app_commands.Choice(name="🧠 Kuis Trivia Cepat A/B/C/D - +15 Poin", value="trivia"),
-        app_commands.Choice(name="🕵️ Tebak Kata Misteri - +20 Poin", value="riddle"),
-        app_commands.Choice(name="🔀 Susun Huruf Acak - +15 Poin", value="scramble"),
-    ]
-)
-async def slash_game_mulai(
-    interaction: discord.Interaction,
-    jenis: app_commands.Choice[str] | None = None,
-):
-    channel = interaction.channel
-    if (
-        not isinstance(channel, (discord.TextChannel, discord.Thread))
-        or interaction.guild is None
-        or (isinstance(channel, discord.Thread) and channel.name.startswith(("ai-", "draw-")))
-    ):
-        await interaction.response.send_message(
-            "⚠️ Mini-Game hanya bisa dimainkan di Text Channel atau Thread publik server (bukan ruang sesi `ai-`/`draw-`).",
-            ephemeral=True,
-        )
-        return
-
-    if channel.id in active_channel_games:
-        await interaction.response.send_message(
-            "🎮 Masih ada ronde game yang sedang berlangsung di channel ini! Tebak dulu atau gunakan `/game stop`.",
-            ephemeral=True,
-        )
-        return
-
-    if not await enforce_member_cooldown(interaction, "game_mulai", cooldown_sec=5):
-        return
-
-    random_pool = ["emoji", "trivia", "riddle", "scramble", "word_chain"]
-    if ENABLE_IMAGE_FALLBACK:
-        random_pool.append("image_guess")
-    chosen_mode = jenis.value if jenis else random.choice(random_pool)
-    points = GAME_POINTS_BY_MODE.get(chosen_mode, 15)
-    await interaction.response.defer()
-
-    if channel.id in active_channel_games:
-        await interaction.followup.send(
-            "🎮 Ronde baru saja dimulai oleh member lain! Yuk ikut menebak di atas.",
-            ephemeral=True,
-        )
-        return
-
-    http_session = get_interaction_http_session(interaction)
-    q_data = await generate_ai_game_question(
-        chosen_mode,
-        interaction.guild.id,
-        http_session=http_session,
+async def _game_mulai_word_chain(
+    interaction: discord.Interaction, channel, q_data: dict, points: int
+) -> bool:
+    """Mulai ronde sambung kata; `True` bila ronde sudah terpasang."""
+    start_word = str(q_data.get("start_word") or "NUSANTARA").strip().upper()
+    next_letter = start_word[-1]
+    embed = discord.Embed(
+        title=f"⛓️ SAMBUNG KATA INDONESIA — +{points} Poin / Kata!",
+        description=(
+            f"🏁 **Kata Pembuka:** ## `{start_word}`\n"
+            f"👉 Ketik **1 kata Bahasa Indonesia** yang berawalan huruf **`{next_letter}`** langsung di chat!\n\n"
+            f"📜 **Aturan Main:**\n"
+            f"• Setiap kata valid berhadiah **+{points} Poin** (maksimal `{WORD_CHAIN_MAX_TURNS}` rantai kata).\n"
+            f"• Tidak boleh mengulang kata yang sudah dipakai & batas waktu **`{WORD_CHAIN_TURN_TIMEOUT_SEC}` detik** per giliran!"
+        ),
+        color=discord.Color.teal(),
     )
+    embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name}")
+    wc_view = WordChainControlView(channel.id, interaction.user.id)
+    wc_state: dict = {
+        "type": "word_chain",
+        "guild_id": interaction.guild.id,
+        "starter_id": interaction.user.id,
+        "current_word": start_word,
+        "answer": start_word,
+        "used_words": {start_word.lower()},
+        "chain_words": [start_word],
+        "chain_count": 0,
+        "points": points,
+        "round_scores": {},
+        "view": wc_view,
+    }
+    active_channel_games[channel.id] = wc_state
+    sent_msg = await interaction.followup.send(embed=embed, view=wc_view, wait=True)
+    wc_state["message"] = sent_msg
+    schedule_word_chain_timeout(channel, channel.id)
+    return
+    return True
 
-    if chosen_mode == "word_chain":
-        start_word = str(q_data.get("start_word") or "NUSANTARA").strip().upper()
-        next_letter = start_word[-1]
-        embed = discord.Embed(
-            title=f"⛓️ SAMBUNG KATA INDONESIA — +{points} Poin / Kata!",
-            description=(
-                f"🏁 **Kata Pembuka:** ## `{start_word}`\n"
-                f"👉 Ketik **1 kata Bahasa Indonesia** yang berawalan huruf **`{next_letter}`** langsung di chat!\n\n"
-                f"📜 **Aturan Main:**\n"
-                f"• Setiap kata valid berhadiah **+{points} Poin** (maksimal `{WORD_CHAIN_MAX_TURNS}` rantai kata).\n"
-                f"• Tidak boleh mengulang kata yang sudah dipakai & batas waktu **`{WORD_CHAIN_TURN_TIMEOUT_SEC}` detik** per giliran!"
-            ),
-            color=discord.Color.teal(),
-        )
-        embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name}")
-        wc_view = WordChainControlView(channel.id, interaction.user.id)
-        wc_state: dict = {
-            "type": "word_chain",
-            "guild_id": interaction.guild.id,
-            "starter_id": interaction.user.id,
-            "current_word": start_word,
-            "answer": start_word,
-            "used_words": {start_word.lower()},
-            "chain_words": [start_word],
-            "chain_count": 0,
-            "points": points,
-            "round_scores": {},
-            "view": wc_view,
-        }
-        active_channel_games[channel.id] = wc_state
-        sent_msg = await interaction.followup.send(embed=embed, view=wc_view, wait=True)
-        wc_state["message"] = sent_msg
-        schedule_word_chain_timeout(channel, channel.id)
-        return
 
-    if chosen_mode == "trivia":
-        letters = ("A", "B", "C", "D")
-        opt_lines = "\n".join(f"**{letters[i]}.** {q_data['options'][i]}" for i in range(4))
-        embed = discord.Embed(
-            title=f"🧠 KUIS TRIVIA CEPAT — Berhadiah +{points} Poin!",
-            description=(
-                f"❓ **{q_data['question']}**\n\n"
-                f"{opt_lines}\n\n"
-                f"⚡ *Klik tombol jawaban paling cepat di bawah! (1x kesempatan per orang, waktu {GAME_ROUND_TIMEOUT_SEC} detik)*"
-            ),
-            color=discord.Color.purple(),
-        )
-        embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name}")
-        view = TriviaButtonsView(channel.id, interaction.guild.id, q_data, points)
-        active_channel_games[channel.id] = {
-            "type": "trivia",
-            "starter_id": interaction.user.id,
-            "answer": q_data["options"][q_data["correct_index"]],
-            "points": points,
-            "view": view,
-        }
-        sent_msg = await interaction.followup.send(embed=embed, view=view, wait=True)
-        view.message = sent_msg
-        active_channel_games[channel.id]["message"] = sent_msg
-        return
+async def _game_mulai_trivia(
+    interaction: discord.Interaction, channel, q_data: dict, points: int
+) -> bool:
+    """Mulai kuis trivia berbasis tombol; `True` bila ronde sudah terpasang."""
+    letters = ("A", "B", "C", "D")
+    opt_lines = "\n".join(f"**{letters[i]}.** {q_data['options'][i]}" for i in range(4))
+    embed = discord.Embed(
+        title=f"🧠 KUIS TRIVIA CEPAT — Berhadiah +{points} Poin!",
+        description=(
+            f"❓ **{q_data['question']}**\n\n"
+            f"{opt_lines}\n\n"
+            f"⚡ *Klik tombol jawaban paling cepat di bawah! (1x kesempatan per orang, waktu {GAME_ROUND_TIMEOUT_SEC} detik)*"
+        ),
+        color=discord.Color.purple(),
+    )
+    embed.set_footer(text=f"Dimulai oleh {interaction.user.display_name}")
+    view = TriviaButtonsView(channel.id, interaction.guild.id, q_data, points)
+    active_channel_games[channel.id] = {
+        "type": "trivia",
+        "starter_id": interaction.user.id,
+        "answer": q_data["options"][q_data["correct_index"]],
+        "points": points,
+        "view": view,
+    }
+    sent_msg = await interaction.followup.send(embed=embed, view=view, wait=True)
+    view.message = sent_msg
+    active_channel_games[channel.id]["message"] = sent_msg
+    return
+    return True
 
+
+async def _game_mulai_tebak_teks(
+    interaction: discord.Interaction,
+    channel,
+    chosen_mode: str,
+    q_data: dict,
+    points: int,
+    http_session,
+) -> None:
+    """Ronde tebak-teks (gambar AI, emoji, teka-teki, susun huruf)."""
     mystery_file: discord.File | None = None
     if chosen_mode == "image_guess":
         img_bytes = await ai_handler.generate_mystery_game_image_bytes(
@@ -271,6 +228,79 @@ async def slash_game_mulai(
     state_obj["message"] = sent_msg
     state_obj["timeout_task"] = asyncio.create_task(
         _text_game_timeout_watcher(channel, channel.id, state_obj)
+    )
+
+
+@game_group.command(
+    name="mulai",
+    description="Mulai ronde Mini-Game AI di channel ini dan rebut poin klasemen!",
+)
+@app_commands.describe(jenis="Pilih mode permainan (kosongkan untuk mode acak kejutan!)")
+@app_commands.choices(
+    jenis=[
+        app_commands.Choice(name="🎭 Tebak dari Emoji - +20 Poin", value="emoji"),
+        app_commands.Choice(name="🖼️ Tebak Gambar AI - +25 Poin", value="image_guess"),
+        app_commands.Choice(name="⛓️ Sambung Kata Indonesia - +5 Poin/Kata", value="word_chain"),
+        app_commands.Choice(name="🧠 Kuis Trivia Cepat A/B/C/D - +15 Poin", value="trivia"),
+        app_commands.Choice(name="🕵️ Tebak Kata Misteri - +20 Poin", value="riddle"),
+        app_commands.Choice(name="🔀 Susun Huruf Acak - +15 Poin", value="scramble"),
+    ]
+)
+async def slash_game_mulai(
+    interaction: discord.Interaction,
+    jenis: app_commands.Choice[str] | None = None,
+):
+    """Pasang satu ronde mini-game di channel saat ini."""
+    channel = interaction.channel
+    if (
+        not isinstance(channel, (discord.TextChannel, discord.Thread))
+        or interaction.guild is None
+        or (isinstance(channel, discord.Thread) and channel.name.startswith(("ai-", "draw-")))
+    ):
+        await interaction.response.send_message(
+            "⚠️ Mini-Game hanya bisa dimainkan di Text Channel atau Thread publik server (bukan ruang sesi `ai-`/`draw-`).",
+            ephemeral=True,
+        )
+        return
+
+    if channel.id in active_channel_games:
+        await interaction.response.send_message(
+            "🎮 Masih ada ronde game yang sedang berlangsung di channel ini! Tebak dulu atau gunakan `/game stop`.",
+            ephemeral=True,
+        )
+        return
+
+    if not await enforce_member_cooldown(interaction, "game_mulai", cooldown_sec=5):
+        return
+
+    random_pool = ["emoji", "trivia", "riddle", "scramble", "word_chain"]
+    if ENABLE_IMAGE_FALLBACK:
+        random_pool.append("image_guess")
+    chosen_mode = jenis.value if jenis else random.choice(random_pool)
+    points = GAME_POINTS_BY_MODE.get(chosen_mode, 15)
+    await interaction.response.defer()
+
+    if channel.id in active_channel_games:
+        await interaction.followup.send(
+            "🎮 Ronde baru saja dimulai oleh member lain! Yuk ikut menebak di atas.",
+            ephemeral=True,
+        )
+        return
+
+    http_session = get_interaction_http_session(interaction)
+    q_data = await generate_ai_game_question(
+        chosen_mode,
+        interaction.guild.id,
+        http_session=http_session,
+    )
+    if chosen_mode == "word_chain":
+        await _game_mulai_word_chain(interaction, channel, q_data, points)
+        return
+    if chosen_mode == "trivia":
+        await _game_mulai_trivia(interaction, channel, q_data, points)
+        return
+    await _game_mulai_tebak_teks(
+        interaction, channel, chosen_mode, q_data, points, http_session
     )
 
 
