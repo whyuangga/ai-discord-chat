@@ -208,6 +208,16 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
     try:
         pesan = await tickets.collect_thread_messages(thread)
         teks, nama_berkas = tickets.build_transcript(closed, pesan)
+        try:
+            import ticket_archive
+
+            gid_guild = _to_int(closed.get("guild_id")) or gid
+            guild = bot.get_guild(gid_guild) if callable(getattr(bot, "get_guild", None)) else None
+            ticket_archive.simpan(
+                closed, pesan, guild_name=str(getattr(guild, "name", "") or ""), teks=teks
+            )
+        except Exception:  # pragma: no cover - arsip opsional
+            pass
         dikirim = await tickets.send_transcript(bot, closed, teks, nama_berkas)
     except Exception as exc:  # pragma: no cover - transkrip opsional
         logger.warning("Transkrip tiket dari dashboard gagal: %s", exc)

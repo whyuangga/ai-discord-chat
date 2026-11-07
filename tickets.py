@@ -905,6 +905,15 @@ async def run_ticket_check(bot) -> dict:
             result["closed"] += 1
             if thread is not None:
                 try:
+                    import ticket_archive
+
+                    pesan_arsip = await collect_thread_messages(thread)
+                    ticket_archive.simpan(
+                        closed, pesan_arsip, guild_name=str(getattr(guild, "name", "") or "")
+                    )
+                except Exception:  # pragma: no cover - arsip opsional
+                    pass
+                try:
                     await thread.send(
                         f"⏰ Tiket ditutup **otomatis** karena tidak ada aktivitas selama "
                         f"`{_to_int(cfg.get('auto_close_jam'))}` jam. "

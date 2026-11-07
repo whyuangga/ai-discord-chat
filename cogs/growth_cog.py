@@ -750,6 +750,14 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
 
     await tickets.save_tickets_to_disk()
     text, filename = tickets.build_transcript(closed, messages)
+    # Arsip HTML: bisa dibuka & dicari dari dashboard (tanpa JavaScript).
+    try:
+        import ticket_archive
+
+        guild_name = getattr(interaction.guild, "name", "") or ""
+        ticket_archive.simpan(closed, messages, guild_name=guild_name, teks=text)
+    except Exception:  # pragma: no cover - arsip opsional
+        pass
     sent = await tickets.send_transcript(interaction.client, closed, text, filename)
     # Kartu rating bintang dikirim SEBELUM thread dikunci
     await send_rating_prompt(interaction.channel, interaction.guild.id, closed)

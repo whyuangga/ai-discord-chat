@@ -271,6 +271,8 @@ DASHBOARD_REFRESH_SEC: int = _env_int("DASHBOARD_REFRESH_SEC", 30, minimum=0)
 TICKET_MAX_OPEN_PER_USER: int = _env_int("TICKET_MAX_OPEN_PER_USER", 2, minimum=1)
 TICKET_MAX_TRANSCRIPT_LINES: int = _env_int("TICKET_MAX_TRANSCRIPT_LINES", 400, minimum=50)
 TICKET_AUTO_CLOSE_HOURS: int = _env_int("TICKET_AUTO_CLOSE_HOURS", 0, minimum=0)
+# Arsip transkrip HTML per server yang disimpan di data/transcripts/.
+TICKET_ARSIP_MAX: int = _env_int("TICKET_ARSIP_MAX", 200, minimum=10)
 
 # ==============================================================================
 # ANTI-SPAM & ANTI-RAID RINGAN (Tier 2B) — default LAPOR SAJA

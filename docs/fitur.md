@@ -837,6 +837,9 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 2. Pembuat tiket otomatis ditambahkan, lalu **maksimal 15 staf** dari role petugas ikut ditambahkan; sisanya bisa lewat `/tiket tambah`.
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
+   Transkrip juga diarsipkan sebagai **HTML** di `data/transcripts/<server>/` sehingga bisa **dibuka & dicari
+   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Batas arsip
+   `TICKET_ARSIP_MAX` (default **200** tiket terbaru per server); arsip lama otomatis dipangkas.
 5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
 
 **Kualitas layanan (v1.33.0-beta, 0 kuota AI):**
@@ -864,9 +867,11 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Delapan jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi),
-`/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
-| **Endpoint unduh** | `/api/tren` (tren AI 7 hari) & `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian). |
+| **Endpoint tulis** | Sembilan jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi),
+`/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan),
+`/api/transkrip` (hapus arsip transkrip tiket). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
+| **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
+| **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
 | **Setelan** | **52 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |

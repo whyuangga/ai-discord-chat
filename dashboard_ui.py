@@ -1398,6 +1398,155 @@ def _waktu_relatif(epoch: object) -> str:
     return f"{menit} menit lagi"
 
 
+def render_arsip_block(guild_id: int, token: str, stat: dict, terbaru: list[dict]) -> str:
+    """Blok arsip transkrip di halaman tiket: pencarian + arsip terbaru."""
+    stat = stat or {}
+    items = terbaru or []
+    gid = int(guild_id or 0)
+
+    if items:
+        baris = "".join(
+            '<div class="tiket-baris"><div>'
+            f'<b>#{_esc(item.get("kode"))}</b> — {_esc(item.get("topik") or "-")}'
+            f'<div class="muted">{int(item.get("jumlah_pesan") or 0)} pesan · ditutup '
+            f"{_esc(_waktu_arsip(item.get('ditutup')))}</div></div>"
+            f'<a class="tombol ghost" href="/api/transkrip?token={_esc(token)}&amp;guild={gid}'
+            f'&amp;kode={_esc(item.get("kode"))}" target="_blank" rel="noreferrer">Buka</a></div>'
+            for item in items[:5]
+        )
+        daftar = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar = (
+            '<div class="muted">Belum ada transkrip tersimpan. Arsip dibuat otomatis '
+            "setiap kali tiket ditutup (lewat command, dashboard, atau auto-close).</div>"
+        )
+
+    form = (
+        '<form method="get" action="/transkrip" class="formgrid">'
+        f'<input type="hidden" name="token" value="{_esc(token)}">'
+        f'<input type="hidden" name="guild" value="{gid}">'
+        '<div class="medan"><label>Cari di isi percakapan</label>'
+        '<input type="text" name="q" maxlength="80" placeholder="mis. nitro, refund, bug"></div>'
+        '<button type="submit">Cari transkrip</button></form>'
+    )
+    ringkas = (
+        f'<p class="muted">📚 Tersimpan <b>{int(stat.get("jumlah") or 0)}</b> transkrip '
+        f'({_esc(stat.get("ukuran_kb") or 0)} KB) · arsip terakhir: '
+        f'{_esc(stat.get("terakhir") or "-")} · batas {int(stat.get("maksimal") or 0)} per server</p>'
+    )
+    return (
+        ringkas
+        + form
+        + f'<p class="muted"><a href="/transkrip?token={_esc(token)}&amp;guild={gid}">'
+        "Buka arsip lengkap →</a></p>"
+        + daftar
+    )
+
+
+def _waktu_arsip(nilai: object) -> str:
+    """Waktu arsip yang aman untuk nilai kosong/rusak."""
+    import time as _time
+
+    try:
+        return _time.strftime("%Y-%m-%d %H:%M", _time.localtime(float(nilai or 0)))
+    except (TypeError, ValueError, OSError):
+        return "-"
+
+
+def render_halaman_arsip(
+    guild_id: int,
+    token: str,
+    *,
+    kata: str = "",
+    hasil: list[dict] | None = None,
+    stat: dict | None = None,
+    nama_server: str = "",
+) -> str:
+    """Halaman mandiri `/transkrip`: pencarian arsip + daftar hasil (tanpa JS)."""
+    import dashboard_tema as tema
+
+    gid = int(guild_id or 0)
+    daftar = hasil or []
+    stat = stat or {}
+    kueri = str(kata or "").strip()
+
+    if daftar:
+        baris = "".join(
+            '<div class="hasil"><div>'
+            f'<b>#{_esc(item.get("kode"))}</b> — {_esc(item.get("topik") or "-")}'
+            f'<div class="redup">Pembuat <code>{_esc(item.get("user_id") or "-")}</code> · '
+            f'{int(item.get("jumlah_pesan") or 0)} pesan · ditutup '
+            f"{_esc(_waktu_arsip(item.get('ditutup')))}</div>"
+            + (f'<div class="cuplikan">…{_esc(item.get("cuplikan"))}…</div>'
+               if item.get("cuplikan") else "")
+            + "</div>"
+            f'<div class="aksi"><a class="tombol" href="/api/transkrip?token={_esc(token)}'
+            f'&amp;guild={gid}&amp;kode={_esc(item.get("kode"))}" target="_blank" '
+            'rel="noreferrer">Buka</a>'
+            '<form method="post" action="/api/transkrip">'
+            f'<input type="hidden" name="token" value="{_esc(token)}">'
+            f'<input type="hidden" name="guild" value="{gid}">'
+            '<input type="hidden" name="action" value="hapus">'
+            f'<input type="hidden" name="kode" value="{_esc(item.get("kode"))}">'
+            '<button type="submit" class="danger">Hapus</button></form></div></div>'
+            for item in daftar
+        )
+    else:
+        baris = (
+            f'<p class="redup">Tidak ada arsip yang cocok dengan '
+            f"<b>{_esc(kueri)}</b>.</p>" if kueri
+            else '<p class="redup">Belum ada transkrip tersimpan di server ini.</p>'
+        )
+
+    kembali = f"/tiket?token={_esc(token)}&amp;guild={gid}"
+    return f"""<!doctype html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arsip transkrip tiket — dashboard</title>
+{tema.FONT_LINK}
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; padding: 18px 16px 48px; background: {tema.LATAR}; color: {tema.TEKS};
+         font-family: {tema.FONT_STACK}; line-height: 1.55; }}
+  main {{ max-width: 860px; margin: 0 auto; }}
+  h1 {{ font-size: 1.3rem; margin: 0 0 4px; }}
+  .redup {{ color: {tema.REDUP}; }}
+  a {{ color: {tema.AKSEN}; }}
+  code {{ font-family: {tema.FONT_MONO}; }}
+  form.cari {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }}
+  form.cari input[type=text] {{ flex: 1 1 220px; padding: 11px 12px; border-radius: 10px;
+      border: 1px solid {tema.GARIS_KUAT}; background: {tema.MEDAN}; color: {tema.TEKS};
+      font: inherit; }}
+  button, .tombol {{ padding: 10px 14px; border-radius: 10px; border: 1px solid {tema.GARIS_KUAT};
+      background: {tema.KARTU_2}; color: {tema.TEKS}; font: inherit; cursor: pointer;
+      text-decoration: none; display: inline-block; }}
+  button.danger {{ border-color: {tema.MERAH}; color: {tema.MERAH}; }}
+  .hasil {{ display: flex; gap: 12px; justify-content: space-between; align-items: flex-start;
+      background: {tema.KARTU}; border: 1px solid {tema.GARIS}; border-radius: 14px;
+      padding: 12px 14px; margin: 10px 0; }}
+  .hasil .aksi {{ display: flex; gap: 8px; align-items: center; }}
+  .cuplikan {{ margin-top: 6px; font-size: .86rem; color: {tema.REDUP};
+      border-left: 3px solid {tema.AKSEN}; padding-left: 8px; white-space: pre-wrap; }}
+  @media (max-width: 520px) {{ .hasil {{ flex-direction: column; }} }}
+</style></head>
+<body><main>
+<p><a href="{kembali}">← Kembali ke tiket</a></p>
+<h1>📚 Arsip transkrip tiket</h1>
+<p class="redup">{_esc(nama_server or "")} · tersimpan <b>{int(stat.get("jumlah") or 0)}</b> transkrip
+({_esc(stat.get("ukuran_kb") or 0)} KB) · batas {int(stat.get("maksimal") or 0)} per server.</p>
+<form method="get" action="/transkrip" class="cari">
+  <input type="hidden" name="token" value="{_esc(token)}">
+  <input type="hidden" name="guild" value="{gid}">
+  <input type="text" name="q" maxlength="80" value="{_esc(kueri)}"
+         placeholder="Cari isi percakapan, mis. nitro / refund / bug">
+  <button type="submit">Cari</button>
+</form>
+{baris}
+</main></body></html>
+"""
+
+
 __all__ = [
     "daftar_server",
     "render_panel_block",
@@ -1410,7 +1559,9 @@ __all__ = [
     "render_banner_block",
     "render_buat_block",
     "render_ekspor_block",
+    "render_arsip_block",
     "render_giveaway_block",
+    "render_halaman_arsip",
     "render_guild_picker",
     "render_konten_block",
     "render_kirim_block",

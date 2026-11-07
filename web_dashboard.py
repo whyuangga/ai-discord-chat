@@ -58,6 +58,7 @@ import dashboard_ui
 import dashboard_unggah
 import dashboard_uji
 import insights
+import ticket_archive
 from config import (
     AI_DAILY_CAP_PER_GUILD,
     AI_DAILY_CAP_PER_USER,
@@ -878,6 +879,8 @@ def _panel_tiket(d: dict) -> str:
         f'    {d["tiket_block"]}\n'
         '    <div class="subpanel"><h3>⚙️ Setelan tiket &amp; sapaan</h3>'
         f'{d["setelan_block"]}</div>\n'
+        '    <div class="subpanel"><h3>📚 Arsip transkrip (bisa dicari)</h3>'
+        f'{d.get("arsip_block", "")}</div>\n'
         '    <div class="subpanel"><h3>🧪 Tes panel tiket</h3>'
         f'{d["uji_block"]}</div>\n  </div>'
     )
@@ -1040,6 +1043,7 @@ def render_dashboard_html(
     panel_block: str = "",
     tiket_block: str = "",
     giveaway_block: str = "",
+    arsip_block: str = "",
     tren_block: str = "",
     kartu_block: str = "",
     uji_block: str = "",
@@ -1137,6 +1141,7 @@ def render_dashboard_html(
         "panel_block": panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
         "tiket_block": tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
         "giveaway_block": giveaway_block or '<div class="muted">Kendali giveaway tidak tersedia.</div>',
+        "arsip_block": arsip_block or '<div class="muted">Arsip transkrip tidak tersedia.</div>',
         "tren_block": tren_block or '<div class="muted">Belum ada data tren.</div>',
         "tren_hari": int(tren_hari or 7),
     }
@@ -1589,6 +1594,12 @@ async def start_dashboard(bot) -> bool:
             ),
             '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
         )
+        arsip_block = _blok(
+            lambda: dashboard_ui.render_arsip_block(
+                gid, token, ticket_archive.statistik(gid), ticket_archive.daftar(gid, limit=5)
+            ),
+            '<div class="muted">Arsip transkrip tidak tersedia.</div>',
+        )
         giveaway_block = _blok(
             lambda: dashboard_ui.render_giveaway_block(
                 gid, dashboard_giveaway.collect(gid), token, bot
@@ -1659,6 +1670,7 @@ async def start_dashboard(bot) -> bool:
             panel_block=panel_block,
             tiket_block=tiket_block,
             giveaway_block=giveaway_block,
+            arsip_block=arsip_block,
             tren_block=tren_block,
             tren_hari=tren["hari"],
             halaman=slug,
@@ -1905,6 +1917,85 @@ async def start_dashboard(bot) -> bool:
         logger.info("Dashboard tiket %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-tiket", request)
 
+    async def handle_transkrip(request):
+        """Halaman arsip transkrip tiket + pencarian (tanpa JavaScript)."""
+        if not _authorized(request):
+            return web.Response(
+                text="401 Unauthorized — tambahkan ?token=...", status=401
+            )
+        gid, guild_name = _guild_hint(bot, request)
+        kata = str(request.query.get("q") or "").strip()[:80]
+        hasil = (
+            ticket_archive.cari(gid, kata, limit=30)
+            if kata
+            else ticket_archive.daftar(gid, limit=30)
+        )
+        page = dashboard_ui.render_halaman_arsip(
+            gid,
+            cfg["token"],
+            kata=kata,
+            hasil=hasil,
+            stat=ticket_archive.statistik(gid),
+            nama_server=guild_name,
+        )
+        return web.Response(
+            text=page,
+            content_type="text/html",
+            charset="utf-8",
+            headers={"X-Robots-Tag": "noindex"},
+        )
+
+    async def handle_transkrip_berkas(request):
+        """Berkas transkrip HTML satu tiket (GET) atau hapus arsip (POST)."""
+        if request.method == "GET":
+            if not _authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            gid, _name = _guild_hint(bot, request)
+            kode = str(request.query.get("kode") or "").strip()
+            isi = ticket_archive.baca_html(gid, kode)
+            if isi is None:
+                return web.Response(
+                    text="Arsip transkrip tidak ditemukan (mungkin sudah dihapus).",
+                    status=404,
+                    content_type="text/plain",
+                    charset="utf-8",
+                )
+            return web.Response(
+                text=isi,
+                content_type="text/html",
+                charset="utf-8",
+                headers={"X-Robots-Tag": "noindex", "Cache-Control": "no-store"},
+            )
+
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        if aksi == "hapus":
+            ok = ticket_archive.hapus(gid, str(payload.get("kode") or "").strip())
+            pesan = (
+                f"Arsip transkrip #{payload.get('kode')} dihapus."
+                if ok
+                else "Arsip transkrip itu tidak ditemukan."
+            )
+        else:
+            ok, pesan = False, f"Aksi arsip `{aksi or '-'}` tidak dikenal."
+        try:
+            await dashboard_admin.audit_append(
+                gid, f"transkrip.{aksi or '-'}", str(payload.get("kode") or "")[:40],
+                ok=ok, pesan=pesan,
+            )
+        except Exception:  # pragma: no cover - audit opsional
+            pass
+        logger.info("Dashboard transkrip %s (server %s): %s", aksi, gid, pesan)
+        return _jawab(gid, ok, pesan, "p-tiket", request)
+
     async def handle_giveaway(request):
         """Kendali giveaway: daftar (GET) atau aksi buat/akhiri/reroll/template (POST)."""
         if request.method == "GET":
@@ -2109,6 +2200,9 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_get("/api/giveaway", handle_giveaway)
     app.router.add_post("/api/giveaway", handle_giveaway)
+    app.router.add_get("/transkrip", handle_transkrip)
+    app.router.add_get("/api/transkrip", handle_transkrip_berkas)
+    app.router.add_post("/api/transkrip", handle_transkrip_berkas)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
     for _lama in LEGACY_HALAMAN:
