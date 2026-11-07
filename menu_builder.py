@@ -289,36 +289,8 @@ def decode_share(text: str) -> tuple[dict | None, list[str]]:
     return payload, []
 
 
-def import_menu(
-    guild_id: int,
-    payload: dict,
-    *,
-    title: str | None = None,
-) -> tuple[dict | None, list[str]]:
-    """Buat panel dari payload ekspor. Kembalikan `(menu, galat)`."""
-    galat: list[str] = []
-    if not isinstance(payload, dict):
-        return None, ["Isi berkas bukan objek JSON."]
-    if str(payload.get("format") or "").strip() not in ("", EXPORT_FORMAT):
-        return None, ["Berkas ini bukan ekspor panel bot ini."]
-    versi = _to_int(payload.get("version") or EXPORT_VERSION)
-    if versi > EXPORT_VERSION:
-        return None, [f"Versi ekspor {versi} lebih baru dari yang didukung bot ({EXPORT_VERSION})."]
-
-    tombol_masuk = payload.get("buttons") or []
-    dropdown_masuk = payload.get("dropdowns") or []
-    if not isinstance(tombol_masuk, list) or not isinstance(dropdown_masuk, list):
-        return None, ["Bagian `buttons`/`dropdowns` harus berupa daftar."]
-
-    menu = create_menu(
-        guild_id,
-        (title or payload.get("title") or "Panel Impor"),
-        description=str(payload.get("description") or "")[:MAX_DESCRIPTION],
-        banner_url=(str(payload.get("banner_url"))[:400] if payload.get("banner_url") else None),
-    )
-    if menu is None:
-        return None, [f"Kuota panel server penuh (maksimal {MAX_MENUS_PER_GUILD}) atau judul kosong."]
-
+def _impor_tombol(menu: dict, tombol_masuk: list, galat: list[str]) -> None:
+    """Salin tombol dari payload ekspor, catat yang dilewati ke `galat`."""
     for item in tombol_masuk[:MAX_BUTTONS]:
         if not isinstance(item, dict):
             continue
@@ -394,6 +366,9 @@ def import_menu(
                 "Buat ulang lewat `/menu form buat`."
             )
 
+
+def _impor_dropdown(menu: dict, dropdown_masuk: list) -> None:
+    """Salin dropdown role dari payload ekspor (opsi tanpa role dilewati)."""
     for dropdown in dropdown_masuk[:MAX_DROPDOWNS]:
         if not isinstance(dropdown, dict):
             continue
@@ -426,11 +401,41 @@ def import_menu(
             }
         )
 
+
+def import_menu(
+    guild_id: int,
+    payload: dict,
+    *,
+    title: str | None = None,
+) -> tuple[dict | None, list[str]]:
+    """Buat panel dari payload ekspor. Kembalikan `(menu, galat)`."""
+    galat: list[str] = []
+    if not isinstance(payload, dict):
+        return None, ["Isi berkas bukan objek JSON."]
+    if str(payload.get("format") or "").strip() not in ("", EXPORT_FORMAT):
+        return None, ["Berkas ini bukan ekspor panel bot ini."]
+    versi = _to_int(payload.get("version") or EXPORT_VERSION)
+    if versi > EXPORT_VERSION:
+        return None, [f"Versi ekspor {versi} lebih baru dari yang didukung bot ({EXPORT_VERSION})."]
+    tombol_masuk = payload.get("buttons") or []
+    dropdown_masuk = payload.get("dropdowns") or []
+    if not isinstance(tombol_masuk, list) or not isinstance(dropdown_masuk, list):
+        return None, ["Bagian `buttons`/`dropdowns` harus berupa daftar."]
+    menu = create_menu(
+        guild_id,
+        (title or payload.get("title") or "Panel Impor"),
+        description=str(payload.get("description") or "")[:MAX_DESCRIPTION],
+        banner_url=(str(payload.get("banner_url"))[:400] if payload.get("banner_url") else None),
+    )
+    if menu is None:
+        return None, [f"Kuota panel server penuh (maksimal {MAX_MENUS_PER_GUILD})."]
+
+    _impor_tombol(menu, tombol_masuk[:MAX_BUTTONS], galat)
+    _impor_dropdown(menu, dropdown_masuk[:MAX_DROPDOWNS])
     if not menu["buttons"] and not menu["dropdowns"]:
         delete_menu(guild_id, menu["id"])
         galat.append("Tidak ada tombol/dropdown yang bisa dipulihkan dari berkas itu.")
         return None, galat
-
     return menu, galat
 
 
