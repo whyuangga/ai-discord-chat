@@ -824,22 +824,11 @@ class WordChainControlView(discord.ui.View):
         )
 
 
-async def handle_active_game_guess(message: discord.Message) -> bool:
-    """Memeriksa apakah pesan teks di channel merupakan tebakan untuk Mini-Game yang sedang berlangsung.
+async def _tebak_sambung_kata(message: discord.Message, state: dict, content: str) -> bool | None:
+    """Proses satu tebakan pada ronde sambung kata.
 
-    Returns:
-        True jika pesan ditangani oleh sistem game (tebakan benar atau tebakan pendek selama ronde aktif),
-        sehingga Auto-Chat tidak ikut menimpa/membocorkan jawaban.
+    `None` berarti pesan bukan tebakan (biarkan Auto-Chat menanganinya).
     """
-    state = active_channel_games.get(message.channel.id)
-    if not state or state.get("type") == "trivia":
-        return False
-
-    content = (message.content or "").strip()
-    if not content:
-        return False
-
-    # Mode Khusus: ⛓️ Sambung Kata (0 panggilan API Gemini per giliran!)
     if state.get("type") == "word_chain":
         # Abaikan kalimat ngobrol panjang (> 1 kata) agar warga lain tetap bisa berdiskusi normal
         raw_tokens = content.split()
@@ -923,7 +912,11 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
         except discord.HTTPException:
             pass
         return True
+    return None
 
+
+async def _tebak_kata_biasa(message: discord.Message, state: dict, content: str) -> bool:
+    """Proses tebakan pada ronde tebak-teks (emoji, gambar, teka-teki, susun huruf)."""
     valid_list = [state["answer"], *state.get("aliases", [])]
     if is_matching_guess(content, valid_list):
         won_state = active_channel_games.pop(message.channel.id, None)
@@ -972,7 +965,25 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
     if len(content.split()) <= 5 and not message.mentions:
         return True
 
-    return False
+
+
+async def handle_active_game_guess(message: discord.Message) -> bool:
+    """Memeriksa apakah pesan teks di channel merupakan tebakan untuk Mini-Game yang
+    sedang berjalan. Bila ya, proses tebakannya (hadiah poin) dan kembalikan `True`
+    supaya pesan itu tidak men-trigger Auto-Chat AI.
+    """
+    state = active_channel_games.get(message.channel.id)
+    if not state or state.get("type") == "trivia":
+        return False
+
+    content = (message.content or "").strip()
+    if not content:
+        return False
+    if state.get("type") == "word_chain":
+        hasil = await _tebak_sambung_kata(message, state, content)
+        return bool(hasil)
+
+    return await _tebak_kata_biasa(message, state, content)
 
 
 def cancel_channel_game(channel_id: int) -> dict | None:
