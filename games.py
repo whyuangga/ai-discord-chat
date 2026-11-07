@@ -342,20 +342,8 @@ def _extract_json_dict(raw_text: str) -> dict | None:
         return None
 
 
-async def generate_ai_game_question(
-    mode: str,
-    guild_id: int,
-    *,
-    http_session: aiohttp.ClientSession | None = None,
-) -> dict:
-    """Membuat soal mini-game baru secara dinamis menggunakan Gemini JSON (dilengkapi fallback lokal instan)."""
-    avoid_list = _recent_game_answers.get(int(guild_id), [])[-15:]
-    avoid_note = (
-        f"\nJANGAN gunakan jawaban yang sudah pernah keluar ini: {', '.join(avoid_list)}."
-        if avoid_list
-        else ""
-    )
-
+def _prompt_game(mode: str, avoid_note: str) -> str | None:
+    """Prompt JSON sesuai mode; `None` untuk mode yang tak butuh AI."""
     if mode == "trivia":
         prompt = (
             "Buat 1 soal kuis trivia seru berbahasa Indonesia (pilih topik acak: pengetahuan umum unik, sains populer, "
@@ -394,8 +382,6 @@ async def generate_ai_game_question(
             '"extra_hint": "1 kalimat petunjuk Bahasa Indonesia tanpa membocorkan jawaban"}'
             f"{avoid_note}"
         )
-    elif mode == "word_chain":
-        return random.choice(_FALLBACK_WORD_CHAIN).copy()
     else:  # scramble
         prompt = (
             "Pilih 1 kata benda/istilah populer Bahasa Indonesia (1 kata tunggal tanpa spasi, panjang 6–9 huruf, "
@@ -404,48 +390,57 @@ async def generate_ai_game_question(
             '{"answer": "KATAJAWABAN", "category": "...", "extra_hint": "1 kalimat petunjuk arti katanya"}'
             f"{avoid_note}"
         )
+    return prompt
 
-    if is_gemini_key_configured():
-        active_keys = get_gemini_keys_rotated()
-        models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-        async with _borrow_session(http_session, FAST_TEXT_TIMEOUT) as session:
-            for idx, model_id in enumerate(models[:2]):
-                gen_cfg: dict = {
-                    "temperature": 0.9,
-                    "maxOutputTokens": 1024,
-                    "responseMimeType": "application/json",
-                }
-                t_cfg = build_thinking_config(model_id, "minimal")
-                if t_cfg:
-                    gen_cfg["thinkingConfig"] = t_cfg
-                payload = {
-                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                    "generationConfig": gen_cfg,
-                }
-                url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": active_keys[idx % len(active_keys)],
-                }
-                try:
-                    async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
-                        data = await resp.json(content_type=None)
-                        if resp.status == 200 and isinstance(data, dict):
-                            raw_txt, _, _ = _extract_text_from_gemini_response(data)
-                            parsed = _extract_json_dict(raw_txt or "") if raw_txt else None
-                            if parsed and _validate_game_payload(mode, parsed):
-                                ans_str = (
-                                    parsed["options"][parsed["correct_index"]]
-                                    if mode == "trivia"
-                                    else str(parsed["answer"])
-                                )
-                                _record_recent_answer(guild_id, ans_str)
-                                return parsed
-                        elif resp.status in (500, 502, 503, 504):
-                            mark_model_unhealthy(model_id)
-                except Exception as exc:
-                    logger.debug("Fallback game lokal karena API (%s): %s", model_id, sanitize_error_message(exc))
 
+async def _minta_soal_gemini(
+    mode: str, guild_id: int, prompt: str, http_session
+) -> dict | None:
+    """Minta satu soal JSON dari Gemini; `None` bila semua percobaan gagal."""
+    active_keys = get_gemini_keys_rotated()
+    models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    async with _borrow_session(http_session, FAST_TEXT_TIMEOUT) as session:
+        for idx, model_id in enumerate(models[:2]):
+            gen_cfg: dict = {
+                "temperature": 0.9,
+                "maxOutputTokens": 1024,
+                "responseMimeType": "application/json",
+            }
+            t_cfg = build_thinking_config(model_id, "minimal")
+            if t_cfg:
+                gen_cfg["thinkingConfig"] = t_cfg
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": gen_cfg,
+            }
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": active_keys[idx % len(active_keys)],
+            }
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        raw_txt, _, _ = _extract_text_from_gemini_response(data)
+                        parsed = _extract_json_dict(raw_txt or "") if raw_txt else None
+                        if parsed and _validate_game_payload(mode, parsed):
+                            ans_str = (
+                                parsed["options"][parsed["correct_index"]]
+                                if mode == "trivia"
+                                else str(parsed["answer"])
+                            )
+                            _record_recent_answer(guild_id, ans_str)
+                            return parsed
+                    elif resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+            except Exception as exc:
+                logger.debug("Fallback game lokal karena API (%s): %s", model_id, sanitize_error_message(exc))
+    return None
+
+
+def _soal_fallback(mode: str) -> dict:
+    """Soal cadangan lokal agar game tetap jalan tanpa API."""
     # Fallback instan lokal jika API sedang sibuk
     if mode == "trivia":
         return random.choice(_FALLBACK_TRIVIA).copy()
@@ -458,6 +453,32 @@ async def generate_ai_game_question(
     if mode == "word_chain":
         return random.choice(_FALLBACK_WORD_CHAIN).copy()
     return random.choice(_FALLBACK_SCRAMBLE).copy()
+
+
+async def generate_ai_game_question(
+    mode: str,
+    guild_id: int,
+    *,
+    http_session: aiohttp.ClientSession | None = None,
+) -> dict:
+    """Membuat soal mini-game baru secara dinamis menggunakan Gemini JSON (dilengkapi fallback lokal instan)."""
+    avoid_list = _recent_game_answers.get(int(guild_id), [])[-15:]
+    avoid_note = (
+        f"\nJANGAN gunakan jawaban yang sudah pernah keluar ini: {', '.join(avoid_list)}."
+        if avoid_list
+        else ""
+    )
+    if mode == "word_chain":
+        return random.choice(_FALLBACK_WORD_CHAIN).copy()
+
+    prompt = _prompt_game(mode, avoid_note)
+    if prompt and is_gemini_key_configured():
+        soal = await _minta_soal_gemini(mode, guild_id, prompt, http_session)
+        if soal is not None:
+            return soal
+
+    # Fallback instan lokal jika API sedang sibuk
+    return _soal_fallback(mode)
 
 
 def _validate_game_payload(mode: str, data: dict) -> bool:
