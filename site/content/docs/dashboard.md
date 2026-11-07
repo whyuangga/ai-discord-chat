@@ -22,7 +22,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
 | **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
-| **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` bawaan **30 detik** (`DASHBOARD_REFRESH_SEC`; `0` = mati) dan **bisa diatur sendiri dari header** (dropdown + input angka) tanpa restart → ringan dibuka dari HP. |
+| **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` bawaan **30 detik** (`DASHBOARD_REFRESH_SEC`; `0` = mati) dan **bisa diatur sendiri lewat satu dropdown di header** tanpa restart → ringan dibuka dari HP. |
 
 > ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
 > Di Wispbyte cek tab **Network / Allocations**; bila tidak ada alokasi, dashboard otomatis
@@ -403,19 +403,21 @@ Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**
 | Moderasi, musik, permainan, AI chat | perintah masing-masing (bukan setelan) |
 
 > 💡 **Auto-refresh**: **aktif sendiri** setiap **30 detik** — tidak perlu menyetel apa pun.
-> Mau diubah? Di header ada pengatur **🔄 Auto-refresh** dengan **dua cara** dalam satu form:
+> Mau diubah? Di header ada **satu dropdown** `🔄 Auto-refresh` + tombol **Set**:
 >
-> | Cara | Pilihan |
+> | Pilihan | Arti |
 > | :--- | :--- |
-> | **Dropdown** pilihan cepat | `⏸ Mati` · `1 menit` · `10 menit` · `30 menit` · `1 jam` · `Ikut .env` |
-> | **Input angka** (detik) | bebas `0`–`3600`, mis. `45` atau `900` — **menimpa** pilihan dropdown bila diisi |
+> | `⏸ Mati` | tanpa `meta refresh` — aman mengisi form panjang dari HP |
+> | `1 menit` · `10 menit` · `30 menit` · `1 jam` | interval tetap |
+> | `✏️ Isi sendiri…` | memunculkan **kotak angka detik** (`0`–`3600`, mis. `45`) tepat di sebelah dropdown |
+> | `Ikut .env` | kembali mengikuti `DASHBOARD_REFRESH_SEC` |
 >
-> Pilih/isi lalu tekan **Set**. Pilihan langsung berlaku (≤1 muat ulang), disimpan di cookie
-> **30 hari** untuk **semua halaman**, **tanpa restart** dan tanpa menyentuh `.env`.
-> Jeda (`Mati`) praktis saat mengisi form panjang dari HP — ketikan tidak ter-reset.
-> Angka di luar batas dipotong ke 0–3600 (bukan error), nilai 1–4 detik tetap dirender
-> 5 detik oleh `meta refresh`. `Ikut .env` mengembalikan ke `DASHBOARD_REFRESH_SEC`
-> (`0` = mati permanen).
+> Angka bebas tidak “menghilang”: memilih `✏️ Isi sendiri…` lalu **Set** akan menampilkan
+> kotak angkanya; mengisi `45` di URL (`…&refresh=45`) atau cookie juga otomatis membuka
+> mode itu dengan angka yang sudah terisi. Di luar batas dipotong ke 0–3600 (bukan error),
+> isian bukan angka tidak mengubah apa pun, dan nilai 1–4 detik tetap dirender 5 detik oleh
+> `meta refresh`. Semua pilihan disimpan di cookie **30 hari** untuk **semua halaman**,
+> **tanpa restart** dan tanpa menyentuh `.env`.
 >
 > ⚠️ Token dashboard berlaku **satu bot penuh** (bukan per server). Rahasiakan, dan ganti
 > bila pernah ikut terlihat di tangkapan layar/percakapan.
@@ -444,7 +446,7 @@ python main.py
 | **Akses** | `http://IP:PORT/?token=TOKEN` — atau lewat header `X-Dashboard-Token` |
 | **Banyak server** | pakai dropdown **Server** di pojok atas halaman |
 | **Keamanan** | `DASHBOARD_HOST=127.0.0.1` + SSH tunnel, atau Cloudflare Tunnel untuk HTTPS |
-| **Auto-refresh** | bawaan **30 detik**; atur sendiri di header — dropdown (`Mati`/`1m`/`10m`/`30m`/`1 jam`/`Ikut .env`) **atau** input angka detik bebas — atau `DASHBOARD_REFRESH_SEC=0` untuk mati permanen |
+| **Auto-refresh** | bawaan **30 detik**; atur sendiri lewat satu dropdown di header (`Mati`/`1m`/`10m`/`30m`/`1 jam`/`✏️ Isi sendiri…`/`Ikut .env`), atau `DASHBOARD_REFRESH_SEC=0` untuk mati permanen |
 
 > 💡 Karena tiap instance punya token sendiri, kamu **tidak perlu** membagikan token ke siapa pun.
 > Pemakai lain menjalankan bot mereka sendiri dan membuat token mereka sendiri lewat perintah di atas.

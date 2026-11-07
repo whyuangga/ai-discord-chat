@@ -422,8 +422,8 @@ def test_modul_dashboard_tidak_menambah_dependency():
         assert not (modul & dilarang), f"{berkas} memakai dependency baru: {modul & dilarang}"
 
 
-def test_pengatur_auto_refresh_di_header():
-    """Header: dropdown pilihan cepat + input angka bebas (form GET, tanpa JS)."""
+def test_pengatur_auto_refresh_satu_dropdown():
+    """Header: satu dropdown; kotak angka baru muncul di mode “Isi sendiri”."""
     dasar = dict(status={}, usage={}, levels={}, token="tok", guild_id=1234)
 
     html = web_dashboard.render_dashboard_html(
@@ -437,29 +437,39 @@ def test_pengatur_auto_refresh_di_header():
                          ("1800", "30 menit"), ("3600", "1 jam")):
         assert f'<option value="{nilai}"' in html
         assert label in html
+    assert '✏️ Isi sendiri…' in html and '<option value="manual"' in html
     assert '<option value="auto"' in html            # ikut DASHBOARD_REFRESH_SEC
     assert '<option value="600" selected>' in html
-    # Input angka bebas (detik) ada di form yang sama
-    assert f'name="{web_dashboard.FIELD_AUTO_MANUAL}"' in html
-    assert 'type="number"' in html and 'id="input-auto"' in html
-    assert 'min="0"' in html and 'max="3600"' in html
-    assert "auto-refresh 600s · 10 menit" in html      # angka besar diberi label enak dibaca
+    assert "auto-refresh 600s · 10 menit" in html
     assert 'name="token" value="tok"' in html and 'name="guild" value="1234"' in html
+    # Nilai dari daftar → kotak angka tidak dirender (header tetap ringkas)
+    assert 'id="input-auto"' not in html
+    assert html.count("<form") == 1
 
-    # Nilai .env → opsi “Ikut .env” terpilih, input angka kosong (placeholder = nilai aktif)
+    # Mode “Isi sendiri” → kotak angka muncul di form yang sama
+    manual = web_dashboard.render_dashboard_html(
+        **dasar, refresh=600, auto_aksi="/", auto_dipilih="manual"
+    )
+    assert '<option value="manual" selected>' in manual
+    assert f'name="{web_dashboard.FIELD_AUTO_MANUAL}"' in manual
+    assert 'type="number"' in manual and 'id="input-auto"' in manual
+    assert 'min="0"' in manual and 'max="3600"' in manual and "autofocus" in manual
+    assert manual.count("<form") == 1
+
+    # Angka bebas (mis. 45 dari cookie/URL) → otomatis mode “Isi sendiri”, terisi 45
+    lain = web_dashboard.render_dashboard_html(
+        **dasar, refresh=45, auto_aksi="/", auto_dipilih="45"
+    )
+    assert '<option value="manual" selected>' in lain
+    assert 'value="45"' in lain
+    assert "<option value=\"45\"" not in lain       # tidak menambah opsi dinamis
+
+    # Nilai .env → opsi “Ikut .env” terpilih, tanpa kotak angka
     ikut = web_dashboard.render_dashboard_html(
         **dasar, refresh=25, auto_aksi="/", auto_dipilih="auto"
     )
     assert '<option value="auto" selected>' in ikut
-    assert '<option value="60" selected>' not in ikut
-    assert 'placeholder="25"' in ikut and 'value=""' in ikut
-
-    # Angka di luar daftar (mis. dari ?refresh_detik=45) tetap tampil & terpilih
-    lain = web_dashboard.render_dashboard_html(
-        **dasar, refresh=45, auto_aksi="/", auto_dipilih="45"
-    )
-    assert '<option value="45" selected>45 detik (angka)</option>' in lain
-    assert 'value="45"' in lain                      # ikut tampil di input angka
+    assert 'id="input-auto"' not in ikut
 
     # Mati → tanpa meta refresh, opsi Mati terpilih
     mati = web_dashboard.render_dashboard_html(
@@ -479,20 +489,25 @@ def test_form_auto_bisa_dipanggil_langsung():
     html = web_dashboard.form_auto("/tiket", "abc", 99, 600, "auto")
     assert 'action="/tiket"' in html and "abc" in html and "99" in html
     assert '<option value="auto" selected>' in html
-    assert web_dashboard.form_auto("/tiket", "abc", 99, 600, "auto").count("<form") == 1
+    assert html.count("<form") == 1
+    # Angka apa pun yang tidak ada di daftar → mode manual dengan nilai terisi
+    bebas = web_dashboard.form_auto("/", "t", 1, 90, "90")
+    assert '<option value="manual" selected>' in bebas and 'value="90"' in bebas
 
 
 def test_detik_dari_kueri_mendahulukan_input_angka():
-    """Input angka menimpa dropdown; nilai aneh dipotong, bukan ditolak."""
+    """Kotak angka menimpa dropdown; nilai aneh dipotong, bukan ditolak."""
     kueri = lambda **kw: kw  # noqa: E731  (dict sudah mirip MultiDict.get)
 
     assert web_dashboard.detik_dari_kueri(kueri()) == "auto"
     assert web_dashboard.detik_dari_kueri(kueri(refresh="auto")) == "auto"
     assert web_dashboard.detik_dari_kueri(kueri(refresh="600")) == "600"
     assert web_dashboard.detik_dari_kueri(kueri(refresh="0")) == "0"
+    # “✏️ Isi sendiri…” tanpa angka → mode manual (kotak angka ditampilkan)
+    assert web_dashboard.detik_dari_kueri(kueri(refresh="manual")) == "manual"
     # Angka bebas mengalahkan pilihan dropdown
     assert web_dashboard.detik_dari_kueri(
-        kueri(refresh="600", refresh_detik="45")
+        kueri(refresh="manual", refresh_detik="45")
     ) == "45"
     assert web_dashboard.detik_dari_kueri(
         kueri(refresh="600", refresh_detik="")
@@ -500,8 +515,11 @@ def test_detik_dari_kueri_mendahulukan_input_angka():
     # Di luar batas → dipotong ke 0..3600, bukan error
     assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="99999")) == "3600"
     assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="-50")) == "0"
-    # Sampah → mati (lebih baik daripada error 500)
-    assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="abc")) == "0"
+    # Sampah di kotak angka → jangan ubah apa pun (kotak ditampilkan lagi)
+    assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="abc")) == "manual"
+    assert web_dashboard.detik_dari_kueri(
+        kueri(refresh="manual", refresh_detik="abc")
+    ) == "manual"
 
 
 def test_detik_auto_memakai_cookie_lalu_env(monkeypatch):
@@ -568,8 +586,32 @@ def test_http_dropdown_auto_refresh_lewat_header(monkeypatch):
                 async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
                     body = await resp.text()
                     assert 'http-equiv="refresh" content="45"' in body
-                    assert '<option value="45" selected>45 detik (angka)</option>' in body
+                    # 45 bukan pilihan daftar → dropdown pindah ke “Isi sendiri”, angka terisi
+                    assert '<option value="manual" selected>' in body
                     assert 'value="45"' in body
+
+                # Pilih “✏️ Isi sendiri…” tanpa angka → kotak angka muncul, nilai lama tetap
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=manual",
+                    allow_redirects=False,
+                ) as resp:
+                    assert resp.status == 303
+                    assert resp.headers["Location"].endswith("&isi=1")
+                async with session.get(f"{base}?token=token-uji&guild=1234&isi=1") as resp:
+                    body = await resp.text()
+                    assert 'id="input-auto"' in body and "autofocus" in body
+                    assert 'http-equiv="refresh" content="45"' in body   # belum berubah
+                # Halaman biasa (tanpa ?isi=1) tetap ringkas: tanpa kotak angka
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert 'id="input-auto"' in body                     # karena 45 = manual
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=60", allow_redirects=False
+                ) as resp:
+                    assert resp.status == 303
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert 'id="input-auto"' not in body                 # 60 ada di daftar
 
                 # Pilih “Mati” → cookie 0, tanpa meta refresh
                 async with session.get(

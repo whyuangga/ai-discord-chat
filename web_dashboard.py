@@ -125,23 +125,29 @@ BATAS_AUTO = (0, 3600)
 
 
 def detik_dari_kueri(kueri) -> str:
-    """Nilai mentah auto-refresh dari query: field angka dulu, lalu dropdown.
+    """Nilai mentah auto-refresh dari query: kotak angka dulu, lalu dropdown.
 
-    Mengembalikan `"auto"`/`""` (ikut `.env`) atau angka sebagai string —
-    angka di luar 0–3600 dipotong, bukan ditolak, supaya tidak ada form buntu.
+    Hasilnya salah satu dari:
+    - `"auto"` → ikut `DASHBOARD_REFRESH_SEC` (cookie dihapus),
+    - `"manual"` → dropdown memilih “✏️ Isi sendiri…” tapi angkanya belum ada,
+    - atau angka detik sebagai string (di luar 0–3600 dipotong, bukan ditolak,
+      supaya tidak pernah ada form buntu).
     """
+    bawah, atas = BATAS_AUTO
     manual = str(kueri.get(FIELD_AUTO_MANUAL) or "").strip()
-    for kandidat in (manual, str(kueri.get("refresh") or "").strip()):
-        teks = kandidat.strip().lower()
-        if not teks:
-            continue
-        if teks in ("auto", "bawaan", "env"):
-            return "auto"
-        if teks.lstrip("+").isdigit():
-            bawah, atas = BATAS_AUTO
-            return str(max(bawah, min(atas, int(teks))))
-        return "0"
-    return "auto"
+    pilihan = str(kueri.get("refresh") or "").strip().lower()
+    if manual.lstrip("+-").isdigit():
+        return str(max(bawah, min(atas, int(manual))))
+    if manual:
+        # Ada isian tapi bukan angka → jangan ubah apa pun, tampilkan kotaknya lagi.
+        return "manual"
+    if pilihan in ("manual", "isi", "custom"):
+        return "manual"
+    if not pilihan or pilihan in ("auto", "bawaan", "env"):
+        return "auto"
+    if pilihan.lstrip("+-").isdigit():
+        return str(max(bawah, min(atas, int(pilihan))))
+    return "0"
 
 
 def _label_auto(detik: int) -> str:
@@ -157,45 +163,52 @@ def _label_auto(detik: int) -> str:
 
 def form_auto(aksi: str, token: str = "", guild_id: int = 0,
               detik: int = 30, dipilih: str = "") -> str:
-    """Pengatur “🔄 Auto-refresh” di header — tanpa `.env` & tanpa restart.
+    """Pengatur “🔄 Auto-refresh” di header — **satu dropdown**, tanpa `.env`.
 
-    Dua cara isi dalam **satu** form GET:
-    - dropdown pilihan cepat (`⏸ Mati` · `1 menit` · `10 menit` · `30 menit` ·
-      `1 jam` · `Ikut .env`), dan
-    - **input angka detik bebas** yang menimpa pilihan dropdown bila diisi.
+    Isi dropdown: `⏸ Mati` · `1 menit` · `10 menit` · `30 menit` · `1 jam` ·
+    `✏️ Isi sendiri…` · `Ikut .env`. Pilih “Isi sendiri” lalu tekan **Set** →
+    halaman dimuat ulang dengan kotak angka detik (0–3600) di dalam form yang
+    sama, jadi header tetap ringkas dan angkanya tetap bebas.
 
-    `dipilih` boleh `"auto"` (ikut `DASHBOARD_REFRESH_SEC`) atau angka detik.
-    Nilai angka di luar daftar (mis. `?refresh=45`) tetap tampil sebagai opsi
-    tambahan supaya pilihan yang sedang aktif tidak “hilang”.
+    `dipilih` boleh `"auto"` (ikut `DASHBOARD_REFRESH_SEC`), `"manual"`, atau
+    angka detik; angka di luar daftar otomatis tampil sebagai mode “Isi sendiri”
+    dengan angkanya sudah terisi (pilihan aktif tidak pernah “hilang”).
     """
     if not str(aksi or "").strip():
         return ""
-    pilih = str(dipilih if str(dipilih or "").strip() else max(0, int(detik or 0)))
-    bawaan = max(0, int(detik or 0))
-    manual = pilih if pilih.isdigit() and int(pilih) not in {n for n, _ in PILIHAN_AUTO} else ""
-    opsi = ""
-    if pilih.isdigit() and int(pilih) not in {n for n, _ in PILIHAN_AUTO}:
-        opsi += (
-            f'<option value="{pilih}" selected>'
-            f'{html.escape(_label_auto(int(pilih)))} (angka)</option>'
-        )
-    for nilai, label in PILIHAN_AUTO:
-        tanda = " selected" if str(nilai) == pilih else ""
-        opsi += f'<option value="{nilai}"{tanda}>{label}</option>'
+    angka_daftar = {str(nilai) for nilai, _ in PILIHAN_AUTO}
+    dipilih = str(dipilih if str(dipilih or "").strip() else max(0, int(detik or 0))).lower()
+    manual = ""
+    if dipilih in ("manual", "isi", "custom"):
+        pilih = "manual"
+    elif dipilih.isdigit() and dipilih not in angka_daftar:
+        pilih, manual = "manual", dipilih          # angka bebas → mode isi sendiri
+    else:
+        pilih = dipilih
+    opsi = "".join(
+        f'<option value="{nilai}"{" selected" if str(nilai) == pilih else ""}>{label}</option>'
+        for nilai, label in PILIHAN_AUTO
+    )
+    opsi += f'<option value="manual"{" selected" if pilih == "manual" else ""}>✏️ Isi sendiri…</option>'
     opsi += f'<option value="auto"{" selected" if pilih == "auto" else ""}>Ikut .env</option>'
+    kotak = ""
+    if pilih == "manual":
+        kotak = (
+            f'<input type="number" name="{FIELD_AUTO_MANUAL}" id="input-auto"'
+            f' min="{BATAS_AUTO[0]}" max="{BATAS_AUTO[1]}" step="5" inputmode="numeric"'
+            f' value="{html.escape(manual, quote=True)}" placeholder="{max(0, int(detik or 0))}"'
+            ' aria-label="Interval auto-refresh dalam detik"'
+            ' title="Isi sendiri: detik, mis. 45" autofocus>'
+            '<span class="muted satuan">detik</span>'
+        )
     return (
         f'<form method="get" action="{html.escape(aksi, quote=True)}" class="pemilih-auto">'
         f'<input type="hidden" name="token" value="{html.escape(token, quote=True)}">'
         f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
         '<label for="pilih-auto">🔄 Auto-refresh</label>'
-        '<select name="refresh" id="pilih-auto" aria-label="Pilihan cepat interval auto-refresh">'
+        '<select name="refresh" id="pilih-auto" aria-label="Interval auto-refresh">'
         f"{opsi}</select>"
-        f'<input type="number" name="{FIELD_AUTO_MANUAL}" id="input-auto"'
-        f' min="{BATAS_AUTO[0]}" max="{BATAS_AUTO[1]}" step="5" inputmode="numeric"'
-        f' placeholder="{bawaan}" value="{html.escape(manual, quote=True)}"'
-        ' aria-label="Atau isi sendiri interval auto-refresh dalam detik"'
-        ' title="Isi sendiri (detik), mis. 45 — menimpa pilihan dropdown">'
-        '<span class="muted satuan">detik</span>'
+        f"{kotak}"
         '<button type="submit">Set</button></form>'
     )
 
@@ -1444,6 +1457,10 @@ async def start_dashboard(bot) -> bool:
         if "refresh" in request.query or FIELD_AUTO_MANUAL in request.query:
             nilai = detik_dari_kueri(request.query)
             balik = url_halaman(halaman_dari_path(request.path), token, gid)
+            if nilai == "manual":
+                # “✏️ Isi sendiri…” dipilih tapi angkanya belum diisi: tampilkan
+                # kotak angka (tanpa mengubah nilai yang sedang berlaku).
+                return web.Response(status=303, headers={"Location": balik + "&isi=1"})
             jawab = web.Response(status=303, headers={"Location": balik})
             if nilai == "auto":
                 jawab.del_cookie(COOKIE_AUTO, path="/")
@@ -1476,6 +1493,8 @@ async def start_dashboard(bot) -> bool:
         simpan_auto = str(request.cookies.get(COOKIE_AUTO) or "").strip()
         detik = detik_auto(request, cfg["refresh"])
         pilih_auto = simpan_auto if simpan_auto.isdigit() else "auto"
+        if str(request.query.get("isi") or "").strip() == "1":
+            pilih_auto = "manual"        # mode “✏️ Isi sendiri…” dibuka
 
         def _blok(pembuat, bawaan: str) -> str:
             """Gambar satu blok; kegagalan satu blok tidak mematikan halaman."""
