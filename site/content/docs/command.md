@@ -126,7 +126,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/embed tautan hapus` | `tautan` | *(Staff)* Hapus tautan dari daftar server (halaman tetap hidup). |
 | `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
 | `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
-| `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |
+| `/lockdown aktif` / `status` | `aktif`, `alasan` | *(Admin)* Kunci/buka text channel; pemulihan mengembalikan izin awal dan status tetap tersedia setelah restart. |
 | `/backup struktur` | — | *(Admin)* Ekspor role/kategori/channel/izin ke berkas JSON. |
 | `/agent goodbye` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan kartu perpisahan AI + masa kebersamaan untuk member yang keluar. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di Text Channel maupun **Forum/Media Showcase**. |

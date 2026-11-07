@@ -225,9 +225,13 @@ async def lockdown_aktif_cmd(
     if aktif:
         locked, failed = await st.start_lockdown(interaction.guild, interaction.user.id, alasan)
         if locked == 0 and failed == 0:
-            await interaction.followup.send(
-                "ℹ️ Lockdown sudah aktif (atau semua channel sudah terkunci sebelumnya).", ephemeral=True
+            state = st.lockdown_active(interaction.guild.id)
+            pesan = (
+                "ℹ️ Lockdown sudah aktif. Gunakan `/lockdown aktif aktif:False` untuk memulihkan izin."
+                if state
+                else "ℹ️ Semua text channel sudah terkunci sebelumnya; bot tidak mengubah izin apa pun."
             )
+            await interaction.followup.send(pesan, ephemeral=True)
             return
         await ui_kit.send_status(
             interaction,
@@ -237,7 +241,7 @@ async def lockdown_aktif_cmd(
                 "lock",
                 "Lockdown Aktif",
                 f"**{locked}** text channel dikunci"
-                + (f", **{failed}** gagal (cek izin bot)" if failed else "")
+                + (f", **{failed}** gagal (cek izin bot/penyimpanan)" if failed else "")
                 + ".\n\nBuka kembali dengan `/lockdown aktif aktif:False`.",
                 footer=f"Alasan: {alasan[:80]}",
             ),
@@ -245,17 +249,32 @@ async def lockdown_aktif_cmd(
         )
         return
 
+    had_state = st.lockdown_active(interaction.guild.id) is not None
     restored = await st.stop_lockdown(interaction.guild)
+    remaining = st.lockdown_active(interaction.guild.id)
+    if remaining:
+        title = "Pemulihan Lockdown Sebagian"
+        kind = "warn"
+        description = (
+            f"**{restored}** channel dipulihkan; **{len(remaining.get('channels') or [])}** masih "
+            "menunggu pemulihan (cek izin bot), lalu coba `/lockdown aktif aktif:False` lagi."
+        )
+    elif restored:
+        title = "Lockdown Dicabut"
+        kind = "ok"
+        description = f"**{restored}** channel dipulihkan ke izin sebelum lockdown."
+    elif had_state:
+        title = "Lockdown Dibersihkan"
+        kind = "info"
+        description = "Catatan lockdown dibersihkan tanpa menimpa izin manual; channel yang hilang dilewati."
+    else:
+        title = "Tidak Ada Lockdown"
+        kind = "info"
+        description = "Server ini tidak memiliki lockdown yang dikelola bot."
     await ui_kit.send_status(
         interaction,
         follow=True,
-        embed=ui_theme.status_embed(
-            interaction.guild.id,
-            "ok" if restored else "info",
-            "Lockdown Dicabut" if restored else "Tidak Ada Lockdown",
-            f"**{restored}** channel dibuka kembali." if restored
-            else "Server ini tidak sedang dalam lockdown.",
-        ),
+        embed=ui_theme.status_embed(interaction.guild.id, kind, title, description),
         ephemeral=True,
     )
 
@@ -269,10 +288,12 @@ async def lockdown_status_cmd(interaction: discord.Interaction):
         await interaction.response.send_message("🔓 Server **tidak** dalam lockdown.", ephemeral=True)
         return
     duration = int(time.time() - float(state.get("since") or 0))
+    pemulihan = "\n• Status dipulihkan dari disk setelah bot restart." if state.get("recovered") else ""
     await interaction.response.send_message(
         f"🔒 **Lockdown aktif** sejak `{duration // 60}` menit lalu oleh <@{state.get('by')}>\n"
-        f"• Channel terkunci: `{len(state.get('channels') or [])}`\n"
-        f"• Alasan: {state.get('reason') or '-'}",
+        f"• Channel yang dikelola bot: `{len(state.get('channels') or [])}`"
+        f"{pemulihan}\n• Alasan: {state.get('reason') or '-'}\n"
+        "Buka dengan `/lockdown aktif aktif:False`; izin awal akan dipulihkan.",
         ephemeral=True,
     )
 
