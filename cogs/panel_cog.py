@@ -109,194 +109,20 @@ def _gather_themed(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
 
 
 def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
-    """Mengembalikan `(judul_kartu, daftar_baris)` untuk sebuah tab."""
+    """Mengembalikan `(judul_kartu, daftar_baris)` untuk sebuah tab.
+
+    Tiap tab punya fungsi `_tab_*` sendiri (dulu 217 baris bercampur dalam
+    satu fungsi), lalu tab tak dikenal jatuh ke ringkasan sistem.
+    """
     gid = guild.id
+    pembuat = _TAB_PEMBUAT.get(tab)
+    if pembuat is not None:
+        return pembuat(guild, gid)
+    return _tab_ringkasan(guild, gid)
 
-    if tab == "ai":
-        chat_n = _count_by_value(community_agent.chat_agent_channels, gid)
-        gallery_n = _count_by_value(community_agent.gallery_agent_channels, gid)
-        yt_n = _count_by_value(community_agent.youtube_agent_channels, gid)
-        search_n = _count_by_value(community_agent.search_agent_channels, gid)
-        try:
-            faq_n = len(community_agent.get_server_knowledge_entries(gid))
-        except Exception:  # pragma: no cover - struktur data berbeda antar versi
-            faq_n = 0
-        welcome = bool(_guild_cfg(community_agent.welcome_agent_guilds, gid).get("channel_id"))
-        goodbye = bool(_guild_cfg(community_agent.goodbye_agent_guilds, gid).get("channel_id"))
-        digest = bool(_guild_cfg(community_agent.digest_agent_guilds, gid).get("channel_id"))
-        today = insights.ai_usage.get(insights.today_key()) or {}
-        lines = [
-            ui_kit.status_line("Auto-Chat", f"`{chat_n}` channel", state="on" if chat_n else "off"),
-            ui_kit.status_line("Komentator Galeri", f"`{gallery_n}` channel", state="on" if gallery_n else "off"),
-            ui_kit.status_line("Rangkum YouTube / Link", f"`{yt_n}` channel", state="on" if yt_n else "off"),
-            ui_kit.status_line("Pencarian /cari", f"`{search_n}` channel", state="on" if search_n else "off"),
-            ui_kit.status_line("Sambutan member", "aktif" if welcome else "nonaktif", state="on" if welcome else "off"),
-            ui_kit.status_line("Pesan perpisahan", "aktif" if goodbye else "nonaktif", state="on" if goodbye else "off"),
-            ui_kit.status_line("Koran pagi (digest)", "aktif" if digest else "nonaktif", state="on" if digest else "off"),
-            ui_kit.status_line("Basis FAQ server", f"`{faq_n}` entri", state="on" if faq_n else "idle"),
-            "",
-            f"_Operasi AI hari ini: **{int(today.get('total') or 0)}** • "
-            f"cache hit: **{int(today.get('cache_hits') or 0)}**_",
-        ]
-        return "🤖 AI Agent & Otomasi", lines
 
-    if tab == "server":
-        stats_cfg = _guild_cfg(server_features.serverstats_guilds, gid)
-        stats_on = bool(stats_cfg.get("enabled"))
-        autorole = _guild_cfg(server_features.autorole_guilds, gid)
-        autorole_on = bool(autorole.get("enabled") and autorole.get("role_ids"))
-        facts = _guild_cfg(server_features.facts_guilds, gid)
-        facts_on = bool(facts.get("enabled"))
-        security = _guild_cfg(server_features.security_guilds, gid)
-        phising_on = bool(security.get("enabled", True))
-        spam = antispam.get_spam_config(gid)
-        spam_on = bool(spam.get("enabled"))
-        mode = str(spam.get("mode") or "lapor")
-        lines = [
-            ui_kit.status_line(
-                "Counter Statistik",
-                f"aktif • `{server_features.STATS_CHANNEL_TYPES.get(server_features.stats_channel_type(gid), {}).get('label', 'voice')}`"
-                if stats_on
-                else "nonaktif",
-                state="on" if stats_on else "off",
-            ),
-            ui_kit.status_line(
-                "Auto Role",
-                f"`{len(autorole.get('role_ids') or [])}` role",
-                state="on" if autorole_on else "off",
-            ),
-            ui_kit.status_line("Fakta Unik Dunia", "aktif" if facts_on else "nonaktif", state="on" if facts_on else "off"),
-            ui_kit.status_line("Anti-Phishing", "aktif" if phising_on else "nonaktif", state="on" if phising_on else "off"),
-            ui_kit.status_line("Anti-Spam", f"mode `{mode}`", state="on" if spam_on else "off"),
-            ui_kit.status_line(
-                "Moderasi (kasus)",
-                f"`{len(moderation.mod_cases.get(gid) or [])}` kasus • ambang `{moderation.get_settings(gid)['warn_threshold'] or '∞'}` warn",
-                state="on" if (moderation.mod_cases.get(gid) or []) else "idle",
-            ),
-            ui_kit.status_line(
-                "Lockdown",
-                "🔒 aktif" if server_tools.lockdown_active(gid) else "tidak aktif",
-                state="warn" if server_tools.lockdown_active(gid) else "off",
-            ),
-            ui_kit.status_line("Anggota server", f"`{guild.member_count or 0}`"),
-            "",
-            "> Anti-spam bawaan **mode lapor** — tidak menghapus apa pun tanpa izin Admin.",
-        ]
-        return "🛠️ Fitur Server & Keamanan", lines
-
-    if tab == "community":
-        panels = _count_by_value(community_tools.reaction_role_panels, gid)
-        reminders = _count_by_value(community_tools.reminders, gid)
-        starboard = _guild_cfg(community_tools.starboard_guilds, gid)
-        starboard_on = bool(starboard.get("channel_id") or starboard.get("enabled"))
-        sticky = _count_by_value(community_tools.sticky_channels, gid)
-        verify = bool(_guild_cfg(community_tools.verification_guilds, gid).get("enabled"))
-        giveaways = sum(
-            1
-            for g in engagement.giveaways.values()
-            if int(g.get("guild_id") or 0) == gid and not g.get("ended")
-        )
-        birthdays = _count_by_value(engagement.birthdays, gid)
-        autoreply = _count_by_value(engagement.auto_reply_channels, gid, need_enabled=True)
-        announce = _count_by_value(engagement.announcements, gid)
-        tv_cfg = temp_voice.get_config(gid)
-        tv_hub = f"<#{tv_cfg['hub_id']}>" if tv_cfg else None
-        tv_value = (
-            f"`{temp_voice.guild_room_count(gid)}` room • hub {tv_hub}"
-            if tv_hub
-            else "_belum diatur_"
-        )
-        social_n = sum(
-            1
-            for data in social_notify.social_guilds.values()
-            for sub in (data.get("subs") or [])
-            if sub.get("guild_id", gid) == gid
-        ) or sum(
-            1
-            for sub in (social_notify.social_guilds.get(gid, {}) or {}).get("subs", [])
-        )
-        lines = [
-            ui_kit.status_line("Panel Reaction Role", f"`{panels}` panel", state="on" if panels else "off"),
-            ui_kit.status_line("Pengingat aktif", f"`{reminders}`", state="on" if reminders else "idle"),
-            ui_kit.status_line("Starboard", "aktif" if starboard_on else "nonaktif", state="on" if starboard_on else "off"),
-            ui_kit.status_line("Sticky message", f"`{sticky}` channel", state="on" if sticky else "off"),
-            ui_kit.status_line("Gerbang verifikasi", "aktif" if verify else "nonaktif", state="on" if verify else "off"),
-            ui_kit.status_line("Giveaway berjalan", f"`{giveaways}`", state="on" if giveaways else "idle"),
-            ui_kit.status_line("Ulang tahun terdaftar", f"`{birthdays}` member", state="on" if birthdays else "idle"),
-            ui_kit.status_line("Auto-Responder", f"`{autoreply}` channel", state="on" if autoreply else "off"),
-            ui_kit.status_line("Pengumuman terjadwal", f"`{announce}`", state="on" if announce else "off"),
-            ui_kit.status_line("Temp Voice", tv_value, state="on" if tv_cfg else "off"),
-            ui_kit.status_line(
-                "Kotak saran",
-                f"`{len(suggestions.suggestion_items.get(gid) or [])}` saran",
-                state="on" if suggestions.get_channel(gid) else "off",
-            ),
-            ui_kit.status_line(
-                "Notifikasi sosial",
-                f"`{social_n}` langganan",
-                state="on" if social_n else "off",
-            ),
-            ui_kit.status_line(
-                "Status AFK",
-                f"`{len(server_tools.afk_users.get(gid) or {})}` member",
-                state="on" if server_tools.afk_users.get(gid) else "idle",
-            ),
-            ui_kit.status_line(
-                "Thread otomatis",
-                f"`{len(server_tools.auto_thread_channels.get(gid) or {})}` channel",
-                state="on" if server_tools.auto_thread_channels.get(gid) else "off",
-            ),
-        ]
-        return "🧩 Fitur Komunitas (0 kuota AI)", lines
-
-    if tab == "music":
-        snap = music.node_snapshot()
-        cfg = music.get_music_settings(gid)
-        dj = cfg.get("dj_role_id")
-        node_value, node_state = _music_state(snap)
-        players = sum(int(n.get("players") or 0) for n in snap.get("nodes") or [])
-        lines = [
-            ui_kit.status_line("Node Lavalink", f"{node_value} (`{snap.get('uri') or '—'}`)", state=node_state),
-            ui_kit.status_line("Player aktif", f"`{players}`"),
-            ui_kit.status_line("Volume default", f"`{cfg.get('volume')}%`"),
-            ui_kit.status_line("Filter audio", f"`{cfg.get('filter', 'off')}`"),
-            ui_kit.status_line(
-                "Autoplay", "aktif" if cfg.get("autoplay") else "nonaktif",
-                state="on" if cfg.get("autoplay") else "off",
-            ),
-            ui_kit.status_line("Role DJ", f"<@&{dj}>" if dj else "_belum diatur (opsional)_"),
-            "> Role DJ **tidak wajib** untuk memutar lagu — cukup masuk voice channel.",
-            "> Bila node belum tersambung, jalankan `/musik node` untuk diagnosa.",
-        ]
-        return "🎵 Streaming Musik (Lavalink)", lines
-
-    if tab == "insights":
-        today = insights.ai_usage.get(insights.today_key()) or {}
-        kinds = sorted((today.get("kinds") or {}).items(), key=lambda kv: int(kv[1]), reverse=True)[:5]
-        kind_lines = [f"• {insights.AI_KIND_LABELS.get(k, k)}: **{int(v)}**" for k, v in kinds]
-        lvl_cfg = levels_mod.get_level_config(gid)
-        member_levels = sum(1 for key in levels_mod.levels if str(key).startswith(f"{gid}:"))
-        open_tickets = _open_tickets(gid)
-        total_today = int(today.get("total") or 0)
-        lines = [
-            ui_kit.status_line(
-                "Operasi AI hari ini", f"**{total_today}**", state="warn" if total_today > 200 else "on"
-            ),
-            ui_kit.status_line("Cache hit (hemat kuota)", f"**{int(today.get('cache_hits') or 0)}**", state="on"),
-            ui_kit.status_line("Cache rekap channel", f"`{REKAP_CACHE_TTL_SEC // 60}` menit", state="on"),
-            "",
-            ui_kit.field_block("Jenis operasi terbanyak", kind_lines) or "_Belum ada operasi AI hari ini._",
-            "",
-            ui_kit.status_line(
-                "Leveling", "aktif" if lvl_cfg.get("enabled") else "nonaktif",
-                state="on" if lvl_cfg.get("enabled") else "off",
-            ),
-            ui_kit.status_line("Member terdata (level)", f"`{member_levels}`"),
-            ui_kit.status_line("Tiket terbuka", f"`{open_tickets}`", state="on" if open_tickets else "idle"),
-        ]
-        return "📊 Kuota AI, Level & Tiket", lines
-
-    # overview (default)
+def _tab_ringkasan(guild: discord.Guild, gid: int) -> tuple[str, list[str]]:
+    """Kartu ringkasan sistem (tab default)."""
     ram = get_memory_usage_mb()
     uptime = max(0.0, time.time() - _PROCESS_START)
     ai_channels = _count_by_value(community_agent.chat_agent_channels, gid) + _count_by_value(
@@ -308,7 +134,6 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
     lvl_on = bool(levels_mod.get_level_config(gid).get("enabled"))
     open_tickets = _open_tickets(gid)
     today_total = int((insights.ai_usage.get(insights.today_key()) or {}).get("total") or 0)
-
     lines = [
         ui_kit.status_line("Versi bot", f"`v{BOT_VERSION}` • RAM `{ram} MB` • uptime `{ui_kit.human_uptime(uptime)}`"),
         ui_kit.status_line("Server", f"**{guild.name}** • `{guild.member_count or 0}` anggota"),
@@ -325,6 +150,204 @@ def _gather(guild: discord.Guild, tab: str) -> tuple[str, list[str]]:
         f"-# Tema aktif: {ui_theme.theme_summary(gid)}",
     ]
     return "🏠 Ringkasan Sistem", lines
+
+
+def _tab_ai(guild: discord.Guild, gid: int) -> tuple[str, list[str]]:
+    """Kartu tab `ai`."""
+    chat_n = _count_by_value(community_agent.chat_agent_channels, gid)
+    gallery_n = _count_by_value(community_agent.gallery_agent_channels, gid)
+    yt_n = _count_by_value(community_agent.youtube_agent_channels, gid)
+    search_n = _count_by_value(community_agent.search_agent_channels, gid)
+    try:
+        faq_n = len(community_agent.get_server_knowledge_entries(gid))
+    except Exception:  # pragma: no cover - struktur data berbeda antar versi
+        faq_n = 0
+    welcome = bool(_guild_cfg(community_agent.welcome_agent_guilds, gid).get("channel_id"))
+    goodbye = bool(_guild_cfg(community_agent.goodbye_agent_guilds, gid).get("channel_id"))
+    digest = bool(_guild_cfg(community_agent.digest_agent_guilds, gid).get("channel_id"))
+    today = insights.ai_usage.get(insights.today_key()) or {}
+    lines = [
+        ui_kit.status_line("Auto-Chat", f"`{chat_n}` channel", state="on" if chat_n else "off"),
+        ui_kit.status_line("Komentator Galeri", f"`{gallery_n}` channel", state="on" if gallery_n else "off"),
+        ui_kit.status_line("Rangkum YouTube / Link", f"`{yt_n}` channel", state="on" if yt_n else "off"),
+        ui_kit.status_line("Pencarian /cari", f"`{search_n}` channel", state="on" if search_n else "off"),
+        ui_kit.status_line("Sambutan member", "aktif" if welcome else "nonaktif", state="on" if welcome else "off"),
+        ui_kit.status_line("Pesan perpisahan", "aktif" if goodbye else "nonaktif", state="on" if goodbye else "off"),
+        ui_kit.status_line("Koran pagi (digest)", "aktif" if digest else "nonaktif", state="on" if digest else "off"),
+        ui_kit.status_line("Basis FAQ server", f"`{faq_n}` entri", state="on" if faq_n else "idle"),
+        "",
+        f"_Operasi AI hari ini: **{int(today.get('total') or 0)}** • "
+        f"cache hit: **{int(today.get('cache_hits') or 0)}**_",
+    ]
+    return "🤖 AI Agent & Otomasi", lines
+
+def _tab_server(guild: discord.Guild, gid: int) -> tuple[str, list[str]]:
+    """Kartu tab `server`."""
+    stats_cfg = _guild_cfg(server_features.serverstats_guilds, gid)
+    stats_on = bool(stats_cfg.get("enabled"))
+    autorole = _guild_cfg(server_features.autorole_guilds, gid)
+    autorole_on = bool(autorole.get("enabled") and autorole.get("role_ids"))
+    facts = _guild_cfg(server_features.facts_guilds, gid)
+    facts_on = bool(facts.get("enabled"))
+    security = _guild_cfg(server_features.security_guilds, gid)
+    phising_on = bool(security.get("enabled", True))
+    spam = antispam.get_spam_config(gid)
+    spam_on = bool(spam.get("enabled"))
+    mode = str(spam.get("mode") or "lapor")
+    lines = [
+        ui_kit.status_line(
+            "Counter Statistik",
+            f"aktif • `{server_features.STATS_CHANNEL_TYPES.get(server_features.stats_channel_type(gid), {}).get('label', 'voice')}`"
+            if stats_on
+            else "nonaktif",
+            state="on" if stats_on else "off",
+        ),
+        ui_kit.status_line(
+            "Auto Role",
+            f"`{len(autorole.get('role_ids') or [])}` role",
+            state="on" if autorole_on else "off",
+        ),
+        ui_kit.status_line("Fakta Unik Dunia", "aktif" if facts_on else "nonaktif", state="on" if facts_on else "off"),
+        ui_kit.status_line("Anti-Phishing", "aktif" if phising_on else "nonaktif", state="on" if phising_on else "off"),
+        ui_kit.status_line("Anti-Spam", f"mode `{mode}`", state="on" if spam_on else "off"),
+        ui_kit.status_line(
+            "Moderasi (kasus)",
+            f"`{len(moderation.mod_cases.get(gid) or [])}` kasus • ambang `{moderation.get_settings(gid)['warn_threshold'] or '∞'}` warn",
+            state="on" if (moderation.mod_cases.get(gid) or []) else "idle",
+        ),
+        ui_kit.status_line(
+            "Lockdown",
+            "🔒 aktif" if server_tools.lockdown_active(gid) else "tidak aktif",
+            state="warn" if server_tools.lockdown_active(gid) else "off",
+        ),
+        ui_kit.status_line("Anggota server", f"`{guild.member_count or 0}`"),
+        "",
+        "> Anti-spam bawaan **mode lapor** — tidak menghapus apa pun tanpa izin Admin.",
+    ]
+    return "🛠️ Fitur Server & Keamanan", lines
+
+def _tab_community(guild: discord.Guild, gid: int) -> tuple[str, list[str]]:
+    """Kartu tab `community`."""
+    panels = _count_by_value(community_tools.reaction_role_panels, gid)
+    reminders = _count_by_value(community_tools.reminders, gid)
+    starboard = _guild_cfg(community_tools.starboard_guilds, gid)
+    starboard_on = bool(starboard.get("channel_id") or starboard.get("enabled"))
+    sticky = _count_by_value(community_tools.sticky_channels, gid)
+    verify = bool(_guild_cfg(community_tools.verification_guilds, gid).get("enabled"))
+    giveaways = sum(
+        1
+        for g in engagement.giveaways.values()
+        if int(g.get("guild_id") or 0) == gid and not g.get("ended")
+    )
+    birthdays = _count_by_value(engagement.birthdays, gid)
+    autoreply = _count_by_value(engagement.auto_reply_channels, gid, need_enabled=True)
+    announce = _count_by_value(engagement.announcements, gid)
+    tv_cfg = temp_voice.get_config(gid)
+    tv_hub = f"<#{tv_cfg['hub_id']}>" if tv_cfg else None
+    tv_value = (
+        f"`{temp_voice.guild_room_count(gid)}` room • hub {tv_hub}"
+        if tv_hub
+        else "_belum diatur_"
+    )
+    social_n = sum(
+        1
+        for data in social_notify.social_guilds.values()
+        for sub in (data.get("subs") or [])
+        if sub.get("guild_id", gid) == gid
+    ) or sum(
+        1
+        for sub in (social_notify.social_guilds.get(gid, {}) or {}).get("subs", [])
+    )
+    lines = [
+        ui_kit.status_line("Panel Reaction Role", f"`{panels}` panel", state="on" if panels else "off"),
+        ui_kit.status_line("Pengingat aktif", f"`{reminders}`", state="on" if reminders else "idle"),
+        ui_kit.status_line("Starboard", "aktif" if starboard_on else "nonaktif", state="on" if starboard_on else "off"),
+        ui_kit.status_line("Sticky message", f"`{sticky}` channel", state="on" if sticky else "off"),
+        ui_kit.status_line("Gerbang verifikasi", "aktif" if verify else "nonaktif", state="on" if verify else "off"),
+        ui_kit.status_line("Giveaway berjalan", f"`{giveaways}`", state="on" if giveaways else "idle"),
+        ui_kit.status_line("Ulang tahun terdaftar", f"`{birthdays}` member", state="on" if birthdays else "idle"),
+        ui_kit.status_line("Auto-Responder", f"`{autoreply}` channel", state="on" if autoreply else "off"),
+        ui_kit.status_line("Pengumuman terjadwal", f"`{announce}`", state="on" if announce else "off"),
+        ui_kit.status_line("Temp Voice", tv_value, state="on" if tv_cfg else "off"),
+        ui_kit.status_line(
+            "Kotak saran",
+            f"`{len(suggestions.suggestion_items.get(gid) or [])}` saran",
+            state="on" if suggestions.get_channel(gid) else "off",
+        ),
+        ui_kit.status_line(
+            "Notifikasi sosial",
+            f"`{social_n}` langganan",
+            state="on" if social_n else "off",
+        ),
+        ui_kit.status_line(
+            "Status AFK",
+            f"`{len(server_tools.afk_users.get(gid) or {})}` member",
+            state="on" if server_tools.afk_users.get(gid) else "idle",
+        ),
+        ui_kit.status_line(
+            "Thread otomatis",
+            f"`{len(server_tools.auto_thread_channels.get(gid) or {})}` channel",
+            state="on" if server_tools.auto_thread_channels.get(gid) else "off",
+        ),
+    ]
+    return "🧩 Fitur Komunitas (0 kuota AI)", lines
+
+def _tab_music(guild: discord.Guild, gid: int) -> tuple[str, list[str]]:
+    """Kartu tab `music`."""
+    snap = music.node_snapshot()
+    cfg = music.get_music_settings(gid)
+    dj = cfg.get("dj_role_id")
+    node_value, node_state = _music_state(snap)
+    players = sum(int(n.get("players") or 0) for n in snap.get("nodes") or [])
+    lines = [
+        ui_kit.status_line("Node Lavalink", f"{node_value} (`{snap.get('uri') or '—'}`)", state=node_state),
+        ui_kit.status_line("Player aktif", f"`{players}`"),
+        ui_kit.status_line("Volume default", f"`{cfg.get('volume')}%`"),
+        ui_kit.status_line("Filter audio", f"`{cfg.get('filter', 'off')}`"),
+        ui_kit.status_line(
+            "Autoplay", "aktif" if cfg.get("autoplay") else "nonaktif",
+            state="on" if cfg.get("autoplay") else "off",
+        ),
+        ui_kit.status_line("Role DJ", f"<@&{dj}>" if dj else "_belum diatur (opsional)_"),
+        "> Role DJ **tidak wajib** untuk memutar lagu — cukup masuk voice channel.",
+        "> Bila node belum tersambung, jalankan `/musik node` untuk diagnosa.",
+    ]
+    return "🎵 Streaming Musik (Lavalink)", lines
+
+def _tab_insights(guild: discord.Guild, gid: int) -> tuple[str, list[str]]:
+    """Kartu tab `insights`."""
+    today = insights.ai_usage.get(insights.today_key()) or {}
+    kinds = sorted((today.get("kinds") or {}).items(), key=lambda kv: int(kv[1]), reverse=True)[:5]
+    kind_lines = [f"• {insights.AI_KIND_LABELS.get(k, k)}: **{int(v)}**" for k, v in kinds]
+    lvl_cfg = levels_mod.get_level_config(gid)
+    member_levels = sum(1 for key in levels_mod.levels if str(key).startswith(f"{gid}:"))
+    open_tickets = _open_tickets(gid)
+    total_today = int(today.get("total") or 0)
+    lines = [
+        ui_kit.status_line(
+            "Operasi AI hari ini", f"**{total_today}**", state="warn" if total_today > 200 else "on"
+        ),
+        ui_kit.status_line("Cache hit (hemat kuota)", f"**{int(today.get('cache_hits') or 0)}**", state="on"),
+        ui_kit.status_line("Cache rekap channel", f"`{REKAP_CACHE_TTL_SEC // 60}` menit", state="on"),
+        "",
+        ui_kit.field_block("Jenis operasi terbanyak", kind_lines) or "_Belum ada operasi AI hari ini._",
+        "",
+        ui_kit.status_line(
+            "Leveling", "aktif" if lvl_cfg.get("enabled") else "nonaktif",
+            state="on" if lvl_cfg.get("enabled") else "off",
+        ),
+        ui_kit.status_line("Member terdata (level)", f"`{member_levels}`"),
+        ui_kit.status_line("Tiket terbuka", f"`{open_tickets}`", state="on" if open_tickets else "idle"),
+    ]
+    return "📊 Kuota AI, Level & Tiket", lines
+
+_TAB_PEMBUAT = {
+    "ai": _tab_ai,
+    "server": _tab_server,
+    "community": _tab_community,
+    "music": _tab_music,
+    "insights": _tab_insights,
+}
 
 
 # ==============================================================================
