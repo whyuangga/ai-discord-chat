@@ -29,6 +29,8 @@ ACTIONS: dict[str, dict] = {
     "unban": {"label": "Unban", "emoji": "🔓"},
     "unmute": {"label": "Cabut timeout", "emoji": "🔊"},
     "note": {"label": "Catatan staff", "emoji": "📝"},
+    "tempban": {"label": "Temp-ban (ban sementara)", "emoji": "⏳"},
+    "softban": {"label": "Softban (hapus pesan, ban dicabut)", "emoji": "🧹"},
 }
 
 DEFAULT_SETTINGS: dict = {
@@ -41,9 +43,12 @@ DEFAULT_SETTINGS: dict = {
 
 MAX_CASES_PER_GUILD = 800
 MAX_BAN_DELETE_DAYS = 7
+MAX_TEMPBAN_PER_GUILD = 200
 
 mod_cases: dict[int, list[dict]] = {}
 mod_settings: dict[int, dict] = {}
+#: Ban sementara yang menunggu dicabut otomatis: {guild_id: [{case_id, user_id, until, ...}]}
+mod_tempbans: dict[int, list[dict]] = {}
 _disk_lock = asyncio.Lock()
 
 
@@ -139,6 +144,7 @@ def add_case(
     reason: str = "",
     *,
     duration_sec: int | None = None,
+    expires_at: float | None = None,
 ) -> dict:
     """Mencatat satu kasus moderasi (juga dipakai untuk aksi otomatis bot)."""
     key = str(action or "").strip().lower()
@@ -150,6 +156,7 @@ def add_case(
         "reason": str(reason or "").strip()[:400],
         "duration_sec": int(duration_sec) if duration_sec else None,
         "created_at": time.time(),
+        "expires_at": float(expires_at) if expires_at else None,
     }
     cases = mod_cases.setdefault(int(guild_id), [])
     cases.append(case)
@@ -216,8 +223,183 @@ def cleanup_moderation_runtime(limit: int = 200) -> int:
         for gid in list(mod_cases)[: len(mod_cases) - limit]:
             mod_cases.pop(gid, None)
             mod_settings.pop(gid, None)
+            mod_tempbans.pop(gid, None)
             removed += 1
     return removed
+
+
+# ==============================================================================
+# BAN SEMENTARA (TEMP-BAN)
+# ==============================================================================
+def add_tempban(
+    guild_id: int,
+    user_id: int,
+    *,
+    case_id: int = 0,
+    until: float,
+    oleh: int = 0,
+    reason: str = "",
+) -> dict:
+    """Mencatat ban sementara yang harus dicabut otomatis saat `until` lewat."""
+    entry = {
+        "case_id": int(case_id or 0),
+        "user_id": int(user_id),
+        "until": float(until),
+        "moderator_id": int(oleh or 0),
+        "reason": str(reason or "")[:200],
+    }
+    daftar = mod_tempbans.setdefault(int(guild_id), [])
+    daftar = [e for e in daftar if int(e.get("user_id", 0)) != entry["user_id"]]
+    daftar.append(entry)
+    mod_tempbans[int(guild_id)] = daftar[-MAX_TEMPBAN_PER_GUILD:]
+    return entry
+
+
+def list_tempbans(guild_id: int) -> list[dict]:
+    """Ban sementara yang masih menunggu, urut dari yang paling cepat berakhir."""
+    return sorted(mod_tempbans.get(int(guild_id)) or [], key=lambda e: float(e.get("until", 0)))
+
+
+def due_tempbans(now: float | None = None) -> list[tuple[int, dict]]:
+    """Semua ban sementara yang sudah waktunya dicabut (tanpa mengubah apa pun)."""
+    batas = float(now if now is not None else time.time())
+    hasil: list[tuple[int, dict]] = []
+    for gid, daftar in mod_tempbans.items():
+        for entry in daftar:
+            if float(entry.get("until", 0)) <= batas:
+                hasil.append((int(gid), entry))
+    return hasil
+
+
+def drop_tempban(guild_id: int, user_id: int) -> bool:
+    """Membuang satu ban sementara dari daftar tunggu (setelah dicabut)."""
+    daftar = mod_tempbans.get(int(guild_id)) or []
+    baru = [e for e in daftar if int(e.get("user_id", 0)) != int(user_id)]
+    if len(baru) == len(daftar):
+        return False
+    if baru:
+        mod_tempbans[int(guild_id)] = baru
+    else:
+        mod_tempbans.pop(int(guild_id), None)
+    return True
+
+
+def cleanup_tempbans(now: float | None = None) -> int:
+    """Membuang entri temp-ban yang sudah kedaluwarsa (sisa restart/gagal unban)."""
+    hapus = 0
+    for gid, entry in due_tempbans(now):
+        if drop_tempban(gid, int(entry.get("user_id", 0))):
+            hapus += 1
+    return hapus
+
+
+# ==============================================================================
+# PENCARIAN & STATISTIK STAF
+# ==============================================================================
+def search_cases(
+    guild_id: int,
+    *,
+    q: str = "",
+    user_id: int | None = None,
+    aksi: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Cari kasus berdasarkan nomor kasus, ID member, jenis aksi, atau kata di alasan."""
+    kata = str(q or "").strip().lower().lstrip("#")
+    aksi = str(aksi or "").strip().lower() or None
+    hasil: list[dict] = []
+    for case in reversed(mod_cases.get(int(guild_id)) or []):
+        if user_id is not None and int(case.get("user_id", 0)) != int(user_id):
+            continue
+        if aksi and str(case.get("action", "")) != aksi:
+            continue
+        if kata and kata not in " ".join(
+            (
+                str(case.get("id", "")),
+                str(case.get("user_id", "")),
+                str(case.get("action", "")),
+                str(case.get("reason", "")).lower(),
+            )
+        ):
+            continue
+        hasil.append(case)
+        if len(hasil) >= max(1, int(limit)):
+            break
+    return hasil
+
+
+def staff_stats(guild_id: int, *, days: int | None = None, limit: int = 10) -> dict:
+    """Siapa menindak berapa banyak: total per moderator + rincian per jenis aksi."""
+    cutoff = 0.0
+    if days:
+        cutoff = time.time() - max(1, int(days)) * 86400
+    per_orang: dict[int, dict] = {}
+    per_aksi: dict[str, int] = {}
+    total = 0
+    for case in mod_cases.get(int(guild_id)) or []:
+        if float(case.get("created_at", 0)) < cutoff:
+            continue
+        aksi = str(case.get("action", "note"))
+        pembuat = int(case.get("moderator_id") or 0)
+        if aksi == "note":
+            continue  # catatan staff bukan tindakan
+        total += 1
+        per_aksi[aksi] = per_aksi.get(aksi, 0) + 1
+        data = per_orang.setdefault(pembuat, {"moderator_id": pembuat, "total": 0, "per_aksi": {}})
+        data["total"] += 1
+        data["per_aksi"][aksi] = data["per_aksi"].get(aksi, 0) + 1
+    papan = sorted(per_orang.values(), key=lambda d: (-d["total"], d["moderator_id"]))
+    return {
+        "total": total,
+        "hari": int(days) if days else 0,
+        "per_aksi": per_aksi,
+        "moderator": papan[: max(1, int(limit))],
+        "otomatis": per_orang.get(0, {}).get("total", 0),
+    }
+
+
+async def run_tempban_check(bot) -> int:
+    """Mencabut ban sementara yang sudah waktunya habis (dipanggil watcher utama).
+
+    Aman dipanggil sesering apa pun: tidak ada ban yang jatuh tempo → tidak ada kerja.
+    """
+    import discord
+
+    from utils import sanitize_error_message
+
+    jumlah = 0
+    for gid, entry in due_tempbans():
+        guild = bot.get_guild(gid) if bot is not None else None
+        if guild is None:
+            continue
+        uid = int(entry.get("user_id", 0))
+        if not uid:
+            continue
+        try:
+            await guild.unban(discord.Object(id=uid), reason="Temp-ban berakhir otomatis")
+        except discord.NotFound:
+            drop_tempban(gid, uid)  # sudah tidak diban — jangan dicoba lagi
+            continue
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.info("Gagal mencabut temp-ban %s di server %s: %s", uid, gid, sanitize_error_message(exc))
+            continue
+        case = add_case(gid, uid, getattr(getattr(bot, "user", None), "id", 0) or 0, "unban", "Temp-ban berakhir otomatis")
+        drop_tempban(gid, uid)
+        jumlah += 1
+        settings = get_settings(gid)
+        log_id = settings.get("log_channel")
+        if log_id:
+            channel = guild.get_channel(int(log_id))
+            if channel is not None:
+                try:
+                    await channel.send(
+                        f"⏳ Temp-ban **{uid}** berakhir — ban dicabut otomatis (kasus `#{case['id']}`)."
+                    )
+                except Exception as exc:  # pragma: no cover - jaring aman
+                    logger.debug("Gagal mengirim log temp-ban: %s", exc)
+    if jumlah:
+        await save_moderation_to_disk()
+    return jumlah
 
 
 # ==============================================================================
@@ -251,6 +433,7 @@ def load_moderation_from_disk() -> tuple[int, int]:
                         "reason": str(item.get("reason") or "")[:400],
                         "duration_sec": int(item["duration_sec"]) if item.get("duration_sec") else None,
                         "created_at": float(item.get("created_at") or time.time()),
+                        "expires_at": float(item["expires_at"]) if item.get("expires_at") else None,
                     }
                 )
             except (KeyError, TypeError, ValueError):
@@ -258,6 +441,22 @@ def load_moderation_from_disk() -> tuple[int, int]:
         if cases:
             mod_cases[gid] = cases
             total += len(cases)
+        tunggu = []
+        for entry in (gdata.get("tempbans") or [])[-MAX_TEMPBAN_PER_GUILD:]:
+            try:
+                tunggu.append(
+                    {
+                        "case_id": int(entry.get("case_id") or 0),
+                        "user_id": int(entry["user_id"]),
+                        "until": float(entry["until"]),
+                        "moderator_id": int(entry.get("moderator_id") or 0),
+                        "reason": str(entry.get("reason") or "")[:200],
+                    }
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        if tunggu:
+            mod_tempbans[gid] = tunggu
         if gdata.get("settings"):
             mod_settings[gid] = {**DEFAULT_SETTINGS, **{
                 k: v for k, v in gdata["settings"].items() if k in DEFAULT_SETTINGS
@@ -270,10 +469,15 @@ async def save_moderation_to_disk() -> None:
     async with _disk_lock:
         try:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
+            semua = set(mod_cases) | set(mod_tempbans) | set(mod_settings)
             payload = {
                 "guilds": {
-                    str(gid): {"cases": cases, "settings": mod_settings.get(gid)}
-                    for gid, cases in mod_cases.items()
+                    str(gid): {
+                        "cases": mod_cases.get(gid) or [],
+                        "settings": mod_settings.get(gid),
+                        "tempbans": mod_tempbans.get(gid) or [],
+                    }
+                    for gid in semua
                 }
             }
             tmp = MODERATION_FILE.with_suffix(".json.tmp")

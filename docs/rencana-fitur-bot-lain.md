@@ -122,6 +122,9 @@ Berkas: `engagement.py` · `tickets.py` · `levels.py` · `community_tools.py` �
    reset harian otomatis, ditampilkan di panel yang sama dengan penguji aturan.
 4. **`/report` + antrean banding** di dashboard.
 5. **tempban / softban / note** + **statistik staf** (siapa menindak berapa banyak).
+   ✅ **Sudah jalan** (v1.40): `/mod tempban` (dicabut otomatis oleh watcher 15 detik),
+   `/mod softban`, `/mod note`, `/mod statistik` + `moderation.staff_stats()` dan
+   `moderation.search_cases()` untuk papan & pencarian kasus.
 6. **Halaman Moderasi** di dashboard (kasus terakhir, cari nomor kasus, statistik staf).
 
 Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·

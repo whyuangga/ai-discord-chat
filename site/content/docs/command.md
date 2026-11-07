@@ -59,6 +59,10 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/mod timeout` | `member`, `durasi`, `alasan` | *(Staff)* Timeout native Discord. |
 | `/mod kick` / `/mod ban` / `/mod unban` | `member`/`user_id`, `alasan` | *(Staff)* Tindakan disipliner, tercatat sebagai kasus. |
 | `/mod purge` | `jumlah`, `member`, `tipe` | *(Staff)* Hapus pesan massal dengan filter. |
+| `/mod tempban` | `member`, `durasi`, `alasan`, `hapus_pesan_hari` | *(Staff)* Ban sementara, dicabut otomatis saat durasi habis. |
+| `/mod softban` | `member`, `alasan`, `hapus_pesan_hari` | *(Staff)* Ban + cabut langsung (pembersihan pesan tanpa hukuman permanen). |
+| `/mod note` | `member`, `teks` | *(Staff)* Catatan internal staff, tanpa tindakan apa pun. |
+| `/mod statistik` | `hari` | *(Staff)* Siapa menindak berapa banyak + temp-ban yang masih berjalan. |
 | `/mod catatan` | `member`, `jumlah` | *(Staff)* Riwayat kasus + jumlah peringatan aktif. |
 | `/mod hapus` | `id` | *(Admin)* Hapus satu kasus dari catatan. |
 | `/mod atur` | `log_channel`, `ambang_warn`, `durasi_auto`, `jendela_hari`, `dm` | *(Admin)* Pengaturan moderasi. |

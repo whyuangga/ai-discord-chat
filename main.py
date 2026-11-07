@@ -149,6 +149,7 @@ from temp_voice import (
 from moderation import (
     cleanup_moderation_runtime,
     load_moderation_from_disk,
+    run_tempban_check,
 )
 from social_notify import (
     cleanup_social_runtime,
@@ -529,6 +530,7 @@ async def idle_chat_watcher():
         await raid_tick(bot)         # akhiri mode raid yang sudah kedaluwarsa
         await run_reminder_check(bot)
         await run_ticket_check(bot)  # peringatan SLA & auto-close tiket menganggur
+        await run_tempban_check(bot)  # cabut ban sementara yang sudah habis
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_level_season_check(bot)  # reset musim level otomatis (bila diaktifkan)
         await run_engagement_check(bot)  # giveaway berakhir, ucapan ultah, pengumuman terjadwal

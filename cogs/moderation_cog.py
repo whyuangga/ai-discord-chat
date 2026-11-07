@@ -6,6 +6,7 @@ Auto-punish: setelah N `warn` (default 3 dalam 30 hari), bot otomatis memberi ti
 """
 
 import logging
+import time
 
 import discord
 from discord import app_commands
@@ -26,6 +27,8 @@ ACTION_COLORS: dict[str, int] = {
     "unban": 0x2ECC71,
     "unmute": 0x3498DB,
     "note": 0x9B59B6,
+    "tempban": 0xE67E22,
+    "softban": 0x1ABC9C,
 }
 
 mod_group = app_commands.Group(
@@ -334,6 +337,131 @@ async def mod_ban_cmd(
     )
 
 
+@mod_group.command(
+    name="tempban", description="Ban sementara — dicabut otomatis saat durasi habis"
+)
+@app_commands.describe(
+    member="Member (atau ID) yang diban sementara",
+    durasi="Contoh: 1h, 12j, 2d, 1j30m",
+    alasan="Alasan temp-ban",
+    hapus_pesan_hari="Hapus pesan N hari terakhir (0–7)",
+)
+async def mod_tempban_cmd(
+    interaction: discord.Interaction,
+    member: discord.User,
+    durasi: str = "1d",
+    alasan: str = "Tidak disebutkan",
+    hapus_pesan_hari: app_commands.Range[int, 0, 7] = 0,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    target_member = interaction.guild.get_member(member.id)
+    if target_member is not None:
+        problem = _hierarchy_problem(interaction.guild, target_member)
+        if problem:
+            await interaction.response.send_message(f"⚠️ {problem}", ephemeral=True)
+            return
+
+    seconds = min(max(mod.parse_duration(durasi, default_sec=86400), 60), 365 * 86400)
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await interaction.guild.ban(
+            member, reason=f"Temp-ban {mod.format_duration(seconds)}: {alasan}"[:400],
+            delete_message_days=int(hapus_pesan_hari or 0),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.followup.send(f"⚠️ Gagal temp-ban: {exc}", ephemeral=True)
+        return
+
+    until = time.time() + seconds
+    case = mod.add_case(
+        interaction.guild.id, member.id, interaction.user.id, "tempban", alasan,
+        duration_sec=seconds, expires_at=until,
+    )
+    mod.add_tempban(
+        interaction.guild.id, member.id, case_id=case["id"], until=until,
+        oleh=interaction.user.id, reason=alasan,
+    )
+    await mod.save_moderation_to_disk()
+    await _announce(interaction, case, member)
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Temp-ban Diterapkan",
+            f"**{member}** (`{member.id}`) diban selama **{mod.format_duration(seconds)}** "
+            f"dan akan **dicabut otomatis** <t:{int(until)}:R>.\n"
+            f"• Alasan: {alasan}\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(
+    name="softban", description="Softban — hapus pesan member lalu cabut ban-nya saat itu juga"
+)
+@app_commands.describe(
+    member="Member (atau ID) yang di-softban",
+    alasan="Alasan softban",
+    hapus_pesan_hari="Hapus pesan N hari terakhir (0–7)",
+)
+async def mod_softban_cmd(
+    interaction: discord.Interaction,
+    member: discord.User,
+    alasan: str = "Tidak disebutkan",
+    hapus_pesan_hari: app_commands.Range[int, 0, 7] = 7,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    target_member = interaction.guild.get_member(member.id)
+    if target_member is not None:
+        problem = _hierarchy_problem(interaction.guild, target_member)
+        if problem:
+            await interaction.response.send_message(f"⚠️ {problem}", ephemeral=True)
+            return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await interaction.guild.ban(
+            member, reason=f"Softban: {alasan}"[:400],
+            delete_message_days=int(hapus_pesan_hari or 0),
+        )
+        await interaction.guild.unban(
+            discord.Object(id=member.id), reason="Softban: ban dicabut (pembersihan pesan)"
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.followup.send(f"⚠️ Gagal softban: {exc}", ephemeral=True)
+        return
+
+    case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "softban", alasan)
+    await mod.save_moderation_to_disk()
+    await _announce(
+        interaction, case, member,
+        extra="🧹 Softban: ban sudah dicabut, member **boleh bergabung lagi**.",
+    )
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Softban Selesai",
+            f"**{member}** (`{member.id}`) ditendang sebagai ban lalu **langsung dicabut** "
+            f"— pesan {hapus_pesan_hari} hari terakhir ikut dihapus.\n"
+            f"• Alasan: {alasan}\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
+    )
+
+
 @mod_group.command(name="unban", description="Cabut ban member berdasarkan ID")
 @app_commands.describe(user_id="ID Discord member", alasan="Alasan pencabutan ban")
 async def mod_unban_cmd(interaction: discord.Interaction, user_id: str, alasan: str = "Tidak disebutkan"):
@@ -513,6 +641,84 @@ async def mod_hapus_cmd(interaction: discord.Interaction, id: app_commands.Range
         ),
         ephemeral=True,
     )
+
+
+@mod_group.command(
+    name="note", description="Tulis catatan internal staff tentang seorang member (tanpa hukuman)"
+)
+@app_commands.describe(member="Member yang dicatat", teks="Isi catatan (hanya staff yang bisa lihat)")
+async def mod_note_cmd(interaction: discord.Interaction, member: discord.Member, teks: str):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "note", teks)
+    await mod.save_moderation_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Catatan Staff Disimpan",
+            f"Catatan `#{case['id']}` untuk {member.mention} tersimpan.\n"
+            "Member **tidak** diberi tahu & **tidak** dihukum — catatan hanya muncul di "
+            "`/mod catatan` dan dashboard.",
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(name="statistik", description="Statistik moderasi: siapa menindak berapa banyak")
+@app_commands.describe(hari="Batasi ke N hari terakhir (0 = semua)")
+async def mod_statistik_cmd(
+    interaction: discord.Interaction,
+    hari: app_commands.Range[int, 0, 365] = 30,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    data = mod.staff_stats(interaction.guild.id, days=int(hari) or None, limit=10)
+    if not data["total"]:
+        body = (
+            f"_Belum ada tindakan moderasi dalam {hari} hari terakhir._"
+            if hari else "_Belum ada tindakan moderasi tercatat._"
+        )
+    else:
+        lines = [
+            f"**{data['total']} tindakan**"
+            + (f" dalam **{hari} hari** terakhir" if hari else " sepanjang waktu"),
+            "",
+        ]
+        for nomor, orang in enumerate(data["moderator"], start=1):
+            nama = "🤖 otomatis" if orang["moderator_id"] == 0 else f"<@{orang['moderator_id']}>"
+            rincian = " · ".join(
+                f"{mod.ACTIONS.get(a, {}).get('emoji', '•')}{n}" for a, n in orang["per_aksi"].items()
+            )
+            lines.append(f"`{nomor}.` {nama} — **{orang['total']}** ({rincian})")
+        lines.append("")
+        lines.append(
+            "Per jenis aksi: "
+            + " · ".join(f"{a}: {n}" for a, n in sorted(data["per_aksi"].items()))
+        )
+        body = "\n".join(lines)
+
+    embed = ui_theme.apply_embed_theme(
+        discord.Embed(title="📊 Statistik Moderasi", description=body[:4000]),
+        interaction.guild.id,
+    )
+    if mod.list_tempbans(interaction.guild.id):
+        embed.add_field(
+            name="⏳ Temp-ban aktif",
+            value="\n".join(
+                f"`#{e['case_id']}` <@{e['user_id']}> — berakhir <t:{int(e['until'])}:R>"
+                for e in mod.list_tempbans(interaction.guild.id)[:8]
+            )[:1024],
+            inline=False,
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @mod_group.command(name="atur", description="Atur channel log, ambang auto-punish, & DM member")

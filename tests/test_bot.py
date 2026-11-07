@@ -5930,6 +5930,8 @@ async def test_moderation_cases_auto_punish_and_persistence():
         "warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur",
         # v1.28.0-beta: perkakas moderasi harian
         "slowmode", "role", "role-massal", "nickname",
+        # v1.40.0-beta (Paket B): tangga hukuman lengkap + statistik staf
+        "tempban", "softban", "note", "statistik",
     } == names
 
     md.mod_cases.pop(gid, None)

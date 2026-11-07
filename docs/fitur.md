@@ -295,6 +295,9 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 | `/mod warn member @x alasan:...` | Peringatan resmi + tercatat. Setelah ambang tercapai → **timeout otomatis**. |
 | `/mod timeout member @x durasi:1h30m alasan:...` | Bisukan sementara (timeout native Discord, maks 28 hari). |
 | `/mod kick` / `/mod ban` / `/mod unban` | Kick, ban (opsional hapus pesan 0–7 hari), cabut ban via ID. |
+| `/mod tempban member:@x durasi:2d alasan:...` | **Ban sementara** — dicabut **otomatis** saat durasi habis (maks 365 hari), tanpa perlu staf mengingat. |
+| `/mod softban member:@x hapus_pesan_hari:7` | **Softban** — ban sebentar untuk menghapus pesan, ban **langsung dicabut** sehingga member boleh kembali. |
+| `/mod note member:@x teks:...` | **Catatan internal staff** (tidak menghukum, tidak memberi tahu member). |
 | `/mod purge jumlah:50 member:@x tipe:link` | Hapus massal dengan filter **semua / bot / link / gambar**. |
 | `/mod catatan member:@x` | Riwayat kasus + jumlah peringatan aktif. |
 | `/mod hapus id:12` | Hapus kasus salah catat (khusus Admin). |
@@ -303,11 +306,15 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 | `/mod role member:@x role:@Gamer aksi:beri` | Beri/cabut satu role (hierarki & role terkelola dijaga). |
 | `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` | **Beri/cabut role ke banyak member** sekaligus, dengan dialog konfirmasi & ringkasan hasil. |
 | `/mod nickname member:@x nama:Sobat` | Ubah/reset nickname member (kosongkan `nama` untuk reset). |
+| `/mod statistik hari:30` | **Statistik staf**: siapa menindak berapa banyak, rincian per jenis aksi, & daftar temp-ban yang masih berjalan. |
 
 Pengaman bawaan:
 - **Hierarki dihormati** — bot menolak menindak pemilik server, Administrator, atau role yang lebih tinggi darinya (pesan errornya menjelaskan cara memperbaikinya).
 - **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
 - **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
+- **Tangga hukuman lengkap** — `warn` → `timeout` → `kick` → `softban` → `tempban` → `ban`, semuanya membuat **satu kasus bernomor** yang dipakai bersama `/mod catatan`, `/mod statistik`, & dashboard.
+- **Temp-ban tidak menggantung** — watcher utama (tiap 15 detik) mencabut ban yang jatuh tempo, mencatat kasus `unban` otomatis, dan mengirim laporan ke channel log. Bila server/bot sedang mati saat waktunya habis, temp-ban dicabut pada putaran pertama setelah bot hidup lagi.
+- **Catatan ≠ hukuman** — `/mod note` hanya menulis riwayat untuk staff; member tidak diberi DM dan tidak dikenai aksi apa pun.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
 
 ### 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
