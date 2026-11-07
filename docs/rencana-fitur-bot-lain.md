@@ -232,3 +232,32 @@ Mulai dari **Paket A** (memaksimalkan yang sudah ada) karena:
 **Paket B** menyusul karena menyentuh keamanan — perlu tes paling hati-hati.
 **Paket C** paling menyenangkan untuk engagement harian, dan bisa dicicil satu fitur per PR.
 **Paket D** terakhir karena bergantung pada pihak ketiga atau keputusan privasi.
+
+---
+
+## 8. Paket E — purpleGPT & Instabot (analisis 2026-11)
+
+Sumber: **purpleGPT** (`/draw`, `/edit`, `/compose`, `/genserver`, `/settings` per-user, `/chat` dengan
+konteks server) dan **Instabot** (15 tema server instan + modul meme). Yang **layak diambil** untuk
+bot kita — yaitu yang masih 0–beberapa kuota AI, tanpa dependency baru, dan bisa dikendalikan
+dashboard:
+
+1. **`/bangun` — pembangun server instan** *(Instabot 15 tema + `/genserver` purpleGPT)*.
+   🚧 **Sedang jalan**: modul `server_builder.py` (15 tema bawaan, tebak tema dari deskripsi,
+   perancang AI → JSON, validasi batas 8 kategori/40 channel/12 role, pratinjau, terapkan lewat
+   mesin `backup_restore` yang sudah teruji, bongkar/rollback berbasis nama tercatat, riwayat
+   tersimpan di `data/server_builder.json`). Berikutnya: command `/bangun` + panel dashboard.
+2. **`/gambar` (`/draw`) & `/gambar edit`** — generasi gambar dari prompt + **5 rasio aspek** dan
+   **referensi gambar** (pakai `ai_handler.generate_image` yang sudah ada). `/edit` memakai gambar
+   terakhir otomatis, tanpa perlu unggah ulang. Tanpa dependency baru.
+3. **Setelan AI per member (`/setelan-ai`)** — temperature, format gambar, bahasa balasan, dan
+   **prompt pribadi** (maks 300 huruf), tersimpan per user; dashboard menampilkan ringkasannya.
+   Menghemat kuota karena member mengatur sendiri panjang/jenis jawaban.
+4. **`/meme`** — 10 template meme lokal (Pillow yang sudah dipakai kartu sambutan), teks atas &
+   bawah, **0 kuota AI**, hasil dikirim sebagai lampiran.
+5. **Privasi mandiri (`/dataku` & `/hapusdataku`)** — ekspor seluruh data pribadi sebagai JSON
+   (level, ekonomi, lencana, kata kunci pantau, dsb.) dan hapus permanen dengan konfirmasi.
+   Mengikuti janji "export or delete your data anytime" milik purpleGPT, tanpa proses baru.
+
+Yang **tidak** diambil: `/compose` (Lyria berbayar), pembayaran Stripe/multi-tier, `/vote` top.gg,
+dan server publik per-bot — di luar batas "1 token, 1 operator".
