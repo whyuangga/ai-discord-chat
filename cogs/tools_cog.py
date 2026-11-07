@@ -545,12 +545,8 @@ async def slash_bantuan(interaction: discord.Interaction):
         )
 
 
-@app_commands.command(
-    name="status",
-    description="Lihat status koneksi bot, latensi, RAM, antrean AI, & kesehatan fitur",
-)
-@app_commands.describe(publik="True bila ingin menampilkan status ini ke seluruh channel")
-async def slash_status(interaction: discord.Interaction, publik: bool = False):
+def _status_metrik(interaction: discord.Interaction) -> dict:
+    """Angka dasar diagnostik: latensi, RAM, uptime, kunci API, dan konteks waktu."""
     client = getattr(interaction, "client", None)
     started_at = float(getattr(client, "started_at", time.time()))
     uptime_sec = max(0, int(time.time() - started_at))
@@ -564,7 +560,38 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
     if interaction.guild is not None:
         tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
     time_ctx = get_realtime_time_context(tz_name)
+    return {
+        "ping_ms": ping_ms,
+        "ram_mb": ram_mb,
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "gemini_ready": gemini_ready,
+        "ok_key": bool(ai_handler.is_gemini_key_configured()),
+        "time_ctx": time_ctx,
+    }
 
+
+def _status_teks_error() -> str:
+    """Ringkasan error terakhir yang tercatat di runtime."""
+    last_error = get_last_error()
+    if not last_error["at"]:
+        return "_Tidak ada error tercatat_"
+    return (
+        f"`{last_error['context']}` — {time.strftime('%d/%m %H:%M', time.localtime(last_error['at']))}\n"
+        f"> {last_error['message'][:200]}"
+    )
+
+
+def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
+    """Embed diagnostik klasik (jalur mundur bila panel V2 gagal)."""
+    ping_ms = metrik["ping_ms"]
+    ram_mb = metrik["ram_mb"]
+    hours = metrik["hours"]
+    minutes = metrik["minutes"]
+    seconds = metrik["seconds"]
+    gemini_ready = metrik["gemini_ready"]
+    time_ctx = metrik["time_ctx"]
     embed = discord.Embed(
         title=f"📊 Diagnostik Bot Gemini AI (`v{BOT_VERSION}`)",
         color=discord.Color.green() if ai_handler.is_gemini_key_configured() else discord.Color.orange(),
@@ -613,7 +640,6 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         ),
         inline=False,
     )
-    music_player = get_player(interaction.guild) if interaction.guild else None
     embed.add_field(
         name="🎵 Streaming Musik",
         value=(
@@ -623,14 +649,6 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         )[:1024],
         inline=False,
     )
-    last_error = get_last_error()
-    if last_error["at"]:
-        error_text = (
-            f"`{last_error['context']}` — {time.strftime('%d/%m %H:%M', time.localtime(last_error['at']))}\n"
-            f"> {last_error['message'][:200]}"
-        )
-    else:
-        error_text = "_Tidak ada error tercatat_"
     embed.add_field(name="🩺 Error Terakhir", value=error_text[:1024], inline=False)
     embed.add_field(name="🕒 Jam Lokal Server", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
     img_engine_info = (
@@ -653,12 +671,18 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         ),
         inline=False,
     )
-    await interaction.response.send_message(embed=embed, ephemeral=not publik)
+    return embed
 
 
-    # ── V2: kartu diagnostik bergaya dashboard (mundur otomatis ke embed di atas) ──
-    gid = interaction.guild.id if interaction.guild else None
-    ok_key = bool(ai_handler.is_gemini_key_configured())
+def _status_panel_lines(metrik: dict) -> list[str]:
+    """Baris ringkas bagian atas panel diagnostik V2."""
+    ping_ms = metrik["ping_ms"]
+    ram_mb = metrik["ram_mb"]
+    hours = metrik["hours"]
+    minutes = metrik["minutes"]
+    seconds = metrik["seconds"]
+    ok_key = metrik["ok_key"]
+    time_ctx = metrik["time_ctx"]
     panel_lines = [
         ui_kit.status_line("Latensi Discord", f"`{ping_ms} ms`", state="on" if ping_ms < 200 else "warn"),
         ui_kit.status_line("Pemakaian RAM", f"`{ram_mb} MB`", state="on" if ram_mb < 200 else "warn"),
@@ -668,6 +692,11 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         ),
         ui_kit.status_line("Jam server", f"`{time_ctx['clock']}` ({time_ctx['day_name']})"),
     ]
+    return panel_lines
+
+
+def _status_panel_body(gid, metrik: dict, panel_lines: list[str], music_player, error_text: str) -> list:
+    """Isi kartu panel V2 (judul, metrik, blok fitur, error, dan tombol)."""
     panel_body = [
         ui_kit.text(ui_kit.title_line(gid, "status", "Diagnostik Bot", f"`v{BOT_VERSION}` • kesehatan semua modul")),
         ui_kit.sep(),
@@ -727,12 +756,34 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
             f"-# {ui_theme.footer_text(gid, 'Data dibaca langsung dari runtime bot') or 'Data runtime • 0 kuota AI'}"
         ),
     ]
+    return panel_body
+
+
+@app_commands.command(
+    name="status",
+    description="Lihat status koneksi bot, latensi, RAM, antrean AI, & kesehatan fitur",
+)
+@app_commands.describe(publik="True bila ingin menampilkan status ini ke seluruh channel")
+async def slash_status(interaction: discord.Interaction, publik: bool = False):
+    """Tampilkan diagnostik bot: embed klasik lalu panel V2 bila tersedia."""
+    metrik = _status_metrik(interaction)
+    gid = interaction.guild.id if interaction.guild else None
+    music_player = get_player(interaction.guild) if interaction.guild else None
+    error_text = _status_teks_error()
+
+    embed = _status_embed(metrik, music_player, error_text)
+    await interaction.response.send_message(embed=embed, ephemeral=not publik)
+
+    # ── V2: kartu diagnostik bergaya dashboard (mundur otomatis ke embed di atas) ──
+    panel_lines = _status_panel_lines(metrik)
+    panel_body = _status_panel_body(gid, metrik, panel_lines, music_player, error_text)
     await ui_kit.send_panel(
         interaction,
         ui_kit.build_view(gid, ui_kit.card(gid, *panel_body), timeout=300),
         embed=embed,
         ephemeral=not publik,
     )
+
 
 
 async def _status_refresh_callback(interaction: discord.Interaction) -> None:
