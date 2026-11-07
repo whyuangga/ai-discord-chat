@@ -345,7 +345,10 @@ class RuteDashboard:
             hidup = aksi.split(":", 1)[1].strip() not in ("0", "false", "off")
             tags.set_config(gid, enabled=hidup)
             await tags.save_tags_to_disk()
-            return True, f"Tag {'diaktifkan' if hidup else 'dinonaktifkan'}."
+            return True, (
+                f"Fitur tag {'diaktifkan' if hidup else 'dimatikan'} "
+                "(data tag tetap tersimpan)."
+            )
         return None
 
     async def _aksi_starboard(self, gid: int, aksi: str, payload: dict):
@@ -1204,8 +1207,31 @@ class HalamanDashboard:
                 gid, dashboard_giveaway.collect(gid), token, self.bot
             ),
         }
-        return {nama: _blok(fn, '<div class="muted">Panel tidak tersedia.</div>')
-                for nama, fn in peta.items()}
+        bawaan = {
+            "kartu_rank_block": "Kartu rank tidak tersedia.",
+            "honeypot_block": "Honeypot tidak tersedia.",
+            "snipe_block": "Panel snipe tidak tersedia.",
+            "tag_block": "Panel tag tidak tersedia.",
+            "curhat_block": "Panel curhat tidak tersedia.",
+            "form_inbox_block": "Kotak masuk formulir tidak tersedia.",
+            "stats_block": "Panel statistik tidak tersedia.",
+            "bangun_block": "Panel bangun tidak tersedia.",
+            "gambar_block": "Generator gambar tidak tersedia.",
+            "ai_prompt_block": "Prompt AI server tidak tersedia.",
+            "ai_privasi_block": "Informasi privasi tidak tersedia.",
+            "info_block": "Panel channel info tidak tersedia.",
+            "voice_block": "Panel voice linking tidak tersedia.",
+            "sosial_block": "Panel notifikasi sosial tidak tersedia.",
+            "pantau_block": "Panel highlight tidak tersedia.",
+            "lencana_block": "Panel lencana tidak tersedia.",
+            "aturan_block": "Penguji aturan tidak tersedia.",
+            "starboard_block": "Papan sorotan tidak tersedia.",
+            "giveaway_block": "Kendali giveaway tidak tersedia.",
+        }
+        return {
+            nama: _blok(fn, f'<div class="muted">{bawaan[nama]}</div>')
+            for nama, fn in peta.items()
+        }
 
     def _blok_sambutan(self, slug: str, gid: int, setelan) -> dict:
         """Halaman sambutan: tiga bagian (welcome/goodbye/boost) di satu halaman."""
@@ -1254,25 +1280,31 @@ class HalamanDashboard:
         semua = {
             "kontrol_block": blok(lambda: render_controls_block(gid, ""), ""),
             "fitur_block": blok(lambda: render_features_block(gid), ""),
-            "kirim_block": blok(lambda: dashboard_ui.render_kirim_block(self.bot, gid, ""), ""),
-            "buat_block": blok(lambda: dashboard_ui.render_buat_block(self.bot, gid, ""), ""),
+            "kirim_block": blok(
+                lambda: dashboard_ui.render_kirim_block(self.bot, gid, ""),
+                '<div class="muted">Form kirim tidak tersedia.</div>',
+            ),
+            "buat_block": blok(
+                lambda: dashboard_ui.render_buat_block(self.bot, gid, ""),
+                '<div class="muted">Form konten tidak tersedia.</div>',
+            ),
             "konten_block": blok(
                 lambda: dashboard_ui.render_konten_block(gid, dashboard_pesan.daftar_konten(gid, self.bot), ""),
-                "",
+                '<div class="muted">Daftar konten tidak tersedia.</div>',
             ),
             "tiket_block": blok(
                 lambda: dashboard_ui.render_tiket_block(gid, dashboard_tiket.collect_tiket(gid), "", self.bot),
-                "",
+                '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
             ),
             "arsip_block": blok(
                 lambda: dashboard_ui.render_arsip_block(
                     gid, "", ticket_archive.statistik(gid), ticket_archive.daftar(gid, limit=5)
                 ),
-                "",
+                '<div class="muted">Arsip transkrip tidak tersedia.</div>',
             ),
             "panel_block": blok(
                 lambda: dashboard_ui.render_panel_block(self.bot, gid, dashboard_panel.collect_panel(gid), ""),
-                "",
+                '<div class="muted">Editor panel tidak tersedia.</div>',
             ),
         }
         # --- panel fitur opsional: nama atribut render_*/collect_* dipetakan di bawah ---
@@ -1284,13 +1316,21 @@ class HalamanDashboard:
         )
         grup_slug = {v: k for k, v in GRUP_HALAMAN.items()}.get(slug)
         semua["setelan_block"] = setelan(fitur_grup(grup_slug)) if grup_slug else ""
-        semua["ekspor_block"] = blok(lambda: dashboard_ui.render_ekspor_block(gid, ""), "")
-        semua["audit_block"] = blok(
-            lambda: dashboard_ui.render_audit_block(dashboard_admin.audit_terakhir(gid, limit=8)), ""
+        semua["ekspor_block"] = blok(
+            lambda: dashboard_ui.render_ekspor_block(gid, ""),
+            '<div class="muted">Ekspor tidak tersedia.</div>',
         )
-        semua["banner_block"] = blok(lambda: dashboard_ui.render_banner_block(gid, ""), "")
+        semua["audit_block"] = blok(
+            lambda: dashboard_ui.render_audit_block(dashboard_admin.audit_terakhir(gid, limit=8)),
+            '<div class="muted">Riwayat tidak tersedia.</div>',
+        )
+        semua["banner_block"] = blok(
+            lambda: dashboard_ui.render_banner_block(gid, ""),
+            '<div class="muted">Unggahan tidak tersedia.</div>',
+        )
         semua["moderasi_block"] = blok(
-            lambda: dashboard_moderasi.render_moderasi_block(self.bot, gid, ""), ""
+            lambda: dashboard_moderasi.render_moderasi_block(self.bot, gid, ""),
+            '<div class="muted">Panel moderasi tidak tersedia.</div>',
         )
         semua["tren_block"] = ""
         return semua

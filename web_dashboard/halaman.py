@@ -372,9 +372,13 @@ def halaman_dari_path(path: str) -> str:
     """Slug halaman dari URL (`/` -> "", `/setelan` -> "setelan")."""
     slug = str(path or "").strip("/")
     return slug if slug in HALAMAN_SLUG else ""
+
+
 def halaman_dari_anchor(anchor: str) -> str:
     """Halaman tempat sebuah panel (`p-tiket`, …) berada."""
     return ANCHOR_HALAMAN.get(str(anchor or "").strip(), "")
+
+
 def url_halaman(slug: str, token: str = "", guild_id: int = 0) -> str:
     """Alamat satu halaman (server terbawa; token hanya bila memang diberikan).
 
@@ -387,6 +391,8 @@ def url_halaman(slug: str, token: str = "", guild_id: int = 0) -> str:
         kueri["token"] = token
     kueri["guild"] = int(guild_id or 0)
     return f"{dasar}?{urlencode(kueri)}"
+
+
 def render_menu(slug: str, token: str = "", guild_id: int = 0) -> str:
     """Menu utama: tautan antar-halaman, halaman aktif ditandai `aria-current`."""
     aktif = slug if slug in HALAMAN_SLUG else ""
