@@ -246,6 +246,19 @@ CSS_HALAMAN = f"""
   .kartu-slot form {{ margin: 0; }}
   .kartu-slot .medan label {{ font-size: 11.5px; }}
 
+  /* --- kartu rank (PNG, perender yang sama dengan /level kartu) --- */
+  .kartu-rank {{ display: grid; gap: 8px; margin: 10px 0; }}
+  .kartu-rank img {{
+    width: 100%; max-width: 560px; border-radius: 12px;
+    border: 1px solid var(--garis); background: var(--latar);
+  }}
+  .lencana {{
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }}
+  .lencana.on {{ background: rgba(90, 200, 130, .16); color: #7ee2a8; }}
+  .lencana.off {{ background: rgba(255,255,255,.08); color: var(--redup); }}
+
   /* --- tes fitur --- */
   .kepala-tes {{
     margin: 14px 0 6px; padding-top: 10px;

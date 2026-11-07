@@ -520,8 +520,12 @@ def render_kartu_block(
     sambutan, halaman Perpisahan hanya kartu perpisahan, dan seterusnya.
     """
     info = dashboard_unggah.kartu_info(guild_id)
+    # Tanpa `hanya`, panel ini menampilkan tiga slot agen sambutan/perpisahan/boost.
+    # Kartu rank punya panelnya sendiri (`render_kartu_rank_block`).
     jenis_dipakai = tuple(
-        j for j in dashboard_unggah.JENIS_KARTU if hanya is None or j in hanya
+        j
+        for j in dashboard_unggah.JENIS_KARTU
+        if (j in dashboard_unggah.KARTU_AGEN if hanya is None else j in hanya)
     )
     if not jenis_dipakai:
         return ""
@@ -595,6 +599,62 @@ def render_kartu_block(
         "“Member ke-N” di atasnya. Butuh gambar kartu yang sudah diunggah.</p>"
     )
     return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}{catatan_ukuran}'
+
+
+def render_kartu_rank_block(bot, guild_id: int, token: str) -> str:
+    """Panel kartu rank PNG: pratinjau dari perender asli + latar unggahan + tes.
+
+    Pratinjau memakai `GET /api/rank.png`, yaitu **fungsi render yang sama** dengan
+    `/level kartu` — jadi yang terlihat di HP sama dengan yang dikirim bot.
+    """
+    import levels
+    import rank_card
+
+    gid = int(guild_id or 0)
+    cfg = levels.peek_level_config(gid) or {}
+    aktif = bool(cfg.get("kartu_aktif", True))
+    warna = rank_card.hex_warna(cfg.get("kartu_warna"))
+    latar = "gambar unggahan" if rank_card.ada_latar(gid) else "gradasi warna aksen"
+
+    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+    pemilik = int(getattr(guild, "owner_id", 0) or 0) if guild is not None else 0
+    kueri = f"token={_esc(token)}&amp;guild={gid}"
+    if pemilik:
+        kueri += f"&amp;member={pemilik}"
+    url = f"/api/rank.png?{kueri}"
+
+    lencana = (
+        '<span class="lencana on">aktif</span>' if aktif
+        else '<span class="lencana off">mati</span>'
+    )
+    pratinjau = (
+        f'<div class="kartu-rank"><img src="{url}" alt="Pratinjau kartu rank" '
+        'loading="lazy">'
+        '<div class="aksi-banner">'
+        f'<a class="tombol-unduh" href="{url}&amp;unduh=1">Buka / unduh PNG</a></div>'
+        "</div>"
+        '<p class="muted">Pratinjau di atas dibuat oleh <b>perender yang sama</b> dengan '
+        "`/level kartu` — bukan gambar contoh. Kartu dirender di server bot (Pillow), "
+        "jadi <b>0 kuota AI</b>.</p>"
+    )
+    if not aktif:
+        pratinjau = (
+            '<div class="muted">Kartu rank sedang <b>dimatikan</b> — `/level kartu` akan '
+            "menjawab dengan versi teks. Nyalakan lewat sakelar <b>Kartu rank PNG</b> "
+            "di halaman ini.</div>"
+        ) + pratinjau
+
+    keterangan = (
+        '<p class="muted">Status: '
+        f"{lencana} · warna aksen: <code>{_esc(warna or 'ikut tema server')}</code> · "
+        f"latar: {_esc(latar)}. Ukuran {rank_card.KARTU_UKURAN[0]}×"
+        f"{rank_card.KARTU_UKURAN[1]} px.</p>"
+    )
+    unggah = render_kartu_block(gid, token, hanya=("rank",))
+    tes = render_uji_block(bot, gid, token, hanya=("kartu",))
+    return pratinjau + keterangan + unggah + (
+        f'<div class="subpanel"><h3>🧪 Tes kartu rank</h3>{tes}</div>' if tes else ""
+    )
 
 
 def render_uji_block(
@@ -723,6 +783,8 @@ _JALUR_FITUR: dict[str, str] = {
     "panel": "/panel",
     "digest": "/konten",
     "tiket": "/tiket",
+    "giveaway": "/giveaway",
+    "kartu": "/inti",
     "ai": "/",
     "ekspor": "/ekspor",
 }

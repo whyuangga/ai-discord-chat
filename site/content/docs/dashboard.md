@@ -7,9 +7,9 @@ toc: true
 ---
 
 Satu server web ringan (proses yang sama dengan bot) untuk memantau **dan** mengatur bot
-tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **52 setelan server
+tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **54 setelan server
 dalam 11 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
-& kartu sambutan, kotak masuk tiket, kendali giveaway, serta **10 tombol tes fitur**.
+& kartu sambutan, kotak masuk tiket, kendali giveaway, serta **11 tombol tes fitur**.
 Template halaman depan ada di [README](../README.md#-dashboard-web-sekilas); rincian tiap
 bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
@@ -23,7 +23,7 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 `/api/transkrip` (hapus arsip transkrip tiket). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
 | **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
-| **Setelan** | **52 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
+| **Setelan** | **54 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
 | **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
@@ -48,10 +48,11 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | sakelar level, ekonomi, & pertumbuhan dengan **tombol yang mengikuti keadaan** (“Nonaktifkan” saat aktif, “Aktifkan” saat mati) + mode anti-spam & aksi anti-nuke |
-| **Setelan server** | **52 setelan** dalam 5 grup (lihat tabel di bawah) |
+| **Setelan server** | **54 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Kartu sambutan** | **unggah sendiri** tiga gambar kartu (sambutan, pamit, boost) di halaman `/sambutan` — satu bagian per kartu; disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa |
+| **Kartu rank** | Halaman `/inti` → panel **🖼️ Kartu rank (PNG)**: pratinjau `GET /api/rank.png` memakai perender yang **sama** dengan `/level kartu`, sakelar hidup/mati, warna aksen hex, unggah/hapus latar, & tombol tes render. |
 | **Tes fitur** | tombol **Kirim tes** ada di tiap halaman fitur (sambutan, perpisahan, boost, pengumuman, panel, tiket, giveaway, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
@@ -205,11 +206,11 @@ channel pertama di kunci lama (`channel_id`), jadi config lama di disk tetap ter
 migrasi. Centang **🚫 Kosongkan** untuk mematikan fitur. Penjelasan teknis ada di modul
 `channel_targets.py`.
 
-### Setelan yang bisa diubah dari web (52 fitur)
+### Setelan yang bisa diubah dari web (54 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
-| 🧭 **Inti, level, & ekonomi** (8) | Level & XP, pengumuman naik level, channel pengumuman level, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
+| 🧭 **Inti, level, & ekonomi** (10) | Level & XP, pengumuman naik level, channel pengumuman level, **kartu rank PNG**, **warna aksen kartu rank**, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
 | 👋 **Sambutan & pamit** (10 — semuanya di halaman `/sambutan`, per bagian `#p-welcome`/`#p-goodbye`/`#p-boost`) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, **bahasa sapaan sambutan**, **latin & arti sapaan**, channel pamit, **bahasa kata perpisahan**, **latin & arti perpisahan**, channel ucapan boost |
 | 🛡️ **Keamanan** (10) | mode anti-spam, deteksi huruf kapital, log anti-spam, aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
 | 🎫 **Tiket & sapaan harian** (8) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, ping staf, rating tiket, channel ucapan ulang tahun |

@@ -265,6 +265,7 @@ def siapkan(guild_id: int, medan=None, tersimpan: str = "") -> tuple[object | No
 __all__ = [
     "EKSTENSI",
     "JENIS_KARTU",
+    "KARTU_AGEN",
     "LABEL_KARTU",
     "MAX_PER_GUILD",
     "baca",
@@ -294,11 +295,14 @@ __all__ = [
 # **latar kartu sambutan** yang dikirim bot saat member bergabung/keluar — berkas
 # aslinya disimpan `welcome_media` supaya bisa dikirim ulang sebagai lampiran
 # (`attachment://`) tanpa URL kedaluwarsa.
-JENIS_KARTU: tuple[str, ...] = ("welcome", "goodbye", "boost")
+JENIS_KARTU: tuple[str, ...] = ("welcome", "goodbye", "boost", "rank")
+# Slot yang dipakai agen sambutan/perpisahan/boost (tanpa kartu rank).
+KARTU_AGEN: tuple[str, ...] = ("welcome", "goodbye", "boost")
 LABEL_KARTU: dict[str, str] = {
     "welcome": "sambutan",
     "goodbye": "perpisahan",
     "boost": "ucapan boost",
+    "rank": "kartu rank",
 }
 
 
@@ -336,7 +340,7 @@ def simpan_kartu(guild_id: int, medan, jenis: str) -> tuple[bool, str]:
     """Validasi & simpan kartu sambutan dari unggahan dashboard."""
     kunci = normalisasi_kartu(jenis)
     if not kunci:
-        return False, "Jenis kartu tidak dikenal (hanya welcome/goodbye/boost)."
+        return False, "Jenis kartu tidak dikenal (hanya welcome/goodbye/boost/rank)."
     if medan is None:
         return False, "Pilih berkas gambar kartu lebih dulu."
     try:

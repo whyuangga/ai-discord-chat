@@ -181,6 +181,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | Command | Parameter | Fungsi |
 | :--- | :--- | :--- |
 | `/level lihat` | `member` | Kartu level + progress bar XP. |
+| `/level kartu` | `member`, `publik` | **Kartu rank PNG** (level, XP, peringkat, prestise) dirender server — 0 kuota AI. |
 | `/level papan` | `halaman` | Papan peringkat 10 besar server. |
 | `/level atur` | `aktif`, `pengumuman`, `channel_pengumuman`, `jeda`, `xp_minimal`, `xp_maksimal`, `abaikan_channel`, `abaikan_role` | *(Admin)* Konfigurasi leveling. |
 | `/level role` | `level`, `role` | *(Admin)* Hadiah role otomatis per level. |

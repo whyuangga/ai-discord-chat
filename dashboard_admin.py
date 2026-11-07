@@ -282,6 +282,21 @@ def _set_level_flag(key: str, label: str):
     return simpan
 
 
+def _set_kartu_warna(guild_id: int, nilai: str) -> tuple[bool, str]:
+    """Warna aksen kartu rank (hex 6 digit, kosong = ikut tema server)."""
+    import rank_card
+
+    mentah = str(nilai or "").strip()
+    if not mentah:
+        _mod("levels").set_level_config(int(guild_id), kartu_warna="")
+        return _hapus_keterangan("Warna kartu rank", "ikut warna tema server")
+    sah = rank_card.hex_warna(mentah)
+    if not sah:
+        return False, "Warna harus hex 6 digit, mis. `#5865F2`."
+    _mod("levels").set_level_config(int(guild_id), kartu_warna=sah)
+    return True, f"Warna kartu rank disetel ke `{sah}`."
+
+
 def _set_level_channel(guild_id: int, nilai: str) -> tuple[bool, str]:
     cid = _to_int(nilai)
     _mod("levels").set_level_config(int(guild_id), announce_channel_id=cid or None)
@@ -953,6 +968,12 @@ FITUR_LIST = [
            lambda g: _cfg("levels", g, "get_level_config"),
            kunci="announce_channel_id", label="Pengumuman level",
        ), "levels"),
+    _f("level.kartu", "Kartu rank PNG (/level kartu)", "saklar",
+       lambda g: "on" if _cfg("levels", g, "get_level_config").get("kartu_aktif", True) else "off",
+       _set_level_flag("kartu_aktif", "Kartu rank"), "levels"),
+    _f("level.kartu_warna", "Warna aksen kartu rank", "teks",
+       _baca_level("kartu_warna", ""), _set_kartu_warna, "levels",
+       bantuan="Hex 6 digit, mis. #5865F2. Kosongkan untuk ikut warna tema server."),
     _f("ekonomi.aktif", "Ekonomi koin", "saklar", _saklar_dari("economy"), _set_saklar("economy", "Ekonomi koin"), "economy"),
     _f("ekonomi.harian", "Koin harian (/harian)", "angka", _baca_ekonomi("daily_amount", 100),
        _set_ekonomi_key("daily_amount", "Koin harian"), "economy"),
@@ -1130,7 +1151,8 @@ GRUP: tuple[dict, ...] = (
         "kunci": "inti",
         "judul": "🧭 Inti, level, & ekonomi",
         "keterangan": "Sakelar fitur utama. Angka bawaan aman untuk server kecil.",
-        "fitur": ("level.aktif", "level.pengumuman", "level.channel", "ekonomi.aktif",
+        "fitur": ("level.aktif", "level.pengumuman", "level.channel", "level.kartu",
+                  "level.kartu_warna", "ekonomi.aktif",
                   "ekonomi.harian", "tumbuh.aktif", "tumbuh.channel", "prefix"),
     },
     {

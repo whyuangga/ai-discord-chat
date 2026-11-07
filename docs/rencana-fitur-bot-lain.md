@@ -42,7 +42,7 @@ Kolom **Paket** menunjuk ke roadmap di bagian 5.
 | **Statistik channel** | Member, boost, dll. | Member, role, boost, **tiket**, **pengikut sosial** | Tambah sumber angka tiket & sosial | **D** |
 | **Notifikasi sosial** | YouTube, Twitch, TikTok/RSS | **14 platform** satu mesin | Tambah Reddit & RSS generik (tanpa API key) | **D** |
 | **Formulir (modal)** | Buat & kirim formulir | **Antrean submission** yang direview | Daftar kiriman + status di dashboard | **D** |
-| **Dashboard** | 10 halaman, 52 setelan, 9 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
+| **Dashboard** | 11 halaman, 54 setelan, 11 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
 
 ## 3. Fitur BARU yang layak diambil
 
@@ -95,6 +95,9 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
    dropdown topik, role staf per topik, thread `tiket-<topik>-<nama>`, maks 8 topik/server.
 3. **Kartu rank PNG** — dirender server (Pillow) dari data level yang sudah ada, dengan
    **pratinjau di dashboard yang memakai perender yang sama**.
+   ✅ **Sudah jalan** (v1.40): `/level kartu` + pratinjau `GET /api/rank.png` lewat modul
+   `rank_card.py` yang sama, latar bisa diunggah, warna aksen + sakelar + tombol tes di
+   halaman Inti & level.
 4. **Starboard varian** — board kedua/ketiga dengan emoji & ambang sendiri.
 
 Berkas: `engagement.py` · `tickets.py` · `levels.py` · `community_tools.py` ·

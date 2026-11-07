@@ -5,6 +5,7 @@ menyalakannya. Tiket dibuat sebagai **private thread** sehingga tidak memakan
 slot channel server.
 """
 
+import io
 import logging
 
 import discord
@@ -14,6 +15,7 @@ from discord.ext import commands
 
 import economy
 import levels
+import rank_card
 import tickets
 import ui_kit
 import ui_theme
@@ -44,6 +46,11 @@ async def _reject_non_admin(interaction: discord.Interaction) -> None:
 # ==============================================================================
 # /level — LEVELING & XP
 # ==============================================================================
+def filename_kartu(data: dict) -> str:
+    """Nama berkas kartu rank (aman, tanpa karakter aneh)."""
+    return f"kartu-rank-{int(data.get('user_id') or 0)}.png"
+
+
 level_group = app_commands.Group(
     name="level",
     description="Level & XP member: lihat kartu level, papan peringkat, & atur hadiah role",
@@ -71,6 +78,71 @@ async def level_lihat_cmd(interaction: discord.Interaction, member: discord.Memb
     await interaction.response.send_message(
         embed=levels.build_level_embed(target, data, cfg),
         ephemeral=True,
+    )
+
+
+@level_group.command(
+    name="kartu",
+    description="Kartu rank PNG (level, XP, peringkat) — dirender server, 0 kuota AI",
+)
+@app_commands.describe(
+    member="Member yang ingin dibuatkan kartu (kosongkan untuk dirimu sendiri)",
+    publik="True untuk mengirim kartu di channel, bukan hanya untukmu",
+)
+async def level_kartu_cmd(
+    interaction: discord.Interaction,
+    member: discord.Member | None = None,
+    publik: bool = False,
+):
+    if interaction.guild is None:
+        return
+
+    cfg = levels.get_level_config(interaction.guild.id)
+    if not cfg.get("enabled"):
+        await interaction.response.send_message(
+            "ℹ️ Fitur leveling belum aktif di server ini. "
+            "Admin bisa menyalakannya dengan `/level atur aktif:True`.",
+            ephemeral=True,
+        )
+        return
+    if not rank_card.kartu_aktif(interaction.guild.id):
+        await interaction.response.send_message(
+            "ℹ️ Kartu rank dimatikan di server ini (Admin: dashboard → **Inti & level** "
+            "→ *Kartu rank*). Pakai `/level lihat` untuk versi teks.",
+            ephemeral=True,
+        )
+        return
+
+    target = member or interaction.user
+    await interaction.response.defer(ephemeral=not publik)
+
+    data = rank_card.data_kartu(
+        interaction.guild.id,
+        target.id,
+        nama=getattr(target, "display_name", "") or getattr(target, "name", ""),
+        guild_name=interaction.guild.name,
+    )
+    png = await rank_card.render_kartu(
+        data, avatar_bytes=await rank_card.baca_avatar(target)
+    )
+    if not png:
+        await interaction.followup.send(
+            embed=levels.build_level_embed(target, data, cfg),
+            ephemeral=not publik,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"🖼️ Kartu rank · {getattr(target, 'display_name', 'Member')}",
+        description="\n".join(rank_card.baris_data(data)),
+        color=ui_theme.accent_color(interaction.guild.id),
+    )
+    embed.set_image(url=f"attachment://{filename_kartu(data)}")
+    embed.set_footer(text="Dirender di server bot · tanpa kuota AI")
+    await interaction.followup.send(
+        embed=embed,
+        file=discord.File(io.BytesIO(png), filename=filename_kartu(data)),
+        ephemeral=not publik,
     )
 
 

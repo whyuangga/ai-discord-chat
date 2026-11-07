@@ -19,7 +19,7 @@
 Dari pertanyaan ini muncul dua hal berbeda yang sering tercampur:
 
 1. **Mengatur fitur bot dari browser** → ini sudah ada (`web_dashboard.py` +
-   `dashboard_admin.py`): **52 setelan dalam 11 halaman**, kirim embed/webhook, unggah
+   `dashboard_admin.py`): **54 setelan dalam 11 halaman**, kirim embed/webhook, unggah
    banner & kartu sambutan, kotak masuk tiket, serta pengelolaan pengumuman, tautan, dan panel.
 2. **Pengguna lain memasukkan rahasia sendiri** (token bot, API key) → ini fitur baru, dan
    sebagian **tidak mungkin** dilakukan.

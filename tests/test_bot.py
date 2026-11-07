@@ -4708,6 +4708,8 @@ async def test_growth_commands_views_and_help():
         "lihat", "papan", "atur", "role", "status", "voice",
         # v1.34.0-beta: musim & prestige
         "musim", "prestise",
+        # v1.40: kartu rank PNG (perender sendiri, 0 kuota AI)
+        "kartu",
     }
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {

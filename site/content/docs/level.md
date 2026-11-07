@@ -14,6 +14,7 @@ toc: true
 | Command | Fungsi |
 | :--- | :--- |
 | **`/level lihat [member]`** | Kartu level + progress bar `▰▰▰▱▱`, total XP, & jumlah pesan. |
+| **`/level kartu [member] [publik:True]`** | **Kartu rank PNG** dirender server (Pillow): foto profil bulat, nama, level, prestise, peringkat `#3 / 24`, progress bar, & ringkasan aktivitas. Tanpa Pillow/kartu dimatikan → otomatis kembali ke kartu teks. |
 | **`/level papan halaman:1`** | Papan peringkat 10 besar (🥇🥈🥉) + total member terdata. |
 | **`/level atur aktif:True jeda:60 xp_minimal:15 xp_maksimal:25`** *(Admin)* | Nyalakan & atur XP. |
 | **`/level atur pengumuman:False channel_pengumuman:#level`** | Atur pengumuman naik level. |
@@ -83,7 +84,17 @@ toc: true
    ke thread — member tidak bisa membacanya.
 5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
 
-**Kualitas layanan (v1.33.0-beta, 0 kuota AI):**
+**Kartu rank PNG (v1.40.0-beta, 0 kuota AI):**
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Perender tunggal** | `rank_card.py` merender kartu untuk **`/level kartu`** *dan* pratinjau dashboard (`GET /api/rank.png`) — preview = hasil asli, bukan gambar contoh. |
+| **Yang tampil** | Foto profil bulat + cincin warna aksen, nama, level, prestise (`· PRESTISE ×2`), peringkat `#3 / 24`, progress bar XP, total XP, server · musim · jumlah pesan. Member tanpa avatar dapat lingkaran inisial; nama & angka panjang dipotong dengan `…`, bukan merusak tata letak. |
+| **Latar** | Gradasi warna aksen bawaan, atau **gambar yang diunggah** dari dashboard (slot *kartu rank*, PNG/JPG/GIF/WEBP, maks 8 MB). |
+| **Setelan** | Sakelar **Kartu rank PNG**, warna aksen hex (`#5865F2`), unggah/hapus latar, dan **tombol tes** — semuanya di halaman **⚙️ Inti & level** (rule #72). |
+| **Batas** | Ukuran 1024×360 px, hasil ±18–30 KB. Tanpa Pillow terpasang, fitur otomatis mundur ke kartu teks (tidak pernah error ke member). |
+
+**Kualitas layanan tiket (v1.33.0-beta, 0 kuota AI):**
 
 | Fitur | Detail |
 | :--- | :--- |

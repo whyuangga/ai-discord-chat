@@ -94,6 +94,15 @@ UJI: tuple[dict, ...] = (
         ),
     },
     {
+        "kunci": "kartu",
+        "label": "Kartu rank PNG",
+        "emoji": "🖼️",
+        "grup": "Level & XP",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": "Render kartu rank untuk pemilik server — memastikan Pillow & latar bekerja.",
+    },
+    {
         "kunci": "ai",
         "label": "Koneksi AI (Gemini)",
         "emoji": "🤖",
@@ -125,6 +134,7 @@ ANCHOR_UJI: dict[str, str] = {
     "digest": "p-konten",
     "tiket": "p-tiket",
     "giveaway": "p-giveaway",
+    "kartu": "p-rank",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -145,6 +155,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-ai": "**Ringkasan**",
     "p-ekspor": "**Ekspor**",
     "p-giveaway": "**Giveaway**",
+    "p-rank": "**Inti, level, & ekonomi**",
 }
 
 
@@ -504,6 +515,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "kartu":
+            return await _uji_kartu(guild, gid, member, opsi)
         if kunci == "ai":
             return await _uji_ai(gid)
         if kunci == "ekspor":
@@ -512,6 +525,43 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+async def _uji_kartu(guild, guild_id: int, member=None, opsi: str = "") -> tuple[bool, str]:
+    """Render kartu rank tanpa mengirim apa pun — hanya memastikan perender sehat."""
+    import rank_card
+
+    if not rank_card.pillow_available():
+        return False, "Pillow tidak terpasang di host ini — kartu rank otomatis dimatikan."
+    if not rank_card.kartu_aktif(guild_id):
+        return False, "Kartu rank sedang dimatikan di halaman **Inti & level**."
+
+    sumber = "pilihanmu"
+    if member is None:
+        member, sumber = await ambil_subjek(guild, opsi)
+        if member is None:
+            return False, (
+                "Belum ada member yang bisa dijadikan contoh: pemilik server tidak ada di "
+                "daftar member dan server ini belum punya member manusia."
+            )
+
+    data = rank_card.data_kartu(
+        guild_id,
+        _to_int(getattr(member, "id", 0)),
+        nama=getattr(member, "display_name", "") or getattr(member, "name", ""),
+        guild_name=str(getattr(guild, "name", "") or ""),
+    )
+    png = await rank_card.render_kartu(
+        data, avatar_bytes=await rank_card.baca_avatar(member)
+    )
+    if not png:
+        return False, "Perender mengembalikan hasil kosong — cek log bot (kemungkinan font/latar rusak)."
+    latar = "gambar unggahan" if rank_card.ada_latar(guild_id) else "gradasi aksen"
+    return True, (
+        f"Kartu rank **{_nama_member(member)}** ({sumber}) berhasil dirender: "
+        f"{max(1, round(len(png) / 1024))} KB, {rank_card.KARTU_UKURAN[0]}×"
+        f"{rank_card.KARTU_UKURAN[1]} px, latar {latar}. Tidak ada yang dikirim ke channel."
+    )
 
 
 def _members(guild) -> list:

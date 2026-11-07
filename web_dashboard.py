@@ -601,7 +601,7 @@ HALAMAN: tuple[dict, ...] = (
         "menu": "⚙️ Inti & level",
         "judul": "⚙️ Inti, level, & ekonomi",
         "keterangan": "Kontrol cepat + setelan level, ekonomi koin, pelacakan pertumbuhan, & prefix.",
-        "panel": ("p-kontrol", "p-inti"),
+        "panel": ("p-kontrol", "p-inti", "p-rank"),
     },
     {
         "slug": "keamanan",
@@ -669,6 +669,7 @@ ANCHOR_HALAMAN: dict[str, str] = {
 ANCHOR_HALAMAN.update({
     "p-kartu": "sambutan",
     "p-uji": "",
+    "p-rank": "inti",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -730,6 +731,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "konten": ("digest",),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
+    "inti": ("kartu",),
 }
 
 
@@ -1009,6 +1011,13 @@ PANEL: dict[str, object] = {
         "koran pagi, &amp; backup otomatis.",
         "uji",
     ),
+    "p-rank": lambda d: (
+        '<div class="panel" id="p-rank">\n    <h2>🖼️ Kartu rank (PNG)</h2>\n'
+        '    <p class="muted">Kartu rank yang dikirim <code>/level kartu</code> dirender '
+        'server (Pillow) dengan <b>perender yang sama</b> seperti pratinjau di bawah. '
+        'Latar boleh diunggah sendiri; tanpa latar, bot memakai gradasi warna aksen.</p>\n'
+        f'    {d.get("kartu_rank_block", "")}\n  </div>'
+    ),
     "p-giveaway": _panel_giveaway,
     "p-tersimpan": _panel_tersimpan,
     "p-riwayat": _panel_riwayat,
@@ -1054,6 +1063,7 @@ def render_dashboard_html(
     arsip_block: str = "",
     tren_block: str = "",
     kartu_block: str = "",
+    kartu_rank_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1135,6 +1145,8 @@ def render_dashboard_html(
         "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
         "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
+        "kartu_rank_block": kartu_rank_block
+        or '<div class="muted">Kartu rank tidak tersedia.</div>',
         "uji_block": uji_block or '<div class="muted">Tes fitur tidak tersedia.</div>',
         "setelan_welcome": setelan_welcome or '<div class="muted">Setelan tidak tersedia.</div>',
         "setelan_goodbye": setelan_goodbye or '<div class="muted">Setelan tidak tersedia.</div>',
@@ -1608,6 +1620,10 @@ async def start_dashboard(bot) -> bool:
             ),
             '<div class="muted">Arsip transkrip tidak tersedia.</div>',
         )
+        kartu_rank_block = _blok(
+            lambda: dashboard_ui.render_kartu_rank_block(bot, gid, token),
+            '<div class="muted">Kartu rank tidak tersedia.</div>',
+        )
         giveaway_block = _blok(
             lambda: dashboard_ui.render_giveaway_block(
                 gid, dashboard_giveaway.collect(gid), token, bot
@@ -1660,6 +1676,7 @@ async def start_dashboard(bot) -> bool:
             audit_block=audit_block,
             banner_block=banner_block,
             kartu_block=kartu_block,
+            kartu_rank_block=kartu_rank_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -2177,6 +2194,59 @@ async def start_dashboard(bot) -> bool:
             headers={"Cache-Control": "private, max-age=60"},
         )
 
+    async def handle_rank_png(request):
+        """Kartu rank PNG untuk pratinjau dashboard (perender sama dengan /level kartu)."""
+        if not _authorized(request):
+            return web.Response(text="401 Unauthorized", status=401)
+
+        import rank_card
+
+        gid, _nama = _guild_hint(bot, request)
+        member = _id_aman(request.query.get("member"))
+        guild = None
+        getter = getattr(bot, "get_guild", None)
+        if callable(getter):
+            guild = getter(gid)
+        if not member and guild is not None:
+            member = int(getattr(guild, "owner_id", 0) or 0)
+
+        nama = "Member"
+        avatar = None
+        orang = None
+        cari = getattr(guild, "get_member", None) if guild is not None else None
+        if callable(cari) and member:
+            try:
+                orang = cari(member)
+            except Exception:  # pragma: no cover - jaring aman
+                orang = None
+        if orang is not None:
+            nama = getattr(orang, "display_name", "") or getattr(orang, "name", "") or nama
+            avatar = await rank_card.baca_avatar(orang)
+
+        data = rank_card.data_kartu(
+            gid,
+            member,
+            nama=nama,
+            guild_name=str(getattr(guild, "name", "") or ""),
+        )
+        isi = await rank_card.render_kartu(data, avatar_bytes=avatar)
+        if not isi:
+            return web.Response(
+                text="Kartu rank tidak bisa dirender (Pillow tidak tersedia atau dimatikan).",
+                status=503,
+                content_type="text/plain",
+            )
+        unduh = str(request.query.get("unduh") or "") in ("1", "true", "ya")
+        header = {
+            "Cache-Control": "no-store",
+            "Content-Disposition": (
+                f'attachment; filename="kartu-rank-{member or 0}.png"'
+                if unduh
+                else f'inline; filename="kartu-rank-{member or 0}.png"'
+            ),
+        }
+        return web.Response(body=isi, content_type="image/png", headers=header)
+
     async def handle_berkas(request):
         """Sajikan banner tersimpan untuk pratinjau di halaman dashboard."""
         if not _authorized(request):
@@ -2231,6 +2301,7 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/unggah", handle_unggah)
     app.router.add_post("/api/uji", handle_uji)
     app.router.add_get("/api/kartu/{jenis}", handle_kartu)
+    app.router.add_get("/api/rank.png", handle_rank_png)
     app.router.add_get("/api/ekspor", handle_ekspor)
     app.router.add_get("/api/panel", handle_panel)
     app.router.add_post("/api/panel", handle_panel)

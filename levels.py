@@ -71,6 +71,9 @@ def default_config() -> dict:
         "season_auto_hari": 0,          # 0 = reset musim manual saja (default aman)
         "season_announce": True,
         "season_history": [],           # ringkasan beberapa musim terakhir
+        # v1.40.0-beta: kartu rank PNG (lihat `rank_card.py`)
+        "kartu_aktif": True,            # izinkan `/level kartu` & pratinjau dashboard
+        "kartu_warna": "",              # hex aksen kartu ("" = aksen tema server)
         "prestige_aktif": True,
         "prestige_min_level": 0,        # 0 = pakai LEVELS_MAX_LEVEL
         "prestige_count": 0,
@@ -320,6 +323,12 @@ def set_level_config(guild_id: int, **changes) -> dict | None:
         cfg["season_auto_hari"] = max(0, min(365, int(changes["season_auto_hari"])))
     if changes.get("season_announce") is not None:
         cfg["season_announce"] = bool(changes["season_announce"])
+    if changes.get("kartu_aktif") is not None:
+        cfg["kartu_aktif"] = bool(changes["kartu_aktif"])
+    if changes.get("kartu_warna") is not None:
+        import rank_card
+
+        cfg["kartu_warna"] = rank_card.hex_warna(changes["kartu_warna"])
     if changes.get("prestige_aktif") is not None:
         cfg["prestige_aktif"] = bool(changes["prestige_aktif"])
     if changes.get("prestige_min_level") is not None:
@@ -541,6 +550,35 @@ def leaderboard(guild_id: int, *, limit: int = 10, page: int = 0) -> tuple[list[
     current_page = max(0, min(total_pages - 1, int(page)))
     start = current_page * size
     return rows[start : start + size], current_page, total_pages
+
+
+def rank_position(guild_id: int, user_id: int) -> tuple[int, int]:
+    """Posisi member di papan peringkat: `(peringkat, jumlah peserta)`.
+
+    Hanya member yang sudah punya XP dihitung. Member tanpa XP (atau tidak
+    dikenal) mendapat peringkat `0` supaya kartu rank bisa menulis "belum
+    diperingkat" alih-alih "#999".
+    """
+    gid = int(guild_id)
+    uid = int(user_id)
+    skor: list[int] = []
+    for key, data in levels.items():
+        try:
+            gid_str, _uid_str = key.split(":", 1)
+        except ValueError:
+            continue
+        if int(gid_str) != gid:
+            continue
+        nilai = int(data.get("xp") or 0)
+        if nilai > 0:
+            skor.append(nilai)
+    if not skor:
+        return 0, 0
+    skor.sort(reverse=True)
+    punyaku = int((levels.get(_key(gid, uid)) or {}).get("xp") or 0)
+    if punyaku <= 0:
+        return 0, len(skor)
+    return 1 + sum(1 for nilai in skor if nilai > punyaku), len(skor)
 
 
 def reset_member(guild_id: int, user_id: int) -> bool:

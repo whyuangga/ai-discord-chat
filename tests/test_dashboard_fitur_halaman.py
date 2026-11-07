@@ -159,7 +159,8 @@ def test_satu_halaman_per_grup_setelan():
                [b[0] for b in web_dashboard.BAGIAN_SAMBUTAN]) == {"welcome", "goodbye", "boost"}
     # Tiap grup setelan punya halaman sendiri
     assert set(web_dashboard.GRUP_HALAMAN.values()) <= set(halaman)
-    assert halaman["inti"]["panel"] == ("p-kontrol", "p-inti")
+    # Inti & level: kontrol cepat, setelan grup, + kartu rank (perender PNG)
+    assert halaman["inti"]["panel"] == ("p-kontrol", "p-inti", "p-rank")
     # Halaman tes gabungan & kartu di /kirim sudah tidak ada
     assert "uji" not in halaman
     assert "p-kartu" not in halaman["kirim"]["panel"]
@@ -337,7 +338,8 @@ def test_lima_grup_setelan_punya_halaman():
     # Halaman sambutan memuat tiga bagian, bukan tiga halaman terpisah
     assert [b[0] for b in web_dashboard.BAGIAN_SAMBUTAN] == ["welcome", "goodbye", "boost"]
     assert "perpisahan" not in halaman and "boost" not in halaman and "setelan" not in halaman
-    assert halaman["inti"]["panel"] == ("p-kontrol", "p-inti")
+    # Inti & level: kontrol cepat, setelan grup, + kartu rank (perender PNG)
+    assert halaman["inti"]["panel"] == ("p-kontrol", "p-inti", "p-rank")
 
 
 @pytest.mark.parametrize(
