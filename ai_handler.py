@@ -489,32 +489,17 @@ async def _sesi_untuk(thread_id: int, thread, bot_user_id):
     return session_data
 
 
-async def _siapkan_prompt(
-    prompt: str,
-    *,
-    image_parts,
-    image_filenames,
-    text_blocks,
-    url_reader_on: bool,
-    http_session,
-    riwayat: list,
-) -> dict:
-    """Susun prompt efektif: URL YouTube/web, lampiran, dan catatan riwayat.
-
-    Bila pengguna hanya menempelkan tautan (tanpa instruksi tambahan), prompt
-    otomatis meminta rangkuman supaya jawabannya tetap berguna.
-    """
-    combined_media_parts: list[dict] = list(image_parts or [])
+async def _kumpulkan_url_prompt(
+    prompt: str, url_reader_on: bool, http_session
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Ambil URL YouTube & web dari prompt, lengkap dengan isi halaman yang berhasil diunduh."""
     yt_urls: list[str] = []
     web_urls: list[str] = []
-    unfetched_web_urls: list[str] = []
-
     if url_reader_on and prompt.strip():
         yt_urls, web_urls = extract_urls_from_text(prompt)
-    for yt_url in yt_urls:
-        combined_media_parts.append({"fileData": {"fileUri": yt_url}})
 
     fetched_web_blocks: list[str] = []
+    unfetched_web_urls: list[str] = []
     for w_url in web_urls:
         w_title, w_body = await fetch_webpage_text(w_url, http_session=http_session)
         if w_body:
@@ -523,12 +508,28 @@ async def _siapkan_prompt(
         else:
             unfetched_web_urls.append(w_url)
 
-    stripped_prompt = prompt.strip()
+    return yt_urls, web_urls, fetched_web_blocks, unfetched_web_urls
+
+
+def _susun_prompt_efektif(
+    stripped_prompt: str,
+    yt_urls: list[str],
+    web_urls: list[str],
+    text_blocks,
+    fetched_web_blocks: list[str],
+    combined_media_parts: list[dict],
+    image_filenames,
+) -> tuple[str, bool, bool]:
+    """Gabungkan instruksi pengguna, lampiran, dan isi web jadi prompt efektif.
+
+    Mengembalikan `(effective_prompt, has_audio_only, has_pdf_only)`.
+    """
     tanpa_url = re.sub(r"https?://\S+", "", stripped_prompt).strip()
     only_yt_link = bool(yt_urls) and not tanpa_url
     only_web_link = bool(web_urls) and not yt_urls and not tanpa_url
 
     prompt_sections: list[str] = []
+
     if only_yt_link:
         prompt_sections.append(
             f"{stripped_prompt}\nTolong tonton/pahami isi video YouTube di atas lalu buat rangkuman lengkap "
@@ -543,12 +544,15 @@ async def _siapkan_prompt(
         prompt_sections.append(stripped_prompt)
 
     prompt_sections.extend(text_blocks or [])
+
     prompt_sections.extend(fetched_web_blocks)
 
     has_audio_only = bool(image_filenames) and all(
         fn.startswith(("voice_note:", "audio:")) for fn in image_filenames
     )
+
     has_pdf_only = bool(image_filenames) and all(fn.startswith("pdf:") for fn in image_filenames)
+
     if not prompt_sections and combined_media_parts:
         if has_audio_only:
             prompt_sections.append(
@@ -566,7 +570,19 @@ async def _siapkan_prompt(
             )
 
     effective_prompt = "\n\n".join(prompt_sections).strip()
+    return effective_prompt, has_audio_only, has_pdf_only
 
+
+def _catatan_riwayat(
+    stripped_prompt: str,
+    effective_prompt: str,
+    image_filenames,
+    yt_urls: list[str],
+    fetched_web_blocks: list[str],
+    has_audio_only: bool,
+    has_pdf_only: bool,
+) -> str:
+    """Satu baris ringkas untuk disimpan di riwayat percakapan."""
     history_note_parts: list[str] = []
     if image_filenames:
         files_label = ", ".join(image_filenames)
@@ -577,12 +593,51 @@ async def _siapkan_prompt(
         else:
             media_tag = "gambar"
         history_note_parts.append(f"[Pengguna melampirkan {media_tag}: {files_label}]")
+
     if yt_urls:
         history_note_parts.append(f"[Video YouTube: {', '.join(yt_urls)}]")
+
     if stripped_prompt:
         history_note_parts.append(stripped_prompt)
     elif effective_prompt and not fetched_web_blocks:
         history_note_parts.append(effective_prompt)
+
+    return "\n".join(history_note_parts).strip()
+
+
+async def _siapkan_prompt(
+    prompt: str,
+    *,
+    image_parts,
+    image_filenames,
+    text_blocks,
+    url_reader_on: bool,
+    http_session,
+    riwayat: list,
+) -> dict:
+    """Susun prompt efektif: URL YouTube/web, lampiran, dan catatan riwayat.
+
+    Bila pengguna hanya menempelkan tautan (tanpa instruksi tambahan), prompt
+    otomatis meminta rangkuman supaya jawabannya tetap berguna.
+    """
+    combined_media_parts: list[dict] = list(image_parts or [])
+    yt_urls: list[str] = []
+    unfetched_web_urls: list[str] = []
+    yt_urls, web_urls, fetched_web_blocks, unfetched_web_urls = await _kumpulkan_url_prompt(
+        prompt, url_reader_on, http_session
+    )
+    combined_media_parts.extend({"fileData": {"fileUri": url}} for url in yt_urls)
+
+    stripped_prompt = prompt.strip()
+    effective_prompt, has_audio_only, has_pdf_only = _susun_prompt_efektif(
+        stripped_prompt,
+        yt_urls,
+        web_urls,
+        text_blocks,
+        fetched_web_blocks,
+        combined_media_parts,
+        image_filenames,
+    )
 
     return {
         "parts": combined_media_parts,
@@ -595,8 +650,17 @@ async def _siapkan_prompt(
         "contents": _build_gemini_contents(
             riwayat, effective_prompt, image_parts=combined_media_parts or None
         ),
-        "history_entry": "\n".join(history_note_parts).strip(),
+        "history_entry": _catatan_riwayat(
+            stripped_prompt,
+            effective_prompt,
+            image_filenames,
+            yt_urls,
+            fetched_web_blocks,
+            has_audio_only,
+            has_pdf_only,
+        ),
     }
+
 
 
 def _susun_system_prompt(model_info: dict, server_knowledge: str, session_data: dict) -> str:
