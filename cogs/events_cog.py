@@ -766,6 +766,137 @@ async def _xp_dan_auto_reply(bot, message: discord.Message):
     return False
 
 
+async def _balas_atau_kirim(
+    message: discord.Message,
+    content_chunk: str,
+    prefer_reply: bool,
+    *,
+    view: discord.ui.View | None = None,
+) -> None:
+    """Balas pesan bila mungkin, kalau tidak kirim langsung ke channel."""
+    send_kw: dict = {}
+    if view is not None:
+        send_kw["view"] = view
+    if prefer_reply:
+        try:
+            await message.reply(content_chunk, mention_author=False, **send_kw)
+            return
+        except discord.HTTPException:
+            pass
+    await message.channel.send(content_chunk, **send_kw)
+
+
+async def _tandai_forum_starter(message: discord.Message, is_starter_forum_post: bool) -> None:
+    """Beri tag forum terbaik pada postingan starter yang belum punya tag."""
+    if not is_starter_forum_post or not isinstance(message.channel, discord.Thread):
+        return
+    if getattr(message.channel, "applied_tags", None):
+        return
+    parent = getattr(message.channel, "parent", None)
+    avail_tags = getattr(parent, "available_tags", None) or []
+    if not avail_tags:
+        return
+    picked = select_best_forum_tags(message.channel.name, message.content or "", avail_tags)
+    if picked:
+        try:
+            await message.channel.edit(applied_tags=picked)
+        except discord.HTTPException:
+            pass
+
+
+async def _komentar_galeri(
+    bot, message: discord.Message, http_session, *, is_starter_forum_post: bool
+) -> bool:
+    """Komentari otomatis lampiran galeri. `True` bila sudah membalas."""
+    conv_id = message.channel.id
+    lock = get_agent_channel_lock(conv_id)
+    async with lock:
+        async with message.channel.typing():
+            await _tandai_forum_starter(message, is_starter_forum_post)
+            comment_text, reaction_emoji = await generate_gallery_comment(
+                message,
+                bot.user,
+                http_session=http_session,
+            )
+            if comment_text:
+                if reaction_emoji:
+                    try:
+                        await message.add_reaction(reaction_emoji)
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass  # diabaikan (opsional)
+                await _balas_atau_kirim(message, comment_text[:1900], True)
+                return True
+
+    return False
+
+
+async def _balas_ai_terkunci(
+    bot,
+    message: discord.Message,
+    http_session,
+    *,
+    use_reply_ref: bool,
+    is_starter_forum_post: bool,
+) -> None:
+    """Kunci per channel + indikator mengetik selama balasan AI disiapkan."""
+    async with get_agent_channel_lock(message.channel.id):
+        async with message.channel.typing():
+            await _tandai_forum_starter(message, is_starter_forum_post)
+            reply_text = await generate_community_chat_reply(
+                message,
+                bot.user,
+                http_session=http_session,
+            )
+            if reply_text:
+                chunks = split_discord_message(reply_text)
+                last_idx = len(chunks) - 1
+                for idx, chunk in enumerate(chunks):
+                    solved_view = (
+                        ForumPostSolvedView()
+                        if (is_starter_forum_post and idx == last_idx)
+                        else None
+                    )
+                    await _balas_atau_kirim(
+                        message,
+                        chunk,
+                        idx == 0 and use_reply_ref,
+                        view=solved_view,
+                    )
+
+
+async def _balas_chat_komunitas(
+    bot, message: discord.Message, http_session, *, is_starter_forum_post: bool
+) -> bool:
+    """Auto-chat komunitas / postingan forum. `True` bila ditangani."""
+    should_reply, use_reply_ref = should_agent_reply_in_chat(message, bot.user)
+    if not should_reply:
+        return False
+    await _balas_ai_terkunci(
+        bot,
+        message,
+        http_session,
+        use_reply_ref=use_reply_ref,
+        is_starter_forum_post=is_starter_forum_post,
+    )
+    return True
+
+
+async def _balas_fitur_mandiri(
+    bot, message: discord.Message, http_session, *, is_starter_forum_post: bool
+) -> bool:
+    """Channel YouTube / pencarian berita (aktif walau tanpa `/agent chat`)."""
+    if not should_standalone_feature_reply(message, bot.user):
+        return False
+    await _balas_ai_terkunci(
+        bot,
+        message,
+        http_session,
+        use_reply_ref=True,
+        is_starter_forum_post=is_starter_forum_post,
+    )
+    return True
+
+
 async def _rute_ai(bot, message: discord.Message) -> None:
     """Rute AI Agent komunitas untuk channel teks, forum, dan thread publik."""
     if isinstance(message.channel, (discord.TextChannel, discord.Thread)) and bot.user is not None:
@@ -774,62 +905,23 @@ async def _rute_ai(bot, message: discord.Message) -> None:
         is_starter_forum_post = bool(is_forum_post and message.id == conv_id)
         http_session = getattr(bot, "http_session", None)
 
-        async def _safe_reply_or_send(
-            content_chunk: str,
-            prefer_reply: bool,
-            *,
-            view: discord.ui.View | None = None,
-        ) -> None:
-            send_kw: dict = {}
-            if view is not None:
-                send_kw["view"] = view
-            if prefer_reply:
-                try:
-                    await message.reply(content_chunk, mention_author=False, **send_kw)
-                    return
-                except discord.HTTPException:
-                    pass
-            await message.channel.send(content_chunk, **send_kw)
-
-        async def _maybe_auto_tag_forum_starter() -> None:
-            if not is_starter_forum_post or not isinstance(message.channel, discord.Thread):
-                return
-            if getattr(message.channel, "applied_tags", None):
-                return
-            parent = getattr(message.channel, "parent", None)
-            avail_tags = getattr(parent, "available_tags", None) or []
-            if not avail_tags:
-                return
-            picked = select_best_forum_tags(message.channel.name, message.content or "", avail_tags)
-            if picked:
-                try:
-                    await message.channel.edit(applied_tags=picked)
-                except discord.HTTPException:
-                    pass
-
         if cfg_cid is not None:
-            if cfg_cid in chat_agent_channels and cfg_cid in gallery_agent_channels and message.attachments:
+            if (
+                cfg_cid in chat_agent_channels
+                and cfg_cid in gallery_agent_channels
+                and message.attachments
+            ):
                 record_human_channel_activity(cfg_cid)
 
-            # 2A. Gallery Auto-Comment (Foto, Gambar, & Video di Text Channel maupun Forum/Media Showcase)
+            # 2A. Gallery Auto-Comment (foto, gambar & video di text channel / forum media)
             if cfg_cid in gallery_agent_channels and message.attachments:
-                lock = get_agent_channel_lock(conv_id)
-                async with lock:
-                    async with message.channel.typing():
-                        await _maybe_auto_tag_forum_starter()
-                        comment_text, reaction_emoji = await generate_gallery_comment(
-                            message,
-                            bot.user,
-                            http_session=http_session,
-                        )
-                        if comment_text:
-                            if reaction_emoji:
-                                try:
-                                    await message.add_reaction(reaction_emoji)
-                                except (discord.Forbidden, discord.HTTPException):
-                                    pass  # diabaikan (opsional)
-                            await _safe_reply_or_send(comment_text[:1900], True)
-                            return
+                if await _komentar_galeri(
+                    bot,
+                    message,
+                    http_session,
+                    is_starter_forum_post=is_starter_forum_post,
+                ):
+                    return
 
         # 2B. Mini-Game Tongkrongan Aktif
         if conv_id in active_channel_games:
@@ -841,59 +933,16 @@ async def _rute_ai(bot, message: discord.Message) -> None:
         if cfg_cid is not None:
             # 2C. Auto-Chat Komunitas & Postingan Forum Natural
             if cfg_cid in chat_agent_channels:
-                should_reply, use_reply_ref = should_agent_reply_in_chat(message, bot.user)
-                if should_reply:
-                    lock = get_agent_channel_lock(conv_id)
-                    async with lock:
-                        async with message.channel.typing():
-                            await _maybe_auto_tag_forum_starter()
-                            reply_text = await generate_community_chat_reply(
-                                message,
-                                bot.user,
-                                http_session=http_session,
-                            )
-                            if reply_text:
-                                chunks = split_discord_message(reply_text)
-                                last_idx = len(chunks) - 1
-                                for idx, chunk in enumerate(chunks):
-                                    solved_view = (
-                                        ForumPostSolvedView()
-                                        if (is_starter_forum_post and idx == last_idx)
-                                        else None
-                                    )
-                                    await _safe_reply_or_send(
-                                        chunk,
-                                        idx == 0 and use_reply_ref,
-                                        view=solved_view,
-                                    )
+                if await _balas_chat_komunitas(
+                    bot, message, http_session, is_starter_forum_post=is_starter_forum_post
+                ):
                     return
 
-            # 2D. Channel / Forum Khusus YouTube atau Pencarian Berita (Aktif walau tanpa /agent chat)
+            # 2D. Channel / Forum Khusus YouTube atau Pencarian Berita
             elif cfg_cid in youtube_agent_channels or cfg_cid in search_agent_channels:
-                if should_standalone_feature_reply(message, bot.user):
-                    lock = get_agent_channel_lock(conv_id)
-                    async with lock:
-                        async with message.channel.typing():
-                            await _maybe_auto_tag_forum_starter()
-                            reply_text = await generate_community_chat_reply(
-                                message,
-                                bot.user,
-                                http_session=http_session,
-                            )
-                            if reply_text:
-                                chunks = split_discord_message(reply_text)
-                                last_idx = len(chunks) - 1
-                                for idx, chunk in enumerate(chunks):
-                                    solved_view = (
-                                        ForumPostSolvedView()
-                                        if (is_starter_forum_post and idx == last_idx)
-                                        else None
-                                    )
-                                    await _safe_reply_or_send(
-                                        chunk,
-                                        idx == 0,
-                                        view=solved_view,
-                                    )
+                if await _balas_fitur_mandiri(
+                    bot, message, http_session, is_starter_forum_post=is_starter_forum_post
+                ):
                     return
 
     await bot.process_commands(message)
