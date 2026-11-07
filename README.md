@@ -112,6 +112,8 @@ Tiga hal yang sering ditanya:
 
 > 📌 **Catatan terpisah:** [rencana dashboard web, BYOK, & “isi sendiri API key” yang masih diparkir](docs/catatan-dashboard-dan-kunci-api.md).
 >
+> 🔍 **Rencana fitur:** [bedah 6 bot pembanding (Arclo, Axis, wisp, AdmiBot, ByteMate, breed) & roadmap paket A–D](docs/rencana-fitur-bot-lain.md).
+>
 > 🛰️ **Dashboard untuk instance sendiri:** jalankan `python tools/dashboard_token.py --tulis`
 > (membuat token & mengisi `.env`), lalu `python tools/dashboard_token.py --periksa` untuk cek
 > kesiapan dan melihat alamat yang dibuka. Tanpa login OAuth — tiap orang memakai tokannya sendiri.
@@ -642,7 +644,8 @@ ai-discord-chat/
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
 │   ├── command.md          # Referensi 53 command utama, 236 subcommand, & tombol panel
-│   └── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
+│   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
+│   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
 │   ├── hugo.toml           # Konfigurasi situs: params.docs, pencarian, warna tema
 │   ├── vercel.json         # Setelan build Vercel (Hugo 0.169.0, output public)
