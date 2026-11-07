@@ -310,71 +310,40 @@ async def menu_bagikan_cmd(interaction: discord.Interaction, menu: str):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@menu_group.command(name="impor", description="Buat panel dari berkas JSON atau tautan bagikan (Admin)")
-@app_commands.describe(
-    berkas="Berkas .json hasil `/menu ekspor`",
-    judul="Judul baru (opsional — bawaan: judul di berkas)",
-    kode="Tautan bagikan dari `/menu bagikan` (bisa URL lengkap atau kodenya saja)",
-)
-async def menu_impor_cmd(
-    interaction: discord.Interaction,
-    berkas: discord.Attachment | None = None,
-    judul: str | None = None,
-    kode: str | None = None,
-):
-    if interaction.guild is None:
-        return
-    gid = interaction.guild.id
-    if not await _guard(interaction, gid):
-        return
-
-    if berkas is None:
-        if not kode:
-            await ui_kit.send_status(
-                interaction,
-                embed=ui_theme.status_embed(
-                    gid, "info", "Pilih sumber panel",
-                    "Lampirkan `berkas` hasil `/menu ekspor`, atau tempel `kode` dari `/menu bagikan`.",
-                ),
-                ephemeral=True,
-            )
-            return
-        payload, galat_kode = menu_builder.decode_share(kode)
-        if payload is None:
-            await ui_kit.send_status(
-                interaction,
-                embed=ui_theme.status_embed(
-                    gid, "error", "Kode tidak bisa dibaca",
-                    "\n".join(f"• {g}" for g in galat_kode)[:1500],
-                ),
-                ephemeral=True,
-            )
-            return
-        record, galat = menu_builder.import_menu(gid, payload, title=judul)
-        if record is None:
-            await ui_kit.send_status(
-                interaction,
-                embed=ui_theme.status_embed(
-                    gid, "error", "Impor gagal",
-                    "\n".join(galat)[:1500] or "Kode tidak berisi panel.",
-                ),
-                ephemeral=True,
-            )
-            return
-        await menu_builder.save_menus_to_disk()
-        catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
+async def _impor_dari_kode(
+    interaction: discord.Interaction, gid: int, kode: str, judul: str | None
+) -> None:
+    """Impor panel dari kode/tautan bagikan, lalu kirim status hasilnya."""
+    payload, galat_kode = menu_builder.decode_share(kode)
+    if payload is None:
         await ui_kit.send_status(
             interaction,
             embed=ui_theme.status_embed(
-                gid, "ok", "Panel diimpor dari tautan",
-                f"**{record['title']}** (`{record['id']}`) siap — "
-                f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
-                f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
+                gid, "error", "Kode tidak bisa dibaca",
+                "\n".join(f"• {g}" for g in galat_kode)[:1500],
             ),
             ephemeral=True,
         )
         return
+    record, galat = menu_builder.import_menu(gid, payload, title=judul)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Impor gagal",
+                "\n".join(galat)[:1500] or "Kode tidak berisi panel.",
+            ),
+            ephemeral=True,
+        )
+        return
+    await menu_builder.save_menus_to_disk()
+    await _kirim_hasil_impor(interaction, gid, record, galat, dari_berkas=False)
 
+
+async def _muat_payload_berkas(
+    interaction: discord.Interaction, gid: int, berkas: discord.Attachment
+) -> dict | None:
+    """Baca & parse JSON lampiran; `None` bila ditolak (status sudah dikirim)."""
     ukuran = int(getattr(berkas, "size", 0) or 0)
     if ukuran > menu_builder.MAX_IMPORT_BYTES:
         await ui_kit.send_status(
@@ -397,7 +366,62 @@ async def menu_impor_cmd(
             ephemeral=True,
         )
         return
+    return payload
 
+
+async def _kirim_hasil_impor(
+    interaction: discord.Interaction, gid: int, record: dict, galat: list[str],
+    *, dari_berkas: bool,
+) -> None:
+    """Laporkan panel hasil impor: judul, jumlah tombol/dropdown, dan catatan."""
+    catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid, "ok", "Panel diimpor" if dari_berkas else "Panel diimpor dari tautan",
+            f"**{record['title']}** (`{record['id']}`) siap — "
+            f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
+            f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
+        ),
+        follow=dari_berkas,
+        ephemeral=True,
+    )
+
+
+@menu_group.command(name="impor", description="Buat panel dari berkas JSON atau tautan bagikan (Admin)")
+@app_commands.describe(
+    berkas="Berkas .json hasil `/menu ekspor`",
+    judul="Judul baru (opsional — bawaan: judul di berkas)",
+    kode="Tautan bagikan dari `/menu bagikan` (bisa URL lengkap atau kodenya saja)",
+)
+async def menu_impor_cmd(
+    interaction: discord.Interaction,
+    berkas: discord.Attachment | None = None,
+    judul: str | None = None,
+    kode: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+    if berkas is None:
+        if not kode:
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid, "info", "Pilih sumber panel",
+                    "Lampirkan `berkas` hasil `/menu ekspor`, atau tempel `kode` dari `/menu bagikan`.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await _impor_dari_kode(interaction, gid, kode, judul)
+        return
+    payload = await _muat_payload_berkas(interaction, gid, berkas)
+    if payload is None:
+        return
     record, galat = menu_builder.import_menu(gid, payload, title=judul)
     if record is None:
         await ui_kit.send_status(
@@ -411,18 +435,7 @@ async def menu_impor_cmd(
 
     await interaction.response.defer(ephemeral=True, thinking=True)
     await menu_builder.save_menus_to_disk()
-    catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
-    await ui_kit.send_status(
-        interaction,
-        embed=ui_theme.status_embed(
-            gid, "ok", "Panel diimpor",
-            f"**{record['title']}** (`{record['id']}`) siap — "
-            f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
-            f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
-        ),
-        follow=True,
-        ephemeral=True,
-    )
+    await _kirim_hasil_impor(interaction, gid, record, galat, dari_berkas=True)
 
 
 @menu_group.command(name="ubah", description="Ubah judul/deskripsi panel yang sudah terkirim (Admin)")
