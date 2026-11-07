@@ -7,7 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import ai_handler
 import ai_user_settings as aus
+import storage
 from cogs import setelan_ai_cog as sc
 
 UID = 424242
@@ -28,7 +30,13 @@ def _bersih(monkeypatch, tmp_path):
 
 def test_bawaan_lengkap():
     data = aus.get_user(UID)
-    assert data == {"panjang": "normal", "prompt": "", "rasio": ""}
+    assert data == {
+        "panjang": "normal",
+        "prompt": "",
+        "rasio": "",
+        "temperatur": "bawaan",
+        "bahasa": "auto",
+    }
     assert aus.gabung_instruksi(UID) == ""  # tidak ada instruksi tambahan
 
 
@@ -44,14 +52,28 @@ def test_set_user_dan_validasi():
 
 
 def test_setelan_bawaan_tidak_disimpan():
-    aus.set_user(UID, panjang="normal", prompt="", rasio="")
+    aus.set_user(UID, panjang="normal", prompt="", rasio="", temperatur="bawaan", bahasa="auto")
     assert UID not in aus.users
+
+
+def test_temperature_bahasa_dan_validasi():
+    assert aus.get_temperature(UID) is None
+    assert aus.language_instruction(UID) == ""
+
+    aus.set_user(UID, temperatur="kreatif", bahasa="en")
+    assert aus.get_temperature(UID) == 1.0
+    instruksi = aus.language_instruction(UID)
+    assert "English" in instruksi and "permintaan eksplisit" in instruksi
+
+    aus.set_user(UID, temperatur="asing", bahasa="xx")
+    assert aus.get_user(UID)["temperatur"] == "bawaan"
+    assert aus.get_user(UID)["bahasa"] == "auto"
 
 
 def test_reset_user():
     aus.set_user(UID, panjang="singkat", rasio="16:9 (Landscape)")
     aus.reset_user(UID)
-    assert aus.get_user(UID) == {"panjang": "normal", "prompt": "", "rasio": ""}
+    assert aus.get_user(UID) == aus.default_user()
     assert aus.rasio_bawaan(UID) == ""
 
 
@@ -99,7 +121,8 @@ def test_statistik():
 
 @pytest.mark.asyncio
 async def test_simpan_muat_putaran_penuh():
-    aus.set_user(UID, panjang="detail", prompt="pakai emoji", rasio="4:3 (Klasik)")
+    aus.set_user(UID, panjang="detail", prompt="pakai emoji", rasio="4:3 (Klasik)",
+                 temperatur="konsisten", bahasa="ja")
     aus.set_server_prompt(GID, "gaya santai", oleh=3)
     await aus.save_to_disk()
 
@@ -107,6 +130,8 @@ async def test_simpan_muat_putaran_penuh():
     member, server = aus.load_from_disk()
     assert (member, server) == (1, 1)
     assert aus.get_user(UID)["panjang"] == "detail"
+    assert aus.get_temperature(UID) == 0.2
+    assert aus.get_user(UID)["bahasa"] == "ja"
     assert aus.get_server_prompt(GID) == "gaya santai"
 
 
@@ -133,6 +158,8 @@ def test_group_setelan_ai():
     assert nama == {"lihat", "atur", "prompt-server", "reset"}
     assert {c.value for c in sc.PANJANG} == set(aus.PANJANG)
     assert len(sc.RASIO) == 5
+    assert {c.value for c in sc.TEMPERATUR} == set(aus.TEMPERATUR)
+    assert {c.value for c in sc.BAHASA} == set(aus.BAHASA)
 
 
 def test_hanya_admin_bisa_ubah_prompt_server():
@@ -146,3 +173,52 @@ def test_hanya_admin_bisa_ubah_prompt_server():
     assert sc._admin(_interaksi(administrator=True))
     assert sc._admin(_interaksi(manage_guild=True))
     assert not sc._admin(_interaksi())
+
+
+class _GeminiResponse:
+    status = 200
+    headers = {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    async def json(self, content_type=None):
+        return {"candidates": [{"content": {"parts": [{"text": "Hello there, this is a test response."}]}}]}
+
+
+class _GeminiHttp:
+    closed = False
+
+    def __init__(self):
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append({"url": url, **kwargs})
+        return _GeminiResponse()
+
+
+@pytest.mark.asyncio
+async def test_preferensi_diterapkan_pada_payload_gemini(monkeypatch):
+    aus.set_user(UID, temperatur="kreatif", bahasa="en")
+    storage.init_thread_session(987654321, "gemini_flash", owner_id=UID)
+    monkeypatch.setattr(ai_handler, "GEMINI_API_KEY", "AIzaFakeValidKey12345")
+
+    async def _tanpa_simpan():
+        return None
+
+    monkeypatch.setattr(ai_handler, "save_sessions_to_disk", _tanpa_simpan)
+    http = _GeminiHttp()
+    try:
+        reply = await ai_handler.get_ai_response(
+            987654321, "Apa kabar?", http_session=http, user_id=UID, guild_id=GID
+        )
+        payload = http.calls[0]["json"]
+        assert reply.startswith("Hello there")
+        assert payload["generationConfig"]["temperature"] == 1.0
+        teks = json.dumps(payload["contents"], ensure_ascii=False)
+        assert "gunakan English" in teks
+    finally:
+        storage.thread_chats.pop(987654321, None)

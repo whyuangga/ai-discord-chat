@@ -2277,7 +2277,9 @@ Dari purpleGPT (`/settings` & `/server_prompt`), tanpa biaya tambahan: instruksi
 **teks tambahan** pada prompt AI, jadi kuota tetap sama dan model tidak berubah.
 
 - **Per member** (`/setelan-ai atur`): **panjang jawaban** (`singkat` maks 3 kalimat / `normal` /
-  `detail` poin + contoh), **prompt pribadi** (maks 300 huruf, mis. *"pakai analogi sederhana"*),
+  `detail` poin + contoh), **temperature** (bawaan model / konsisten `0,2` / seimbang `0,7` /
+  kreatif `1,0`), **bahasa balasan** (otomatis atau Indonesia, Inggris, Spanyol, Prancis, Jepang,
+  Korea, Portugis, Mandarin), **prompt pribadi** (maks 300 huruf, mis. *"pakai analogi sederhana"*),
   dan **rasio gambar bawaan** untuk `/gambar`.
 - **Per server** (`/setelan-ai prompt-server`, khusus Admin): satu "kepribadian" yang ditempelkan
   ke semua balasan AI di server itu (maks 500 huruf; kosongkan untuk menghapus).

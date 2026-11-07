@@ -251,11 +251,12 @@ dashboard:
    **referensi gambar**. ✅ **Sudah jalan** (v1.40): `cogs/gambar_cog.py` — `/gambar
    buat|edit|pilihan`, `generate_image(style=…, ratio=…)` per panggilan (tanpa mengubah setelan
    channel), jeda 20 detik/member, dan `/gambar edit` memakai gambar terakhir otomatis.
-3. **Setelan AI per member (`/setelan-ai`)** — panjang jawaban, rasio gambar, dan **prompt
-   pribadi** (maks 300 huruf) + **kepribadian AI per server** (`/setelan-ai prompt-server`,
-   gaya purpleGPT `/server_prompt`). ✅ **Sudah jalan** (v1.40): `ai_user_settings.py` +
-   `cogs/setelan_ai_cog.py`; instruksi digabung ke prompt di `get_ai_response(user_id=…,
-   guild_id=…)` sehingga kuota tidak bertambah, dan `/gambar` memakai rasio bawaan member.
+3. **Setelan AI per member (`/setelan-ai`)** — panjang jawaban, temperature, bahasa balasan,
+   rasio gambar, dan **prompt pribadi** (maks 300 huruf) + **kepribadian AI per server**
+   (`/setelan-ai prompt-server`, gaya purpleGPT `/server_prompt`). ✅ **Sudah jalan** (v1.40):
+   `ai_user_settings.py` + `cogs/setelan_ai_cog.py`; temperature diterapkan ke konfigurasi Gemini,
+   bahasa/panjang/prompt menjadi instruksi, semua per member tanpa menambah kuota, dan `/gambar`
+   memakai rasio bawaan member.
 4. **`/meme`** — meme lokal (Pillow yang sudah dipakai kartu sambutan), **0 kuota AI**.
    ✅ **Sudah jalan** (v1.40): `meme_maker.py` + `/meme` dengan **6 gaya** (klasik, impact,
    drake dua panel, neon, kertas, terminal), teks dibungkus otomatis, hasil PNG 800×800.

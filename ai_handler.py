@@ -323,10 +323,12 @@ async def get_ai_response(
     """Mendapatkan balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search) dari Google Gemini API."""
 
     # Setelan AI per member & kepribadian server (tanpa menambah kuota: hanya teks tambahan).
+    temperature_override: float | None = None
     try:
         import ai_user_settings
 
         instruksi = ai_user_settings.gabung_instruksi(user_id, guild_id)
+        temperature_override = ai_user_settings.get_temperature(user_id)
         if instruksi:
             prompt = f"{prompt}\n\n[Instruksi gaya — patuhi bila tidak bertentangan dengan aturan: {instruksi}]"
     except Exception:  # pragma: no cover - jaring aman
@@ -489,7 +491,10 @@ async def get_ai_response(
                 tools_list.append({"google_search": {}})
 
             for s_idx, s_model in enumerate(grounded_models):
-                s_gen_cfg: dict = {"temperature": 0.5, "maxOutputTokens": 4096}
+                s_gen_cfg: dict = {
+                    "temperature": temperature_override if temperature_override is not None else 0.5,
+                    "maxOutputTokens": 4096,
+                }
                 s_think = build_thinking_config(s_model, "low")
                 if s_think:
                     s_gen_cfg["thinkingConfig"] = s_think
@@ -548,7 +553,11 @@ async def get_ai_response(
         models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
         for attempt_idx, candidate_model in enumerate(models_to_try):
             gen_config: dict = {
-                "temperature": model_info.get("temperature", 0.7),
+                "temperature": (
+                    temperature_override
+                    if temperature_override is not None
+                    else model_info.get("temperature", 0.7)
+                ),
                 "maxOutputTokens": 8192,
             }
             thinking_cfg = build_thinking_config(candidate_model, desired_thinking)

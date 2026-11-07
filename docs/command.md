@@ -85,8 +85,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/bangun terapkan` | — | *(Admin)* Terapkan rencana terakhir yang menunggu konfirmasi. |
 | `/bangun riwayat` | — | Lihat pembangunan terakhir di server ini. |
 | `/bangun bongkar` | — | *(Admin)* Hapus hanya item yang tercatat dibuat `/bangun`. |
-| `/setelan-ai lihat` | — | Lihat setelan AI-mu (panjang, prompt pribadi, rasio, kepribadian server). |
-| `/setelan-ai atur` | `panjang`, `prompt`, `rasio` | Atur gaya jawaban AI & rasio gambar bawaanmu. |
+| `/setelan-ai lihat` | — | Lihat setelan AI-mu (panjang, temperature, bahasa, prompt pribadi, rasio, kepribadian server). |
+| `/setelan-ai atur` | `panjang`, `prompt`, `rasio`, `temperatur`, `bahasa` | Atur gaya jawaban, temperature, bahasa balasan, prompt pribadi & rasio gambar bawaanmu. |
 | `/setelan-ai prompt-server` | `teks` | *(Admin)* Kepribadian AI untuk seluruh server (kosongkan untuk menghapus). |
 | `/setelan-ai reset` | — | Kembalikan setelan AI-mu ke bawaan. |
 | `/gambar buat` | `prompt`, `rasio`, `gaya`, `acuan` | Buat gambar AI (5 rasio, belasan gaya); opsional gambar acuan. |
