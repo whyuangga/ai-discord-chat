@@ -1387,22 +1387,13 @@ async def search_web_with_gemini(
     return None, f"⚠️ Gagal mencari informasi: {last_err}"
 
 
-async def analyze_link_with_gemini(
-    raw_url: str,
-    question: str | None = "",
-    *,
-    timezone_name: str = BOT_TIMEZONE,
-    http_session: aiohttp.ClientSession | None = None,
-) -> tuple[str | None, str | None]:
-    """Merangkum atau menjawab pertanyaan seputar link video YouTube maupun artikel halaman web."""
-    if not is_gemini_key_configured():
-        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+async def _parts_analisis_link(
+    yt_urls: list[str], web_urls: list[str], q_clean: str, http_session
+) -> tuple[list[dict], bool, str]:
+    """Bangun `parts` Gemini dari link YouTube atau isi halaman web.
 
-    q_clean = (question or "").strip()
-    yt_urls, web_urls = extract_urls_from_text(raw_url, include_ignored_domains=False)
-    if not yt_urls and not web_urls:
-        return None, "⚠️ Link tidak valid atau mengarah ke jaringan lokal/internal yang dibatasi."
-
+    Mengembalikan `(parts, use_url_context, target_label)`.
+    """
     parts: list[dict] = []
     use_url_context = False
     target_label = yt_urls[0] if yt_urls else web_urls[0]
@@ -1426,21 +1417,23 @@ async def analyze_link_with_gemini(
             use_url_context = True
             parts.append({"text": f"Buka dan baca URL ini: {web_urls[0]}\nInstruksi: {user_task}"})
 
-    time_ctx = get_realtime_time_context(timezone_name)
-    system_prompt = (
-        "Kamu adalah asisten perangkum konten video YouTube dan artikel web berbahasa Indonesia yang tajam, "
-        f"akurat, rapi, dan mudah dipahami. Waktu saat ini: {time_ctx['summary']}."
-    )
+    return parts, use_url_context, target_label
 
-    active_keys = get_gemini_keys_rotated()
-    chain = (
-        _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
-        if use_url_context
-        else _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-    )
-    last_err = f"Tidak dapat memproses link `{target_label}`."
 
-    req_link_timeout = VIDEO_LINK_TIMEOUT if yt_urls else CHAT_TIMEOUT
+async def _jalankan_analisis_link(
+    http_session,
+    *,
+    chain: list[str],
+    active_keys: list[str],
+    parts: list[dict],
+    system_prompt: str,
+    use_url_context: bool,
+    yt_urls: list[str],
+    target_label: str,
+    req_link_timeout,
+    last_err: str,
+) -> tuple[str | None, str | None]:
+    """Coba tiap model di `chain` sampai ada yang menjawab."""
     async with _borrow_session(http_session, req_link_timeout) as session:
         for idx, model_id in enumerate(chain):
             gen_config: dict = {"temperature": 0.4, "maxOutputTokens": 4096}
@@ -1490,6 +1483,66 @@ async def analyze_link_with_gemini(
                 mark_model_unhealthy(model_id)
                 continue
 
+
+    return None, f"⚠️ Gagal menganalisis link: {last_err}"
+
+
+async def analyze_link_with_gemini(
+    raw_url: str,
+    question: str | None = "",
+    *,
+    timezone_name: str = BOT_TIMEZONE,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Merangkum atau menjawab pertanyaan seputar link video YouTube maupun artikel halaman web."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    q_clean = (question or "").strip()
+
+    yt_urls, web_urls = extract_urls_from_text(raw_url, include_ignored_domains=False)
+
+    if not yt_urls and not web_urls:
+        return None, "⚠️ Link tidak valid atau mengarah ke jaringan lokal/internal yang dibatasi."
+
+
+    parts, use_url_context, target_label = await _parts_analisis_link(
+        yt_urls, web_urls, q_clean, http_session
+    )
+
+    time_ctx = get_realtime_time_context(timezone_name)
+
+    system_prompt = (
+        "Kamu adalah asisten perangkum konten video YouTube dan artikel web berbahasa Indonesia yang tajam, "
+        f"akurat, rapi, dan mudah dipahami. Waktu saat ini: {time_ctx['summary']}."
+    )
+
+
+    active_keys = get_gemini_keys_rotated()
+
+    chain = (
+        _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+        if use_url_context
+        else _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    )
+
+    last_err = f"Tidak dapat memproses link `{target_label}`."
+
+    req_link_timeout = VIDEO_LINK_TIMEOUT if yt_urls else CHAT_TIMEOUT
+
+
+    return await _jalankan_analisis_link(
+        http_session,
+        chain=chain,
+        active_keys=active_keys,
+        parts=parts,
+        system_prompt=system_prompt,
+        use_url_context=use_url_context,
+        yt_urls=yt_urls,
+        target_label=target_label,
+        req_link_timeout=req_link_timeout,
+        last_err=last_err,
+    )
     return None, f"⚠️ Gagal menganalisis link: {last_err}"
 
 
