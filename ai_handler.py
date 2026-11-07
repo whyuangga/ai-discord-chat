@@ -803,6 +803,104 @@ def _mime_to_extension(mime_type: str) -> str:
     return "png"
 
 
+async def _gambar_lewat_gemini(
+    session,
+    full_prompt: str,
+    aspect_ratio: str,
+    reference_images: list[dict] | None,
+    gemini_errors: list[str],
+):
+    """Coba Gemini native image; `(label, file, None)` bila berhasil."""
+    active_keys = get_gemini_keys_rotated()
+    if not active_keys:
+        return None
+    request_parts: list[dict] = []
+    if reference_images:
+        request_parts.extend(reference_images)
+    request_parts.append({"text": full_prompt})
+
+    payload = {
+        "contents": [{"parts": request_parts}],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {
+                "aspectRatio": aspect_ratio,
+            },
+        },
+    }
+
+    models_list = _build_model_chain(GEMINI_IMAGE_FALLBACK_CHAIN[0], GEMINI_IMAGE_FALLBACK_CHAIN)
+    # Jika hanya mencoba edit gambar pada Free Tier, cukup tes 1 model agar tidak lambat
+    if not GEMINI_PAID_IMAGE_ENABLED:
+        models_list = models_list[:1]
+
+    for k_idx, img_model in enumerate(models_list):
+        headers = {
+            "x-goog-api-key": active_keys[k_idx % len(active_keys)],
+            "Content-Type": "application/json",
+        }
+        url = f"{GEMINI_API_BASE}/{img_model}:generateContent"
+        try:
+            async with session.post(url, headers=headers, json=payload, timeout=IMAGE_TIMEOUT) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status == 200 and isinstance(data, dict):
+                    candidates = data.get("candidates") or []
+                    if candidates:
+                        parts = (candidates[0].get("content") or {}).get("parts") or []
+                        for part in parts:
+                            inline = part.get("inlineData") or part.get("inline_data")
+                            if isinstance(inline, dict) and inline.get("data"):
+                                img_bytes = base64.b64decode(inline["data"])
+                                ext = _mime_to_extension(inline.get("mimeType") or inline.get("mime_type") or "")
+                                file_obj = discord.File(
+                                    io.BytesIO(img_bytes),
+                                    filename=f"gemini_generated.{ext}",
+                                )
+                                return f"Google Gemini ({img_model})", file_obj, None
+
+                err_msg = ""
+                if isinstance(data, dict) and isinstance(data.get("error"), dict):
+                    err_msg = data["error"].get("message") or str(resp.status)
+                else:
+                    err_msg = f"HTTP {resp.status}"
+                gemini_errors.append(f"{img_model}: {sanitize_error_message(err_msg)}")
+        except Exception as exc:
+            gemini_errors.append(f"{img_model}: {sanitize_error_message(exc)}")
+    return None
+
+
+async def _gambar_lewat_flux(
+    session,
+    full_prompt: str,
+    width: int,
+    height: int,
+    gemini_errors: list[str],
+):
+    """Coba generator gambar gratis (Flux); `(label, file, None)` bila berhasil."""
+    seed = random.randint(1, 999_999_999)
+    encoded = urllib.parse.quote(full_prompt)
+    fallback_url = (
+        f"https://image.pollinations.ai/prompt/{encoded}"
+        f"?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+    )
+    try:
+        async with session.get(fallback_url, timeout=IMAGE_TIMEOUT) as resp:
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            if resp.status == 200 and content_type.startswith("image/"):
+                img_bytes = await resp.read()
+                if len(img_bytes) > 1024:
+                    ext = _mime_to_extension(content_type)
+                    file_obj = discord.File(
+                        io.BytesIO(img_bytes),
+                        filename=f"generated.{ext}",
+                    )
+                    return "Flux AI (Free Tier)", file_obj, None
+            gemini_errors.append(f"Flux HTTP {resp.status}")
+    except Exception as exc:
+        gemini_errors.append(f"Flux: {sanitize_error_message(exc)}")
+    return None
+
+
 async def generate_image(
     thread_id: int,
     prompt: str,
@@ -834,88 +932,23 @@ async def generate_image(
 
     gemini_errors: list[str] = []
     should_try_gemini_image = GEMINI_PAID_IMAGE_ENABLED or bool(reference_images)
-
     async with MEDIA_SEMAPHORE:
         async with _borrow_session(http_session, IMAGE_TIMEOUT) as session:
-            # 1. GOOGLE GEMINI NATIVE IMAGE GENERATION (Aktif jika Paid Tier atau Edit Gambar)
-            active_keys = get_gemini_keys_rotated()
-            if should_try_gemini_image and active_keys:
-                request_parts: list[dict] = []
-                if reference_images:
-                    request_parts.extend(reference_images)
-                request_parts.append({"text": full_prompt})
-
-                payload = {
-                    "contents": [{"parts": request_parts}],
-                    "generationConfig": {
-                        "responseModalities": ["TEXT", "IMAGE"],
-                        "imageConfig": {
-                            "aspectRatio": aspect_ratio,
-                        },
-                    },
-                }
-
-                models_list = _build_model_chain(GEMINI_IMAGE_FALLBACK_CHAIN[0], GEMINI_IMAGE_FALLBACK_CHAIN)
-                # Jika hanya mencoba edit gambar pada Free Tier, cukup tes 1 model agar tidak lambat
-                if not GEMINI_PAID_IMAGE_ENABLED:
-                    models_list = models_list[:1]
-
-                for k_idx, img_model in enumerate(models_list):
-                    headers = {
-                        "x-goog-api-key": active_keys[k_idx % len(active_keys)],
-                        "Content-Type": "application/json",
-                    }
-                    url = f"{GEMINI_API_BASE}/{img_model}:generateContent"
-                    try:
-                        async with session.post(url, headers=headers, json=payload, timeout=IMAGE_TIMEOUT) as resp:
-                            data = await resp.json(content_type=None)
-                            if resp.status == 200 and isinstance(data, dict):
-                                candidates = data.get("candidates") or []
-                                if candidates:
-                                    parts = (candidates[0].get("content") or {}).get("parts") or []
-                                    for part in parts:
-                                        inline = part.get("inlineData") or part.get("inline_data")
-                                        if isinstance(inline, dict) and inline.get("data"):
-                                            img_bytes = base64.b64decode(inline["data"])
-                                            ext = _mime_to_extension(inline.get("mimeType") or inline.get("mime_type") or "")
-                                            file_obj = discord.File(
-                                                io.BytesIO(img_bytes),
-                                                filename=f"gemini_generated.{ext}",
-                                            )
-                                            return f"Google Gemini ({img_model})", file_obj, None
-
-                            err_msg = ""
-                            if isinstance(data, dict) and isinstance(data.get("error"), dict):
-                                err_msg = data["error"].get("message") or str(resp.status)
-                            else:
-                                err_msg = f"HTTP {resp.status}"
-                            gemini_errors.append(f"{img_model}: {sanitize_error_message(err_msg)}")
-                    except Exception as exc:
-                        gemini_errors.append(f"{img_model}: {sanitize_error_message(exc)}")
-
-            # 2. GENERATOR GAMBAR GRATIS (Langsung dieksekusi di Free Tier tanpa menunggu error!)
-            if ENABLE_IMAGE_FALLBACK and not reference_images:
-                seed = random.randint(1, 999_999_999)
-                encoded = urllib.parse.quote(full_prompt)
-                fallback_url = (
-                    f"https://image.pollinations.ai/prompt/{encoded}"
-                    f"?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+            # 1. Gemini native image (aktif bila Paid Tier atau sedang mengedit gambar)
+            if should_try_gemini_image:
+                hasil = await _gambar_lewat_gemini(
+                    session, full_prompt, aspect_ratio, reference_images, gemini_errors
                 )
-                try:
-                    async with session.get(fallback_url, timeout=IMAGE_TIMEOUT) as resp:
-                        content_type = (resp.headers.get("Content-Type") or "").lower()
-                        if resp.status == 200 and content_type.startswith("image/"):
-                            img_bytes = await resp.read()
-                            if len(img_bytes) > 1024:
-                                ext = _mime_to_extension(content_type)
-                                file_obj = discord.File(
-                                    io.BytesIO(img_bytes),
-                                    filename=f"generated.{ext}",
-                                )
-                                return "Flux AI (Free Tier)", file_obj, None
-                        gemini_errors.append(f"Flux HTTP {resp.status}")
-                except Exception as exc:
-                    gemini_errors.append(f"Flux: {sanitize_error_message(exc)}")
+                if hasil is not None:
+                    return hasil
+
+            # 2. Generator gambar gratis (langsung jalan di Free Tier tanpa menunggu error)
+            if ENABLE_IMAGE_FALLBACK and not reference_images:
+                hasil = await _gambar_lewat_flux(
+                    session, full_prompt, width, height, gemini_errors
+                )
+                if hasil is not None:
+                    return hasil
 
     if reference_images and not GEMINI_PAID_IMAGE_ENABLED:
         return (
