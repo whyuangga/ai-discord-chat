@@ -1470,25 +1470,9 @@ def _form_panel_tiket(bot, guild_id: int, token: str) -> str:
 """
 
 
-def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
-    """Kotak masuk tiket: ringkasan + daftar tiket aktif + form balas/tutup."""
-    paket = data or {}
-    items = paket.get("items") or []
-    stat = paket.get("statistik") or {}
-    ringkas = (
-        f'<p class="muted">🔢 Aktif: <b>{int(stat.get("aktif") or 0)}</b> · '
-        f'diklaim: {int(stat.get("diklaim") or 0)} · '
-        f'lewat SLA: {int(stat.get("lewat_sla") or 0)} · '
-        f'rating: {_esc(stat.get("rating") or "-")}'
-        + ("" if stat.get("aktifkan", True) else " · ⛔ Sistem tiket nonaktif")
-        + "</p>"
-    )
-    pasang = _form_panel_tiket(bot, guild_id, token) if bot is not None else ""
-
+def _blok_topik_tiket(paket: dict, stat: dict, token: str, guild_id: int, role_opsi: str) -> str:
+    """Detail daftar topik + form tambah topik; kosong bila tiket nonaktif."""
     topik = paket.get("topik") or []
-    role_opsi = (
-        _opsi_html(pilihan_role(bot, guild_id)) if bot is not None else '<option value="0">—</option>'
-    )
 
     def _baris_topik(item: dict) -> str:
         role_id = int(item.get("staff_role_id") or 0)
@@ -1528,15 +1512,11 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
         '<input type="text" name="deskripsi" maxlength="100" placeholder="Beli / kirim barang"></div>'
         '<button type="submit">Simpan topik</button></form></details>'
     )
-    if not items:
-        return (
-            ringkas
-            + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
-            "member menekan tombol <b>Buat Tiket</b> di panel.</div>"
-            + pasang
-            + blok_topik
-        )
+    return blok_topik
 
+
+def _daftar_tiket_aktif(items: list, guild_id: int, token: str) -> str:
+    """Daftar tiket aktif: info ringkas, form balas, tombol tutup & catatan."""
     baris = ""
     for item in items:
         tid = str(item.get("id"))
@@ -1586,6 +1566,37 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
             + blok_catatan
             + "</div>"
         )
+    return baris
+
+
+def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
+    """Kotak masuk tiket: ringkasan + daftar tiket aktif + form balas/tutup."""
+    paket = data or {}
+    items = paket.get("items") or []
+    stat = paket.get("statistik") or {}
+    ringkas = (
+        f'<p class="muted">🔢 Aktif: <b>{int(stat.get("aktif") or 0)}</b> · '
+        f'diklaim: {int(stat.get("diklaim") or 0)} · '
+        f'lewat SLA: {int(stat.get("lewat_sla") or 0)} · '
+        f'rating: {_esc(stat.get("rating") or "-")}'
+        + ("" if stat.get("aktifkan", True) else " · ⛔ Sistem tiket nonaktif")
+        + "</p>"
+    )
+    pasang = _form_panel_tiket(bot, guild_id, token) if bot is not None else ""
+
+    role_opsi = (
+        _opsi_html(pilihan_role(bot, guild_id)) if bot is not None else '<option value="0">—</option>'
+    )
+    blok_topik = _blok_topik_tiket(paket, stat, token, guild_id, role_opsi)
+    if not items:
+        return (
+            ringkas
+            + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
+            "member menekan tombol <b>Buat Tiket</b> di panel.</div>"
+            + pasang
+            + blok_topik
+        )
+    baris = _daftar_tiket_aktif(items, guild_id, token)
     return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang + blok_topik
 
 
