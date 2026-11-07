@@ -82,6 +82,14 @@ def collect_tiket(guild_id: int, *, limit: int = 20) -> dict:
                 "diam": _umur((sekarang - aktivitas) / 3600) if aktivitas else "-",
                 "sla": lewat_sla,
                 "sla_jam": sla,
+                "catatan": [
+                    {
+                        "teks": str(item.get("teks") or ""),
+                        "oleh": str(_to_int(item.get("oleh"))),
+                        "waktu": _waktu_singkat(item.get("at")),
+                    }
+                    for item in (data.get("notes") or [])[:25]
+                ],
             }
         )
         if len(aktif) >= max(1, int(limit)):
@@ -236,6 +244,49 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
         f"Tiket {nomor} ditutup"
         + (" dan transkrip dikirim ke channel log." if dikirim else " (channel log transkrip belum diatur).")
     )
+
+
+def catat(guild_id: int, thread_id: int, teks: str) -> tuple[bool, str]:
+    """Simpan catatan internal staf dari dashboard (tidak dikirim ke thread)."""
+    import tickets
+
+    gid = _to_int(guild_id)
+    data = tickets.get_ticket(_to_int(thread_id))
+    if data is None or not _milik_server(data, gid):
+        return False, "Tiket tidak ditemukan di server ini."
+
+    status, data = tickets.add_note(_to_int(thread_id), 0, teks)
+    if status == "kosong":
+        return False, "Catatan tidak boleh kosong."
+    if status == "penuh":
+        return False, (
+            f"Catatan tiket ini sudah penuh (maksimal {tickets.TICKET_NOTE_MAX}). "
+            "Hapus satu dulu."
+        )
+    if status != "ok":
+        return False, "Catatan gagal disimpan."
+    return True, f"Catatan internal tersimpan ({len((data or {}).get('notes') or [])} total)."
+
+
+def hapus_catatan(guild_id: int, thread_id: int, nomor: int) -> tuple[bool, str]:
+    """Hapus catatan internal nomor ke-`nomor` (1 = paling lama)."""
+    import tickets
+
+    data = tickets.get_ticket(_to_int(thread_id))
+    if data is None or not _milik_server(data, _to_int(guild_id)):
+        return False, "Tiket tidak ditemukan di server ini."
+    status, data = tickets.remove_note(_to_int(thread_id), int(nomor))
+    if status != "ok":
+        return False, f"Catatan nomor `{nomor}` tidak ada."
+    return True, f"Catatan nomor `{nomor}` dihapus."
+
+
+def _waktu_singkat(nilai: object) -> str:
+    """Waktu ringkas `dd-mm hh:mm` untuk daftar catatan di dashboard."""
+    try:
+        return time.strftime("%d-%m %H:%M", time.localtime(float(nilai or 0)))
+    except (TypeError, ValueError, OSError):
+        return "-"
 
 
 # ==============================================================================

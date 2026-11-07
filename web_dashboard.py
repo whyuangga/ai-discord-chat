@@ -733,6 +733,14 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
 }
 
 
+def _id_aman(nilai: object) -> int:
+    """Angka dari form/URL tanpa pernah melempar `ValueError`."""
+    try:
+        return int(str(nilai).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
 def halaman_dari_path(path: str) -> str:
     """Slug halaman dari URL (`/` -> "", `/setelan` -> "setelan")."""
     slug = str(path or "").strip("/")
@@ -1908,6 +1916,13 @@ async def start_dashboard(bot) -> bool:
             )
         elif jenis == "tutup":
             ok, message = await dashboard_tiket.tutup(bot, gid, ref)
+        elif jenis == "catat":
+            ok, message = dashboard_tiket.catat(
+                gid, _id_aman(ref), str(payload.get("teks") or "")
+            )
+        elif jenis == "catatan-hapus":
+            tid_str, _, nomor = ref.partition(":")
+            ok, message = dashboard_tiket.hapus_catatan(gid, _id_aman(tid_str), _id_aman(nomor))
         elif jenis == "panel":
             ok, message = await dashboard_tiket.pasang_panel(bot, gid, payload)
         elif jenis == "matikan":

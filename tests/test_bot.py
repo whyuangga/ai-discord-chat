@@ -4714,6 +4714,8 @@ async def test_growth_commands_views_and_help():
         "panel", "status", "tutup", "tambah", "daftar", "matikan",
         # v1.33.0-beta: rating bintang, SLA respons pertama, & auto-close
         "atur", "rating",
+        # v1.40: catatan internal staf (tidak dikirim ke member)
+        "catat", "catatan",
     }
     for group in (level_group, tiket_group):
         assert len(group.description) <= 100

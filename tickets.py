@@ -33,6 +33,10 @@ logger = logging.getLogger("gemini_bot.tickets")
 
 _lock = asyncio.Lock()
 
+# Catatan internal staf: tidak pernah dikirim ke thread, hanya tampil di dashboard.
+TICKET_NOTE_MAX = 25
+TICKET_NOTE_LEN = 500
+
 TICKET_STATUS: dict[str, str] = {
     "terbuka": "🟢 Terbuka",
     "diklaim": "🙋 Sedang ditangani",
@@ -157,6 +161,15 @@ def load_tickets_from_disk() -> int:
             "rating": max(0, min(5, _to_int(data.get("rating")))),
             "rated_at": float(data.get("rated_at") or 0),
             "closed_reason": str(data.get("closed_reason") or "")[:100],
+            "notes": [
+                {
+                    "teks": str(item.get("teks") or "")[:TICKET_NOTE_LEN],
+                    "oleh": _to_int(item.get("oleh")),
+                    "at": float(item.get("at") or 0),
+                }
+                for item in (data.get("notes") or [])
+                if isinstance(item, dict) and str(item.get("teks") or "").strip()
+            ][-TICKET_NOTE_MAX:],
         }
         _ticket_seq[gid] = max(_ticket_seq.get(gid, 0), number)
     return len(ticket_guilds)
@@ -315,6 +328,7 @@ def register_ticket(
         "rating": 0,
         "rated_at": 0.0,
         "closed_reason": "",
+        "notes": [],
     }
     tickets[int(thread_id)] = data
     cfg = get_ticket_config(gid)
@@ -371,6 +385,47 @@ def add_user_to_ticket(thread_id: int, user_id: int) -> bool:
         return False
     added.append(int(user_id))
     return True
+
+
+def add_note(thread_id: int, author_id: int, teks: str, *, now: float | None = None) -> tuple[str, dict | None]:
+    """Tambah catatan internal staf. Status: `ok`, `kosong`, `penuh`, `tidak_ada`."""
+    data = tickets.get(int(thread_id))
+    if data is None:
+        return "tidak_ada", None
+    isi = str(teks or "").strip()
+    if not isi:
+        return "kosong", data
+    catatan = data.setdefault("notes", [])
+    if len(catatan) >= TICKET_NOTE_MAX:
+        return "penuh", data
+    catatan.append(
+        {
+            "teks": isi[:TICKET_NOTE_LEN],
+            "oleh": int(author_id or 0),
+            "at": time.time() if now is None else float(now),
+        }
+    )
+    return "ok", data
+
+
+def list_notes(thread_id: int) -> list[dict]:
+    """Catatan internal satu tiket (terlama lebih dulu)."""
+    data = tickets.get(int(thread_id)) or {}
+    return list(data.get("notes") or [])
+
+
+def remove_note(thread_id: int, nomor: int) -> tuple[str, dict | None]:
+    """Hapus catatan nomor ke-`nomor` (1 = paling lama). Status: `ok`, `tidak_ada`."""
+    data = tickets.get(int(thread_id))
+    if data is None:
+        return "tidak_ada", None
+    catatan = data.get("notes") or []
+    posisi = int(nomor) - 1
+    if posisi < 0 or posisi >= len(catatan):
+        return "tidak_ada", data
+    catatan.pop(posisi)
+    data["notes"] = catatan
+    return "ok", data
 
 
 def can_view_ticket(data: dict, user_id: int) -> bool:

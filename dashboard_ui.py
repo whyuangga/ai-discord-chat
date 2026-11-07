@@ -1167,6 +1167,32 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
     for item in items:
         tid = str(item.get("id"))
         sla = ' <span class="warn">⏰ lewat SLA</span>' if item.get("sla") else ""
+        catatan = item.get("catatan") or []
+        isi_catatan = "".join(
+            '<div style="display:flex;gap:8px;justify-content:space-between;align-items:flex-start;'
+            'border-left:3px solid var(--aksen,#8B7CFF);padding:4px 0 4px 8px;margin:4px 0">'
+            f'<div style="font-size:.84rem">{_esc(note.get("waktu"))} · '
+            f'<b>{"dashboard" if str(note.get("oleh") or "0") in ("0", "") else "@" + str(note.get("oleh"))}</b>'
+            f'<br>{_esc(note.get("teks"))}</div>'
+            '<form method="post" action="/api/tiket">'
+            + _hidden(guild_id, token, f"catatan-hapus:{tid}:{nomor}")
+            + '<button type="submit" class="danger" title="Hapus catatan">×</button></form></div>'
+            for nomor, note in enumerate(catatan, start=1)
+        )
+        blok_catatan = (
+            '<details><summary class="muted">📝 Catatan staf '
+            f"({len(catatan)})</summary>"
+            + (
+                f'<div style="margin:6px 0">{isi_catatan}</div>'
+                if catatan
+                else '<div class="muted">Belum ada catatan internal.</div>'
+            )
+            + '<form method="post" action="/api/tiket" class="tiket-form">'
+            + _hidden(guild_id, token, f"catat:{tid}")
+            + '<input type="text" name="teks" maxlength="500" '
+            'placeholder="Catatan internal (member tidak melihatnya)…">'
+            '<button type="submit" class="ghost">Simpan catatan</button></form></details>'
+        )
         baris += (
             f'<div class="tiket-baris">'
             f'<div><b>{_esc(item.get("nomor"))}</b> {_esc(item.get("status_label"))}{sla}'
@@ -1183,7 +1209,8 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
             '<form method="post" action="/api/tiket">'
             + _hidden(guild_id, token, "tutup:" + tid)
             + '<button type="submit" class="danger">Tutup</button></form>'
-            "</div>"
+            + blok_catatan
+            + "</div>"
         )
     return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang
 

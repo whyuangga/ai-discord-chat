@@ -817,6 +817,129 @@ async def tiket_tambah_cmd(interaction: discord.Interaction, member: discord.Mem
     )
 
 
+def _staf_tiket(interaction: discord.Interaction, cfg: dict) -> bool:
+    """True bila pengguna adalah staf tiket (izin kelola thread/administrator atau role staf)."""
+    perms = getattr(interaction.user, "guild_permissions", None)
+    roles = {
+        getattr(role, "id", 0) for role in (getattr(interaction.user, "roles", None) or [])
+    }
+    izin = bool(
+        perms
+        and (
+            getattr(perms, "administrator", False)
+            or getattr(perms, "manage_threads", False)
+            or getattr(perms, "manage_channels", False)
+        )
+    )
+    return izin or (bool(cfg.get("staff_role_id")) and int(cfg["staff_role_id"]) in roles)
+
+
+@tiket_group.command(
+    name="catat",
+    description="Simpan catatan internal staf di tiket ini (hanya terlihat di dashboard)",
+)
+@app_commands.describe(teks=f"Isi catatan (maksimal {tickets.TICKET_NOTE_LEN} karakter)")
+async def tiket_catat_cmd(interaction: discord.Interaction, teks: str):
+    if interaction.guild is None:
+        return
+    data = tickets.get_ticket(interaction.channel_id)
+    if data is None:
+        await interaction.response.send_message(
+            "⚠️ Command ini hanya bisa dipakai **di dalam thread tiket**.", ephemeral=True
+        )
+        return
+
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    if not _staf_tiket(interaction, cfg):
+        await interaction.response.send_message(
+            "⚠️ Catatan internal hanya bisa ditulis **staf**.", ephemeral=True
+        )
+        return
+
+    status, data = tickets.add_note(interaction.channel_id, interaction.user.id, teks)
+    if status == "kosong":
+        await interaction.response.send_message("⚠️ Catatan tidak boleh kosong.", ephemeral=True)
+        return
+    if status == "penuh":
+        await interaction.response.send_message(
+            f"⚠️ Catatan tiket ini sudah penuh (maksimal {tickets.TICKET_NOTE_MAX}). "
+            "Hapus satu dulu dengan `/tiket catatan hapus:<nomor>`.",
+            ephemeral=True,
+        )
+        return
+
+    await tickets.save_tickets_to_disk()
+    jumlah = len((data or {}).get("notes") or [])
+    await interaction.response.send_message(
+        f"📝 Catatan internal tersimpan (`{jumlah}/{tickets.TICKET_NOTE_MAX}`). "
+        "Member tidak melihat pesan ini — catatan hanya tampil di dashboard tiket.",
+        ephemeral=True,
+    )
+
+
+@tiket_group.command(name="catatan", description="Lihat catatan internal staf pada tiket ini")
+@app_commands.describe(hapus="Nomor catatan yang ingin dihapus (1 = paling lama)")
+async def tiket_catatan_cmd(interaction: discord.Interaction, hapus: int = 0):
+    if interaction.guild is None:
+        return
+    data = tickets.get_ticket(interaction.channel_id)
+    if data is None:
+        await interaction.response.send_message(
+            "⚠️ Command ini hanya bisa dipakai **di dalam thread tiket**.", ephemeral=True
+        )
+        return
+
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    if not _staf_tiket(interaction, cfg):
+        await interaction.response.send_message(
+            "⚠️ Catatan internal hanya bisa dibaca **staf**.", ephemeral=True
+        )
+        return
+
+    catatan = tickets.list_notes(interaction.channel_id)
+    if hapus > 0:
+        status, _ = tickets.remove_note(interaction.channel_id, hapus)
+        if status != "ok":
+            await interaction.response.send_message(
+                f"⚠️ Catatan nomor `{hapus}` tidak ada (tersimpan `{len(catatan)}`).",
+                ephemeral=True,
+            )
+            return
+        await tickets.save_tickets_to_disk()
+        catatan = tickets.list_notes(interaction.channel_id)
+        await interaction.response.send_message(
+            f"🗑️ Catatan nomor `{hapus}` dihapus. Sisa `{len(catatan)}`.",
+            ephemeral=True,
+        )
+        return
+
+    if not catatan:
+        await interaction.response.send_message(
+            "ℹ️ Belum ada catatan internal di tiket ini. "
+            "Tambahkan dengan `/tiket catat teks:<isi>`.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"📝 Catatan internal tiket #{int(data.get('number') or 0):04d}",
+        color=discord.Color.blurple(),
+        description="Hanya staf yang melihat catatan ini — member tidak menerimanya.",
+    )
+    for nomor, item in enumerate(catatan, start=1):
+        # Timestamp relatif milik Discord (<t:…:R>) — tanpa helper tambahan.
+        waktu = f"<t:{int(float(item.get('at') or 0))}:R>"
+        embed.add_field(
+            name=f"{nomor}. <@{item.get('oleh')}> · {waktu}",
+            value=str(item.get("teks") or "-")[:1024],
+            inline=False,
+        )
+    embed.set_footer(
+        text=f"{len(catatan)}/{tickets.TICKET_NOTE_MAX} catatan · hapus: /tiket catatan hapus:<nomor>"
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @tiket_group.command(name="daftar", description="Lihat tiket yang masih aktif di server ini")
 @app_commands.describe(hanya_milikku="True untuk hanya menampilkan tiket yang kamu buat")
 async def tiket_daftar_cmd(interaction: discord.Interaction, hanya_milikku: bool = False):

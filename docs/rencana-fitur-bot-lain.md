@@ -90,7 +90,8 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
    catatan internal staf, lebih dari satu topik per panel.
    ◐ **Sebagian jalan** (v1.40): transkrip HTML + `.txt` diarsipkan otomatis tiap tiket
    ditutup (command, dashboard, atau auto-close) dan bisa **dicari dari dashboard**
-   (`/transkrip`, dicari di isi percakapan). Sisa: catatan internal staf & multi-topik.
+   (`/transkrip`, dicari di isi percakapan) + **catatan internal staf** (command & dashboard).
+   Sisa: lebih dari satu topik per panel.
 3. **Kartu rank PNG** — dirender server (Pillow) dari data level yang sudah ada, dengan
    **pratinjau di dashboard yang memakai perender yang sama**.
 4. **Starboard varian** — board kedua/ketiga dengan emoji & ambang sendiri.
