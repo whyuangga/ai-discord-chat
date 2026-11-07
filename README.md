@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **53 command utama** (244 subcommand) · **660 tes otomatis**
+> **Versi `v1.40.0-beta`** · **53 command utama** (245 subcommand) · **669 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -32,7 +32,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **54 setelan dalam 11 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, dan **tombol tes fitur** | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **55 setelan dalam 11 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), dan **tombol tes fitur** | 0 |
 
 ---
 
@@ -575,7 +575,7 @@ ai-discord-chat/
 │
 ├── ← DASHBOARD WEB (satu proses, tanpa JavaScript, 0 kuota AI) →
 │   ├── web_dashboard.py    # Server aiohttp: 11 halaman, endpoint /api/*, redirect bookmark lama
-│   ├── dashboard_admin.py  # Registry 54 setelan + grup, audit perubahan, & penulisan config
+│   ├── dashboard_admin.py  # Registry 55 setelan + grup, audit perubahan, & penulisan config
 │   ├── dashboard_ui.py     # Blok HTML (setelan, kartu, tes, tiket, ekspor, unggahan, pemilih server)
 │   ├── dashboard_tema.py   # Semua warna & font (LATAR, TEKS, FONT_STACK, CSS_HALAMAN/PRATINJAU/HASIL)
 │   ├── dashboard_uji.py    # Sepuluh tombol tes fitur + pemilihan subjek (pemilik server default)
@@ -647,7 +647,7 @@ ai-discord-chat/
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md          # Referensi 53 command utama, 244 subcommand, & tombol panel
+│   ├── command.md          # Referensi 53 command utama, 245 subcommand, & tombol panel
 │   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
 │   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
@@ -660,7 +660,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 37 berkas pytest → 665 tes (660 lulus, 5 dilewati)
+├── tests/                  # 38 berkas pytest → 674 tes (669 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

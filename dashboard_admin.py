@@ -800,6 +800,27 @@ def _set_starboard_ambang(guild_id: int, nilai: str) -> tuple[bool, str]:
     return True, f"Ambang starboard diset ke **{angka}** bintang."
 
 
+def _baca_starboard_warna(guild_id: int) -> str:
+    cfg = (_mod("community_tools").starboard_guilds or {}).get(int(guild_id)) or {}
+    return str(cfg.get("warna") or "")
+
+
+def _set_starboard_warna(guild_id: int, nilai: str) -> tuple[bool, str]:
+    """Warna embed papan utama (hex 6 digit, kosong = emas)."""
+    mentah = str(nilai or "").strip().lstrip("#").upper()
+    if not mentah:
+        _mod("community_tools").set_starboard_config(int(guild_id), warna="")
+        return _hapus_keterangan("Warna starboard", "kembali ke emas")
+    if len(mentah) != 6:
+        return False, "Warna harus hex 6 digit, mis. `#FF8A00`."
+    try:
+        int(mentah, 16)
+    except ValueError:
+        return False, "Warna harus hex 6 digit, mis. `#FF8A00`."
+    _mod("community_tools").set_starboard_config(int(guild_id), warna="#" + mentah)
+    return True, f"Warna embed starboard disetel ke `#{mentah}`."
+
+
 def _baca_saran(guild_id: int) -> str:
     return str(_to_int(_mod("suggestions").get_channel(int(guild_id))))
 
@@ -1092,6 +1113,9 @@ FITUR_LIST = [
     # --- Konten & interaksi -------------------------------------------------
     _f("starboard.channel", "Channel starboard", "channel", _baca_starboard("channel_id"),
        _set_starboard_channel, "community_tools"),
+    _f("starboard.warna", "Warna embed starboard", "teks", _baca_starboard_warna,
+       _set_starboard_warna, "community_tools",
+       bantuan="Hex 6 digit, mis. #FF8A00. Kosongkan untuk emas."),
     _f("starboard.ambang", "Ambang bintang starboard", "angka", _baca_starboard_ambang,
        _set_starboard_ambang, "community_tools"),
     _f("saran.channel", "Channel kotak saran", "channel", _baca_saran, _set_saran,
@@ -1182,7 +1206,7 @@ GRUP: tuple[dict, ...] = (
         "kunci": "konten",
         "judul": "🧩 Konten & interaksi",
         "keterangan": "Fitur AI per channel & utilitas server.",
-        "fitur": ("starboard.channel", "starboard.ambang", "saran.channel", "chat.channel",
+        "fitur": ("starboard.channel", "starboard.ambang", "starboard.warna", "saran.channel", "chat.channel",
                   "digest.channel", "galeri.channel", "youtube.channel", "cari.channel",
                   "terjemah.channel", "statistik.aktif", "fakta.channel", "backup.channel",
                   "agent.gaya", "agent.keamanan", "agent.tenang", "agent.zona"),

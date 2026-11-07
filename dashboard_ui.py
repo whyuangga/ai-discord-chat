@@ -601,6 +601,76 @@ def render_kartu_block(
     return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}{catatan_ukuran}'
 
 
+def render_starboard_block(bot, guild_id: int, token: str) -> str:
+    """Pengelola papan sorotan (utama + varian) di halaman Konten & interaksi."""
+    import community_tools
+
+    gid = int(guild_id or 0)
+    daftar = community_tools.list_starboard_boards(gid)
+    opsi_channel = '<option value="0">— ikut channel papan utama —</option>'
+    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+    for ch in list(getattr(guild, "text_channels", []) or [])[:80]:
+        opsi_channel += (
+            f'<option value="{int(getattr(ch, "id", 0))}">'
+            f'#{_esc(getattr(ch, "name", "-"))}</option>'
+        )
+
+    if daftar:
+        baris = ""
+        for papan in daftar:
+            lencana = (
+                '<span class="lencana on">utama</span>'
+                if papan.get("utama")
+                else '<span class="lencana off">varian</span>'
+            )
+            hapus = ""
+            if not papan.get("utama"):
+                hapus = (
+                    '<form method="post" action="/api/konten">'
+                    + _hidden(gid, token, "starboard-hapus:" + str(papan.get("kunci")))
+                    + '<button type="submit" class="danger">Hapus</button></form>'
+                )
+            warna = f" · warna `{_esc(papan.get('warna'))}`" if papan.get("warna") else ""
+            baris += (
+                '<div class="uji-baris"><div>'
+                f'<b>{_esc(papan.get("emoji"))} {_esc(papan.get("nama"))}</b> {lencana}'
+                f'<div class="muted">≥ {int(papan.get("threshold") or 0)} reaksi · '
+                f'channel <code>{int(papan.get("channel_id") or 0)}</code> · '
+                f'{int(papan.get("jumlah") or 0)} sorotan{warna}</div>'
+                "</div>" + hapus + "</div>"
+            )
+        isi = f'<div class="daftar-papan">{baris}</div>'
+    else:
+        isi = (
+            '<div class="muted">Starboard belum aktif. Pilih <b>Channel starboard</b> di '
+            "setelan grup ini dulu, lalu tambahkan papan varian.</div>"
+        )
+
+    form = (
+        '<form method="post" action="/api/konten" class="formgrid">'
+        + _hidden(gid, token, "starboard-tambah")
+        + '<div class="medan"><label>Nama papan</label>'
+        '<input type="text" name="nama" maxlength="40" placeholder="Skull" required></div>'
+        '<div class="medan"><label>Emoji</label>'
+        '<input type="text" name="emoji" maxlength="8" placeholder="💀"></div>'
+        '<div class="medan"><label>Ambang reaksi</label>'
+        '<input type="number" name="batas" min="1" max="50" placeholder="5"></div>'
+        f'<div class="medan"><label>Channel papan</label>'
+        f'<select name="channel_id">{opsi_channel}</select></div>'
+        '<div class="medan"><label>Warna embed (hex)</label>'
+        '<input type="text" name="warna" maxlength="7" placeholder="#FF8A00"></div>'
+        "<button type=\"submit\">Simpan papan</button></form>"
+    )
+    return (
+        '<div class="subpanel"><h3>🧩 Papan sorotan (varian)</h3>'
+        '<p class="muted">Papan utama ⭐ jalan seperti biasa. Varian (mis. skullboard 💀, '
+        "clownboard 🤡) punya emoji, ambang, channel, dan warna sendiri — semuanya bisa "
+        f"hidup bersamaan, maksimal <b>{community_tools.STARBOARD_MAX_BOARD}</b> papan "
+        "per server termasuk papan utama.</p>"
+        f"{isi}{form}</div>"
+    )
+
+
 def render_kartu_rank_block(bot, guild_id: int, token: str) -> str:
     """Panel kartu rank PNG: pratinjau dari perender asli + latar unggahan + tes.
 

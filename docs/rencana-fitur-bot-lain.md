@@ -99,6 +99,9 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
    `rank_card.py` yang sama, latar bisa diunggah, warna aksen + sakelar + tombol tes di
    halaman Inti & level.
 4. **Starboard varian** — board kedua/ketiga dengan emoji & ambang sendiri.
+   ✅ **Sudah jalan** (v1.40): `/starboard varian` + panel *Papan sorotan varian* di
+   halaman Konten & interaksi — tiap papan punya emoji, ambang, channel, & warna embed
+   sendiri (maks 4 papan/server), angka sorotan diperbarui otomatis.
 
 Berkas: `engagement.py` · `tickets.py` · `levels.py` · `community_tools.py` ·
 `dashboard_*.py` · `cogs/*_cog.py` · tes baru per fitur.

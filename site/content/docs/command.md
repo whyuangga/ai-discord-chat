@@ -119,7 +119,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/ingatkan pasang` | `waktu`, `pesan`, `channel` | Pasang pengingat pribadi (`10m`, `2j`, `2 hari`, `1j30m`). |
 | `/ingatkan daftar` / `batal` | `nomor` | Lihat / batalkan pengingat aktif. |
 | `/starboard atur` | `channel`, `batas`, `emoji`, `aktif` | *(Admin)* Atur channel sorotan & ambang bintang. |
-| `/starboard status` | — | Lihat konfigurasi & jumlah pesan tersorot. |
+| `/starboard status` | — | Lihat semua papan sorotan & jumlah pesan tersorot. |
+| `/starboard varian` | `tambah`, `emoji`, `batas`, `channel`, `warna`, `hapus` | *(Admin)* Papan sorotan tambahan (skullboard 💀, clownboard 🤡, …) dengan emoji, ambang, channel, & warna sendiri — maks 4 papan/server. |
 | `/verifikasi pasang` | `channel`, `role`, `catatan` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya**. |
 | `/verifikasi status` / `matikan` | — | Pantau / matikan gerbang verifikasi. |
 | `/sticky pasang` | `isi`, `channel`, `judul` | *(Admin)* Pasang pesan petunjuk yang selalu di bawah channel. |

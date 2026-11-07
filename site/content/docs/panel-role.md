@@ -31,7 +31,18 @@ toc: true
 ## 4. ⭐ Starboard — Sorotan Pesan Populer (`/starboard`)
 - **`/starboard atur channel:#starboard batas:3 emoji:⭐`** — pesan warga yang mendapat **3 reaksi bintang** otomatis disalin ke channel sorotan (embed cantik + tautan sumber).
 - Bila reaksi turun di bawah batas, sorotannya **otomatis dihapus** agar starboard tetap rapi.
-- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan konfigurasi + jumlah sorotan.
+- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan semua papan + jumlah sorotan.
+
+**Papan berlapis / varian (v1.40.0-beta):**
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Papan utama + varian** | Papan ⭐ tetap seperti biasa. Tambahkan **skullboard 💀**, **clownboard 🤡**, dll. dengan `/starboard varian tambah:Skull emoji:💀 batas:5 channel:#skull warna:#FF8A00`. Maksimal `STARBOARD_MAX_BOARD` = **4 papan** per server (termasuk papan utama). |
+| **Mandiri** | Tiap papan punya emoji, ambang, channel, dan warna embed sendiri. Satu pesan bisa masuk ke **beberapa papan sekaligus**; entri sorotan disimpan per papan sehingga menghapus sorotan di satu papan tidak mengganggu papan lain. |
+| **Channel kosong** | Bila channel papan tidak diisi, papan itu ikut channel papan utama. |
+| **Angka ikut naik** | Saat reaksi bertambah, angka di pesan sorotan **diperbarui** (bukan mengirim ulang); turun di bawah ambang → sorotan papan itu dihapus. |
+| **Anti-loop** | Pesan yang berada di channel papan mana pun tidak akan disorot lagi. |
+| **Dashboard** | Halaman **🧩 Konten & interaksi** → panel *Papan sorotan (varian)*: daftar papan + tombol hapus, form tambah (nama, emoji, ambang, channel, warna), dan setelan **warna embed** papan utama. |
 
 ## 5. ✅ Gerbang Verifikasi Anti-Bot (`/verifikasi`)
 - **`/verifikasi pasang channel:#verifikasi role:@Member`** — panel dengan tombol **✅ Verifikasi Saya**.

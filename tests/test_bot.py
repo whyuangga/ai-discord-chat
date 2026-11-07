@@ -3183,7 +3183,7 @@ def test_community_command_and_view_limits():
     expected_subs = {
         "panel-role": {"pasang", "tambah", "hapus", "daftar"},
         "ingatkan": {"pasang", "daftar", "batal"},
-        "starboard": {"atur", "status"},
+        "starboard": {"atur", "status", "varian"},
         "verifikasi": {"pasang", "status", "matikan"},
         "sticky": {"pasang", "lepas", "status"},
         "info": {"user", "server"},

@@ -1009,6 +1009,7 @@ PANEL: dict[str, object] = {
         "p-konten", "🧩 Konten &amp; interaksi",
         "Fitur AI per channel (boleh lebih dari satu), starboard, kotak saran, fakta harian, "
         "koran pagi, &amp; backup otomatis.",
+        "starboard",
         "uji",
     ),
     "p-rank": lambda d: (
@@ -1064,6 +1065,7 @@ def render_dashboard_html(
     tren_block: str = "",
     kartu_block: str = "",
     kartu_rank_block: str = "",
+    starboard_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1145,6 +1147,8 @@ def render_dashboard_html(
         "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
         "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
+        "starboard_block": starboard_block
+        or '<div class="muted">Papan sorotan tidak tersedia.</div>',
         "kartu_rank_block": kartu_rank_block
         or '<div class="muted">Kartu rank tidak tersedia.</div>',
         "uji_block": uji_block or '<div class="muted">Tes fitur tidak tersedia.</div>',
@@ -1624,6 +1628,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_ui.render_kartu_rank_block(bot, gid, token),
             '<div class="muted">Kartu rank tidak tersedia.</div>',
         )
+        starboard_block = _blok(
+            lambda: dashboard_ui.render_starboard_block(bot, gid, token),
+            '<div class="muted">Papan sorotan tidak tersedia.</div>',
+        )
         giveaway_block = _blok(
             lambda: dashboard_ui.render_giveaway_block(
                 gid, dashboard_giveaway.collect(gid), token, bot
@@ -1677,6 +1685,7 @@ async def start_dashboard(bot) -> bool:
             banner_block=banner_block,
             kartu_block=kartu_block,
             kartu_rank_block=kartu_rank_block,
+            starboard_block=starboard_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1839,6 +1848,27 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi == "starboard-tambah":
+            import community_tools
+
+            ok, message = community_tools.add_starboard_board(
+                gid,
+                str(payload.get("nama") or ""),
+                emoji=str(payload.get("emoji") or ""),
+                threshold=_id_aman(payload.get("batas")),
+                channel_id=_id_aman(payload.get("channel_id")),
+                warna=str(payload.get("warna") or ""),
+            )
+            if ok:
+                await community_tools.save_community_tools_to_disk()
+        elif aksi.startswith("starboard-hapus:"):
+            import community_tools
+
+            ok, message = community_tools.remove_starboard_board(
+                gid, aksi.split(":", 1)[1]
+            )
+            if ok:
+                await community_tools.save_community_tools_to_disk()
         elif aksi.startswith(("banner.panel:", "hapusbanner.panel:")):
             ref_panel = aksi.split(":", 1)[1]
             if aksi.startswith("hapusbanner."):

@@ -22,7 +22,11 @@ from community_tools import (
     create_reaction_role_panel,
     delete_reaction_role_panel,
     format_duration_short,
+    STARBOARD_MAX_BOARD,
+    add_starboard_board,
     get_guild_reaction_panels,
+    list_starboard_boards,
+    remove_starboard_board,
     list_user_reminders,
     maintenance_guilds,
     parse_reminder_duration,
@@ -694,6 +698,81 @@ async def starboard_atur_cmd(
     )
 
 
+@starboard_group.command(
+    name="varian",
+    description="Papan sorotan tambahan (mis. skullboard 💀) dengan emoji & ambang sendiri",
+)
+@app_commands.describe(
+    tambah="Nama papan baru, mis. Skull (kosongkan untuk melihat daftar papan)",
+    emoji="Emoji papan ini (default 💀)",
+    batas="Jumlah reaksi minimal untuk papan ini (default 3)",
+    channel="Channel tujuan papan ini (kosong = ikut channel papan utama)",
+    warna="Warna embed hex, mis. #FF8A00 (kosong = emas)",
+    hapus="Nama papan varian yang ingin dihapus",
+)
+async def starboard_varian_cmd(
+    interaction: discord.Interaction,
+    tambah: str = "",
+    emoji: str = "",
+    batas: int = 0,
+    channel: discord.TextChannel | None = None,
+    warna: str = "",
+    hapus: str = "",
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    if hapus:
+        ok, pesan = remove_starboard_board(interaction.guild.id, hapus)
+        if ok:
+            await save_community_tools_to_disk()
+        await interaction.response.send_message(
+            ("🗑️ " if ok else "⚠️ ") + pesan, ephemeral=True
+        )
+        return
+
+    if tambah:
+        ok, pesan = add_starboard_board(
+            interaction.guild.id,
+            tambah,
+            emoji=emoji,
+            threshold=batas,
+            channel_id=channel.id if channel else 0,
+            warna=warna,
+        )
+        if ok:
+            await save_community_tools_to_disk()
+        await interaction.response.send_message(
+            ("✅ " if ok else "⚠️ ") + pesan, ephemeral=True
+        )
+        return
+
+    daftar = list_starboard_boards(interaction.guild.id)
+    if not daftar:
+        await interaction.response.send_message(
+            "ℹ️ Starboard belum aktif. Nyalakan dulu: `/starboard atur channel:#starboard`.",
+            ephemeral=True,
+        )
+        return
+    baris = []
+    for nomor, papan in enumerate(daftar, start=1):
+        nama = papan["nama"] + (" (utama)" if papan.get("utama") else "")
+        baris.append(
+            f"**{nomor}. {papan['emoji']} {nama}** · ≥ {papan['threshold']} reaksi · "
+            f"<#{papan['channel_id']}> · `{papan['jumlah']}` sorotan"
+        )
+    await interaction.response.send_message(
+        "🧩 **Papan sorotan server**\n"
+        + "\n".join(baris)
+        + f"\n\nMaksimal `{STARBOARD_MAX_BOARD}` papan (termasuk papan utama). "
+        "Tambah: `/starboard varian tambah:Skull emoji:💀 batas:5`.",
+        ephemeral=True,
+    )
+
+
 @starboard_group.command(name="status", description="Lihat status & statistik starboard server ini")
 async def starboard_status_cmd(interaction: discord.Interaction):
     if interaction.guild is None:
@@ -707,12 +786,18 @@ async def starboard_status_cmd(interaction: discord.Interaction):
         )
         return
 
+    daftar = list_starboard_boards(interaction.guild.id)
+    baris = "".join(
+        f"\n• {papan['emoji']} **{papan['nama']}**"
+        + (" *(utama)*" if papan.get("utama") else " *(varian)*")
+        + f" → <#{papan['channel_id']}> · ≥ {papan['threshold']} reaksi · "
+        f"`{papan['jumlah']}` sorotan"
+        for papan in daftar
+    )
     await interaction.response.send_message(
-        f"⭐ **Status Starboard**\n"
-        f"• **Channel sorotan:** <#{cfg['channel_id']}>\n"
-        f"• **Batas:** `{cfg['threshold']}` reaksi {cfg['emoji']}\n"
-        f"• **Pesan tersorot:** `{len(cfg.get('entries') or {})}`\n"
-        f"• Matikan dengan `/starboard atur aktif:False`.",
+        f"⭐ **Status Starboard**{baris}\n"
+        f"• Matikan dengan `/starboard atur aktif:False`. "
+        "Papan tambahan: `/starboard varian`.",
         ephemeral=True,
     )
 

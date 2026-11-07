@@ -45,7 +45,9 @@ _tools_lock = asyncio.Lock()
 # ==============================================================================
 reaction_role_panels: dict[int, dict] = {}   # message_id -> panel
 reminders: dict[int, dict] = {}              # reminder_id -> data
-starboard_guilds: dict[int, dict] = {}       # guild_id -> konfigurasi starboard
+starboard_guilds: dict[int, dict] = {}       # guild_id -> konfigurasi starboard (+ `boards`)
+# Maksimum papan sorotan per server, termasuk papan utama (⭐).
+STARBOARD_MAX_BOARD = 4
 sticky_channels: dict[int, dict] = {}        # channel_id -> konfigurasi sticky
 verification_guilds: dict[int, dict] = {}    # guild_id -> gerbang verifikasi
 maintenance_guilds: dict[int, dict] = {}     # guild_id -> backup & log channel
@@ -140,13 +142,41 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
                 }
                 for k, v in (data.get("entries") or {}).items()
             }
-            starboard_guilds[int(gid_str)] = {
+            cfg = {
                 "enabled": bool(data.get("enabled", True)),
                 "channel_id": _to_int(data.get("channel_id")),
                 "threshold": max(1, _to_int(data.get("threshold"), STARBOARD_DEFAULT_THRESHOLD)),
                 "emoji": str(data.get("emoji") or STARBOARD_EMOJI),
                 "entries": entries,
             }
+            warna = str(data.get("warna") or "")
+            if warna:
+                cfg["warna"] = warna
+            boards = []
+            for isi in data.get("boards") or []:
+                if not isinstance(isi, dict):
+                    continue
+                entri_board = {
+                    str(k): {
+                        "starboard_id": _to_int(v.get("starboard_id")),
+                        "count": _to_int(v.get("count")),
+                    }
+                    for k, v in (isi.get("entries") or {}).items()
+                }
+                boards.append(
+                    {
+                        "kunci": str(isi.get("kunci") or "")[:20],
+                        "nama": str(isi.get("nama") or "")[:40],
+                        "emoji": str(isi.get("emoji") or "💀")[:64],
+                        "threshold": max(1, _to_int(isi.get("threshold"), STARBOARD_DEFAULT_THRESHOLD)),
+                        "channel_id": _to_int(isi.get("channel_id")),
+                        "warna": str(isi.get("warna") or ""),
+                        "entries": entri_board,
+                    }
+                )
+            if boards:
+                cfg["boards"] = boards
+            starboard_guilds[int(gid_str)] = cfg
         except (TypeError, ValueError):
             continue
 
@@ -343,7 +373,7 @@ async def handle_reaction_role(bot: discord.Client, payload, *, added: bool) -> 
 
 
 # ==============================================================================
-# 2. STARBOARD (/starboard)
+# 2. STARBOARD (/starboard) — papan utama + varian (skullboard/clownboard/…)
 # ==============================================================================
 def set_starboard_config(
     guild_id: int,
@@ -352,8 +382,9 @@ def set_starboard_config(
     threshold: int | None = None,
     emoji: str | None = None,
     enabled: bool | None = None,
+    warna: str | None = None,
 ) -> dict | None:
-    """Mengatur channel sorotan, batas bintang, emoji, & status aktif starboard."""
+    """Mengatur channel sorotan, batas bintang, emoji, & status aktif papan utama."""
     existing = starboard_guilds.get(guild_id)
     if enabled is False:
         starboard_guilds.pop(guild_id, None)
@@ -372,16 +403,185 @@ def set_starboard_config(
         cfg["threshold"] = max(1, min(50, int(threshold)))
     if emoji is not None and str(emoji).strip():
         cfg["emoji"] = str(emoji).strip()[:64]
+    if warna is not None:
+        bersih = str(warna).strip().lstrip("#").upper()
+        if bersih and len(bersih) == 6:
+            cfg["warna"] = "#" + bersih
+        elif not bersih:
+            cfg.pop("warna", None)
     cfg["enabled"] = True if enabled is None else bool(enabled)
     starboard_guilds[guild_id] = cfg
     return cfg
 
 
-def build_starboard_embed(message: discord.Message, count: int, emoji: str) -> discord.Embed:
+def _board_slug(nama: str) -> str:
+    """Kunci papan dari namanya (`Skull Board` → `skull-board`)."""
+    teks = re.sub(r"[^a-z0-9]+", "-", str(nama or "").strip().lower()).strip("-")
+    return teks[:20]
+
+
+def _warna_embed(warna: str) -> discord.Color:
+    """Warna embed dari hex `#RRGGBB` (default emas)."""
+    teks = str(warna or "").strip().lstrip("#")
+    if len(teks) == 6:
+        try:
+            return discord.Color(int(teks, 16))
+        except ValueError:
+            pass
+    return discord.Color.gold()
+
+
+def _board_cfg(board: dict) -> dict:
+    """Konfigurasi satu papan dengan nilai bawaan yang aman."""
+    return {
+        "kunci": str(board.get("kunci") or ""),
+        "nama": str(board.get("nama") or "Starboard")[:40],
+        "emoji": str(board.get("emoji") or STARBOARD_EMOJI)[:64],
+        "threshold": max(1, min(50, _to_int(board.get("threshold"), STARBOARD_DEFAULT_THRESHOLD))),
+        "channel_id": _to_int(board.get("channel_id")),
+        "warna": str(board.get("warna") or ""),
+        "utama": bool(board.get("utama")),
+    }
+
+
+def _iter_boards(cfg: dict):
+    """Iterasi papan **aktif** beserta tempat penyimpanan entrinya (objek hidup).
+
+    Papan utama memakai kolom lama (`cfg["entries"]`) supaya data server yang sudah
+    jalan tidak perlu dimigrasi; varian menyimpan entrinya sendiri.
+    """
+    yield (
+        _board_cfg(
+            {
+                "kunci": "utama",
+                "nama": "Starboard",
+                "emoji": cfg.get("emoji"),
+                "threshold": cfg.get("threshold"),
+                "channel_id": cfg.get("channel_id"),
+                "warna": cfg.get("warna"),
+                "utama": True,
+            }
+        ),
+        cfg.setdefault("entries", {}),
+    )
+    for board in cfg.get("boards") or []:
+        if not isinstance(board, dict):
+            continue
+        data = _board_cfg({**board, "utama": False})
+        if not data["kunci"]:
+            continue
+        yield data, board.setdefault("entries", {})
+
+
+def list_starboard_boards(guild_id: int) -> list[dict]:
+    """Semua papan sorotan server (papan utama dulu), termasuk jumlah sorotan."""
+    cfg = starboard_guilds.get(int(guild_id or 0))
+    if not cfg or not cfg.get("enabled"):
+        return []
+    utama_cid = _to_int(cfg.get("channel_id"))
+    hasil: list[dict] = []
+    for data, entries in _iter_boards(cfg):
+        item = dict(data)
+        item["channel_id"] = item["channel_id"] or utama_cid
+        item["jumlah"] = len(entries or {})
+        hasil.append(item)
+    return hasil
+
+
+def add_starboard_board(
+    guild_id: int,
+    nama: str,
+    *,
+    emoji: str = "",
+    threshold: int = 0,
+    channel_id: int = 0,
+    warna: str = "",
+) -> tuple[bool, str]:
+    """Menambah/memperbarui satu papan varian (maks `STARBOARD_MAX_BOARD` papan)."""
+    cfg = starboard_guilds.get(int(guild_id or 0))
+    if not cfg or not cfg.get("enabled"):
+        return False, "Starboard belum aktif — jalankan `/starboard atur channel:#…` dulu."
+
+    kunci = _board_slug(nama)
+    if not kunci:
+        return False, "Nama papan tidak boleh kosong."
+    if kunci in ("utama", "main", "starboard"):
+        return False, "Nama itu dipakai papan utama. Pilih nama lain (mis. `skull`)."
+
+    boards = [b for b in (cfg.get("boards") or []) if isinstance(b, dict)]
+    lama = next((b for b in boards if _board_slug(b.get("kunci") or b.get("nama") or "") == kunci), None)
+    if lama is None and len(boards) + 1 >= STARBOARD_MAX_BOARD:
+        return False, (
+            f"Papan sudah penuh ({STARBOARD_MAX_BOARD} termasuk papan utama). "
+            "Hapus salah satu varian dulu."
+        )
+
+    isi = lama if lama is not None else {"kunci": kunci, "entries": {}}
+    isi["kunci"] = kunci
+    isi["nama"] = str(nama or "").strip()[:40] or kunci
+    if emoji and str(emoji).strip():
+        isi["emoji"] = str(emoji).strip()[:64]
+    else:
+        isi.setdefault("emoji", "💀")
+    if threshold:
+        isi["threshold"] = max(1, min(50, int(threshold)))
+    else:
+        isi.setdefault("threshold", STARBOARD_DEFAULT_THRESHOLD)
+    if channel_id:
+        isi["channel_id"] = int(channel_id)
+    else:
+        isi.setdefault("channel_id", 0)
+    if warna:
+        isi["warna"] = "#" + str(warna).strip().lstrip("#").upper()[:6]
+    else:
+        isi.setdefault("warna", "")
+    if lama is None:
+        boards.append(isi)
+    cfg["boards"] = boards
+    starboard_guilds[int(guild_id)] = cfg
+    kata = "diperbarui" if lama is not None else "ditambahkan"
+    return True, (
+        f"Papan **{isi['nama']}** {kata} ({isi['emoji']} ≥ {isi['threshold']} reaksi, "
+        f"channel: {'<#' + str(isi['channel_id']) + '>' if isi['channel_id'] else 'ikut papan utama'})."
+    )
+
+
+def remove_starboard_board(guild_id: int, nama: str) -> tuple[bool, str]:
+    """Menghapus satu papan varian (papan utama tidak bisa dihapus dari sini)."""
+    cfg = starboard_guilds.get(int(guild_id or 0))
+    if not cfg:
+        return False, "Starboard belum aktif di server ini."
+    kunci = _board_slug(nama)
+    if not kunci:
+        return False, "Sebutkan nama papan yang ingin dihapus."
+    if kunci in ("utama", "main", "starboard"):
+        return False, "Papan utama tidak bisa dihapus — matikan lewat `/starboard atur aktif:False`."
+    boards = [b for b in (cfg.get("boards") or []) if isinstance(b, dict)]
+    sisa = [
+        b for b in boards
+        if _board_slug(b.get("kunci") or b.get("nama") or "") != kunci
+    ]
+    if len(sisa) == len(boards):
+        return False, f"Papan varian `{kunci}` tidak ditemukan."
+    cfg["boards"] = sisa
+    if not sisa:
+        cfg.pop("boards", None)
+    starboard_guilds[int(guild_id)] = cfg
+    return True, f"Papan varian `{kunci}` dihapus. Sorotan lamanya tetap ada di channel."
+
+
+def build_starboard_embed(
+    message: discord.Message,
+    count: int,
+    emoji: str,
+    *,
+    nama: str = "",
+    warna: str = "",
+) -> discord.Embed:
     """Menyusun embed sorotan untuk pesan yang mencapai batas bintang."""
     embed = discord.Embed(
         description=(message.content or "")[:3900] or "_*(tanpa teks — lihat lampiran)*_",
-        color=discord.Color.gold(),
+        color=_warna_embed(warna),
         timestamp=message.created_at or discord.utils.utcnow(),
     )
     embed.set_author(
@@ -399,24 +599,124 @@ def build_starboard_embed(message: discord.Message, count: int, emoji: str) -> d
         value=f"[Lompat ke pesan]({message.jump_url})",
         inline=False,
     )
-    embed.set_footer(text=f"{emoji} {count} • disorot oleh warga server")
+    label = f"{nama} • " if nama and nama.lower() != "starboard" else ""
+    embed.set_footer(text=f"{label}{emoji} {count} • disorot oleh warga server")
     return embed
 
 
+async def _sync_board(
+    bot: discord.Client,
+    message,
+    board: dict,
+    entries: dict,
+    payload,
+    *,
+    emoji_str: str,
+) -> bool:
+    """Menyamakan satu papan dengan jumlah reaksi saat ini (`True` bila berubah)."""
+    kunci = str(payload.message_id)
+    entry = entries.get(kunci)
+    channel_id = _to_int(board.get("channel_id"))
+    if not channel_id:
+        return False
+    channel = bot.get_channel(channel_id)
+    threshold = max(1, _to_int(board.get("threshold"), STARBOARD_DEFAULT_THRESHOLD))
+
+    count = 0
+    for reaction in message.reactions:
+        if _emoji_matches(emoji_str, str(reaction.emoji)):
+            count = max(count, int(reaction.count) - 1)  # kurangi reaksi bot sendiri
+            break
+
+    if count >= threshold and not entry:
+        if channel is None:
+            return False
+        nama = str(board.get("nama") or "")
+        try:
+            posted = await channel.send(
+                content=(
+                    f"{emoji_str} **{count}** • <#{payload.channel_id}>"
+                    + (f" · **{nama}**" if nama and nama.lower() != "starboard" else "")
+                ),
+                embed=build_starboard_embed(
+                    message, count, emoji_str, nama=nama, warna=str(board.get("warna") or "")
+                ),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.info("Gagal kirim starboard: %s", sanitize_error_message(exc))
+            return False
+        entries[kunci] = {"starboard_id": posted.id, "count": count}
+        await save_community_tools_to_disk()
+        return True
+
+    if count >= threshold and entry:
+        # Jumlah reaksi berubah → perbarui angka di pesan sorotan (tanpa spam pesan baru).
+        if _to_int(entry.get("count")) == count:
+            return False
+        entry["count"] = count
+        starboard_id = _to_int(entry.get("starboard_id"))
+        if channel is not None and starboard_id:
+            try:
+                partial = channel.get_partial_message(starboard_id)
+                await partial.edit(
+                    content=(
+                        f"{emoji_str} **{count}** • <#{payload.channel_id}>"
+                        + (
+                            f" · **{board.get('nama')}**"
+                            if board.get("nama") and str(board["nama"]).lower() != "starboard"
+                            else ""
+                        )
+                    ),
+                    embed=build_starboard_embed(
+                        message,
+                        count,
+                        emoji_str,
+                        nama=str(board.get("nama") or ""),
+                        warna=str(board.get("warna") or ""),
+                    ),
+                )
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+                pass
+        await save_community_tools_to_disk()
+        return True
+
+    if entry:
+        # Reaksi turun di bawah ambang → hapus jejak sorotan papan ini.
+        starboard_id = _to_int(entry.get("starboard_id"))
+        if channel is not None and starboard_id:
+            try:
+                await channel.get_partial_message(starboard_id).delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+                pass
+        entries.pop(kunci, None)
+        await save_community_tools_to_disk()
+        return True
+
+    return False
+
+
 async def handle_starboard_reaction(bot: discord.Client, payload, *, added: bool) -> bool:
-    """Menyalin/menghapus pesan di channel starboard sesuai jumlah reaksi."""
+    """Menyamakan **semua** papan sorotan yang emojinya cocok dengan reaksi ini."""
     cfg = starboard_guilds.get(getattr(payload, "guild_id", None))
     if not cfg or not cfg.get("enabled"):
         return False
-    starboard_cid = _to_int(cfg.get("channel_id"))
-    if not starboard_cid or payload.channel_id == starboard_cid:
-        return False
-    if not _emoji_matches(str(cfg.get("emoji") or STARBOARD_EMOJI), str(payload.emoji)):
+
+    incoming = str(payload.emoji)
+    papan = [
+        (board, entries)
+        for board, entries in _iter_boards(cfg)
+        if _emoji_matches(board["emoji"], incoming)
+    ]
+    if not papan:
         return False
 
-    entry_key = str(payload.message_id)
-    entry = (cfg.get("entries") or {}).get(entry_key)
-    if not added and not entry:
+    # Pesan yang berada di dalam papan sorotan tidak boleh disorot lagi (anti-loop).
+    papan_channel = {b["channel_id"] for b, _ in papan if b["channel_id"]}
+    papan_channel.add(_to_int(cfg.get("channel_id")))
+    if payload.channel_id in papan_channel:
+        return False
+
+    if not added and not any(entries.get(str(payload.message_id)) for _, entries in papan):
         return False
 
     source_channel = bot.get_channel(payload.channel_id) if hasattr(bot, "get_channel") else None
@@ -429,46 +729,13 @@ async def handle_starboard_reaction(bot: discord.Client, payload, *, added: bool
     if getattr(message.author, "bot", False):
         return False
 
-    emoji_str = str(cfg.get("emoji") or STARBOARD_EMOJI)
-    count = 0
-    for reaction in message.reactions:
-        if _emoji_matches(emoji_str, str(reaction.emoji)):
-            count = max(count, int(reaction.count) - 1)  # kurangi reaksi bot sendiri
-            break
-
-    threshold = max(1, _to_int(cfg.get("threshold"), STARBOARD_DEFAULT_THRESHOLD))
-    starboard_channel = bot.get_channel(starboard_cid)
-
-    if count >= threshold and not entry:
-        if starboard_channel is None:
-            return False
-        try:
-            posted = await starboard_channel.send(
-                content=f"{emoji_str} **{count}** • <#{payload.channel_id}>",
-                embed=build_starboard_embed(message, count, emoji_str),
-            )
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            logger.info("Gagal kirim starboard: %s", sanitize_error_message(exc))
-            return False
-        cfg.setdefault("entries", {})[entry_key] = {
-            "starboard_id": posted.id,
-            "count": count,
-        }
-        await save_community_tools_to_disk()
-        return True
-
-    if count < threshold and entry:
-        if starboard_channel is not None and _to_int(entry.get("starboard_id")):
-            try:
-                partial = starboard_channel.get_partial_message(int(entry["starboard_id"]))
-                await partial.delete()
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                pass
-        cfg.get("entries", {}).pop(entry_key, None)
-        await save_community_tools_to_disk()
-        return True
-
-    return False
+    berubah = False
+    for board, entries in papan:
+        emoji_str = board["emoji"]
+        berubah = await _sync_board(
+            bot, message, board, entries, payload, emoji_str=emoji_str
+        ) or berubah
+    return berubah
 
 
 # ==============================================================================
