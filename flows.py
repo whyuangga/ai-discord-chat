@@ -357,6 +357,90 @@ async def _kirim(interaction, teks: str, *, ephemeral: bool, sudah_balas: bool) 
         return False
 
 
+async def _aksi_ubah_role(
+    interaction, guild, member, aksi: str, step: dict, hasil: dict, sudah_balas: bool
+) -> bool:
+    """Tambah/hapus/toggle role sesuai langkah; kembalikan `sudah_balas`."""
+    if guild is None or member is None:
+        hasil["errors"].append("tanpa konteks server")
+        return sudah_balas
+    role_id = step["role_id"]
+    role = guild.get_role(role_id)
+    if role is None:
+        hasil["errors"].append(f"role {role_id} tidak ada")
+        return sudah_balas
+    import menu_builder  # impor lambat: menu_builder juga memakai modul ini
+
+    boleh, alasan = menu_builder.check_role_usable(guild, role_id)
+    if not boleh:
+        await _kirim(interaction, f"⚠️ {alasan}", ephemeral=True, sudah_balas=sudah_balas)
+        sudah_balas = True
+        hasil["errors"].append(f"role {role_id} ditolak")
+        return sudah_balas
+
+    punya = role in getattr(member, "roles", [])
+    try:
+        if aksi == ACTION_ROLE_TOGGLE and punya:
+            await member.remove_roles(role, reason="Alur menu")
+        elif aksi == ACTION_ROLE_TOGGLE:
+            await member.add_roles(role, reason="Alur menu")
+        elif aksi == ACTION_ROLE_ADD and not punya:
+            await member.add_roles(role, reason="Alur menu")
+        elif aksi == ACTION_ROLE_REMOVE and punya:
+            await member.remove_roles(role, reason="Alur menu")
+        else:
+            return sudah_balas
+    except Exception as exc:
+        hasil["errors"].append(f"gagal ubah role {role_id}: {type(exc).__name__}")
+        return sudah_balas
+    hasil["roles"].append(role_id)
+    return sudah_balas
+
+
+async def _aksi_thread(
+    channel, step: dict, hasil: dict, konteks: dict
+) -> None:
+    """Buat thread diskusi publik untuk langkah `thread`."""
+    nama = message_template.render(str(step.get("name") or ""), **konteks)[:MAX_THREAD_NAME]
+    if channel is None or not hasattr(channel, "create_thread"):
+        hasil["errors"].append("channel tidak mendukung thread")
+        return
+    try:
+        thread = await channel.create_thread(
+            name=(nama or "diskusi")[:MAX_THREAD_NAME],
+            type=discord.ChannelType.public_thread,
+            auto_archive_duration=1440,
+            reason="Alur menu",
+        )
+    except Exception as exc:
+        hasil["errors"].append(f"gagal buat thread: {type(exc).__name__}")
+        return
+    hasil["threads"].append(getattr(thread, "id", 0))
+    return
+
+
+async def _aksi_webhook(
+    channel, step: dict, hasil: dict, konteks: dict
+) -> None:
+    """Kirim pesan lewat webhook server untuk langkah `webhook`."""
+    import webhook_identity  # impor lambat: modul ini memakai data & izin channel
+
+    nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
+    teks = message_template.render(str(step.get("text") or ""), **konteks)
+    if not teks.strip() or channel is None:
+        hasil["errors"].append("webhook butuh channel teks")
+        return
+    ok, keterangan = await webhook_identity.kirim_sebagai(
+        channel, nama=nama or "Server", isi=teks
+    )
+    if not ok:
+        hasil["errors"].append(f"webhook ditolak: {keterangan}")
+        hasil["sent"] += 0
+        return
+    hasil["sent"] += 1
+    return
+
+
 async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, channel=None) -> FlowResult:
     """Jalankan langkah alur atas nama member yang mengklik tombol."""
     langkah = sanitize_steps(steps)
@@ -379,8 +463,6 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
     sudah_balas = bool(interaction.response.is_done())
     konteks = {"guild": guild, "member": member, "channel": channel}
 
-    import menu_builder  # impor lambat: menu_builder juga memakai modul ini
-
     for step in langkah:
         aksi = step["action"]
 
@@ -393,37 +475,9 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
             continue
 
         if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE):
-            if guild is None or member is None:
-                hasil["errors"].append("tanpa konteks server")
-                continue
-            role_id = step["role_id"]
-            role = guild.get_role(role_id)
-            if role is None:
-                hasil["errors"].append(f"role {role_id} tidak ada")
-                continue
-            boleh, alasan = menu_builder.check_role_usable(guild, role_id)
-            if not boleh:
-                await _kirim(interaction, f"⚠️ {alasan}", ephemeral=True, sudah_balas=sudah_balas)
-                sudah_balas = True
-                hasil["errors"].append(f"role {role_id} ditolak")
-                continue
-
-            punya = role in getattr(member, "roles", [])
-            try:
-                if aksi == ACTION_ROLE_TOGGLE and punya:
-                    await member.remove_roles(role, reason="Alur menu")
-                elif aksi == ACTION_ROLE_TOGGLE:
-                    await member.add_roles(role, reason="Alur menu")
-                elif aksi == ACTION_ROLE_ADD and not punya:
-                    await member.add_roles(role, reason="Alur menu")
-                elif aksi == ACTION_ROLE_REMOVE and punya:
-                    await member.remove_roles(role, reason="Alur menu")
-                else:
-                    continue
-            except Exception as exc:
-                hasil["errors"].append(f"gagal ubah role {role_id}: {type(exc).__name__}")
-                continue
-            hasil["roles"].append(role_id)
+            sudah_balas = await _aksi_ubah_role(
+                interaction, guild, member, aksi, step, hasil, sudah_balas
+            )
             continue
 
         if aksi == ACTION_SAY:
@@ -441,21 +495,7 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
             continue
 
         if aksi == ACTION_THREAD:
-            nama = message_template.render(str(step.get("name") or ""), **konteks)[:MAX_THREAD_NAME]
-            if channel is None or not hasattr(channel, "create_thread"):
-                hasil["errors"].append("channel tidak mendukung thread")
-                continue
-            try:
-                thread = await channel.create_thread(
-                    name=(nama or "diskusi")[:MAX_THREAD_NAME],
-                    type=discord.ChannelType.public_thread,
-                    auto_archive_duration=1440,
-                    reason="Alur menu",
-                )
-            except Exception as exc:
-                hasil["errors"].append(f"gagal buat thread: {type(exc).__name__}")
-                continue
-            hasil["threads"].append(getattr(thread, "id", 0))
+            await _aksi_thread(channel, step, hasil, konteks)
             continue
 
         if aksi == ACTION_WAIT:
@@ -463,21 +503,7 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
             continue
 
         if aksi == ACTION_WEBHOOK:
-            import webhook_identity  # impor lambat: modul ini memakai data & izin channel
-
-            nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if not teks.strip() or channel is None:
-                hasil["errors"].append("webhook butuh channel teks")
-                continue
-            ok, keterangan = await webhook_identity.kirim_sebagai(
-                channel, nama=nama or "Server", isi=teks
-            )
-            if not ok:
-                hasil["errors"].append(f"webhook ditolak: {keterangan}")
-                hasil["sent"] += 0
-                continue
-            hasil["sent"] += 1
+            await _aksi_webhook(channel, step, hasil, konteks)
             continue
 
         if aksi == ACTION_DELETE:
