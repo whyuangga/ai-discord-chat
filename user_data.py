@@ -34,14 +34,8 @@ def _to_int(nilai: object) -> int:
 # ==============================================================================
 
 
-def kumpulkan(user_id: int) -> dict:
-    """Kumpulkan semua data milik satu user dari seluruh modul."""
-    uid = _to_int(user_id)
-    hasil: dict = {"user_id": uid, "dibuat": time.time(), "modul": {}}
-
-    def _catat(nama: str, isi: object) -> None:
-        hasil["modul"][nama] = isi
-
+def _kumpulkan_level(uid: int) -> dict:
+    """Ambil level milik satu user; galat apa pun jadi penanda `galat`."""
     # 1. Level & XP
     try:
         import levels
@@ -53,10 +47,13 @@ def kumpulkan(user_id: int) -> dict:
                 baris.append({"guild_id": _to_int(gid_str), **{
                     k: data.get(k) for k in ("xp", "level", "messages", "last_at") if k in data
                 }})
-        _catat("level", {"jumlah": len(baris), "data": baris[:MAKS_BARIS]})
+        return {"jumlah": len(baris), "data": baris[:MAKS_BARIS]}
     except Exception:  # pragma: no cover - jaring aman
-        _catat("level", {"galat": True})
+        return {"galat": True}
 
+
+def _kumpulkan_ekonomi(uid: int) -> dict:
+    """Ambil ekonomi milik satu user; galat apa pun jadi penanda `galat`."""
     # 2. Ekonomi
     try:
         import economy
@@ -72,10 +69,13 @@ def kumpulkan(user_id: int) -> dict:
                         "meta": economy.meta.get(kunci) or {},
                     }
                 )
-        _catat("ekonomi", {"jumlah": len(saldo), "data": saldo[:MAKS_BARIS]})
+        return {"jumlah": len(saldo), "data": saldo[:MAKS_BARIS]}
     except Exception:  # pragma: no cover
-        _catat("ekonomi", {"galat": True})
+        return {"galat": True}
 
+
+def _kumpulkan_lencana(uid: int) -> dict:
+    """Ambil lencana milik satu user; galat apa pun jadi penanda `galat`."""
     # 3. Lencana (achievements)
     try:
         import achievements
@@ -85,10 +85,13 @@ def kumpulkan(user_id: int) -> dict:
             data = (anggota or {}).get(uid)
             if data:
                 lencana.append({"guild_id": gid, "lencana": data})
-        _catat("lencana", {"jumlah": len(lencana), "data": lencana[:MAKS_BARIS]})
+        return {"jumlah": len(lencana), "data": lencana[:MAKS_BARIS]}
     except Exception:  # pragma: no cover
-        _catat("lencana", {"galat": True})
+        return {"galat": True}
 
+
+def _kumpulkan_highlight(uid: int) -> dict:
+    """Ambil highlight milik satu user; galat apa pun jadi penanda `galat`."""
     # 4. Highlight kata kunci
     try:
         import highlights
@@ -105,10 +108,13 @@ def kumpulkan(user_id: int) -> dict:
                         "hit": data.get("hit") or 0,
                     }
                 )
-        _catat("highlight", {"jumlah": len(pantau), "data": pantau[:MAKS_BARIS]})
+        return {"jumlah": len(pantau), "data": pantau[:MAKS_BARIS]}
     except Exception:  # pragma: no cover
-        _catat("highlight", {"galat": True})
+        return {"galat": True}
 
+
+def _kumpulkan_ultah(uid: int) -> dict:
+    """Ambil ultah milik satu user; galat apa pun jadi penanda `galat`."""
     # 5. Ulang tahun
     try:
         import engagement
@@ -118,10 +124,13 @@ def kumpulkan(user_id: int) -> dict:
             gid_str, _, uid_str = kunci.partition(":")
             if _to_int(uid_str) == uid:
                 ultah.append({"guild_id": _to_int(gid_str), "data": data})
-        _catat("ultah", {"jumlah": len(ultah), "data": ultah[:MAKS_BARIS]})
+        return {"jumlah": len(ultah), "data": ultah[:MAKS_BARIS]}
     except Exception:  # pragma: no cover
-        _catat("ultah", {"galat": True})
+        return {"galat": True}
 
+
+def _kumpulkan_game(uid: int) -> dict:
+    """Ambil game milik satu user; galat apa pun jadi penanda `galat`."""
     # 6. Skor game
     try:
         import games
@@ -132,10 +141,13 @@ def kumpulkan(user_id: int) -> dict:
                 nilai = (isi or {}).get(uid) if isinstance(isi, dict) else None
                 if nilai:
                     skor.append({"guild_id": gid, "game": nama_game, "data": nilai})
-        _catat("game", {"jumlah": len(skor), "data": skor[:MAKS_BARIS]})
+        return {"jumlah": len(skor), "data": skor[:MAKS_BARIS]}
     except Exception:  # pragma: no cover
-        _catat("game", {"galat": True})
+        return {"galat": True}
 
+
+def _kumpulkan_formulir(uid: int) -> dict:
+    """Ambil formulir milik satu user; galat apa pun jadi penanda `galat`."""
     # 7. Formulir yang pernah dikirim (antrean dashboard)
     try:
         import modal_forms
@@ -153,9 +165,26 @@ def kumpulkan(user_id: int) -> dict:
                             "nilai": entri.get("nilai") or {},
                         }
                     )
-        _catat("formulir", {"jumlah": len(kiriman), "data": kiriman[:MAKS_BARIS]})
+        return {"jumlah": len(kiriman), "data": kiriman[:MAKS_BARIS]}
     except Exception:  # pragma: no cover
-        _catat("formulir", {"galat": True})
+        return {"galat": True}
+
+
+def kumpulkan(user_id: int) -> dict:
+    """Kumpulkan semua data milik satu user dari seluruh modul."""
+    uid = _to_int(user_id)
+    hasil: dict = {"user_id": uid, "dibuat": time.time(), "modul": {}}
+
+    def _catat(nama: str, isi: object) -> None:
+        hasil["modul"][nama] = isi
+
+    _catat("level", _kumpulkan_level(uid))
+    _catat("ekonomi", _kumpulkan_ekonomi(uid))
+    _catat("lencana", _kumpulkan_lencana(uid))
+    _catat("highlight", _kumpulkan_highlight(uid))
+    _catat("ultah", _kumpulkan_ultah(uid))
+    _catat("game", _kumpulkan_game(uid))
+    _catat("formulir", _kumpulkan_formulir(uid))
 
     return hasil
 
