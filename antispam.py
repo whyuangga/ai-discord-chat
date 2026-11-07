@@ -446,6 +446,107 @@ def statistik_aturan(guild_id: int, *, now: float | None = None) -> dict:
     }
 
 
+def _uji_mention(isi: str, data: dict) -> dict:
+    """Aturan 1: mention massal (`@everyone`/`@here` ikut dihitung)."""
+    mention_limit = max(2, _to_int(data.get("mention_limit"), SPAM_MENTION_LIMIT))
+    jumlah_mention = len(_MENTION_RE.findall(isi))
+    jumlah_mention += sum(
+        1 for kata in ("@everyone", "@here") if kata in isi.lower()
+    )
+    return (
+        {
+            "kunci": "mention",
+            "label": SPAM_REASONS["mention"],
+            "aktif": True,
+            "kena": jumlah_mention >= mention_limit,
+            "detail": f"`{jumlah_mention}` mention (batas `{mention_limit}`).",
+        }
+    )
+
+
+def _uji_link(isi: str, data: dict) -> dict:
+    """Aturan 2: link beruntun atau link sama yang diulang ≥ 3×."""
+    link_limit = max(1, _to_int(data.get("link_limit"), SPAM_LINK_LIMIT))
+    links = extract_links(isi)
+    ganda = ""
+    for link in set(links):
+        if links.count(link) >= 3:
+            ganda = link
+            break
+    return (
+        {
+            "kunci": "link",
+            "label": SPAM_REASONS["link"],
+            "aktif": True,
+            "kena": len(links) >= link_limit or bool(ganda),
+            "detail": (
+                f"Link sama diulang: `{ganda[:120]}`."
+                if ganda
+                else f"`{len(links)}` link (batas `{link_limit}`)."
+            ),
+        }
+    )
+
+
+def _uji_flood(data: dict, kali: int) -> dict:
+    """Aturan 3: banjir pesan (disimulasikan lewat `ulang`)."""
+    flood_count = max(3, _to_int(data.get("flood_count"), SPAM_FLOOD_COUNT))
+    flood_window = max(3, _to_int(data.get("flood_window"), SPAM_FLOOD_WINDOW_SEC))
+    return (
+        {
+            "kunci": "flood",
+            "label": SPAM_REASONS["flood"],
+            "aktif": True,
+            "kena": kali >= flood_count,
+            "detail": (
+                f"Simulasi `{kali}`× kirim; aturan aktif bila `{flood_count}` pesan "
+                f"dalam `{flood_window}` detik."
+            ),
+        }
+    )
+
+
+def _uji_duplikat(isi: str, data: dict, kali: int) -> dict:
+    """Aturan 4: pesan berulang dengan isi sama."""
+    duplicate_count = max(2, _to_int(data.get("duplicate_count"), 3))
+    duplicate_window = max(5, _to_int(data.get("duplicate_window"), 30))
+    normal = normalize_text(isi)
+    return (
+        {
+            "kunci": "duplikat",
+            "label": SPAM_REASONS["duplikat"],
+            "aktif": True,
+            "kena": len(normal) >= 4 and kali >= duplicate_count,
+            "detail": (
+                f"Simulasi `{kali}`× isi sama; aturan aktif pada `{duplicate_count}`× "
+                f"dalam `{duplicate_window}` detik."
+                + ("" if len(normal) >= 4 else " Teks terlalu pendek (<4 karakter) jadi dilewati.")
+            ),
+        }
+    )
+
+
+def _uji_caps(isi: str, data: dict) -> dict:
+    """Aturan 5: huruf kapital berlebihan (opsional)."""
+    caps_on = bool(data.get("caps_enabled"))
+    caps_min = max(8, _to_int(data.get("caps_min_length"), SPAM_CAPS_MIN_LENGTH))
+    rasio = caps_ratio(isi)
+    return (
+        {
+            "kunci": "caps",
+            "label": SPAM_REASONS["caps"],
+            "aktif": caps_on,
+            "kena": bool(caps_on and len(isi) >= caps_min and rasio >= 0.7),
+            "detail": (
+                f"`{int(rasio * 100)}%` kapital pada `{len(isi)}` karakter "
+                f"(minimal `{caps_min}` karakter & ≥ 70%)."
+                if caps_on
+                else "Aturan ini sedang dimatikan di setelan Keamanan."
+            ),
+        }
+    )
+
+
 def uji_aturan(
     teks: str,
     *,
@@ -469,96 +570,13 @@ def uji_aturan(
 
     baris: list[dict] = []
 
-    # 1. Mention massal
-    mention_limit = max(2, _to_int(data.get("mention_limit"), SPAM_MENTION_LIMIT))
-    jumlah_mention = len(_MENTION_RE.findall(isi))
-    jumlah_mention += sum(
-        1 for kata in ("@everyone", "@here") if kata in isi.lower()
-    )
-    baris.append(
-        {
-            "kunci": "mention",
-            "label": SPAM_REASONS["mention"],
-            "aktif": True,
-            "kena": jumlah_mention >= mention_limit,
-            "detail": f"`{jumlah_mention}` mention (batas `{mention_limit}`).",
-        }
-    )
-
-    # 2. Link beruntun / link sama berulang
-    link_limit = max(1, _to_int(data.get("link_limit"), SPAM_LINK_LIMIT))
-    links = extract_links(isi)
-    ganda = ""
-    for link in set(links):
-        if links.count(link) >= 3:
-            ganda = link
-            break
-    baris.append(
-        {
-            "kunci": "link",
-            "label": SPAM_REASONS["link"],
-            "aktif": True,
-            "kena": len(links) >= link_limit or bool(ganda),
-            "detail": (
-                f"Link sama diulang: `{ganda[:120]}`."
-                if ganda
-                else f"`{len(links)}` link (batas `{link_limit}`)."
-            ),
-        }
-    )
-
-    # 3. Banjir pesan (butuh riwayat → disimulasikan)
-    flood_count = max(3, _to_int(data.get("flood_count"), SPAM_FLOOD_COUNT))
-    flood_window = max(3, _to_int(data.get("flood_window"), SPAM_FLOOD_WINDOW_SEC))
-    baris.append(
-        {
-            "kunci": "flood",
-            "label": SPAM_REASONS["flood"],
-            "aktif": True,
-            "kena": kali >= flood_count,
-            "detail": (
-                f"Simulasi `{kali}`× kirim; aturan aktif bila `{flood_count}` pesan "
-                f"dalam `{flood_window}` detik."
-            ),
-        }
-    )
-
-    # 4. Pesan berulang (isi sama)
-    duplicate_count = max(2, _to_int(data.get("duplicate_count"), 3))
-    duplicate_window = max(5, _to_int(data.get("duplicate_window"), 30))
-    normal = normalize_text(isi)
-    baris.append(
-        {
-            "kunci": "duplikat",
-            "label": SPAM_REASONS["duplikat"],
-            "aktif": True,
-            "kena": len(normal) >= 4 and kali >= duplicate_count,
-            "detail": (
-                f"Simulasi `{kali}`× isi sama; aturan aktif pada `{duplicate_count}`× "
-                f"dalam `{duplicate_window}` detik."
-                + ("" if len(normal) >= 4 else " Teks terlalu pendek (<4 karakter) jadi dilewati.")
-            ),
-        }
-    )
-
-    # 5. Huruf kapital berlebihan (opsional)
-    caps_on = bool(data.get("caps_enabled"))
-    caps_min = max(8, _to_int(data.get("caps_min_length"), SPAM_CAPS_MIN_LENGTH))
-    rasio = caps_ratio(isi)
-    baris.append(
-        {
-            "kunci": "caps",
-            "label": SPAM_REASONS["caps"],
-            "aktif": caps_on,
-            "kena": bool(caps_on and len(isi) >= caps_min and rasio >= 0.7),
-            "detail": (
-                f"`{int(rasio * 100)}%` kapital pada `{len(isi)}` karakter "
-                f"(minimal `{caps_min}` karakter & ≥ 70%)."
-                if caps_on
-                else "Aturan ini sedang dimatikan di setelan Keamanan."
-            ),
-        }
-    )
+    baris: list[dict] = [
+        _uji_mention(isi, data),
+        _uji_link(isi, data),
+        _uji_flood(data, kali),
+        _uji_duplikat(isi, data, kali),
+        _uji_caps(isi, data),
+    ]
 
     kena = [item["kunci"] for item in baris if item["kena"]]
     return {
