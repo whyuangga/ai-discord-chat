@@ -838,9 +838,12 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 ## J. Dashboard Web (`DASHBOARD_TOKEN`)
 
-Satu halaman web untuk memantau **dan** mengatur bot: status, pemakaian AI, papan level,
-peta fitur, **52 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
-Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
+Satu server web ringan (proses yang sama dengan bot) untuk memantau **dan** mengatur bot
+tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **52 setelan server
+dalam 10 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
+& kartu sambutan, kotak masuk tiket, serta **9 tombol tes fitur**.
+Template halaman depan ada di [README](../README.md#-dashboard-web-sekilas); rincian tiap
+bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
 | Aspek | Detail |
 | :--- | :--- |

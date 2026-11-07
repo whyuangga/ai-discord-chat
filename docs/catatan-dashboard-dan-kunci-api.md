@@ -1,9 +1,15 @@
 # 📌 Catatan Parkir: Dashboard Web, BYOK, & "Isi Sendiri API Key"
 
 > **Status: BELUM DIPUTUSKAN** — catatan ini disimpan supaya diskusi tidak hilang.
-> Tidak ada kode yang diubah untuk rencana ini. Keputusan menunggu arahan owner.
+> Belum ada form input rahasia yang ditambahkan ke dashboard. Keputusan menunggu owner.
 >
-> Terakhir diperbarui: v1.38.0-beta
+> Terakhir diperbarui: v1.40.0-beta
+
+> ℹ️ **Satu bagian sudah selesai tanpa perlu keputusan ini:** “Tahap 1 — status key
+> (masked)” sudah ada di dashboard tanpa menyimpan rahasia apa pun — halaman
+> `/` (Ringkasan) menampilkan status Gemini **aktif / belum ada key** dan punya tombol
+> **Tes koneksi AI** (`uji.ai`) yang melaporkan key kosong, kuota, atau jaringan.
+> Tidak ada API key yang pernah dikirim balik ke browser.
 
 ## 1. Pertanyaan yang muncul
 
@@ -13,8 +19,8 @@
 Dari pertanyaan ini muncul dua hal berbeda yang sering tercampur:
 
 1. **Mengatur fitur bot dari browser** → ini sudah ada (`web_dashboard.py` +
-   `dashboard_admin.py`): 39 setelan, kirim embed/webhook, serta pengelolaan pengumuman,
-   tautan, dan panel.
+   `dashboard_admin.py`): **52 setelan dalam 10 halaman**, kirim embed/webhook, unggah
+   banner & kartu sambutan, kotak masuk tiket, serta pengelolaan pengumuman, tautan, dan panel.
 2. **Pengguna lain memasukkan rahasia sendiri** (token bot, API key) → ini fitur baru, dan
    sebagian **tidak mungkin** dilakukan.
 
