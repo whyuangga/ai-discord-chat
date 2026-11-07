@@ -83,8 +83,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/bangun tema` | `tema` | *(Admin)* Pratinjau struktur server dari salah satu **15 tema** (0 kuota AI) + tombol Terapkan/Batal. |
 | `/bangun rancang` | `deskripsi` | *(Admin)* AI menyusun kategori/channel/role dari deskripsi bebas, lalu pratinjau. |
 | `/bangun terapkan` | — | *(Admin)* Terapkan rencana terakhir yang menunggu konfirmasi. |
-| `/bangun riwayat` | — | Lihat pembangunan terakhir di server ini. |
-| `/bangun bongkar` | — | *(Admin)* Hapus hanya item yang tercatat dibuat `/bangun`. |
+| `/bangun riwayat` | — | Lihat build terbaru dan jumlah build sebelumnya yang masih tersimpan. |
+| `/bangun bongkar` | — | *(Admin)* Bongkar build terbaru; ulangi untuk rollback build sebelumnya. |
 | `/setelan-ai lihat` | — | Lihat setelan AI-mu (panjang, temperature, bahasa, prompt pribadi, rasio, kepribadian server). |
 | `/setelan-ai atur` | `panjang`, `prompt`, `rasio`, `temperatur`, `bahasa` | Atur gaya jawaban, temperature, bahasa balasan, prompt pribadi & rasio gambar bawaanmu. |
 | `/setelan-ai prompt-server` | `teks` | *(Admin)* Kepribadian AI untuk seluruh server (kosongkan untuk menghapus). |
@@ -120,7 +120,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/embed tautan hapus` | `tautan` | *(Staff)* Hapus tautan dari daftar server (halaman tetap hidup). |
 | `/afk atur` / `daftar` / `hapus` | `alasan` | Tandai/lihat/hapus status AFK. |
 | `/thread-otomatis aktifkan` | `channel`, `arsip_menit` | *(Admin)* Buat thread otomatis per pesan baru. |
-| `/lockdown aktif` | `aktif`, `alasan` | *(Admin)* Kunci/buka semua text channel saat darurat. |
+| `/lockdown aktif` / `status` | `aktif`, `alasan` | *(Admin)* Kunci/buka text channel; pemulihan mengembalikan izin awal dan status tetap tersedia setelah restart. |
 | `/backup struktur` | — | *(Admin)* Ekspor role/kategori/channel/izin ke berkas JSON. |
 | `/agent goodbye` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Mengaktifkan kartu perpisahan AI + masa kebersamaan untuk member yang keluar. |
 | `/agent gallery` | `channel`, `aktif`, `auto_reaction` | Mengaktifkan/mematikan Auto-Komentar Foto & Video di Text Channel maupun **Forum/Media Showcase**. |

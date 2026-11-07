@@ -53,6 +53,22 @@ def test_halaman_hasil_dan_pratinjau_ikut_tema():
     assert dashboard_tema.LATAR in pratinjau
 
 
+def test_shell_sidebar_desktop_dan_judul_halaman_adaptif():
+    halaman = _halaman(
+        halaman="keamanan",
+        heading="Server Demo",
+        judul_halaman="🛡️ Keamanan",
+        keterangan="Pengaturan keamanan server.",
+    )
+    assert '<aside class="topbar" aria-label="Navigasi dashboard">' in halaman
+    assert '<span class="judul">Server Demo</span>' in halaman
+    assert "<h1>🛡️ Keamanan</h1>" in halaman
+    assert '@media (min-width: 821px)' in halaman
+    assert "position: fixed" in halaman
+    assert "#nav-buka:checked ~ nav.menu" in halaman
+    assert 'class="sidebar-controls"' in halaman
+
+
 def test_grafik_memakai_warna_teks_tema():
     svg = dashboard_ui.render_tren_svg([{"label": "01", "total": 5, "cache_hits": 1}])
     assert "General Sans" in svg

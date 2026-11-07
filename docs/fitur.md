@@ -408,7 +408,9 @@ Auto Role normal saat mode berakhir), dan setiap kejadian tercatat di Audit Log.
 | `/backup struktur` | Admin | Unduh JSON berisi role, kategori, channel, & permission overwrite. |
 
 Catatan penting:
-- **Lockdown tidak tersimpan di disk** — kalau bot restart saat lockdown, jalankan `/lockdown aktif aktif:False` lalu periksa manual. Ini disengaja agar tidak ada "kunci hantu".
+- Status lockdown disimpan atomik di `data/lockdown.json` beserta nilai izin `@everyone` sebelum dikunci. Setelah restart, `/lockdown status` menandai status yang dipulihkan; `/lockdown aktif aktif:False` mengembalikan izin awal.
+- Channel yang sudah terkunci sebelum lockdown tidak disentuh. Jika izin channel diubah manual saat lockdown berlangsung, pemulihan mempertahankan perubahan manual itu; kegagalan izin tetap tercatat agar Admin bisa mencoba lagi.
+- Lockdown yang dibuat oleh versi bot sebelum catatan pemulihan ini tersedia tidak punya snapshot izin dan harus diperiksa manual.
 - **Backup bersifat baca-saja**: bot **tidak** akan membuat/menghapus channel dari berkas itu, jadi tidak ada risiko server rusak karena salah klik.
 - Auto-thread otomatis berhenti membuat thread bila bot kehilangan izin *Create Public Threads* (hanya dicatat di log).
 
@@ -426,9 +428,12 @@ dipakai untuk **membangun ulang** role, kategori, dan channel — lengkap dengan
 Pengaman:
 - **Hanya menambah.** Bot tidak pernah menghapus, memindahkan, atau menimpa channel/role yang sudah ada.
 - Item dicocokkan dari **nama & tipe**; yang sudah ada otomatis dilewati (tidak dobel).
+- Kategori dan channel baru diproses sesuai urutan posisi di snapshot, tanpa menggeser item yang sudah ada.
 - **Maksimal 30 item per pemulihan** (agar aman dari rate limit Discord) — jalankan ulang untuk sisanya.
 - **Overwrite per-member dilewati** (ID member berbeda di server lain); izin **per-role** tetap diterapkan berdasarkan nama role.
-- Tipe yang belum didukung (`forum`, `media`) dilaporkan sebagai "dilewati", bukan error.
+- Channel **forum** dipulihkan beserta setelan dasar dan tag; channel **media** didukung dengan Discord.py ≥2.6. Jika versi/API tidak mendukung tipe media, pratinjau menandainya sebagai dilewati.
+- Backup forum/media berisi konfigurasi channel, bukan post/thread; emoji tag custom tidak dibawa lintas server (tag dan emoji Unicode tetap dicatat).
+- Posisi absolut mungkin berbeda jika server tujuan sudah berisi item; bot tidak memindahkan channel lama demi menjaga mode hanya-menambah.
 - Setiap pemulihan tercatat di **Audit Log** (`/log`) dan bisa dibatalkan manual bila hasilnya tidak sesuai.
 - Berkas divalidasi: harus JSON hasil `/backup struktur`, versi ≤ 1, maksimal 4 MB.
 
@@ -1150,8 +1155,11 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
    Transkrip juga diarsipkan sebagai **HTML** di `data/transcripts/<server>/` sehingga bisa **dibuka & dicari
-   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Batas arsip
-   `TICKET_ARSIP_MAX` (default **200** tiket terbaru per server); arsip lama otomatis dipangkas.
+   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Arsip
+   dibatasi `TICKET_ARSIP_MAX` (default **200** tiket/server) dan `TICKET_ARSIP_RETENSI_HARI`
+   (default **180 hari**; `0` menonaktifkan batas umur). Yang melewati batas jumlah/umur dihapus
+   otomatis saat tiket diarsipkan dan saat bot mulai. Pasangan HTML/TXT utuh tanpa indeks akan
+   direkonstruksi; berkas sementara atau pasangan tidak lengkap dibersihkan.
    Setiap tiket juga bisa diberi **catatan internal staf** (`/tiket catat` atau kotak di dashboard):
    disimpan di `data/tickets.json`, maksimal **25 catatan** per tiket, dan **tidak pernah** dikirim
    ke thread — member tidak bisa membacanya.
@@ -1252,8 +1260,15 @@ fitur dibagi ke **14 halaman** per grup, tanpa dependency baru dan tetap satu pr
 | **Warna teks** | `#FFFFFF`; teks sekunder memakai putih transparan (`rgba(255,255,255,.62)`) |
 | **Font** | **General Sans** (Fontshare, bobot 400/500/600/700) dimuat lewat `api.fontshare.com`; cadangan `Inter` → `system-ui` → `Segoe UI` bila CDN tidak terjangkau |
 | **Aksen** | ungu `#8B7CFF` (fokus, tautan), biru Discord `#5865F2` (tombol utama), hijau `#4ADE80` (berhasil), kuning `#FBBF24` (peringatan), merah `#E5484D` (tombol hapus/tutup) |
-| **Bentuk** | kartu radius 14 px, garis `rgba(255,255,255,.09)`, tanpa gradien norak, tanpa JavaScript |
-| **Aksesibilitas** | `color-scheme: dark`, outline fokus ungu 2 px pada input/select/tombol, `prefers-reduced-motion` mematikan transisi |
+| **Bentuk** | kartu radius 16 px, garis `rgba(255,255,255,.09)`, lapisan gradien/glow ungu yang halus, tanpa JavaScript |
+| **Layout** | sidebar tetap selebar 252 px di desktop (≥ 821 px), kartu statistik responsif bergaya bento; di HP menu tetap checkbox CSS |
+| **Aksesibilitas** | `color-scheme: dark`, outline fokus ungu 2 px, menu bisa dioperasikan keyboard, `prefers-reduced-motion` menghilangkan gerak |
+
+Arah visual mengadaptasi pola sidebar, status aktif, dan kartu metrik dari
+[hasil pencarian dashboard Dribbble](https://dribbble.com/search/dashboard),
+[Dashboard with Collapsible Sidebar](https://21st.dev/@uniquesonu/components/dashboard-with-collapsible-sidebar),
+dan [Stats Bento](https://21st.dev/@uilayout.contact/components/stats-bento) di 21st.dev.
+Yang diambil hanya pola visualnya—tidak menyalin React/Tailwind atau menambah dependency; halaman tetap HTML server-rendered tanpa JavaScript.
 
 Semua warna & font tinggal di satu modul, `dashboard_tema.py` (`LATAR`, `TEKS`,
 `FONT_STACK`, `CSS_HALAMAN`, `CSS_PRATINJAU`, `CSS_HASIL`) — mengganti tema cukup
@@ -1288,8 +1303,9 @@ Aturan mainnya:
 | :--- | :--- |
 | **Menu halaman** | 📡 Ringkasan · 🤖 AI & Privasi · 👋 Sambutan · ⚙️ Inti · 🛡️ Keamanan · 🚨 Moderasi · 🎫 Tiket · 🧩 Konten · 🏗️ Bangun · 🎁 Giveaway · ✉️ Kirim · ➕ Buat · 🎨 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
 | **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
-| **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
-| **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
+| **Sidebar desktop** | di layar ≥ 821 px navigasi fitur menjadi sidebar tetap; halaman aktif ditandai ungu, sedangkan pilihan server & auto-refresh ada di bawah |
+| **Menu HP** | di layar ≤ 820 px sidebar berubah menjadi bar atas lengket dengan tombol **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
+| **Judul halaman** | judul + ringkasan fitur tampil di area konten; nama server, versi, waktu baca, dan interval refresh tetap terlihat di navigasi |
 | **Anchor tetap ada** | tiap panel & bagian masih punya `id` (`#p-welcome`, `#p-inti`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/sambutan#p-goodbye` bisa dipakai sebagai bookmark |
 | **Bookmark lama** | `/setelan` → `/inti`, `/perpisahan` & `/boost` → `/sambutan`, `/uji` → `/ai` (semua `303`); anchor lama (`#p-setelan` → `/inti`, `#p-perpisahan` → `/sambutan`) ikut diarahkan; `/api/*` tidak berubah |
 
@@ -2257,21 +2273,25 @@ menekan tombol Terapkan.**
 | `/bangun tema tema:gaming` | Pratinjau struktur dari salah satu **15 tema** (gaming, komunitas, aesthetic, study, musik, seni, teknologi, crypto, anime, roleplay, bisnis, coding, kesehatan, keluarga, startup) — **0 kuota AI**. |
 | `/bangun rancang deskripsi:…` | **AI (Gemini)** menyusun kategori, channel, & role dari deskripsi bebas → pratinjau. Bila AI gagal/ngawur, otomatis memakai tema terdekat. |
 | `/bangun terapkan` | Terapkan rencana terakhir yang masih menunggu konfirmasi. |
-| `/bangun riwayat` | Apa yang terakhir dibangun (jumlah role/kategori/channel). |
-| `/bangun bongkar` | Hapus **hanya** item yang tercatat dibuat `/bangun` (rollback aman). |
+| `/bangun riwayat` | Build terbaru dan jumlah build sebelumnya yang masih bisa di-rollback. |
+| `/bangun bongkar` | Bongkar build terbaru saja; bisa diulang untuk build sebelumnya. |
 
-Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan hanya menghapus nama yang tercatat oleh builder. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
+Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan rollback dilakukan berurutan dari build terbaru. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
 
 Pengaman:
 
 - Rencana divalidasi dulu: maks **8 kategori / 40 channel / 12 role**, nama ≤100 huruf, tipe
-  channel harus salah satu yang didukung Discord.
+  channel harus salah satu yang didukung Discord. Kategori channel diambil dari nama pada template
+  `/bangun` atau `category_id` pada backup; bila kategori yang diminta gagal dibuat, channel itu
+  dilewati, bukan dibuat tanpa kategori.
 - Eksekusi memakai mesin `backup_restore` yang sudah teruji: urutan **role → kategori → channel**,
   jeda anti rate-limit, **hanya menambah**, dan kegagalan satu item tidak menghentikan sisanya.
 - AI tidak pernah menyentuh API Discord: ia hanya menghasilkan **JSON rencana**; kode bot yang
   membuat channel setelah konfirmasi.
-- Riwayat tersimpan di `data/server_builder.json` sehingga `/bangun bongkar` tetap bisa dipakai
-  setelah bot restart.
+- Stack riwayat per server tersimpan di `data/server_builder.json`. Tiap entri mencatat ID objek
+  Discord yang benar-benar berhasil dibuat, sehingga rollback berulang hanya menghapus build yang
+  dipilih dan tetap tersedia setelah bot restart. Jika sebagian penghapusan gagal, sisanya tetap
+  tercatat untuk dicoba lagi; format riwayat lama yang hanya berisi nama tetap dimigrasikan.
 
 ### 🖼️ `/meme` — meme lokal, 0 kuota AI, tanpa aset gambar
 

@@ -245,7 +245,7 @@ dashboard:
 1. **`/bangun` — pembangun server instan** *(Instabot 15 tema + `/genserver` purpleGPT)*.
    ✅ **Sudah jalan** (v1.40): modul `server_builder.py` + command `/bangun
    tema|rancang|terapkan|riwayat|bongkar` (15 tema, perancang AI → JSON tervalidasi, pratinjau,
-   eksekusi lewat mesin `backup_restore`, rollback berbasis nama tercatat, riwayat di
+   eksekusi lewat mesin `backup_restore`, kategori channel dari template, rollback berurutan berbasis ID untuk beberapa build per server, riwayat di
    `data/server_builder.json`). ✅ **Panel dashboard** `/bangun` + `POST /api/bangun` tersedia: pratinjau, Terapkan, riwayat, dan bongkar item tercatat.
 2. **`/gambar` (`/draw`) & `/gambar edit`** — generasi gambar dari prompt + **5 rasio aspek** dan
    **referensi gambar**. ✅ **Sudah jalan** (v1.40): `cogs/gambar_cog.py` — `/gambar

@@ -480,25 +480,39 @@ _PAGE_TEMPLATE = """<!doctype html>
 <style>{css}</style>
 </head>
 <body>
-  <header class="topbar">
-    <input type="checkbox" id="nav-buka" class="nav-buka">
-    <div class="baris">
-      <span class="judul">{heading}</span>
-      <span class="meta">v{version} • {checked_at}{refresh_info}</span>
+  <aside class="topbar" aria-label="Navigasi dashboard">
+    <input type="checkbox" id="nav-buka" class="nav-buka" aria-label="Tampilkan menu dashboard">
+    <div class="brand-row">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span class="brand-copy"><span class="brand-name">Dashboard Bot</span>
+          <span class="brand-caption">PUSAT KONTROL</span></span>
+      </div>
       <label class="menu-btn" for="nav-buka">☰ Menu</label>
     </div>
+    <div class="server-context">
+      <span class="server-context-label">Server aktif</span>
+      <span class="judul">{heading}</span>
+      <span class="meta">v{version} · {checked_at}{refresh_info}</span>
+    </div>
     {menu}
-    <div class="baris" style="margin-top:8px">{guild_picker}{auto_pilih}</div>
-  </header>
-  {flash}
-  <p class="keterangan-halaman">{keterangan}</p>
+    <div class="sidebar-controls">{guild_picker}{auto_pilih}</div>
+  </aside>
+  <main class="workspace">
+    <header class="page-heading">
+      <div class="page-eyebrow">Ruang kerja · Discord</div>
+      <h1>{page_title}</h1>
+      <p class="keterangan-halaman">{keterangan}</p>
+    </header>
+    {flash}
 
 {isi}
 
-  <footer class="muted">
-    Data dibaca dari JSON lokal bot. Kontrol di sini hanya mengubah setelan fitur (bukan menghapus data).
-    Rahasiakan tautan ini — siapa pun yang punya token bisa mengubah setelan.
-  </footer>
+    <footer class="muted">
+      Data dibaca dari JSON lokal bot. Kontrol di sini hanya mengubah setelan fitur (bukan menghapus data).
+      Rahasiakan tautan ini — siapa pun yang punya token bisa mengubah setelan.
+    </footer>
+  </main>
 </body>
 </html>
 """
@@ -1355,10 +1369,8 @@ def render_dashboard_html(
     else:
         isi_halaman = susun_isi(slug, data)
     menu_html = menu or render_menu(slug, token, guild_id)
-    if judul_halaman:
-        heading_final = f"{judul_halaman} · {heading}" if heading else judul_halaman
-    else:
-        heading_final = heading
+    page_meta = HALAMAN_SLUG.get(slug, HALAMAN_SLUG[""])
+    page_title = judul_halaman or page_meta["judul"]
 
     return _PAGE_TEMPLATE.format(
         font_link=dashboard_tema.FONT_LINK,
@@ -1368,7 +1380,8 @@ def render_dashboard_html(
         meta_refresh=meta_refresh,
         version=html.escape(str(status.get("version") or "-")),
         bot_name=html.escape(str(status.get("bot_name") or "Bot")),
-        heading=html.escape(heading_final),
+        heading=html.escape(str(heading or "Bot")),
+        page_title=html.escape(str(page_title or "Dashboard")),
         checked_at=html.escape(str(status.get("checked_at") or "-")),
         menu=menu_html,
         isi=isi_halaman,

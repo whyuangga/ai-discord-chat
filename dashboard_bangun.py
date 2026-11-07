@@ -2,7 +2,7 @@
 
 Tema lokal tetap 0 kuota AI. Rencana (tema atau deskripsi AI) hanya disimpan sebagai
 pratinjau; struktur Discord baru dibuat setelah operator menekan **Terapkan**. Rollback
-hanya memanggil `server_builder.bongkar`, yang menghapus nama-nama tercatat `/bangun`.
+hanya memanggil `server_builder.bongkar`, yang menghapus ID item tercatat `/bangun` secara berurutan.
 """
 
 from __future__ import annotations
@@ -105,21 +105,39 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
     else:
         pending_html = '<p class="muted">Belum ada pratinjau yang menunggu. Memilih tema atau merancang dengan AI belum mengubah struktur server.</p>'
 
-    riwayat = sb.riwayat.get(gid)
-    if riwayat:
+    daftar_riwayat = sb.daftar_riwayat(gid)
+    if daftar_riwayat:
+        riwayat = daftar_riwayat[-1]
         dibuat = riwayat.get("dibuat") or {}
         counts = [len(dibuat.get(k) or []) for k in ("roles", "categories", "channels")]
         waktu = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(riwayat.get("pada") or 0)))
         contoh = ", ".join(_esc(x) for x in (dibuat.get("channels") or [])[:8]) or "—"
+        sebelumnya = list(reversed(daftar_riwayat[:-1]))
+        if sebelumnya:
+            daftar_sebelumnya = "<ul>" + "".join(
+                "<li>"
+                f"{_esc(item.get('label') or 'Rancangan')} · "
+                f"{len((item.get('dibuat') or {}).get('roles') or [])} role · "
+                f"{len((item.get('dibuat') or {}).get('categories') or [])} kategori · "
+                f"{len((item.get('dibuat') or {}).get('channels') or [])} channel"
+                "</li>"
+                for item in sebelumnya[:10]
+            ) + "</ul>"
+        else:
+            daftar_sebelumnya = '<p class="muted">Belum ada build sebelumnya.</p>'
         sejarah_html = (
-            f'<p><b>{_esc(riwayat.get("label") or "Rancangan")}</b> · {waktu} · '
+            f'<p><b>Build terbaru — {_esc(riwayat.get("label") or "Rancangan")}</b> · {waktu} · '
             f'{counts[0]} role · {counts[1]} kategori · {counts[2]} channel</p>'
-            f'<p class="muted">Contoh channel tercatat: {contoh}</p>'
+            f'<p class="muted">Contoh channel tercatat: {contoh}. '
+            f'{len(sebelumnya)} build sebelumnya tersimpan.</p>'
+            f'<details><summary>Build sebelumnya ({len(sebelumnya)})</summary>{daftar_sebelumnya}</details>'
+            '<p class="muted">Rollback berurutan: bongkar build terbaru terlebih dahulu; setelah berhasil, '
+            'build sebelumnya otomatis menjadi pilihan berikutnya.</p>'
             '<form method="post" action="/api/bangun" class="formgrid">'
             + _field(gid, token, "bongkar")
             + '<label class="centang"><input type="checkbox" name="konfirmasi" value="ya" required> '
-            'Saya paham: hanya role/kategori/channel yang tercatat dibuat oleh <code>/bangun</code> yang akan dihapus.</label>'
-            '<button type="submit" class="danger">🧹 Bongkar item tercatat</button></form>'
+            'Saya paham: hanya item yang tercatat dibuat oleh <code>/bangun</code> yang akan dihapus.</label>'
+            '<button type="submit" class="danger">🧹 Bongkar build terbaru</button></form>'
         )
     else:
         sejarah_html = '<p class="muted">Belum ada riwayat pembangunan di server ini.</p>'
@@ -131,7 +149,8 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
         'Pembangunan hanya menambah struktur; hak izin role tidak diubah.</p>'
         f'{form_tema}{form_ai}{pending_html}'
         '<div class="subpanel"><h4>📜 Riwayat &amp; rollback</h4>'
-        '<p class="muted">Bongkar hanya menghapus nama item yang dicatat sebagai buatan `/bangun`.</p>'
+        '<p class="muted">Build dibongkar berurutan dari yang terbaru; '
+        'item baru dicocokkan dengan ID Discord yang dicatat.</p>'
         f'{sejarah_html}</div></div>'
     )
 

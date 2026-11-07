@@ -149,6 +149,48 @@ def test_pangkas_menyisakan_arsip_terbaru_dan_menghapus_berkas():
     ]
 
 
+def test_retensi_berbasis_umur_dan_pembersihan_startup(monkeypatch):
+    sekarang = time.time()
+    monkeypatch.setattr(arsip, "RETENSI_HARI", 0)
+    _contoh(10, tutup=sekarang - 60 * 86400)
+    _contoh(11, tutup=sekarang - 10 * 86400)
+
+    folder = arsip.ARSIP_DIR / str(GID)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "tiket-0099.html").write_text("yatim", "utf-8")
+    (folder / "tiket-0099.txt").write_text("yatim", "utf-8")
+    (folder / "tiket-0098.html.tmp").write_text("parsial", "utf-8")
+
+    monkeypatch.setattr(arsip, "RETENSI_HARI", 30)
+    hasil = arsip.rapikan_arsip(sekarang=sekarang)
+
+    assert hasil == {
+        "arsip_dihapus": 1,
+        "entri_dipulihkan": 1,
+        "berkas_yatim_dihapus": 1,
+    }
+    assert [item["kode"] for item in arsip.daftar(GID, limit=10)] == ["0099", "0011"]
+    assert arsip.baca_html(GID, "0010") is None
+    assert arsip.baca_html(GID, "0099") is not None  # pasangan utuh dipulihkan ke indeks
+    assert arsip.baca_teks(GID, "0099") is not None
+    assert not (folder / "tiket-0098.html.tmp").exists()
+    assert arsip.statistik(GID)["retensi_hari"] == 30
+
+
+def test_startup_memulihkan_indeks_rusak_dari_pasangan_arsip():
+    _contoh(12)
+    arsip.INDEX_FILE.write_text("{rusak", "utf-8")
+    arsip.reset_cache()
+
+    hasil = arsip.rapikan_arsip()
+
+    assert hasil["entri_dipulihkan"] == 1
+    assert hasil["arsip_dihapus"] == 0
+    assert arsip.INDEX_FILE.exists()
+    assert arsip.ambil(GID, "0012")["topik"] == "-"
+    assert arsip.baca_teks(GID, "0012") is not None
+
+
 def test_hapus_menghapus_berkas_dan_entri():
     _contoh(9)
     assert arsip.hapus(GID, "0009") is True
@@ -191,6 +233,12 @@ def test_blok_dan_halaman_arsip_dashboard():
     assert 'action="/transkrip"' in blok
     assert "Buka" in blok and "0005" in blok
     assert "tok" in blok
+    kebijakan = (
+        f"hapus setelah {arsip.RETENSI_HARI} hari"
+        if arsip.RETENSI_HARI
+        else "tanpa batas umur"
+    )
+    assert kebijakan in blok
 
     halaman = dashboard_ui.render_halaman_arsip(
         GID, "tok", kata="nitro", hasil=arsip.cari(GID, "nitro"), stat=stat,
@@ -200,6 +248,7 @@ def test_blok_dan_halaman_arsip_dashboard():
     assert "/api/transkrip?token=tok" in halaman
     assert 'value="hapus"' in halaman
     assert "Nitro tidak masuk" in halaman
+    assert kebijakan in halaman
     # Halaman kosong tetap ramah
     kosong = dashboard_ui.render_halaman_arsip(GID, "tok", kata="zzz", hasil=[], stat=stat)
     assert "Tidak ada arsip yang cocok" in kosong

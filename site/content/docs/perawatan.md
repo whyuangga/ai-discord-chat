@@ -53,21 +53,25 @@ menekan tombol Terapkan.**
 | `/bangun tema tema:gaming` | Pratinjau struktur dari salah satu **15 tema** (gaming, komunitas, aesthetic, study, musik, seni, teknologi, crypto, anime, roleplay, bisnis, coding, kesehatan, keluarga, startup) — **0 kuota AI**. |
 | `/bangun rancang deskripsi:…` | **AI (Gemini)** menyusun kategori, channel, & role dari deskripsi bebas → pratinjau. Bila AI gagal/ngawur, otomatis memakai tema terdekat. |
 | `/bangun terapkan` | Terapkan rencana terakhir yang masih menunggu konfirmasi. |
-| `/bangun riwayat` | Apa yang terakhir dibangun (jumlah role/kategori/channel). |
-| `/bangun bongkar` | Hapus **hanya** item yang tercatat dibuat `/bangun` (rollback aman). |
+| `/bangun riwayat` | Build terbaru dan jumlah build sebelumnya yang masih bisa di-rollback. |
+| `/bangun bongkar` | Bongkar build terbaru saja; bisa diulang untuk build sebelumnya. |
 
-Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan hanya menghapus nama yang tercatat oleh builder. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
+Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan rollback dilakukan berurutan dari build terbaru. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
 
 Pengaman:
 
 - Rencana divalidasi dulu: maks **8 kategori / 40 channel / 12 role**, nama ≤100 huruf, tipe
-  channel harus salah satu yang didukung Discord.
+  channel harus salah satu yang didukung Discord. Kategori channel diambil dari nama pada template
+  `/bangun` atau `category_id` pada backup; bila kategori yang diminta gagal dibuat, channel itu
+  dilewati, bukan dibuat tanpa kategori.
 - Eksekusi memakai mesin `backup_restore` yang sudah teruji: urutan **role → kategori → channel**,
   jeda anti rate-limit, **hanya menambah**, dan kegagalan satu item tidak menghentikan sisanya.
 - AI tidak pernah menyentuh API Discord: ia hanya menghasilkan **JSON rencana**; kode bot yang
   membuat channel setelah konfirmasi.
-- Riwayat tersimpan di `data/server_builder.json` sehingga `/bangun bongkar` tetap bisa dipakai
-  setelah bot restart.
+- Stack riwayat per server tersimpan di `data/server_builder.json`. Tiap entri mencatat ID objek
+  Discord yang benar-benar berhasil dibuat, sehingga rollback berulang hanya menghapus build yang
+  dipilih dan tetap tersedia setelah bot restart. Jika sebagian penghapusan gagal, sisanya tetap
+  tercatat untuk dicoba lagi; format riwayat lama yang hanya berisi nama tetap dimigrasikan.
 
 ## 🖼️ `/meme` — meme lokal, 0 kuota AI, tanpa aset gambar
 

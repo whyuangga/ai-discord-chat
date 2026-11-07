@@ -62,6 +62,28 @@ def test_panel_memuat_semua_tema_dan_alur_pratinjau():
     assert "Belum ada struktur yang dibuat" in html
 
 
+def test_panel_menampilkan_build_sebelumnya_dan_urutan_rollback():
+    lama = {
+        "label": "Belajar",
+        "pada": 100.0,
+        "dibuat": {"roles": ["Pelajar"], "categories": ["KELAS"], "channels": ["catatan"]},
+    }
+    terbaru = {
+        "label": "Gaming",
+        "pada": 200.0,
+        "dibuat": {"roles": ["Player"], "categories": ["TURNAMEN"], "channels": ["scrim"]},
+    }
+    sb.riwayat_build[GID] = [lama, terbaru]
+    sb.riwayat[GID] = terbaru
+
+    html = db.render_bangun_block(_Bot(_Guild()), GID, TOKEN)
+    assert "Build terbaru — Gaming" in html
+    assert "1 build sebelumnya tersimpan" in html
+    assert "Belajar" in html
+    assert "Rollback berurutan" in html
+    assert "Bongkar build terbaru" in html
+
+
 @pytest.mark.asyncio
 async def test_pilih_tema_hanya_menyimpan_pratinjau_tanpa_membuat_item():
     bot = _Bot(_Guild())

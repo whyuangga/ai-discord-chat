@@ -76,13 +76,13 @@ CSS_HALAMAN = f"""
     --hijau: {HIJAU};
     --kuning: {KUNING};
     --merah: {MERAH};
-    --radius: 14px;
+    --radius: 16px;
   }}
   * {{ box-sizing: border-box; }}
   html {{ background: var(--latar); }}
   body {{
     margin: 0; padding: 22px 20px 40px;
-    background: var(--latar);
+    background: radial-gradient(ellipse at 82% -22%, rgba(139,124,255,.085), transparent 42%), var(--latar);
     color: var(--teks);
     font-family: {FONT_STACK};
     font-size: 14px; line-height: 1.55;
@@ -90,43 +90,63 @@ CSS_HALAMAN = f"""
     letter-spacing: .005em;
   }}
   ::selection {{ background: rgba(139,124,255,.35); color: #fff; }}
-  h1 {{ font-size: 21px; font-weight: 600; margin: 0 0 4px; letter-spacing: -.01em; }}
+  h1 {{ font-size: 28px; font-weight: 600; margin: 0; letter-spacing: -.035em; line-height: 1.2; }}
   b, strong {{ font-weight: 600; }}
   a {{ color: #A99BFF; }}
   a:hover {{ color: #fff; }}
   code, kbd, pre {{ font-family: {FONT_MONO}; }}
+  :focus-visible {{ outline: 2px solid var(--aksen); outline-offset: 3px; }}
 
-  /* --- header lengket + menu (tanpa JavaScript) --- */
+  /* --- shell dashboard + navigasi (tanpa JavaScript) --- */
   .topbar {{
     position: sticky; top: 0; z-index: 20;
-    margin: -22px -20px 16px; padding: 12px 20px;
-    background: rgba(13, 13, 15, .93);
-    backdrop-filter: blur(12px) saturate(140%);
+    margin: -22px -20px 24px; padding: 14px 20px 12px;
+    background: rgba(13, 13, 15, .94);
+    backdrop-filter: blur(16px) saturate(140%);
     border-bottom: 1px solid var(--garis);
   }}
-  .topbar .baris {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
-  .topbar .judul {{ font-weight: 600; font-size: 16px; letter-spacing: -.01em; }}
-  .topbar .meta {{ color: var(--redup-2); font-size: 12px; }}
+  .brand-row {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
+  .brand {{ display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--teks); }}
+  .brand-mark {{
+    display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px;
+    border-radius: 11px; color: #fff; font-size: 17px;
+    background: linear-gradient(145deg, #A99BFF, #6758E8);
+    box-shadow: 0 5px 18px rgba(139,124,255,.24);
+  }}
+  .brand-copy {{ display: grid; line-height: 1.15; }}
+  .brand-name {{ font-size: 14px; font-weight: 600; letter-spacing: -.01em; }}
+  .brand-caption {{ margin-top: 3px; color: var(--redup-2); font-size: 9px; font-weight: 600;
+                    letter-spacing: .14em; text-transform: uppercase; }}
+  .server-context {{ display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 10px; }}
+  .server-context-label {{ color: var(--aksen); font-size: 9px; font-weight: 600;
+                           letter-spacing: .13em; text-transform: uppercase; }}
+  .topbar .judul {{ color: var(--teks); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }}
+  .topbar .meta {{ color: var(--redup-2); font-size: 10.5px; }}
   .menu-btn {{
     margin-left: auto; display: none; cursor: pointer; user-select: none;
-    padding: 8px 14px; border-radius: 10px; font-size: 14px; font-weight: 500;
+    padding: 8px 13px; border-radius: 10px; font-size: 13px; font-weight: 500;
     border: 1px solid var(--garis-kuat); background: var(--kartu-2); color: var(--teks);
   }}
   .nav-buka {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
-  #nav-buka:focus-visible + .baris .menu-btn {{ outline: 2px solid var(--aksen); outline-offset: 2px; }}
+  #nav-buka:focus-visible + .brand-row .menu-btn {{ outline: 2px solid var(--aksen); outline-offset: 2px; }}
   nav.menu {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }}
   nav.menu a {{
-    padding: 6px 12px; border-radius: 999px; text-decoration: none; white-space: nowrap;
-    border: 1px solid var(--garis); background: rgba(255,255,255,.03);
-    color: rgba(255,255,255,.82); font-size: 12.5px; font-weight: 500;
-    transition: background .15s ease, color .15s ease, border-color .15s ease;
+    padding: 7px 12px; border-radius: 999px; text-decoration: none; white-space: nowrap;
+    border: 1px solid transparent; background: rgba(255,255,255,.035);
+    color: rgba(255,255,255,.78); font-size: 12.5px; font-weight: 500;
+    transition: background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease;
   }}
-  nav.menu a:hover {{ background: rgba(255,255,255,.10); color: #fff; border-color: var(--garis-kuat); }}
+  nav.menu a:hover {{ background: rgba(255,255,255,.085); color: #fff; border-color: var(--garis-kuat); }}
   nav.menu a[aria-current="page"] {{
-    background: rgba(139,124,255,.16); border-color: rgba(139,124,255,.55);
+    background: rgba(139,124,255,.16); border-color: rgba(139,124,255,.45);
     color: #fff; font-weight: 600;
   }}
-  .keterangan-halaman {{ margin: 0 0 16px; color: var(--redup); font-size: 12.5px; }}
+  .sidebar-controls {{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 10px; }}
+  .workspace {{ width: 100%; max-width: 1560px; margin: 0 auto; min-width: 0; }}
+  .page-heading {{ margin: 4px 0 24px; }}
+  .page-eyebrow {{ margin-bottom: 8px; color: var(--aksen); font-size: 10px; font-weight: 600;
+                    letter-spacing: .15em; text-transform: uppercase; }}
+  .keterangan-halaman {{ max-width: 780px; margin: 8px 0 0; color: var(--redup); font-size: 13px; }}
   .keterangan-halaman:empty {{ display: none; }}
   .panel, .subpanel, section[id] {{ scroll-margin-top: 118px; }}
 
@@ -151,20 +171,31 @@ CSS_HALAMAN = f"""
 
   /* --- kartu status --- */
   .grid {{
-    display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    margin: 18px 0 24px;
+    display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    margin: 18px 0 26px;
   }}
   .card {{
-    background: var(--kartu); border: 1px solid var(--garis); border-radius: var(--radius);
-    padding: 15px 17px; color: var(--redup); font-size: 12.5px;
+    position: relative; overflow: hidden; min-height: 108px;
+    background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.012)), var(--kartu);
+    border: 1px solid var(--garis); border-radius: var(--radius);
+    padding: 17px 18px; color: var(--redup); font-size: 11px; font-weight: 500;
+    letter-spacing: .025em; box-shadow: 0 10px 28px rgba(0,0,0,.13);
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
   }}
-  .card b {{ display: block; font-size: 22px; line-height: 1.25; margin-top: 6px; color: var(--teks); }}
+  .card::after {{
+    content: ""; position: absolute; width: 92px; height: 92px; top: -52px; right: -34px;
+    border-radius: 50%; background: rgba(139,124,255,.10); filter: blur(2px); pointer-events: none;
+  }}
+  .card:hover {{ transform: translateY(-2px); border-color: rgba(255,255,255,.16); }}
+  .card b {{ display: block; position: relative; z-index: 1; font-size: 24px; line-height: 1.2;
+             margin-top: 10px; color: var(--teks); letter-spacing: -.025em; }}
   .card b.ok {{ color: var(--hijau); }} .card b.warn {{ color: var(--kuning); }}
 
   /* --- panel --- */
   .panel {{
-    background: var(--kartu); border: 1px solid var(--garis); border-radius: var(--radius);
-    padding: 18px; margin-bottom: 14px;
+    background: linear-gradient(150deg, rgba(255,255,255,.035), rgba(255,255,255,.008)), var(--kartu);
+    border: 1px solid var(--garis); border-radius: var(--radius);
+    padding: 20px; margin-bottom: 16px; box-shadow: 0 14px 36px rgba(0,0,0,.12);
   }}
   .panel h2 {{
     font-size: 12.5px; font-weight: 600; margin: 0 0 12px;
@@ -307,7 +338,7 @@ CSS_HALAMAN = f"""
   .pemilih-auto input[type="number"] {{ width: 84px; }}
   .pemilih-auto .satuan {{ font-size: 12px; color: var(--redup-2); margin-left: -4px; }}
   .pemilih-auto button {{ cursor: pointer; padding: 7px 12px; }}
-  .topbar .baris .pemilih-server {{ margin: 0; }}
+  .sidebar-controls .pemilih-server {{ margin: 0; }}
 
   /* --- grafik --- */
   .grafik {{ margin: 6px 0 10px; }}
@@ -371,20 +402,87 @@ CSS_HALAMAN = f"""
   .riwayat li {{ margin: 8px 0; }}
   footer {{ margin-top: 20px; color: var(--redup-2); }}
 
-  /* --- layar HP --- */
+  /* --- sidebar desktop: navigasi vertikal ala dashboard analytics --- */
+  @media (min-width: 821px) {{
+    body {{ padding: 30px 34px 48px 286px; }}
+    .topbar {{
+      position: fixed; inset: 0 auto 0 0; z-index: 30; width: 252px; height: 100vh; height: 100dvh;
+      margin: 0; padding: 20px 14px 14px; display: flex; flex-direction: column; gap: 14px;
+      overflow: hidden; background: linear-gradient(180deg, #111115 0%, #0D0D0F 74%);
+      border-right: 1px solid var(--garis); border-bottom: 0;
+      box-shadow: 12px 0 36px rgba(0,0,0,.16); backdrop-filter: none;
+    }}
+    .brand-row {{ justify-content: flex-start; padding: 0 6px 16px; border-bottom: 1px solid var(--garis); }}
+    .server-context {{ display: grid; gap: 4px; margin: 0; padding: 11px 12px;
+                       border: 1px solid var(--garis); border-radius: 12px;
+                       background: linear-gradient(135deg, rgba(255,255,255,.045), rgba(255,255,255,.012)); }}
+    .server-context .judul {{ font-size: 13px; line-height: 1.4; }}
+    .server-context .meta {{ font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }}
+    nav.menu {{
+      display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; flex-wrap: nowrap;
+      gap: 3px; margin: 0; padding: 2px 3px 8px 0; overflow-y: auto; align-content: start;
+      scrollbar-color: rgba(255,255,255,.18) transparent; scrollbar-width: thin;
+    }}
+    nav.menu a {{
+      display: flex; align-items: center; min-height: 39px; width: 100%; padding: 8px 11px;
+      border: 1px solid transparent; border-radius: 10px; background: transparent;
+      font-size: 12px; white-space: normal; line-height: 1.35;
+    }}
+    nav.menu a:hover {{ transform: translateX(2px); border-color: transparent; background: rgba(255,255,255,.07); }}
+    nav.menu a[aria-current="page"] {{
+      background: rgba(139,124,255,.15); border-color: rgba(139,124,255,.32);
+      box-shadow: inset 2px 0 0 var(--aksen);
+    }}
+    .sidebar-controls {{
+      display: grid; flex: 0 0 auto; gap: 11px; margin-top: auto; padding: 13px 2px 0;
+      border-top: 1px solid var(--garis);
+    }}
+    .sidebar-controls .pemilih-server {{
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; margin: 0;
+    }}
+    .sidebar-controls .pemilih-server label {{ grid-column: 1 / -1; }}
+    .sidebar-controls .pemilih-server select {{ width: 100%; min-width: 0; }}
+    .sidebar-controls .pemilih-server .muted {{ grid-column: 1 / -1; overflow-wrap: anywhere; }}
+    .sidebar-controls .pemilih-auto {{
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center;
+    }}
+    .sidebar-controls .pemilih-auto label,
+    .sidebar-controls .pemilih-auto select,
+    .sidebar-controls .pemilih-auto button {{ grid-column: 1 / -1; }}
+    .sidebar-controls .pemilih-auto select {{ width: 100%; min-width: 0; }}
+    .sidebar-controls .pemilih-auto input[type="number"] {{ width: 100%; min-width: 0; }}
+    .sidebar-controls .pemilih-auto .satuan {{ justify-self: start; }}
+    .sidebar-controls .pemilih-auto button {{ width: 100%; }}
+    .page-heading {{ margin: 3px 0 26px; }}
+    .panel, .subpanel, section[id] {{ scroll-margin-top: 28px; }}
+  }}
+
+  /* --- navigasi seluler (checkbox CSS, tanpa JavaScript) --- */
   @media (max-width: 820px) {{
     .menu-btn {{ display: inline-block; }}
-    nav.menu {{ display: none; flex-direction: column; gap: 4px; }}
-    nav.menu a {{ padding: 10px 13px; border-radius: 10px; font-size: 14px; }}
+    .topbar {{ max-height: calc(100vh - 8px); overflow-y: auto; margin: -22px -20px 18px; padding: 12px 20px; }}
+    .server-context {{ gap: 4px 8px; }}
+    .server-context-label {{ display: none; }}
+    .server-context .judul {{ font-size: 12.5px; }}
+    .server-context .meta {{ margin-left: auto; }}
+    nav.menu {{ display: none; flex-direction: column; flex-wrap: nowrap; gap: 4px;
+                max-height: 42vh; overflow-y: auto; margin-top: 10px; padding-right: 2px; }}
+    nav.menu a {{ padding: 10px 13px; border-radius: 10px; font-size: 14px; white-space: normal; }}
     #nav-buka:checked ~ nav.menu {{ display: flex; }}
-    .topbar {{ margin: -12px -12px 12px; padding: 12px; }}
+    .sidebar-controls {{ padding-top: 10px; border-top: 1px solid var(--garis); }}
     .panel, .subpanel, section[id] {{ scroll-margin-top: 160px; }}
   }}
   @media (max-width: 620px) {{
     body {{ padding: 12px 12px 32px; font-size: 13.5px; }}
-    h1 {{ font-size: 18px; }}
+    h1 {{ font-size: 22px; }}
+    .topbar {{ margin: -12px -12px 16px; padding: 12px; }}
+    .brand-mark {{ flex-basis: 31px; width: 31px; height: 31px; border-radius: 10px; }}
+    .brand-name {{ font-size: 13.5px; }}
+    .server-context {{ margin-top: 8px; }}
+    .server-context .meta {{ font-size: 9.5px; }}
+    .page-heading {{ margin-bottom: 20px; }}
     .panel {{ padding: 14px; }}
-    .card {{ padding: 13px 15px; }}
+    .card {{ min-height: 96px; padding: 13px 15px; }}
     .card b {{ font-size: 20px; }}
     .baris-kolom {{ grid-template-columns: 1fr; gap: 4px; }}
     .panel-item {{ flex-wrap: wrap; }}
@@ -396,6 +494,7 @@ CSS_HALAMAN = f"""
   }}
   @media (prefers-reduced-motion: reduce) {{
     * {{ transition: none !important; }}
+    .card:hover, nav.menu a:hover {{ transform: none; }}
   }}
 """
 

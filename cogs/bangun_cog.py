@@ -215,11 +215,12 @@ async def bangun_terapkan(interaction: discord.Interaction):
     await interaction.followup.send(pesan, ephemeral=True)
 
 
-@bangun_group.command(name="riwayat", description="Lihat pembangunan terakhir di server ini")
+@bangun_group.command(name="riwayat", description="Lihat riwayat build & rollback yang tersedia")
 async def bangun_riwayat(interaction: discord.Interaction):
     if interaction.guild is None:
         return
-    data = sb.riwayat.get(int(interaction.guild.id))
+    daftar = sb.daftar_riwayat(int(interaction.guild.id))
+    data = daftar[-1] if daftar else None
     if not data:
         await interaction.response.send_message(
             "Belum ada catatan pembangunan di server ini.", ephemeral=True
@@ -235,7 +236,12 @@ async def bangun_riwayat(interaction: discord.Interaction):
     embed.add_field(name="Channel", value=str(len(dibuat.get("channels") or [])), inline=True)
     contoh = ", ".join(f"`{x}`" for x in (dibuat.get("channels") or [])[:12]) or "-"
     embed.add_field(name="Channel dibuat", value=contoh[:1024], inline=False)
-    embed.set_footer(text="Pakai /bangun bongkar untuk menghapus item ini saja.")
+    sebelumnya = len(daftar) - 1
+    footer = (
+        f"Pakai /bangun bongkar untuk membongkar build terbaru. {sebelumnya} build sebelumnya tersimpan; bisa diulang."
+        if sebelumnya else "Pakai /bangun bongkar untuk membongkar item build terbaru ini."
+    )
+    embed.set_footer(text=footer[:2048])
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
