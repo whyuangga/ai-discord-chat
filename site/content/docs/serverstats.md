@@ -9,7 +9,17 @@ toc: true
 ## 1. 📊 Statistik Server seperti Bot Serverstats (`/serverstats`)
 - **`/serverstats lihat`** — kartu statistik lengkap: total anggota, manusia vs bot, perkiraan member online, boost & level, jumlah channel teks/suara/forum, role, emoji, stiker, tanggal server dibuat, pemilik, dan level verifikasi.
 - **`/serverstats otomatis aktif:True`** *(Admin)* — membuat kategori **`📊 Statistik Server`** berisi Voice Channel penghitung yang **ter-update otomatis setiap ±10 menit**:
-  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7`
+  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7` ·
+  `🎫 Tiket Terbuka: 3` · `🔔 Langganan Sosial: 5`
+- Dua penghitung terakhir membaca **state bot** (bukan API tambahan): jumlah tiket yang belum
+  ditutup (`/tiket` + `/menu tiket`) dan jumlah langganan notifikasi sosial YouTube/Twitch/TikTok/
+  Reddit/RSS yang aktif — jadi operator bisa melihat beban komunitas & isi langganan sekilas.
+  Kartu **`/serverstats lihat`** juga memuat baris **📈 Aktivitas Fitur** (tiket terbuka + langganan sosial).
+- Emoji tiap channel bisa diganti lewat **`/serverstats ikon`** atau panel **📊 Channel statistik**
+  di halaman *🧩 Konten & interaksi* (form ikon per channel + tombol **🔄 Segarkan sekarang**,
+  jalur tulis `POST /api/konten` → `stats-emoji:<kunci>`, `stats-segarkan`). Isi `-` untuk
+  menghapus ikon. Tombol tes **📊 Channel statistik** menghitung ulang 7 angka itu tanpa
+  membuat/mengganti nama channel.
 - Warga **tidak bisa masuk** ke channel penghitung (hanya bisa melihat angka), dan update dibatasi aman dari *rate limit* Discord (maks. 2 rename / 10 menit per channel).
 
 ## 2. 🎭 Auto Role Member Baru (`/autorole`) *(Admin)*

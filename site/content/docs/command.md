@@ -126,7 +126,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | :--- | :--- | :--- |
 | `/serverstats lihat` | — | Kartu statistik server: anggota, online, boost, channel, role, emoji, stiker, tanggal dibuat, & pemilik. |
 | `/serverstats otomatis` | `aktif` | *(Admin)* Membuat/mematikan Voice Channel penghitung statistik yang diperbarui ±10 menit. |
-| `/serverstats ikon` | `anggota`, `manusia`, `bot`, `online`, `boost`, `kategori`, `reset` | *(Admin)* Ganti atau hapus emoji ikon tiap channel statistik + nama kategori. Isi `-` untuk menghapus ikon. |
+| `/serverstats ikon` | `anggota`, `manusia`, `bot`, `online`, `boost`, `tiket`, `sosial`, `kategori`, `reset` | *(Admin)* Ganti atau hapus emoji ikon tiap channel statistik + nama kategori. Isi `-` untuk menghapus ikon. |
 | `/serverstats tipe` | `channel`, `aktif` | *(Admin)* Pilih **jenis channel** counter: `voice` 🔊, `text` #️⃣, `announcement` 📢, atau `stage` 🎤 — ikon di kiri nama channel ikut berubah. |
 | `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
 | `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |

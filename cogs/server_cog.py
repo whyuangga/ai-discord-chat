@@ -156,7 +156,7 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
 
 @serverstats_group.command(
     name="ikon",
-    description="Ganti emoji ikon tiap Voice Channel statistik (atau hapus ikonnya)",
+    description="Ganti emoji ikon tiap channel statistik tiket & sosial (atau hapus ikonnya)",
 )
 @app_commands.describe(
     anggota="Emoji untuk channel Total Member (contoh: 👥)",
@@ -164,6 +164,8 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
     bot="Emoji untuk channel Bot (contoh: 🤖)",
     online="Emoji untuk channel Online (contoh: 🟢)",
     boost="Emoji untuk channel Boost (contoh: 💎)",
+    tiket="Emoji untuk channel Tiket Terbuka (contoh: 🎫)",
+    sosial="Emoji untuk channel Langganan Sosial (contoh: 🔔)",
     kategori="Nama kategori statistik (contoh: 📈 Statistik Server)",
     reset="True untuk mengembalikan semua ikon & nama kategori ke bawaan bot",
 )
@@ -174,6 +176,8 @@ async def serverstats_ikon_cmd(
     bot: str | None = None,
     online: str | None = None,
     boost: str | None = None,
+    tiket: str | None = None,
+    sosial: str | None = None,
     kategori: str | None = None,
     reset: bool = False,
 ):
@@ -195,6 +199,8 @@ async def serverstats_ikon_cmd(
                 "bots": bot,
                 "online": online,
                 "boosts": boost,
+                "tickets": tiket,
+                "social": sosial,
             },
         )
         if kategori is not None:

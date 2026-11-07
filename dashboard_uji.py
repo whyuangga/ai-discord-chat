@@ -149,6 +149,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Periksa semua langganan (YouTube/Twitch/TikTok/Reddit/RSS) tanpa memanggil jaringan.",
     },
     {
+        "kunci": "statistik",
+        "label": "Channel statistik",
+        "emoji": "📊",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Hitung ulang 7 angka statistik (anggota, tiket, langganan) tanpa mengubah channel.",
+    },
+    {
         "kunci": "curhat",
         "label": "Curhat anonim",
         "emoji": "💌",
@@ -252,6 +261,7 @@ ANCHOR_UJI: dict[str, str] = {
     "snipe": "p-snipe",
     "curhat": "p-curhat",
     "sosial": "p-sosial",
+    "statistik": "p-statistik",
     "voice": "p-voice",
     "info": "p-info",
     "verifikasi": "p-keamanan",
@@ -271,6 +281,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-keamanan": "**Keamanan**",
     "p-tiket": "**Tiket & sapaan harian**",
     "p-konten": "**Konten & interaksi**",
+    "p-statistik": "**Konten & interaksi**",
     "p-buat": "**Buat konten**",
     "p-panel": "**Editor panel**",
     "p-ai": "**Ringkasan**",
@@ -652,6 +663,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
             return _uji_voice(bot, guild)
         if kunci == "sosial":
             return _uji_sosial(gid)
+        if kunci == "statistik":
+            return _uji_statistik(guild)
         if kunci == "curhat":
             return _uji_curhat(gid)
         if kunci == "snipe":
@@ -807,6 +820,24 @@ def _uji_sosial(guild_id: int) -> tuple[bool, str]:
     if rusak:
         pesan += f"\n⚠️ {rusak} langganan punya URL feed tidak valid — hapus lalu tambah ulang."
     return True, pesan
+
+
+def _uji_statistik(guild) -> tuple[bool, str]:
+    """Simulasi channel statistik: hitung 7 angka, tanpa membuat/mengubah channel."""
+    import server_features as sf
+
+    data = sf.hitung_statistik(guild)
+    cfg = sf.serverstats_guilds.get(int(getattr(guild, "id", 0) or 0)) or {}
+    baris = " · ".join(
+        f"{sf.stats_emojis(int(getattr(guild, 'id', 0) or 0)).get(key, emoji)} {label}: "
+        f"**{sf.format_number(data.get(key)) if data.get(key) is not None else '—'}**"
+        for key, emoji, label in sf.STATS_CHANNEL_SPECS
+    )
+    status = "aktif" if cfg.get("enabled") else "belum aktif"
+    return True, (
+        f"Channel statistik {status} · {baris}. "
+        "Simulasi saja — tidak ada channel yang dibuat atau diganti nama."
+    )
 
 
 def _uji_curhat(guild_id: int) -> tuple[bool, str]:

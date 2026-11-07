@@ -54,6 +54,7 @@ import dashboard_giveaway
 import dashboard_keamanan
 import dashboard_highlights
 import dashboard_form_inbox
+import dashboard_stats
 import dashboard_info
 import dashboard_lencana
 import dashboard_moderasi
@@ -573,6 +574,8 @@ def _anchor_konten(aksi: str) -> str:
         return "p-curhat"
     if kunci.startswith("pantau-"):
         return "p-pantau"
+    if kunci.startswith("stats-"):
+        return "p-statistik"
     if kunci.startswith("tag-"):
         return "p-tag"
     if kunci.startswith("starboard-"):
@@ -658,7 +661,7 @@ HALAMAN: tuple[dict, ...] = (
         "judul": "🧩 Konten & interaksi",
         "keterangan": "Fitur AI per channel, starboard, kotak saran, fakta harian, koran pagi, "
         "tag siap pakai, highlight kata kunci, & backup.",
-        "panel": ("p-konten",),
+        "panel": ("p-konten", "p-statistik"),
     },
     {
         "slug": "giveaway",
@@ -716,6 +719,7 @@ ANCHOR_HALAMAN.update({
     "p-voice": "konten",
     "p-info": "konten",
     "p-form-inbox": "buat",
+    "p-statistik": "konten",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -774,7 +778,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "buat": ("pengumuman", "formulir"),
     "panel": ("panel",),
     "tiket": ("tiket",),
-    "konten": ("digest", "tag", "pantau", "curhat", "sosial", "voice", "info"),
+    "konten": ("digest", "tag", "pantau", "curhat", "sosial", "statistik", "voice", "info"),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu", "lencana"),
@@ -1090,6 +1094,11 @@ PANEL: dict[str, object] = {
         + (d.get("moderasi_block") or '<div class="muted">Panel moderasi tidak tersedia.</div>')
         + "\n  </div>"
     ),
+    "p-statistik": lambda d: (
+        '<div class="panel" id="p-statistik">\n    '
+        + (d.get("stats_block") or '<div class="muted">Panel statistik tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
     "p-form-inbox": lambda d: (
         '<div class="panel" id="p-form-inbox">\n    '
         + (d.get("form_inbox_block") or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>')
@@ -1154,6 +1163,7 @@ def render_dashboard_html(
     voice_block: str = "",
     info_block: str = "",
     form_inbox_block: str = "",
+    stats_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1246,6 +1256,7 @@ def render_dashboard_html(
         "voice_block": voice_block or '<div class="muted">Panel voice linking tidak tersedia.</div>',
         "info_block": info_block or '<div class="muted">Panel channel info tidak tersedia.</div>',
         "form_inbox_block": form_inbox_block or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
+        "stats_block": stats_block or '<div class="muted">Panel statistik tidak tersedia.</div>',
         "pantau_block": pantau_block
         or '<div class="muted">Panel highlight tidak tersedia.</div>',
         "lencana_block": lencana_block
@@ -1757,6 +1768,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_form_inbox.render_inbox_block(bot, gid, token),
             '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
         )
+        stats_block = _blok(
+            lambda: dashboard_stats.render_stats_block(bot, gid, token),
+            '<div class="muted">Panel statistik tidak tersedia.</div>',
+        )
         info_block = _blok(
             lambda: dashboard_info.render_info_block(bot, gid, token),
             '<div class="muted">Panel channel info tidak tersedia.</div>',
@@ -1853,6 +1868,7 @@ async def start_dashboard(bot) -> bool:
             voice_block=voice_block,
             info_block=info_block,
             form_inbox_block=form_inbox_block,
+            stats_block=stats_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -2015,6 +2031,8 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi.startswith("stats-"):
+            ok, message = await dashboard_stats.aksi_stats(gid, aksi, payload)
         elif aksi.startswith("inbox-"):
             ok, message = await dashboard_form_inbox.aksi_inbox(gid, aksi, payload)
         elif aksi.startswith("info-"):

@@ -544,6 +544,15 @@ def can_view_ticket(data: dict, user_id: int) -> bool:
     return int(user_id) in (int(data.get("user_id") or 0), *(int(u) for u in data.get("added_users") or []))
 
 
+def count_open(guild_id: int) -> int:
+    """Jumlah tiket yang belum ditutup (dipakai channel statistik server)."""
+    return sum(
+        1
+        for data in tickets.values()
+        if int(data.get("guild_id") or 0) == int(guild_id) and data.get("status") != "selesai"
+    )
+
+
 def list_tickets(guild_id: int, *, status: str | None = None, limit: int = 15) -> list[dict]:
     items = [
         data

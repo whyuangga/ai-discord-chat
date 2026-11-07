@@ -214,7 +214,7 @@ def test_panel_uji_punya_tombol_dan_tautan_setelan():
     community_agent.set_welcome_config(GID, 505, enabled=True)
     html = dashboard_ui.render_uji_block(_Bot(), GID, TOKEN)
     # Semua fitur yang punya tes tampil, dikelompokkan per grup
-    assert html.count('class="uji-baris"') == len(dashboard_uji.UJI) == 23
+    assert html.count('class="uji-baris"') == len(dashboard_uji.UJI) == 24
     assert html.count("<h3>") == len({item["grup"] for item in dashboard_uji.UJI})
     assert 'action="/api/uji"' in html and "uji.welcome" in html
     assert "👑 Pemilik server" in html                 # subjek default tanpa ID
@@ -223,7 +223,7 @@ def test_panel_uji_punya_tombol_dan_tautan_setelan():
     assert "Atur dulu" in html                      # fitur yang belum aktif
     assert "1 panggilan AI" in html
     # Fitur tanpa config tetap bisa dites & punya pemilih subjek
-    for kunci in ("pengumuman", "panel", "tiket", "honeypot", "snipe", "curhat", "sosial", "voice", "info", "verifikasi", "formulir", "pantau", "lencana", "tag", "moderasi", "kartu", "ai", "ekspor"):
+    for kunci in ("pengumuman", "panel", "tiket", "honeypot", "snipe", "curhat", "sosial", "statistik", "voice", "info", "verifikasi", "formulir", "pantau", "lencana", "tag", "moderasi", "kartu", "ai", "ekspor"):
         assert f'name="action" value="uji.{kunci}"' in html, kunci
     # Fitur ber-config yang belum aktif tetap tampil (dengan tautan Setelan)
     for kunci in ("goodbye", "boost", "digest"):
@@ -394,7 +394,7 @@ def test_registry_uji_lengkap_dan_berkelompok():
     kunci = [item["kunci"] for item in dashboard_uji.UJI]
     assert kunci == ["welcome", "goodbye", "boost", "pengumuman", "panel",
                      "digest", "tiket", "giveaway", "honeypot", "formulir", "verifikasi", "info", "voice",
-                     "sosial", "curhat",
+                     "sosial", "statistik", "curhat",
                      "snipe", "pantau", "lencana",
                      "tag", "moderasi", "kartu", "ai", "ekspor"]
     for item in dashboard_uji.UJI:

@@ -200,6 +200,12 @@ Sudah ada: `tags.py` + `cogs/tags_cog.py` + `dashboard_tags.py` (C#1),
    asli, status baru/selesai + pencatat penanganan) + panel *📬 Kotak masuk formulir* di
    halaman Buat konten + tombol tes yang tidak membuat submission.
 6. **Statistik channel**: tambah angka tiket & pengikut sosial.
+   ✅ **Sudah jalan** (v1.40): `server_features.hitung_statistik()` menambah dua penghitung
+   otomatis — **🎫 Tiket Terbuka** (tiket yang belum ditutup, `tickets.count_open`) dan
+   **🔔 Langganan Sosial** (langganan notifikasi YouTube/Twitch/TikTok/Reddit/RSS) — di 7 channel
+   statistik, kartu `/serverstats lihat` (baris **📈 Aktivitas Fitur**), dan panel
+   *📊 Channel statistik* di halaman Konten & interaksi (ikon per channel + segarkan manual)
+   + tombol tes simulasi yang tidak menyentuh channel.
 
 ## 6. Prinsip yang tetap dijaga di semua paket
 
