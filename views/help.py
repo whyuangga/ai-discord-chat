@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 53
+TOP_LEVEL_COUNT = 67
 import ui_kit
 
 
@@ -639,20 +639,33 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             inline=False,
         )
         embed.add_field(
-            name="🆕 Terbaru (v1.28 → v1.39) — Cek Cepat",
+            name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
             value=(
-                "**🛡️ Keamanan & Pemulihan**\n"
-                "• **`/raid`** — mode darurat otomatis: tahan Auto Role, minta verifikasi, lockdown opsional.\n"
-                "• **`/nuke`** — anti-nuke, **keluarkan bot asing**, & **`/nuke beku`** (ambang 1 aksi).\n"
-                "• **`/backup pulihkan`** — bangun ulang role/kategori/channel dari JSON (dry-run dulu).\n"
+                "**🏷️ Tag, Lencana & Pantau**\n"
+                "• **`/lencana`** — lencana + role.\n"
+                "• **`/pantau`** — kata kunci → DM.\n"
+                "• **`/bangun`** — 15 tema / AI.\n"
+                "• **`/meme`** — meme lokal gratis.\n"
+                "• **`/gambar`** — gambar AI, 5 rasio.\n"
+                "• **`/dataku`** — ekspor/hapus data.\n"
+                "• **`/setelan-ai`** — gaya AI per member.\n"
+                "• **`/curhat`** — anonim, satu channel.\n"
+                "• **`/kanal-info`** — info otomatis.\n"
+                "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`).\n"
+                "**🛡️ Moderasi**\n"
+                "• **`/lapor`** & **`/banding`** — lapor & peninjauan.\n"
+                "• **`/mod`** — tempban, softban, statistik.\n"
+                "**🛡️ Keamanan**\n"
+                "• **`/raid`** — darurat Auto Role.\n"
+                "• **`/nuke`** — anti-nuke & beku.\n"
+                "• **`/backup pulihkan`** — susun ulang struktur server.\n"
                 "**📈 Retensi & Pelayanan**\n"
-                "• **`/level musim`** & **`/level prestise`** — musim level + trofi permanen.\n"
-                "• **`/musik playlist`** — playlist pribadi per member.\n"
-                "• **`/tiket atur`** & **`/tiket rating`** — SLA respons pertama, auto-close, rating bintang.\n"
+                "• **`/level musim`** & **`/level prestise`** — trofi.\n"
+                "• **`/musik playlist`** — playlist pribadi.\n"
+                "• **`/tiket atur`** & **`/tiket rating`** — SLA & rating.\n"
                 "**🧰 Admin & Diagnosa**\n"
-                "• **`/mod`** — slowmode, role, role-massal, nickname.\n"
                 "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
-                "• **Dashboard web** — pantau + **kontrol** fitur dari browser dengan token."
+                "• **Dashboard web** — semua fitur lewat browser."
             ),
             inline=False,
         )
@@ -660,11 +673,11 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
             value=(
                 "**📈 Retensi & Pelayanan**\n"
-                "• **`/level`** — kartu level, papan peringkat, role hadiah, & XP voice.\n"
+                "• **`/level`** — kartu level, papan, role, XP voice.\n"
                 "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
                 "**🎉 Keramaian Server**\n"
                 "• **`/giveaway`** — undian berhadiah, **`/ultah`** — ucapan ulang tahun otomatis.\n"
-                "• **`/jawab-otomatis`** — balasan kata kunci, **`/pengumuman`** — pengumuman terjadwal.\n"
+                "• **`/jawab-otomatis`** & **`/pengumuman`** — balasan & jadwal.\n"
                 "**📊 Hemat Kuota AI**\n"
                 "• **`/pemakaian`** — statistik operasi AI, token, kuota server, & penghematan cache.\n"
                 "• **Dashboard web** — status, `/pemakaian`, & kontrol nyala/mati fitur dari browser (0 kuota).\n"

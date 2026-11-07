@@ -32,7 +32,17 @@ from cogs.insights_cog import (
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
 from cogs.menu_cog import menu_group, register_menu_cog
-from cogs.moderation_cog import mod_group, register_moderation_cog
+from cogs.confessions_cog import curhat_group, register_confessions_cog
+from cogs.info_channel_cog import kanal_info_group, register_info_channel_cog
+from cogs.highlights_cog import pantau_group, register_highlights_cog
+from cogs.snipe_cog import register_snipe_cog, snipe_group
+from cogs.bangun_cog import bangun_group, register_bangun_cog
+from cogs.lencana_cog import lencana_group, register_lencana_cog
+from cogs.dataku_cog import register_dataku_cog
+from cogs.setelan_ai_cog import register_setelan_ai_cog
+from cogs.gambar_cog import register_gambar_cog
+from cogs.meme_cog import register_meme_cog
+from cogs.moderation_cog import banding_cmd, lapor_cmd, mod_group, register_moderation_cog
 from cogs.raid_cog import raid_group, register_raid_cog
 from cogs.language_cog import bahasa_group, register_language_cog
 from cogs.prefix_cog import prefix_group, register_prefix_cog
@@ -53,6 +63,7 @@ from cogs.suggestions_cog import (
     saran_group,
 )
 from cogs.social_cog import register_social_cog, sosial_group
+from cogs.tags_cog import register_tags_cog, tag_group
 from cogs.tempvoice_cog import register_tempvoice_cog, tempvoice_group
 from cogs.translate_cog import register_translate_cog, terjemah_group
 from cogs.utility_cog import (
@@ -99,6 +110,17 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_export_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
+    register_tags_cog(bot)
+    register_lencana_cog(bot)
+    register_bangun_cog(bot)
+    register_meme_cog(bot)
+    register_gambar_cog(bot)
+    register_dataku_cog(bot)
+    register_setelan_ai_cog(bot)
+    register_highlights_cog(bot)
+    register_snipe_cog(bot)
+    register_confessions_cog(bot)
+    register_info_channel_cog(bot)
     register_tempvoice_cog(bot)
     register_suggestions_cog(bot)
     register_utility_cog(bot)
@@ -110,6 +132,14 @@ def register_all_cogs(bot: commands.Bot) -> None:
 __all__ = [
     "agent_group",
     "mod_group",
+    "tag_group",
+    "lencana_group",
+    "pantau_group",
+    "snipe_group",
+    "curhat_group",
+    "kanal_info_group",
+    "lapor_cmd",
+    "banding_cmd",
     "tempvoice_group",
     "saran_group",
     "embed_group",

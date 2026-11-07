@@ -9,7 +9,17 @@ toc: true
 ## 1. 📊 Statistik Server seperti Bot Serverstats (`/serverstats`)
 - **`/serverstats lihat`** — kartu statistik lengkap: total anggota, manusia vs bot, perkiraan member online, boost & level, jumlah channel teks/suara/forum, role, emoji, stiker, tanggal server dibuat, pemilik, dan level verifikasi.
 - **`/serverstats otomatis aktif:True`** *(Admin)* — membuat kategori **`📊 Statistik Server`** berisi Voice Channel penghitung yang **ter-update otomatis setiap ±10 menit**:
-  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7`
+  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7` ·
+  `🎫 Tiket Terbuka: 3` · `🔔 Langganan Sosial: 5`
+- Dua penghitung terakhir membaca **state bot** (bukan API tambahan): jumlah tiket yang belum
+  ditutup (`/tiket` + `/menu tiket`) dan jumlah langganan notifikasi sosial YouTube/Twitch/TikTok/
+  Reddit/RSS yang aktif — jadi operator bisa melihat beban komunitas & isi langganan sekilas.
+  Kartu **`/serverstats lihat`** juga memuat baris **📈 Aktivitas Fitur** (tiket terbuka + langganan sosial).
+- Emoji tiap channel bisa diganti lewat **`/serverstats ikon`** atau panel **📊 Channel statistik**
+  di halaman *🧩 Konten & interaksi* (form ikon per channel + tombol **🔄 Segarkan sekarang**,
+  jalur tulis `POST /api/konten` → `stats-emoji:<kunci>`, `stats-segarkan`). Isi `-` untuk
+  menghapus ikon. Tombol tes **📊 Channel statistik** menghitung ulang 7 angka itu tanpa
+  membuat/mengganti nama channel.
 - Warga **tidak bisa masuk** ke channel penghitung (hanya bisa melihat angka), dan update dibatasi aman dari *rate limit* Discord (maks. 2 rename / 10 menit per channel).
 
 ## 2. 🎭 Auto Role Member Baru (`/autorole`) *(Admin)*
@@ -39,5 +49,34 @@ toc: true
 - **Deteksi lokal gratis** (tanpa API berbayar / tanpa kartu kredit): domain tiruan brand populer (Discord, Steam, Roblox, Netflix, Binance, Shopee, DANA, BCA, dll.), karakter **punycode `xn--`**, link berbasis **IP langsung**, **TLD berisiko** (`.tk`, `.ml`, `.ga`, `.zip`, dll.), **pemendek URL** (`bit.ly` dsb.), trik `@` pada URL, dan **daftar hitam** domain phishing yang sudah dikenal.
 - **`/keamanan cek link:https://...`** bisa dipakai **semua member** untuk memeriksa keamanan link sebelum membuka.
 - Bisa dibatasi hanya ke channel tertentu, dan mode **ketat** (`ketat:True`) juga menindak link yang baru *mencurigakan*.
+
+## 5. 🪤 Honeypot — Channel Jebakan (`/keamanan honeypot`)
+
+> 🍯 **Filosofi: jebakan, bukan tongkat.** Channel jebakan **tidak boleh dipakai siapa pun**.
+> Warga asli membaca aturan dan tidak akan menyentuhnya; **self-bot, skrip promo, & bot raid**
+> justru menganggapnya sasaran empuk. Jadi pesan pertama di sana sudah menjadi bukti — tanpa
+> analisis teks, tanpa ambang, tanpa salah tuduh.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/keamanan honeypot channel:#promo-gratis`** *(Admin)* | Pasang channel jebakan (maks **3** channel per server). |
+| **`/keamanan honeypot channel:#promo aksi:timeout timeout_detik:600`** | Pilih tindakan: `lapor`, `hapus`, `timeout`, `kick`, atau `ban`. |
+| **`/keamanan honeypot channel:#promo log_channel:#mod-log`** | Kirim laporan kejadian ke channel log. |
+| **`/keamanan honeypot channel:#promo abaikan_staf:False`** | Ikut menindak staf (default **staf & pemilik aman**). |
+| **`/keamanan honeypot`** *(tanpa argumen)* | Lihat setelan & jumlah tangkapan. |
+| **`/keamanan honeypot aktif:False`** | Matikan sementara — daftar channel tetap tersimpan. |
+
+**Aturan main:**
+- **Bawaan `lapor`** — belum ada tindakan sampai Admin memilih yang lebih keras.
+- **Staf selalu aman** (`abaikan_staf` default aktif): Administrator / Manage Messages / Manage Guild.
+- **Bot diabaikan** (termasuk bot ini sendiri), supaya webhook & bot resmi tidak ikut kena.
+- Saat mode bertindak, pesan **selalu dihapus** dulu, lalu laporan dikirim ke channel log.
+- Channel jebakan yang dihapus otomatis dibuang dari daftar; honeypot mati bila daftar kosong.
+- **0 kuota AI**, data di `data/honeypot.json`, maksimal 3 channel/server.
+
+**Di dashboard:** halaman **🛡️ Keamanan** → panel *🪤 Honeypot*: pilih channel & tindakan,
+atur time-out, channel log, dan tombol **uji simulasi** (menampilkan keputusan honeypot untuk
+seorang member **tanpa** menghapus pesan atau menghukum siapa pun). Jalur tulis:
+`POST /api.keamanan` (`action=honeypot-simpan` / `honeypot-hapus`).
 
 ---

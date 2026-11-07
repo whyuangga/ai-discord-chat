@@ -282,6 +282,21 @@ def _set_level_flag(key: str, label: str):
     return simpan
 
 
+def _set_kartu_warna(guild_id: int, nilai: str) -> tuple[bool, str]:
+    """Warna aksen kartu rank (hex 6 digit, kosong = ikut tema server)."""
+    import rank_card
+
+    mentah = str(nilai or "").strip()
+    if not mentah:
+        _mod("levels").set_level_config(int(guild_id), kartu_warna="")
+        return _hapus_keterangan("Warna kartu rank", "ikut warna tema server")
+    sah = rank_card.hex_warna(mentah)
+    if not sah:
+        return False, "Warna harus hex 6 digit, mis. `#5865F2`."
+    _mod("levels").set_level_config(int(guild_id), kartu_warna=sah)
+    return True, f"Warna kartu rank disetel ke `{sah}`."
+
+
 def _set_level_channel(guild_id: int, nilai: str) -> tuple[bool, str]:
     cid = _to_int(nilai)
     _mod("levels").set_level_config(int(guild_id), announce_channel_id=cid or None)
@@ -650,6 +665,26 @@ def _set_verifikasi_role(guild_id: int, nilai: str) -> tuple[bool, str]:
     return True, f"Role setelah verifikasi: `{rid}`."
 
 
+def _baca_verifikasi_captcha(guild_id: int) -> str:
+    cfg = (_mod("community_tools").verification_guilds or {}).get(int(guild_id)) or {}
+    return "on" if cfg.get("captcha") else "off"
+
+
+def _set_verifikasi_captcha(guild_id: int, nilai: str) -> tuple[bool, str]:
+    mod = _mod("community_tools")
+    cfg = (mod.verification_guilds or {}).get(int(guild_id)) or {}
+    if not cfg.get("channel_id"):
+        return False, "Pasang gerbang verifikasi (channel) lebih dulu."
+    hidup = str(nilai).strip().lower() in ("on", "1", "true", "ya")
+    mod.set_verification_config(int(guild_id), captcha=hidup)
+    mod.reset_captcha_state()
+    return True, (
+        "CAPTCHA verifikasi **aktif** — member mengetik kode 5 huruf."
+        if hidup
+        else "CAPTCHA verifikasi **nonaktif** — tombol langsung memberi role."
+    )
+
+
 def _baca_security(key: str, bawaan=None):
     def baca(guild_id: int) -> str:
         cfg = (_mod("server_features").security_guilds or {}).get(int(guild_id)) or {}
@@ -783,6 +818,27 @@ def _set_starboard_ambang(guild_id: int, nilai: str) -> tuple[bool, str]:
         return False, "Ambang starboard harus 1–25 bintang."
     _mod("community_tools").set_starboard_config(int(guild_id), threshold=angka)
     return True, f"Ambang starboard diset ke **{angka}** bintang."
+
+
+def _baca_starboard_warna(guild_id: int) -> str:
+    cfg = (_mod("community_tools").starboard_guilds or {}).get(int(guild_id)) or {}
+    return str(cfg.get("warna") or "")
+
+
+def _set_starboard_warna(guild_id: int, nilai: str) -> tuple[bool, str]:
+    """Warna embed papan utama (hex 6 digit, kosong = emas)."""
+    mentah = str(nilai or "").strip().lstrip("#").upper()
+    if not mentah:
+        _mod("community_tools").set_starboard_config(int(guild_id), warna="")
+        return _hapus_keterangan("Warna starboard", "kembali ke emas")
+    if len(mentah) != 6:
+        return False, "Warna harus hex 6 digit, mis. `#FF8A00`."
+    try:
+        int(mentah, 16)
+    except ValueError:
+        return False, "Warna harus hex 6 digit, mis. `#FF8A00`."
+    _mod("community_tools").set_starboard_config(int(guild_id), warna="#" + mentah)
+    return True, f"Warna embed starboard disetel ke `#{mentah}`."
 
 
 def _baca_saran(guild_id: int) -> str:
@@ -953,6 +1009,12 @@ FITUR_LIST = [
            lambda g: _cfg("levels", g, "get_level_config"),
            kunci="announce_channel_id", label="Pengumuman level",
        ), "levels"),
+    _f("level.kartu", "Kartu rank PNG (/level kartu)", "saklar",
+       lambda g: "on" if _cfg("levels", g, "get_level_config").get("kartu_aktif", True) else "off",
+       _set_level_flag("kartu_aktif", "Kartu rank"), "levels"),
+    _f("level.kartu_warna", "Warna aksen kartu rank", "teks",
+       _baca_level("kartu_warna", ""), _set_kartu_warna, "levels",
+       bantuan="Hex 6 digit, mis. #5865F2. Kosongkan untuk ikut warna tema server."),
     _f("ekonomi.aktif", "Ekonomi koin", "saklar", _saklar_dari("economy"), _set_saklar("economy", "Ekonomi koin"), "economy"),
     _f("ekonomi.harian", "Koin harian (/harian)", "angka", _baca_ekonomi("daily_amount", 100),
        _set_ekonomi_key("daily_amount", "Koin harian"), "economy"),
@@ -1040,6 +1102,9 @@ FITUR_LIST = [
        _set_verifikasi_channel, "community_tools"),
     _f("verifikasi.role", "Role setelah verifikasi", "role", _baca_verifikasi("role_id"),
        _set_verifikasi_role, "community_tools"),
+    _f("verifikasi.captcha", "CAPTCHA verifikasi", "saklar", _baca_verifikasi_captcha,
+       _set_verifikasi_captcha, "community_tools",
+       bantuan="Member harus mengetik kode 5 huruf sebelum mendapat role (3 percobaan, 5 menit)."),
     _f("keamanan.aktif", "Proteksi anti-phishing", "saklar", _baca_security("enabled"),
        _set_security_aktif, "server_features"),
     # --- Tiket & sapaan harian ---------------------------------------------
@@ -1071,6 +1136,9 @@ FITUR_LIST = [
     # --- Konten & interaksi -------------------------------------------------
     _f("starboard.channel", "Channel starboard", "channel", _baca_starboard("channel_id"),
        _set_starboard_channel, "community_tools"),
+    _f("starboard.warna", "Warna embed starboard", "teks", _baca_starboard_warna,
+       _set_starboard_warna, "community_tools",
+       bantuan="Hex 6 digit, mis. #FF8A00. Kosongkan untuk emas."),
     _f("starboard.ambang", "Ambang bintang starboard", "angka", _baca_starboard_ambang,
        _set_starboard_ambang, "community_tools"),
     _f("saran.channel", "Channel kotak saran", "channel", _baca_saran, _set_saran,
@@ -1130,7 +1198,8 @@ GRUP: tuple[dict, ...] = (
         "kunci": "inti",
         "judul": "🧭 Inti, level, & ekonomi",
         "keterangan": "Sakelar fitur utama. Angka bawaan aman untuk server kecil.",
-        "fitur": ("level.aktif", "level.pengumuman", "level.channel", "ekonomi.aktif",
+        "fitur": ("level.aktif", "level.pengumuman", "level.channel", "level.kartu",
+                  "level.kartu_warna", "ekonomi.aktif",
                   "ekonomi.harian", "tumbuh.aktif", "tumbuh.channel", "prefix"),
     },
     {
@@ -1147,7 +1216,7 @@ GRUP: tuple[dict, ...] = (
         "keterangan": "Mode “Lapor” hanya mencatat — paling aman untuk memulai.",
         "fitur": ("antispam.mode", "antispam.caps", "antispam.log", "antinuke.aksi",
                   "antinuke.log", "raid.aktif", "raid.aksi", "verifikasi.channel",
-                  "verifikasi.role", "keamanan.aktif"),
+                  "verifikasi.role", "verifikasi.captcha", "keamanan.aktif"),
     },
     {
         "kunci": "bantuan",
@@ -1160,7 +1229,7 @@ GRUP: tuple[dict, ...] = (
         "kunci": "konten",
         "judul": "🧩 Konten & interaksi",
         "keterangan": "Fitur AI per channel & utilitas server.",
-        "fitur": ("starboard.channel", "starboard.ambang", "saran.channel", "chat.channel",
+        "fitur": ("starboard.channel", "starboard.ambang", "starboard.warna", "saran.channel", "chat.channel",
                   "digest.channel", "galeri.channel", "youtube.channel", "cari.channel",
                   "terjemah.channel", "statistik.aktif", "fakta.channel", "backup.channel",
                   "agent.gaya", "agent.keamanan", "agent.tenang", "agent.zona"),

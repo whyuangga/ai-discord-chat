@@ -11,8 +11,10 @@ mention `<@123>`, ID mentah, atau nama tampilan. Akun bot sendiri **tidak** pern
 karena pemicu sambutan/perpisahan mengabaikan member bot. Kuota AI tetap 1 panggilan per tes.
 """
 
+import datetime
 import logging
 import re
+import time
 
 logger = logging.getLogger("gemini_bot.dashboard_uji")
 
@@ -81,6 +83,144 @@ UJI: tuple[dict, ...] = (
         "contoh": "Pasang ulang panel Buka Tiket di channel yang dipilih.",
     },
     {
+        "kunci": "giveaway",
+        "label": "Syarat giveaway",
+        "emoji": "🎁",
+        "grup": "Giveaway",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": (
+            "Simulasi: cek apakah seorang member lolos syarat giveaway berjalan "
+            "(role/level/umur akun) — tanpa mengirim pesan apa pun."
+        ),
+    },
+    {
+        "kunci": "honeypot",
+        "label": "Honeypot (channel jebakan)",
+        "emoji": "🪤",
+        "grup": "Keamanan",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
+    },
+    {
+        "kunci": "formulir",
+        "label": "Formulir & kotak masuk",
+        "emoji": "📬",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Periksa formulir terdaftar & antrean jawaban tanpa membuat submission baru.",
+    },
+    {
+        "kunci": "verifikasi",
+        "label": "Gerbang verifikasi & CAPTCHA",
+        "emoji": "✅",
+        "grup": "Keamanan",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Cek channel/role verifikasi & status CAPTCHA tanpa memberi role ke siapa pun.",
+    },
+    {
+        "kunci": "info",
+        "label": "Channel info otomatis",
+        "emoji": "ℹ️",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Cek setelan & isi channel info tanpa mengedit pesan di channel.",
+    },
+    {
+        "kunci": "voice",
+        "label": "Voice linking",
+        "emoji": "🔗",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Periksa role & channel privat voice tanpa mengubah role siapa pun.",
+    },
+    {
+        "kunci": "sosial",
+        "label": "Notifikasi sosial",
+        "emoji": "🔔",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Periksa semua langganan (YouTube/Twitch/TikTok/Reddit/RSS) tanpa memanggil jaringan.",
+    },
+    {
+        "kunci": "statistik",
+        "label": "Channel statistik",
+        "emoji": "📊",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Hitung ulang 7 angka statistik (anggota, tiket, langganan) tanpa mengubah channel.",
+    },
+    {
+        "kunci": "curhat",
+        "label": "Curhat anonim",
+        "emoji": "💌",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Uji aturan curhat (panjang, tautan, jeda) tanpa memposting apa pun.",
+    },
+    {
+        "kunci": "snipe",
+        "label": "Snipe & EditSnipe",
+        "emoji": "🔎",
+        "grup": "Moderasi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasikan pencatatan pesan terhapus di memori — tanpa menyentuh pesan asli.",
+    },
+    {
+        "kunci": "pantau",
+        "label": "Highlight kata kunci",
+        "emoji": "🔔",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasikan pencocokan kata kunci yang sudah didaftarkan — tanpa DM apa pun.",
+    },
+    {
+        "kunci": "lencana",
+        "label": "Lencana bertingkat",
+        "emoji": "🏅",
+        "grup": "Level & XP",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": "Hitung progres lencana pemilik server — tanpa memberi role/berapa pun.",
+    },
+    {
+        "kunci": "tag",
+        "label": "Tag jawaban server",
+        "emoji": "🏷️",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasi pencarian tag tanpa mengubah penghitung pemakaian.",
+    },
+    {
+        "kunci": "moderasi",
+        "label": "Jalur laporan & banding",
+        "emoji": "🚨",
+        "grup": "Moderasi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasikan laporan masuk antrean staf — tanpa membuat laporan palsu.",
+    },
+    {
+        "kunci": "kartu",
+        "label": "Kartu rank PNG",
+        "emoji": "🖼️",
+        "grup": "Level & XP",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": "Render kartu rank untuk pemilik server — memastikan Pillow & latar bekerja.",
+    },
+    {
         "kunci": "ai",
         "label": "Koneksi AI (Gemini)",
         "emoji": "🤖",
@@ -111,6 +251,21 @@ ANCHOR_UJI: dict[str, str] = {
     "panel": "p-panel",
     "digest": "p-konten",
     "tiket": "p-tiket",
+    "giveaway": "p-giveaway",
+    "kartu": "p-rank",
+    "honeypot": "p-honeypot",
+    "moderasi": "p-moderasi",
+    "tag": "p-tag",
+    "lencana": "p-lencana",
+    "pantau": "p-pantau",
+    "snipe": "p-snipe",
+    "curhat": "p-curhat",
+    "sosial": "p-sosial",
+    "statistik": "p-statistik",
+    "voice": "p-voice",
+    "info": "p-info",
+    "verifikasi": "p-keamanan",
+    "formulir": "p-form-inbox",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -126,10 +281,19 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-keamanan": "**Keamanan**",
     "p-tiket": "**Tiket & sapaan harian**",
     "p-konten": "**Konten & interaksi**",
+    "p-statistik": "**Konten & interaksi**",
     "p-buat": "**Buat konten**",
     "p-panel": "**Editor panel**",
-    "p-ai": "**Ringkasan**",
+    "p-ai": "**AI & Privasi**",
     "p-ekspor": "**Ekspor**",
+    "p-giveaway": "**Giveaway**",
+    "p-rank": "**Inti, level, & ekonomi**",
+    "p-honeypot": "**Keamanan**",
+    "p-sosial": "**Konten & interaksi**",
+    "p-voice": "**Konten & interaksi**",
+    "p-info": "**Konten & interaksi**",
+    "p-form-inbox": "**Buat konten**",
+    "p-curhat": "**Konten & interaksi**",
 }
 
 
@@ -290,6 +454,58 @@ async def _uji_tiket(bot, gid: int, nilai: str) -> tuple[bool, str]:
     return await dashboard_tiket.pasang_panel(bot, gid, {"channel": cid})
 
 
+def _uji_giveaway(guild, member) -> tuple[bool, str]:
+    """Simulasi cek syarat giveaway berlapis untuk satu member (tanpa kirim pesan)."""
+    import engagement
+
+    gid = _to_int(getattr(guild, "id", 0))
+    role_ids = {getattr(role, "id", 0) for role in (getattr(member, "roles", None) or [])}
+    level = 0
+    try:
+        import levels
+
+        level = int(levels.get_member_level(gid, int(member.id)).get("level") or 0)
+    except Exception:  # pragma: no cover - modul level opsional
+        level = 0
+    umur = 0
+    dibuat = getattr(member, "created_at", None)
+    if dibuat is not None:
+        try:
+            umur = max(0, (datetime.datetime.now(datetime.timezone.utc) - dibuat).days)
+        except (TypeError, AttributeError):  # pragma: no cover - jaring aman
+            umur = 0
+
+    cfg = {
+        "requirements": engagement.default_requirements(gid),
+        "bonus_roles": engagement.default_bonus_roles(gid),
+    }
+    syarat = engagement.requirement_summary(cfg)
+    kode = engagement.check_requirements(
+        cfg, role_ids=role_ids, level=level, account_age_days=umur
+    )
+    bobot, _bonus = engagement.entry_weight(cfg, role_ids)
+    nama = _nama_member(member)
+    dasar = f"**{nama}** — level `{level}`, umur akun `{umur}` hari, peluang `{bobot}×`."
+
+    if kode:
+        alasan = {
+            "syarat_role": "role wajib belum dimiliki",
+            "syarat_level": f"level minimum `{cfg['requirements']['level']}` belum tercapai",
+            "syarat_umur": (
+                f"umur akun minimum `{cfg['requirements']['account_age_days']}` hari belum tercapai"
+            ),
+        }.get(kode, "syarat belum terpenuhi")
+        hasil = f"Hasil: **belum lolos** ({alasan})."
+    else:
+        hasil = "Hasil: **lolos** ✓"
+
+    aktif = [g for g in engagement.guild_giveaways(gid) if not g.get("ended")]
+    tambahan = (
+        f" Giveaway berjalan: {len(aktif)}." if aktif else " Belum ada giveaway berjalan."
+    )
+    return True, f"{dasar} {hasil} Syarat bawaan: {syarat}.{tambahan}"
+
+
 async def _uji_ai(gid: int) -> tuple[bool, str]:
     import community_agent
 
@@ -427,6 +643,44 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
             return await _uji_digest(bot, gid)
         if kunci == "tiket":
             return await _uji_tiket(bot, gid, opsi)
+        if kunci == "giveaway":
+            if member is None:
+                member, sumber = await ambil_subjek(guild, opsi)
+                if member is None:
+                    return False, (
+                        "Belum ada member yang bisa diuji: pemilik server tidak ada di daftar "
+                        "member dan server ini belum punya member manusia."
+                    )
+                return _uji_giveaway(guild, member)
+            return _uji_giveaway(guild, member)
+        if kunci == "formulir":
+            return _uji_formulir(gid)
+        if kunci == "verifikasi":
+            return _uji_verifikasi(guild)
+        if kunci == "info":
+            return _uji_info(gid)
+        if kunci == "voice":
+            return _uji_voice(bot, guild)
+        if kunci == "sosial":
+            return _uji_sosial(gid)
+        if kunci == "statistik":
+            return _uji_statistik(guild)
+        if kunci == "curhat":
+            return _uji_curhat(gid)
+        if kunci == "snipe":
+            return _uji_snipe(gid)
+        if kunci == "pantau":
+            return _uji_pantau(gid)
+        if kunci == "lencana":
+            return _uji_lencana(guild_id, member)
+        if kunci == "tag":
+            return _uji_tag(guild_id)
+        if kunci == "moderasi":
+            return _uji_moderasi(guild_id)
+        if kunci == "honeypot":
+            return _uji_honeypot(guild, gid, member, opsi)
+        if kunci == "kartu":
+            return await _uji_kartu(guild, gid, member, opsi)
         if kunci == "ai":
             return await _uji_ai(gid)
         if kunci == "ekspor":
@@ -435,6 +689,393 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_formulir(guild_id: int) -> tuple[bool, str]:
+    """Simulasi formulir: cek formulir & antrean, tanpa membuat submission."""
+    import modal_forms
+
+    formulir = modal_forms.list_forms(guild_id)
+    antrean = modal_forms.statistik_inbox(guild_id)
+    if not formulir:
+        return False, (
+            "Belum ada formulir di server ini. Buat lewat `/menu form tambah` atau panel "
+            "*➕ Buat konten* (jenis **formulir**)."
+        )
+    contoh = formulir[0]
+    kolom = len(contoh.get("fields") or [])
+    return True, (
+        f"**{len(formulir)}** formulir terdaftar (contoh: **{contoh.get('name')}** · {kolom} kolom) · "
+        f"kotak masuk: {antrean['baru']} baru / {antrean['total']} tersimpan. "
+        "Simulasi saja — tidak ada submission yang dibuat."
+    )
+
+
+def _uji_verifikasi(guild) -> tuple[bool, str]:
+    """Simulasi gerbang verifikasi: periksa channel, role, & CAPTCHA tanpa memberi role."""
+    import community_tools as ct
+
+    gid = int(getattr(guild, "id", 0) or 0)
+    cfg = (getattr(ct, "verification_guilds", {}) or {}).get(gid) or {}
+    if not cfg.get("enabled"):
+        return False, (
+            "Gerbang verifikasi belum aktif. Pasang lewat `/verifikasi pasang` atau panel "
+            "*🛡️ Keamanan* di dashboard."
+        )
+    if not cfg.get("channel_id"):
+        return False, "Channel verifikasi belum dipilih."
+    role_id = int(cfg.get("role_id") or 0)
+    get_role = getattr(guild, "get_role", None)
+    role = get_role(role_id) if (callable(get_role) and role_id) else None
+    if role is None:
+        return False, "Role verifikasi sudah tidak ada di server — pilih role lain di panel Keamanan."
+    return True, (
+        f"Gerbang verifikasi siap: channel <#{cfg['channel_id']}> · role **@{getattr(role, 'name', role_id)}** "
+        f"· CAPTCHA **{'aktif' if cfg.get('captcha') else 'nonaktif'}** "
+        f"({ct.CAPTCHA_MAKS_PERCOBAAN} percobaan / {ct.CAPTCHA_TTL_SEC // 60} menit). "
+        "Simulasi saja — tidak ada role yang diberikan ke siapa pun."
+    )
+
+
+def _uji_info(guild_id: int) -> tuple[bool, str]:
+    """Simulasi channel info: periksa kelengkapan setelan, tanpa mengedit pesan."""
+    import info_channel as ic
+
+    data = ic.statistik(guild_id)
+    if not data["channel_id"]:
+        return False, (
+            "Channel info belum dipilih. Atur di halaman **Konten & interaksi** → "
+            "panel *ℹ️ Channel info otomatis*."
+        )
+    if not data["isi"]:
+        return False, "Isi channel info masih kosong — tulis aturan/info dulu di panel tersebut."
+    if not data["enabled"]:
+        return False, "Channel info sudah lengkap, tapi sakelar penyegaran masih **nonaktif**."
+    return True, (
+        f"Channel info siap: <#{data['channel_id']}> · isi {data['panjang_isi']} huruf · "
+        f"cek tiap {data['interval_menit']} menit · pesan "
+        f"{'sudah terpasang' if data['pesan_id'] else 'akan diterbitkan pada pemeriksaan berikutnya'}. "
+        "Simulasi saja — tidak ada pesan yang diedit."
+    )
+
+
+def _uji_voice(bot, guild) -> tuple[bool, str]:
+    """Simulasi voice linking: cek setelan & keberadaan role, tanpa menyentuh member."""
+    import voice_link
+
+    gid = int(getattr(guild, "id", 0) or 0)
+    data = voice_link.statistik(gid)
+    if not data["enabled"]:
+        return False, (
+            "Voice linking belum dinyalakan. Atur di halaman **Konten & interaksi** → "
+            "panel *🔗 Voice linking* (atau `/tempvoice tautkan`)."
+        )
+    if not data["aktif"]:
+        return False, (
+            "Voice linking menyala tapi belum berefek: pilih **role** untuk diberikan, "
+            "atau nyalakan **channel teks privat**."
+        )
+
+    catatan = [
+        f"role <@&{data['role_id']}>" if data["role_id"] else "tanpa role",
+        f"channel privat {'ya' if data['channel_privat'] else 'tidak'}",
+        f"hapus saat kosong {'ya' if data['hapus_kosong'] else 'tidak'}",
+    ]
+    get_role = getattr(guild, "get_role", None)
+    if data["role_id"] and callable(get_role):
+        if get_role(int(data["role_id"])) is None:
+            return False, (
+                "Role yang dipilih untuk voice linking sudah tidak ada di server — "
+                "pilih role lain di panel *🔗 Voice linking*."
+            )
+    return True, (
+        "Setelan voice linking siap: " + " · ".join(catatan)
+        + f". Channel privat terkelola: {data['jumlah_channel']}/{data['maks_channel']}. "
+        "Simulasi saja — tidak ada role atau channel yang diubah."
+    )
+
+
+def _uji_sosial(guild_id: int) -> tuple[bool, str]:
+    """Simulasi notifikasi sosial: periksa bentuk feed langganan, tanpa jaringan."""
+    import social_notify as sn
+
+    subs = sn.get_subscriptions(guild_id)
+    if not subs:
+        return False, (
+            "Belum ada langganan notifikasi sosial. Tambah di halaman **Konten & interaksi** → "
+            "panel *🔔 Notifikasi sosial* (atau `/sosial tambah`)."
+        )
+    baris = []
+    rusak = 0
+    for sub in subs[:6]:
+        meta = sn.PLATFORMS.get(str(sub.get("platform") or ""), {})
+        url = sn.feed_url(str(sub.get("platform") or ""), str(sub.get("target") or ""))
+        rapi = url.startswith(("http://", "https://"))
+        rusak += 0 if rapi else 1
+        baris.append(f'{meta.get("emoji", "🔔")} `{url[:70] or "-"}`{" ✅" if rapi else " ⚠️"}')
+    pesan = (
+        f"**{len(subs)}** langganan diperiksa (simulasi, tanpa memanggil jaringan): "
+        + " · ".join(baris)
+    )
+    if rusak:
+        pesan += f"\n⚠️ {rusak} langganan punya URL feed tidak valid — hapus lalu tambah ulang."
+    return True, pesan
+
+
+def _uji_statistik(guild) -> tuple[bool, str]:
+    """Simulasi channel statistik: hitung 7 angka, tanpa membuat/mengubah channel."""
+    import server_features as sf
+
+    data = sf.hitung_statistik(guild)
+    cfg = sf.serverstats_guilds.get(int(getattr(guild, "id", 0) or 0)) or {}
+    baris = " · ".join(
+        f"{sf.stats_emojis(int(getattr(guild, 'id', 0) or 0)).get(key, emoji)} {label}: "
+        f"**{sf.format_number(data.get(key)) if data.get(key) is not None else '—'}**"
+        for key, emoji, label in sf.STATS_CHANNEL_SPECS
+    )
+    status = "aktif" if cfg.get("enabled") else "belum aktif"
+    return True, (
+        f"Channel statistik {status} · {baris}. "
+        "Simulasi saja — tidak ada channel yang dibuat atau diganti nama."
+    )
+
+
+def _uji_curhat(guild_id: int) -> tuple[bool, str]:
+    """Simulasi curhat: cek aturan panjang/link/jeda, tanpa memposting."""
+    import confessions
+
+    data = confessions.statistik(guild_id)
+    if not data["dinyalakan"]:
+        return False, (
+            "Curhat anonim belum dinyalakan. Atur di halaman **Konten & interaksi** → "
+            "panel *💌 Curhat anonim*."
+        )
+    if not data["channel_id"]:
+        return False, "Channel curhat belum dipilih, jadi fitur belum bisa dipakai."
+
+    contoh = "Ini contoh curhat untuk simulasi: aku capek banget minggu ini."
+    boleh, pesan = confessions.validasi(guild_id, 1, contoh)
+    if not boleh:
+        return False, f"Aturan curhat menolak contoh: {pesan}"
+    pendek, alasan = confessions.validasi(guild_id, 1, "halo")
+    return True, (
+        f"Aturan curhat berjalan: contoh kalimat **diterima** (nomor berikutnya "
+        f"#{data['nomor_terakhir'] + 1}), kalimat terlalu pendek ditolak dengan pesan "
+        f"“{alasan}”. Simulasi saja — tidak ada yang diposting dan tidak ada nomor terpakai."
+    )
+
+
+def _uji_snipe(guild_id: int) -> tuple[bool, str]:
+    """Simulasi snipe: catat pesan contoh di memori, baca, lalu bersihkan."""
+    import snipe
+
+    data = snipe.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Snipe sedang dimatikan. Nyalakan di halaman **Moderasi** → "
+            "panel *🔎 Snipe & EditSnipe*."
+        )
+    kanal = 424242
+    from types import SimpleNamespace
+
+    contoh = SimpleNamespace(
+        guild=SimpleNamespace(id=guild_id),
+        author=SimpleNamespace(id=1, bot=False, display_name="Contoh Member"),
+        content="Ini pesan contoh untuk simulasi snipe.",
+        attachments=[],
+        channel=SimpleNamespace(id=kanal),
+    )
+    tercatat = snipe.catat_hapus(contoh)
+    terbaca = snipe.ambil_hapus(guild_id, kanal, 1)
+    snipe.lupakan_channel(kanal)  # jangan tinggalkan data simulasi di memori
+    if not tercatat or not terbaca:
+        return False, (
+            "Pencatatan snipe tidak berjalan — kemungkinan fitur **catat pesan dihapus** "
+            "dimatikan di panel Moderasi."
+        )
+    return True, (
+        "Pesan contoh berhasil dicatat lalu dibaca kembali "
+        f"(`{terbaca[0]['nama']}`). Simulasi saja — pesan asli tidak disentuh dan data "
+        "simulasi sudah dibersihkan dari memori."
+    )
+
+
+def _uji_pantau(guild_id: int) -> tuple[bool, str]:
+    """Simulasi highlight: cocokkan kalimat contoh, tanpa mengirim DM."""
+    import highlights
+
+    data = highlights.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Fitur highlight sedang dimatikan. Nyalakan di halaman **Konten & interaksi** → "
+            "panel *🔔 Highlight kata kunci*."
+        )
+    pelanggan = highlights.daftar_pelanggan(guild_id)
+    if not pelanggan:
+        return False, (
+            "Belum ada member yang memantau kata kunci. Tambahkan dulu lewat "
+            "`/pantau tambah kata:open order`."
+        )
+    baris = pelanggan[0]
+    kata = baris["keywords"][0]
+    contoh = f"Contoh simulasi: ada info baru soal {kata} hari ini di server."
+    # Simulasi memakai waktu "setelah jeda" supaya hasilnya tidak terlihat kosong
+    # hanya karena kata itu baru saja memicu DM sungguhan.
+    hasil = highlights.cocok(
+        guild_id, contoh, sekarang=time.time() + highlights.JEDA_SAMA_KATA_DETIK + 1
+    )
+    return True, (
+        f"Kata `{kata}` milik <@{baris['user_id']}> cocok dengan kalimat contoh → "
+        f"{len(hasil)} DM akan dikirim. Simulasi saja — tidak ada DM yang benar-benar "
+        "dikirim dan isi pesan tidak disimpan."
+    )
+
+
+def _uji_lencana(guild_id: int, member=None) -> tuple[bool, str]:
+    """Simulasi lencana: hitung progres tanpa memberi role & tanpa mengumumkan."""
+    import achievements
+
+    data = achievements.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Lencana sedang dimatikan. Nyalakan di halaman **Inti & level** → "
+            "panel *🏅 Lencana bertingkat*."
+        )
+    if member is None:
+        return True, (
+            f"Lencana aktif: {data['anggota']} member terdata, {data['total_tingkat']} "
+            f"tingkat diberikan, {data['hadiah_role']} role hadiah. Simulasi saja — "
+            "tidak ada role yang diberikan."
+        )
+    progres = achievements.progres(guild_id, int(getattr(member, "id", 0)))
+    ringkas = " · ".join(
+        f"{item['emoji']} {item['tingkat']}/{item['maks']}" for item in progres
+    )
+    return True, (
+        f"Progres **{_nama_member(member)}**: {ringkas}. "
+        "Simulasi saja — tidak ada role yang diberikan & tidak ada pengumuman."
+    )
+
+
+def _uji_tag(guild_id: int) -> tuple[bool, str]:
+    """Simulasi fitur tag: cek jumlah tag & pencarian contoh. Tanpa mengubah apa pun."""
+    import tags
+
+    data = tags.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Fitur tag sedang dimatikan. Nyalakan di halaman **Konten & interaksi** → "
+            "panel *🏷️ Tag jawaban siap pakai*."
+        )
+    contoh = tags.cari(guild_id, "aturan", limit=1)
+    if not data["total"]:
+        return True, (
+            "Tag siap dipakai, tapi belum ada isinya. Tambahkan satu di panel "
+            "*🏷️ Tag* (atau `/tag buat`) — 0 kuota AI."
+        )
+    return True, (
+        f"{data['total']} tag tersimpan, dipanggil {data['dipakai']}× total. "
+        + (
+            f"Pencarian contoh \"aturan\" menemukan `{contoh[0]['nama']}`. "
+            if contoh
+            else ""
+        )
+        + "Simulasi saja — isi tag tidak dikirim ke AI."
+    )
+
+
+def _uji_moderasi(guild_id: int) -> tuple[bool, str]:
+    """Simulasi jalur laporan: apakah laporan wajar akan masuk antrean? Tanpa efek samping."""
+    import reports
+
+    data = reports.status(guild_id)
+    simulasi = reports.akan_masuk_antrean(guild_id, jenis="laporan", panjang_alasan=40)
+    if not simulasi["masuk"]:
+        return False, f"Laporan tidak akan masuk antrean: {simulasi['alasan']}"
+    return True, (
+        "Jalur laporan sehat: laporan wajar akan masuk antrean staf "
+        f"(cooldown {data['cooldown_sec']} detik per pelapor, "
+        f"{data['menunggu']} menunggu, {data['total']} total). "
+        "Simulasi saja — tidak ada laporan yang dibuat."
+    )
+
+
+def _uji_honeypot(guild, guild_id: int, member=None, opsi: str = "") -> tuple[bool, str]:
+    """Simulasi keputusan honeypot untuk seorang member (**tanpa** tindakan)."""
+    import honeypot
+
+    data = honeypot.status(guild_id)
+    if not data["channel_ids"]:
+        return False, (
+            "Honeypot belum punya channel jebakan. Atur di halaman **Keamanan** → "
+            "panel *Honeypot* (atau `/keamanan honeypot channel:#promo-gratis`)."
+        )
+    orang = member
+    if orang is None:
+        orang = cari_member(guild, opsi) if guild is not None else None
+    is_staf = False
+    perms = getattr(orang, "guild_permissions", None)
+    if perms is not None:
+        is_staf = bool(
+            getattr(perms, "administrator", False)
+            or getattr(perms, "manage_messages", False)
+            or getattr(perms, "manage_guild", False)
+        )
+    channel_id = int(data["channel_ids"][0])
+    simulasi = honeypot.akan_tertangkap(
+        guild_id,
+        channel_id,
+        is_bot=bool(getattr(orang, "bot", False)),
+        is_staf=is_staf,
+    )
+    nama = _nama_member(orang) if orang is not None else "member contoh"
+    if simulasi["kena"]:
+        return True, (
+            f"Kalau **{nama}** menulis di <#{channel_id}>, honeypot akan bertindak: "
+            f"{honeypot.AKSI_HONEYPOT.get(simulasi['aksi'], simulasi['aksi'])}. "
+            "Simulasi saja — tidak ada pesan yang dihapus dan tidak ada yang dihukum."
+        )
+    return True, (
+        f"**{nama}** tidak akan ditindak di <#{channel_id}>: {simulasi['alasan']} "
+        "Tidak ada tindakan yang dijalankan."
+    )
+
+
+async def _uji_kartu(guild, guild_id: int, member=None, opsi: str = "") -> tuple[bool, str]:
+    """Render kartu rank tanpa mengirim apa pun — hanya memastikan perender sehat."""
+    import rank_card
+
+    if not rank_card.pillow_available():
+        return False, "Pillow tidak terpasang di host ini — kartu rank otomatis dimatikan."
+    if not rank_card.kartu_aktif(guild_id):
+        return False, "Kartu rank sedang dimatikan di halaman **Inti & level**."
+
+    sumber = "pilihanmu"
+    if member is None:
+        member, sumber = await ambil_subjek(guild, opsi)
+        if member is None:
+            return False, (
+                "Belum ada member yang bisa dijadikan contoh: pemilik server tidak ada di "
+                "daftar member dan server ini belum punya member manusia."
+            )
+
+    data = rank_card.data_kartu(
+        guild_id,
+        _to_int(getattr(member, "id", 0)),
+        nama=getattr(member, "display_name", "") or getattr(member, "name", ""),
+        guild_name=str(getattr(guild, "name", "") or ""),
+    )
+    png = await rank_card.render_kartu(
+        data, avatar_bytes=await rank_card.baca_avatar(member)
+    )
+    if not png:
+        return False, "Perender mengembalikan hasil kosong — cek log bot (kemungkinan font/latar rusak)."
+    latar = "gambar unggahan" if rank_card.ada_latar(guild_id) else "gradasi aksen"
+    return True, (
+        f"Kartu rank **{_nama_member(member)}** ({sumber}) berhasil dirender: "
+        f"{max(1, round(len(png) / 1024))} KB, {rank_card.KARTU_UKURAN[0]}×"
+        f"{rank_card.KARTU_UKURAN[1]} px, latar {latar}. Tidak ada yang dikirim ke channel."
+    )
 
 
 def _members(guild) -> list:

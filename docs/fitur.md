@@ -193,7 +193,7 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 > Mode **dinamis** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang,
 > bot otomatis mundur ke mode banner statis — tidak ada error.
 
-### 9. 🔔 Notifikasi Sosial: YouTube, Twitch & TikTok/RSS (`/sosial`)
+### 9. 🔔 Notifikasi Sosial: YouTube, Twitch, TikTok, Reddit & RSS/Atom (`/sosial`)
 
 Tidak perlu dashboard web seperti Sapphire — semua dari Discord, **0 kuota AI** (pesan memakai template).
 
@@ -202,12 +202,16 @@ Tidak perlu dashboard web seperti Sapphire — semua dari Discord, **0 kuota AI*
 | 🎬 **YouTube** | RSS resmi `youtube.com/feeds/videos.xml` | **tidak perlu** |
 | 🟣 **Twitch** | Helix API (Client Credentials) | `TWITCH_CLIENT_ID` + `TWITCH_CLIENT_SECRET` (gratis di dev.twitch.tv) |
 | 🎵 **TikTok / RSS** | URL feed RSS (mis. instance RSSHub) | **tidak perlu** |
+| 👽 **Reddit** | feed `.rss` resmi `reddit.com/r/<sub>/new/.rss` | **tidak perlu** |
+| 📰 **RSS / Atom** | URL feed situs apa pun (blog, berita, Substack, dsb.) | **tidak perlu** |
 
 Contoh pemasangan:
 ```bash
 /sosial tambah platform:🎬 YouTube target:@NamaChannel channel:#info
 /sosial tambah platform:🟣 Twitch target:ninja channel:#live role:@Warga
 /sosial tambah platform:🎵 TikTok target:https://rsshub.app/tiktok/user/namaakun channel:#tiktok
+/sosial tambah platform:👽 Reddit target:r/indonesia channel:#reddit
+/sosial tambah platform:📰 RSS/Atom target:https://blog.contoh.com/feed.xml channel:#artikel
 /sosial daftar          # lihat ID tiap langganan
 /sosial tes id:ab12cd34 # kirim contoh notifikasi sekarang
 /sosial hapus id:ab12cd34
@@ -217,7 +221,17 @@ Cara kerja & pengaman:
 - **Anti-banjir:** pemeriksaan pertama hanya *menandai* konten lama sebagai sudah dilihat — channel tidak dibanjiri video lama.
 - **Twitch:** notifikasi hanya dikirim saat status berubah **offline → live**, bukan setiap pengecekan.
 - **Jadwal:** id channel YouTube & feed RSS dicek ≤5 menit, Twitch tiap 2 menit. Semua dijalankan di dalam watcher yang sudah ada, jadi **tidak menambah proses** di Wispbyte.
+- **Reddit tanpa API key:** cukup tulis nama subreddit (`r/indonesia`, `indonesia`, atau link
+  subreddit) — bot menyusun sendiri URL `…/r/<sub>/new/.rss` dan membaca format Atom-nya.
+- **RSS/Atom generik:** tempel URL feed apa pun; kalau situs tidak punya feed, fitur ini tidak
+  bisa memantaunya (tidak ada scraping HTML).
 - **Batas:** maksimal 12 langganan per server; `seen` disimpan 25 ID terakhir per langganan agar `data/social.json` tetap kecil.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔔 Notifikasi sosial* — daftar
+  langganan (platform, URL feed sebenarnya, channel, jejak item), form tambah dengan pilihan
+  platform & role, serta tombol hapus per langganan. Jalur tulis: `POST /api/konten`
+  (`sosial-tambah`, `sosial-hapus:<id>`).
+- Tombol tes **Notifikasi sosial** hanya memeriksa bentuk URL feed semua langganan —
+  **tanpa memanggil jaringan** dan tanpa mengirim pesan.
 - **Template kustom:** `{source}` `{title}` `{url}` `{game}` — mis. `pesan:"Video baru dari {source}: {title} {url}"`.
 
 ### Cara mendapatkan `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET` (sekali saja, gratis)
@@ -295,6 +309,9 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 | `/mod warn member @x alasan:...` | Peringatan resmi + tercatat. Setelah ambang tercapai → **timeout otomatis**. |
 | `/mod timeout member @x durasi:1h30m alasan:...` | Bisukan sementara (timeout native Discord, maks 28 hari). |
 | `/mod kick` / `/mod ban` / `/mod unban` | Kick, ban (opsional hapus pesan 0–7 hari), cabut ban via ID. |
+| `/mod tempban member:@x durasi:2d alasan:...` | **Ban sementara** — dicabut **otomatis** saat durasi habis (maks 365 hari), tanpa perlu staf mengingat. |
+| `/mod softban member:@x hapus_pesan_hari:7` | **Softban** — ban sebentar untuk menghapus pesan, ban **langsung dicabut** sehingga member boleh kembali. |
+| `/mod note member:@x teks:...` | **Catatan internal staff** (tidak menghukum, tidak memberi tahu member). |
 | `/mod purge jumlah:50 member:@x tipe:link` | Hapus massal dengan filter **semua / bot / link / gambar**. |
 | `/mod catatan member:@x` | Riwayat kasus + jumlah peringatan aktif. |
 | `/mod hapus id:12` | Hapus kasus salah catat (khusus Admin). |
@@ -303,12 +320,57 @@ Bikin channel tongkrongan makin ramai dengan **6 permainan interaktif** (anti-bo
 | `/mod role member:@x role:@Gamer aksi:beri` | Beri/cabut satu role (hierarki & role terkelola dijaga). |
 | `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` | **Beri/cabut role ke banyak member** sekaligus, dengan dialog konfirmasi & ringkasan hasil. |
 | `/mod nickname member:@x nama:Sobat` | Ubah/reset nickname member (kosongkan `nama` untuk reset). |
+| `/mod statistik hari:30` | **Statistik staf**: siapa menindak berapa banyak, rincian per jenis aksi, & daftar temp-ban yang masih berjalan. |
 
 Pengaman bawaan:
 - **Hierarki dihormati** — bot menolak menindak pemilik server, Administrator, atau role yang lebih tinggi darinya (pesan errornya menjelaskan cara memperbaikinya).
 - **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
 - **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
+- **Tangga hukuman lengkap** — `warn` → `timeout` → `kick` → `softban` → `tempban` → `ban`, semuanya membuat **satu kasus bernomor** yang dipakai bersama `/mod catatan`, `/mod statistik`, & dashboard.
+- **Temp-ban tidak menggantung** — watcher utama (tiap 15 detik) mencabut ban yang jatuh tempo, mencatat kasus `unban` otomatis, dan mengirim laporan ke channel log. Bila server/bot sedang mati saat waktunya habis, temp-ban dicabut pada putaran pertama setelah bot hidup lagi.
+- **Catatan ≠ hukuman** — `/mod note` hanya menulis riwayat untuk staff; member tidak diberi DM dan tidak dikenai aksi apa pun.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
+
+### 1b. 🚨 Jalur member: `/lapor` & `/banding`
+
+Moderasi yang hanya satu arah membuat member merasa tidak didengar. Dua command ini
+membuka jalur resmi **member → staf**, tanpa menambah risiko:
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lapor member:@x alasan:... bukti:...` | Member melaporkan pesan/member. Laporan **masuk antrean staf** (bukan langsung hukuman), dikirim ke channel laporan, dan pelapor dapat DM konfirmasi. |
+| `/banding alasan:... [kasus:12]` | Member mengajukan peninjauan hukuman. Bisa dijalankan dari **DM** (untuk yang sudah diban) — bot mencari kasus terakhir atas nama member itu. |
+| `/mod antrean [status] [jenis]` | *(Staff)* Lihat antrean laporan & banding. |
+| `/mod tindak kode:12 status:diterima catatan:"..." cabut:True` | *(Staff)* Ubah status; `cabut:True` pada banding **langsung mencabut** timeout/ban/temp-ban terkait dan mencatat kasus baru. |
+
+Pengaman:
+- **Tidak ada hukuman otomatis** dari laporan — keputusan tetap di staf.
+- **Anti-spam laporan**: cooldown per pelapor (bawaan **300 detik**), alasan minimal **10 huruf**, dan laporan beruntun tidak menumpuk antrean.
+- **Banding terhubung kasus**: nomor kasus ikut tersimpan, dan hanya kasus atas nama pelapor yang bisa dibanding.
+- Semua antrean tersimpan di `data/reports.json` (maks 300 entri/server) dan bisa dikelola dari halaman **🚨 Moderasi** di dashboard.
+
+### 1c. 🔎 Snipe & EditSnipe (`/snipe`)
+
+Pesan yang dihapus/diubah **sebelum staf sempat melihat** tidak hilang begitu saja.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/snipe hapus [jumlah]` | Tampilkan 1–5 pesan terakhir yang dihapus **di channel itu**. |
+| `/snipe edit [jumlah]` | Tampilkan isi **sebelum → sesudah** pesan yang baru diubah. |
+| `/snipe atur aktif:True hapus:True edit:True` | *(Admin)* Sakelar fitur, per jenis. |
+
+Detail penting:
+- **Khusus staf:** grup `/snipe` memakai izin bawaan *Manage Messages*, jadi member biasa
+  tidak melihatnya sama sekali.
+- **Hanya di memori** — maksimal 5 pesan per channel dan **hilang saat bot restart**.
+  Tidak ada berkas baru, tidak ada riwayat permanen, tidak ada risiko data sensitif tersimpan.
+- Bot, pesan kosong, dan pesan tanpa lampiran tidak dicatat; pesan yang ikut terhapus oleh
+  `purge` juga dicatat (maks 5 terakhir).
+- **Panel dashboard:** halaman **🚨 Moderasi** → *🔎 Snipe & EditSnipe* — sakelar aktif,
+  catat-hapus, catat-edit, plus jumlah entri yang sedang tersimpan di memori.
+  Jalur tulis: `POST /api/moderasi` (`snipe-setelan`).
+- Tombol tes **Snipe & EditSnipe** mencatat pesan contoh di memori, membacanya kembali, lalu
+  membersihkannya — tidak menyentuh pesan asli.
 
 ### 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
 
@@ -390,7 +452,17 @@ Pengaman:
 ### 1. 📊 Statistik Server seperti Bot Serverstats (`/serverstats`)
 - **`/serverstats lihat`** — kartu statistik lengkap: total anggota, manusia vs bot, perkiraan member online, boost & level, jumlah channel teks/suara/forum, role, emoji, stiker, tanggal server dibuat, pemilik, dan level verifikasi.
 - **`/serverstats otomatis aktif:True`** *(Admin)* — membuat kategori **`📊 Statistik Server`** berisi Voice Channel penghitung yang **ter-update otomatis setiap ±10 menit**:
-  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7`
+  `👥 Total Member: 1.204` · `🙋 Manusia: 1.150` · `🤖 Bot: 54` · `🟢 Online: 312` · `💎 Boost: 7` ·
+  `🎫 Tiket Terbuka: 3` · `🔔 Langganan Sosial: 5`
+- Dua penghitung terakhir membaca **state bot** (bukan API tambahan): jumlah tiket yang belum
+  ditutup (`/tiket` + `/menu tiket`) dan jumlah langganan notifikasi sosial YouTube/Twitch/TikTok/
+  Reddit/RSS yang aktif — jadi operator bisa melihat beban komunitas & isi langganan sekilas.
+  Kartu **`/serverstats lihat`** juga memuat baris **📈 Aktivitas Fitur** (tiket terbuka + langganan sosial).
+- Emoji tiap channel bisa diganti lewat **`/serverstats ikon`** atau panel **📊 Channel statistik**
+  di halaman *🧩 Konten & interaksi* (form ikon per channel + tombol **🔄 Segarkan sekarang**,
+  jalur tulis `POST /api/konten` → `stats-emoji:<kunci>`, `stats-segarkan`). Isi `-` untuk
+  menghapus ikon. Tombol tes **📊 Channel statistik** menghitung ulang 7 angka itu tanpa
+  membuat/mengganti nama channel.
 - Warga **tidak bisa masuk** ke channel penghitung (hanya bisa melihat angka), dan update dibatasi aman dari *rate limit* Discord (maks. 2 rename / 10 menit per channel).
 
 ### 2. 🎭 Auto Role Member Baru (`/autorole`) *(Admin)*
@@ -421,6 +493,35 @@ Pengaman:
 - **`/keamanan cek link:https://...`** bisa dipakai **semua member** untuk memeriksa keamanan link sebelum membuka.
 - Bisa dibatasi hanya ke channel tertentu, dan mode **ketat** (`ketat:True`) juga menindak link yang baru *mencurigakan*.
 
+### 5. 🪤 Honeypot — Channel Jebakan (`/keamanan honeypot`)
+
+> 🍯 **Filosofi: jebakan, bukan tongkat.** Channel jebakan **tidak boleh dipakai siapa pun**.
+> Warga asli membaca aturan dan tidak akan menyentuhnya; **self-bot, skrip promo, & bot raid**
+> justru menganggapnya sasaran empuk. Jadi pesan pertama di sana sudah menjadi bukti — tanpa
+> analisis teks, tanpa ambang, tanpa salah tuduh.
+
+| Command | Fungsi |
+| :--- | :--- |
+| **`/keamanan honeypot channel:#promo-gratis`** *(Admin)* | Pasang channel jebakan (maks **3** channel per server). |
+| **`/keamanan honeypot channel:#promo aksi:timeout timeout_detik:600`** | Pilih tindakan: `lapor`, `hapus`, `timeout`, `kick`, atau `ban`. |
+| **`/keamanan honeypot channel:#promo log_channel:#mod-log`** | Kirim laporan kejadian ke channel log. |
+| **`/keamanan honeypot channel:#promo abaikan_staf:False`** | Ikut menindak staf (default **staf & pemilik aman**). |
+| **`/keamanan honeypot`** *(tanpa argumen)* | Lihat setelan & jumlah tangkapan. |
+| **`/keamanan honeypot aktif:False`** | Matikan sementara — daftar channel tetap tersimpan. |
+
+**Aturan main:**
+- **Bawaan `lapor`** — belum ada tindakan sampai Admin memilih yang lebih keras.
+- **Staf selalu aman** (`abaikan_staf` default aktif): Administrator / Manage Messages / Manage Guild.
+- **Bot diabaikan** (termasuk bot ini sendiri), supaya webhook & bot resmi tidak ikut kena.
+- Saat mode bertindak, pesan **selalu dihapus** dulu, lalu laporan dikirim ke channel log.
+- Channel jebakan yang dihapus otomatis dibuang dari daftar; honeypot mati bila daftar kosong.
+- **0 kuota AI**, data di `data/honeypot.json`, maksimal 3 channel/server.
+
+**Di dashboard:** halaman **🛡️ Keamanan** → panel *🪤 Honeypot*: pilih channel & tindakan,
+atur time-out, channel log, dan tombol **uji simulasi** (menampilkan keputusan honeypot untuk
+seorang member **tanpa** menghapus pesan atau menghukum siapa pun). Jalur tulis:
+`POST /api.keamanan` (`action=honeypot-simpan` / `honeypot-hapus`).
+
 ---
 
 ## E. Fitur Komunitas Ringan (`/panel-role`, `/poll`, `/saran`, `/embed`, `/tempvoice`)
@@ -450,13 +551,40 @@ Pengaman:
 ### 4. ⭐ Starboard — Sorotan Pesan Populer (`/starboard`)
 - **`/starboard atur channel:#starboard batas:3 emoji:⭐`** — pesan warga yang mendapat **3 reaksi bintang** otomatis disalin ke channel sorotan (embed cantik + tautan sumber).
 - Bila reaksi turun di bawah batas, sorotannya **otomatis dihapus** agar starboard tetap rapi.
-- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan konfigurasi + jumlah sorotan.
+- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan semua papan + jumlah sorotan.
+
+**Papan berlapis / varian (v1.40.0-beta):**
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Papan utama + varian** | Papan ⭐ tetap seperti biasa. Tambahkan **skullboard 💀**, **clownboard 🤡**, dll. dengan `/starboard varian tambah:Skull emoji:💀 batas:5 channel:#skull warna:#FF8A00`. Maksimal `STARBOARD_MAX_BOARD` = **4 papan** per server (termasuk papan utama). |
+| **Mandiri** | Tiap papan punya emoji, ambang, channel, dan warna embed sendiri. Satu pesan bisa masuk ke **beberapa papan sekaligus**; entri sorotan disimpan per papan sehingga menghapus sorotan di satu papan tidak mengganggu papan lain. |
+| **Channel kosong** | Bila channel papan tidak diisi, papan itu ikut channel papan utama. |
+| **Angka ikut naik** | Saat reaksi bertambah, angka di pesan sorotan **diperbarui** (bukan mengirim ulang); turun di bawah ambang → sorotan papan itu dihapus. |
+| **Anti-loop** | Pesan yang berada di channel papan mana pun tidak akan disorot lagi. |
+| **Dashboard** | Halaman **🧩 Konten & interaksi** → panel *Papan sorotan (varian)*: daftar papan + tombol hapus, form tambah (nama, emoji, ambang, channel, warna), dan setelan **warna embed** papan utama. |
 
 ### 5. ✅ Gerbang Verifikasi Anti-Bot (`/verifikasi`)
 - **`/verifikasi pasang channel:#verifikasi role:@Member`** — panel dengan tombol **✅ Verifikasi Saya**.
 - Member baru klik sekali → langsung dapat role akses, tanpa perlu Admin menunggu. Cocok dipadukan dengan `/autorole`.
 - **`/verifikasi status`** & **`/verifikasi matikan`** — pantau / matikan kapan saja.
 - Tombol bersifat **persisten** (`custom_id`), jadi tetap berfungsi setelah bot restart.
+
+**CAPTCHA (v1.40.0-beta, tanpa dependency baru):**
+
+```bash
+/verifikasi pasang channel:#verifikasi role:@Member captcha:True
+```
+
+- Member menekan **✅ Verifikasi Saya** → muncul **modal** berisi kode **5 huruf** (alfabet
+  tanpa `0/O/1/I/L` supaya tidak salah baca). Kode hanya terlihat oleh member itu.
+- Salah ketik: **3 percobaan**, kode **kedaluwarsa 5 menit**; habis/kedaluwarsa → tekan tombol
+  lagi untuk kode baru. Kode disimpan **di memori** saja dan dibersihkan otomatis tiap jam.
+- Bedanya dengan tombol biasa: bot self-bot/otomasi tidak bisa menyelesaikan modal, jadi
+  gerbang ini menahan akun yang "rajin" klik.
+- **Dashboard:** halaman **🛡️ Keamanan** → sakelar *CAPTCHA verifikasi* (butuh channel
+  verifikasi terpasang dulu) + tombol tes **Gerbang verifikasi & CAPTCHA** yang hanya
+  memeriksa setelan — **tidak** memberikan role ke siapa pun.
 
 ### 6. 📌 Sticky Message — Petunjuk Selalu di Bawah (`/sticky`)
 - **`/sticky pasang isi:"Baca #rules dulu sebelum chat!" channel:#umum judul:"📌 Aturan"`**
@@ -552,6 +680,171 @@ Detail penting:
 - **Aman restart:** daftar room di `data/temp_voice.json`; room yatim dibersihkan lewat penyapuan tiap 5 menit.
 - **Tidak mengganggu musik:** listener hanya menyentuh channel hub & room yang dibuatnya sendiri.
 - **0 kuota AI.**
+
+### 11. 🏷️ Tag Jawaban Siap Pakai (`/tag`)
+
+Jawaban yang paling sering ditanya staf (`aturan`, `harga`, `cara refund`) disimpan
+sekali, lalu dipanggil kapan saja oleh siapa pun. **Tanpa AI sama sekali** — isi tag
+tidak pernah dikirim ke Gemini, jadi 0 kuota dan tidak bisa "dikarang" model.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/tag lihat nama:aturan` | Tampilkan isi tag (siapa pun boleh). Nama bisa dicari langsung dari dropdown. |
+| `/tag daftar` | Daftar semua tag server + jumlah pemakaian. |
+| `/tag cari kata:refund` | Cari tag lewat **nama atau isi** — berguna saat staf lupa nama tag-nya. |
+| `/tag buat nama:aturan isi:…` | *(Staf)* Buat tag baru. |
+| `/tag ubah nama:aturan isi:…` | *(Staf)* Perbarui isi tag. |
+| `/tag hapus nama:aturan` | *(Staf)* Hapus tag. |
+
+Detail penting:
+- Nama tag **dinormalisasi** otomatis (`Aturan Server!` → `aturan-server`) supaya mudah dipanggil.
+- Maksimal **100 tag/server**, isi maks **1.800 huruf** (batas embed), tanpa biaya kuota.
+- Penghitung `dipakai` membantu melihat tag mana yang benar-benar berguna (dan mana yang usang).
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🏷️ Tag jawaban siap pakai* — tambah/perbarui, hapus per tag, lihat statistik pemakaian, dan **sakelar aktif/nonaktif** (data tetap tersimpan). Jalur tulis: `POST /api/konten` (`tag-simpan`, `tag-hapus:<nama>`, `tag-aktif:1|0`).
+- Data di `data/tags.json`; tombol tes **Tag jawaban server** hanya menyimulasikan pencarian tanpa menaikkan penghitung.
+
+### 12. 🏅 Lencana Bertingkat (`/lencana`)
+
+Pencapaian yang **dihitung dari data yang sudah dicatat bot** (jumlah pesan, menit voice,
+level, riwayat menang undian). Tidak ada pelacakan baru, tidak ada tabel tambahan, dan
+**0 kuota AI**.
+
+| Lencana | Tangga tingkat |
+| :--- | :--- |
+| 💬 Rajin Ngobrol | 50 · 250 · 1.000 · 5.000 · 15.000 pesan |
+| 🎙️ Penghuni Voice | 60 · 300 · 1.200 · 5.000 menit voice |
+| 📈 Pendaki Level | 5 · 10 · 25 · 50 level (prestise menambah 100) |
+| 🎉 Hoki Undian | 1 · 3 · 10 kali menang undian |
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lencana lihat [member]` | Lencana + bar progres + sisa menuju tingkat berikutnya. |
+| `/lencana papan` | Papan lencana server (10 teratas, medali 🥇🥈🥉). |
+| `/lencana periksa [member]` | *(Staf)* Segarkan lencana sekarang — berguna setelah impor data level. |
+| `/lencana atur channel:… aktif:…` | *(Admin)* Channel pengumuman lencana & sakelar global. |
+| `/lencana role kunci:… tingkat:… role:…` | *(Admin)* Role hadiah per tingkat (kosongkan `role` untuk menghapus). |
+
+Detail penting:
+- Pemeriksaan otomatis menempel di alur XP pesan & voice, jadi tidak ada pekerjaan latar
+  tambahan dan tidak menambah beban CPU server Free Tier.
+- Pemberian role hadiah **idempoten**: tingkat yang sudah diumumkan tidak diulang, dan
+  pemberian lencana selalu aman walau bot restart (tersimpan di `data/achievements.json`).
+- Maksimal **500 member terdata per server** (yang paling lama tidak aktif dikeluarkan lebih dulu).
+- **Panel dashboard:** halaman **⚙️ Inti & level** → *🏅 Lencana bertingkat* — setelan channel
+  pengumuman, sakelar aktif/nonaktif, pemasangan/penghapusan role hadiah per tingkat, tangga
+  tingkat, dan papan lencana. Jalur tulis: `POST /api/lencana`
+  (`lencana-setelan`, `lencana-role`, `lencana-hapus:<kunci>:<tingkat>`).
+- Tombol tes **Lencana bertingkat** hanya menghitung progres (simulasi) — tidak memberi role
+  dan tidak mengirim pengumuman.
+
+### 13. 🔔 Highlight Kata Kunci (`/pantau`)
+
+Member memilih kata kunci sendiri (mis. `open order`, nama barang, nama dirinya), lalu bot
+mengirim **DM** berisi tautan pesan, penulis, channel, dan cuplikan singkat setiap kali kata
+itu muncul di chat. Khas bot besar, tapi di sini **tanpa AI** dan **tanpa menyimpan isi pesan**.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/pantau tambah kata:open order` | Pantau satu kata/frasa (maks **10** per member). |
+| `/pantau hapus kata:open order` | Berhenti memantau satu kata. |
+| `/pantau daftar` | Lihat kata kunci, channel & kata yang diabaikan, jumlah DM terkirim. |
+| `/pantau abaikan channel:#umum` | Channel ini tidak memicu highlight untukmu. |
+| `/pantau abaikan kata:spam` | Kata ini tidak memicu highlight untuk siapa pun. |
+| `/pantau bersihkan` | Hapus semua setelan highlight milikmu (opt-out total). |
+| `/pantau atur aktif:… abaikan_channel:…` | *(Admin)* Sakelar server & channel yang selalu diabaikan. |
+
+Detail penting:
+- **Pencocokan batas kata** (`bot` cocok di “bot itu”, tidak di “robot”), tidak peka huruf besar.
+- **Anti-banjir:** jeda 5 menit untuk kata yang sama per member + maksimal **5 DM/menit**
+  (bisa diturunkan dari dashboard). Satu pesan = maksimal satu DM per member.
+- Penulis pesan tidak dikirimi DM untuk pesannya sendiri; DM yang ditutup member dilewati
+  tanpa mengganggu chat.
+- Tidak ada isi pesan yang ditulis ke disk — `data/highlights.json` hanya berisi kata kunci,
+  daftar abaikan, dan penghitung.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔔 Highlight kata kunci* — sakelar
+  aktif, batas DM/menit, daftar channel yang diabaikan, daftar pelanggan + tombol hapus.
+  Jalur tulis: `POST /api/konten` (`pantau-setelan`, `pantau-hapus:<user_id>`).
+- Tombol tes **Highlight kata kunci** hanya menyimulasikan pencocokan kalimat contoh —
+  tidak ada DM yang dikirim.
+
+### 14. 💌 Curhat Anonim (`/curhat`)
+
+Satu channel khusus untuk **curhat tanpa nama** ala bot besar. Pesan diposting bot dengan
+nomor urut dan tanpa penulis; bot **tidak menyimpan isi curhat**. 0 kuota AI.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/curhat kirim teks:…` | Kirim curhat anonim ke channel yang sudah diatur. |
+| `/curhat atur channel:… aktif:… izinkan_link:… jeda_menit:…` | *(Admin)* Pilih channel, sakelar, izin tautan, jeda per orang. |
+| `/curhat hapus nomor:…` | *(staf)* Hapus curhat yang melanggar + catatannya. |
+
+Detail penting:
+- **Batas:** 10–900 huruf, maksimal **3 curhat/jam** per penanda penulis, jeda bawaan **5 menit**.
+- **Tautan** diblokir kecuali Admin mengizinkan (`izinkan_link`).
+- Identitas penulis hanya disimpan sebagai **hash 12 huruf** (`sha256`) — cukup untuk
+  menegakkan jeda, tapi tidak membocorkan siapa penulisnya.
+- `data/confessions.json` hanya berisi setelan, **nomor**, `pesan_id`, `channel_id`, waktu,
+  dan hash — **tanpa teks curhat**.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *💌 Curhat anonim* — channel,
+  sakelar, izin tautan, jeda, daftar curhat terakhir (nomor + penanda hash) + tombol hapus
+  catatan. Jalur tulis: `POST /api/konten` (`curhat-setelan`, `curhat-hapus:<nomor>`).
+- Tombol tes **Curhat anonim** menjalankan validasi aturan pada kalimat contoh — tidak ada
+  pesan yang diposting dan nomor tidak terpakai.
+
+### 15. 🔗 Voice Linking (`/tempvoice tautkan`)
+
+Ala bot besar: selama member berada di voice channel, bot memberi **role khusus** dan membuka
+**channel teks privat** untuk voice itu. Keluar voice → akses dicabut otomatis. **0 kuota AI.**
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/tempvoice tautkan` | Lihat status voice linking (role, channel privat, jumlah channel). |
+| `/tempvoice tautkan aktif:True role:@Warga Voice` | *(Admin)* Nyalakan & pilih role selama di voice. |
+| `/tempvoice tautkan channel_privat:True kategori:#Voice` | *(Admin)* Buat channel teks privat per voice, di kategori tertentu. |
+| `/tempvoice tautkan hapus_kosong:False` | *(Admin)* Biarkan channel privat tetap ada walau voice kosong. |
+
+Cara kerja:
+- Saat member **masuk** voice: role diberikan (hanya bila dia belum memilikinya) dan channel
+  `⌨️-<nama voice>` dibuat/disiapkan. `@everyone` **tidak** bisa melihat; hanya member yang
+  sedang di voice itu yang mendapat izin lihat + kirim.
+- Saat member **keluar**: izinnya dicabut. Bila voice channel jadi kosong dan
+  `hapus_kosong` menyala, channel privatnya dihapus. Pindah voice **tidak** mencabut role.
+- Role yang **sudah dimiliki member sebelum masuk voice** tidak akan dicabut saat keluar —
+  bot hanya mencabut role yang benar-benar ia berikan.
+- Batas **40** channel privat per server. Butuh izin **Manage Roles** & **Manage Channels**.
+- Satu listener voice dipakai bersama XP voice, audit log, dan Temp Voice (supaya tidak saling
+  menimpa) — lihat `cogs/events_cog.py`.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔗 Voice linking* — sakelar, role,
+  channel privat, hapus-saat-kosong, kategori, daftar channel yang dikelola + tombol lepas.
+  Jalur tulis: `POST /api/konten` (`voice-setelan`, `voice-lepas:<voice_id>`).
+- Tombol tes **Voice linking** hanya memeriksa setelan & keberadaan role — tidak mengubah role
+  atau channel siapa pun.
+
+### 16. ℹ️ Channel Info Otomatis (`/kanal-info`)
+
+Channel baca-saja berisi **aturan & info penting** yang diperbarui sendiri. Admin menulis isinya
+sekali; bot menerbitkan **satu pesan embed** lalu **mengedit pesan yang sama** setiap kali isi
+berubah — channel tidak penuh pesan lama. **0 kuota AI**, menumpang watcher yang sudah ada.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/kanal-info atur` | *(Admin)* Pilih channel, sakelar, judul, warna, & interval cek. |
+| `/kanal-info isi` | *(Admin)* Tulis/ganti isi aturan & info (20–3500 huruf, boleh multi-baris). |
+| `/kanal-info segarkan` | *(Admin)* Terbitkan/perbarui pesan sekarang juga. |
+| `/kanal-info status` | Lihat ringkasan setelan + cuplikan isi. |
+
+Cara kerja:
+- Pesan diterbitkan saat isi pertama kali disimpan; setelah itu **hanya diedit** (id pesan
+  disimpan di `data/info_channel.json`).
+- Bila pesan terhapus manual, bot menerbitkannya lagi pada pemeriksaan berikutnya.
+- Interval (5–1440 menit) dipakai untuk **memverifikasi** pesan masih ada, bukan untuk
+  menulis ulang isi.
+- Bot butuh izin **Send Messages**, **Embed Links**, & **Manage Messages** di channel itu.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *ℹ️ Channel info otomatis* —
+  channel, sakelar, judul, warna, interval, kotak isi + tombol simpan & segarkan, plus
+  pratinjau embed. Jalur tulis: `POST /api/konten` (`info-setelan`, `info-isi`, `info-segarkan`).
+- Tombol tes **Channel info otomatis** hanya memeriksa kelengkapan setelan — tidak mengedit
+  pesan di channel.
 
 ## F. Streaming Musik 24/7 (`/musik` + Lavalink)
 
@@ -661,15 +954,29 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | Command | Fungsi |
 | :--- | :--- |
 | **`/giveaway mulai hadiah:<teks> durasi:2jam pemenang:3`** | Pasang giveaway + tombol **🎉 Ikuti Giveaway** (peserta otomatis dicatat). |
-| **`/giveaway mulai ... syarat_role:@Booster`** | Batasi peserta hanya pemilik role tertentu. |
+| **`/giveaway mulai ... syarat_role:@Booster syarat_role_2:@Member`** | Peserta wajib punya **semua** role yang disebut. |
+| **`/giveaway mulai ... syarat_level:5 syarat_umur_akun:30`** | Syarat berlapis: level server minimal & umur akun Discord minimal (hari). |
+| **`/giveaway mulai ... role_bonus:@Booster bobot_bonus:2`** | Role bonus menambah peluang menang (bobot 1–5, dibatasi total 6×). |
+| **`/giveaway mulai hadiah:... templat:nitro-bulanan`** | Pakai setelan tersimpan: pemenang, durasi, syarat, & bonus role. |
 | **`/giveaway akhiri id_pesan:<ID>`** | Tutup lebih awal & umumkan pemenang. ID pesan dikirim saat giveaway dibuat. |
-| **`/giveaway reroll id_pesan:<ID>`** | Undi ulang dari peserta yang belum pernah menang. |
+| **`/giveaway reroll id_pesan:<ID>`** | Undi ulang dari peserta yang belum pernah menang; setiap reroll tercatat. |
 | **`/giveaway daftar`** | Giveaway yang masih berjalan + riwayat pemenang terakhir. |
+| **`/giveaway peserta id_pesan:<ID>`** *(Admin)* | Daftar peserta + peluang masing-masing + riwayat undian & reroll. |
+| **`/giveaway template-simpan / template-daftar / template-hapus`** | Kelola template giveaway rutin (maksimal 25 per server). |
 
-- **Format durasi fleksibel:** `30m`, `2 jam`, `1j30m`, `2 hari`, `45` (menit). Minimal 1 menit.
+- **Format durasi fleksibel:** `30m`, `2 jam`, `1j30m`, `2 hari`, `45` (menit). Minimal 1 menit. Kosongkan
+  `durasi`/`pemenang` untuk memakai setelan bawaan server.
+- **Syarat dicek saat tombol ditekan**, bukan saat pengundian: member langsung tahu apa yang kurang —
+  *"role yang diwajibkan belum kamu miliki"*, *"level kamu belum mencapai 5"*, atau *"umur akun
+  Discord-mu belum cukup"*. Tidak ada data member yang dikirim ke pihak lain.
+- **Peluang ekstra tanpa curang:** pemilik role bonus mendapat bobot undian lebih besar (mis. `2×`),
+  tetapi total bobot per peserta dibatasi `6×` dan satu akun tetap hanya terdaftar sekali.
 - **Tahan restart:** tombol memakai `custom_id` persisten, jadi peserta tetap bisa klik setelah bot restart.
-- Satu akun = satu peluang (klik berulang tidak menambah peluang); peserta bisa membatalkan sendiri.
-- Giveaway yang waktunya habis ditutup otomatis oleh loop latar belakang (maksimal ±15 detik setelah waktunya).
+  Bobot, log peserta, & riwayat undian ikut tersimpan di `data/engagement.json`.
+- **Riwayat undian:** siapa diundi lebih dulu, kapan, oleh siapa (manual via `/giveaway akhiri` atau
+  otomatis oleh loop latar belakang) — tersimpan maksimal `GIVEAWAY_HISTORY_MAX` entri per giveaway.
+- Peserta bisa membatalkan sendiri kapan saja sebelum waktu habis; giveaway yang waktunya habis
+  ditutup otomatis oleh loop latar belakang (maksimal ±15 detik setelah waktunya).
 
 ### 2. Ulang Tahun (`/ultah`)
 
@@ -750,7 +1057,17 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | 🔠 **Huruf kapital** | ≥70% kapital & ≥20 karakter | **Default NONAKTIF** (sering salah tuduh). |
 | 🚨 **Raid (join)** | 8 join / 60 detik | **Hanya peringatan** ke channel log + saran tindakan. |
 
-### 3. Pengamanan bawaan
+### 3. Penguji aturan & statistik per aturan (dashboard)
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Penguji aturan** | Halaman **🛡️ Keamanan** → panel *Penguji aturan & statistik*. Tempel contoh pesan (+ "dibayangkan dikirim berapa kali"), lalu lihat **aturan mana yang kena** beserta angkanya. |
+| **Tanpa tindakan** | Penguji **tidak** menghapus pesan, **tidak** me-time-out siapa pun, dan **tidak** mengubah riwayat anti-spam — murni simulasi, jadi aman dipakai saat jam sibuk. |
+| **Hasil bertahan** | Hasil uji terakhir disimpan per server (di memori) sehingga tetap terlihat setelah form dikirim — tanpa JavaScript. |
+| **Statistik per aturan** | Tabel **hari ini / total** untuk tiap aturan (`antispam.py` mencatatnya setiap kali aturan benar-benar menangkap pesan), plus mode tindakan, status aktif, dan total tertangkap. Statistik ikut tersimpan di `data/antispam.json`. |
+| **Jalur tulis** | `POST /api/keamanan` (`action=uji-aturan`) — wajib token, tanpa efek samping. |
+
+### 4. Pengamanan bawaan
 
 - **Staf aman:** pemilik `Administrator`, `Manage Messages`, atau `Manage Guild` **tidak pernah** diperiksa.
 - **Bot aman:** seluruh pesan bot lain diabaikan.
@@ -770,6 +1087,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | Command | Fungsi |
 | :--- | :--- |
 | **`/level lihat [member]`** | Kartu level + progress bar `▰▰▰▱▱`, total XP, & jumlah pesan. |
+| **`/level kartu [member] [publik:True]`** | **Kartu rank PNG** dirender server (Pillow): foto profil bulat, nama, level, prestise, peringkat `#3 / 24`, progress bar, & ringkasan aktivitas. Tanpa Pillow/kartu dimatikan → otomatis kembali ke kartu teks. |
 | **`/level papan halaman:1`** | Papan peringkat 10 besar (🥇🥈🥉) + total member terdata. |
 | **`/level atur aktif:True jeda:60 xp_minimal:15 xp_maksimal:25`** *(Admin)* | Nyalakan & atur XP. |
 | **`/level atur pengumuman:False channel_pengumuman:#level`** | Atur pengumuman naik level. |
@@ -816,16 +1134,40 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | **`/tiket tutup`** | Tutup tiket (pembuat atau staf) + kirim transkrip. |
 | **`/tiket atur sla_jam:2 auto_close_jam:72 rating_aktif:True channel_sla:#mod-log`** *(Admin)* | Batas **SLA respons pertama**, **auto-close** tiket menganggur, & kartu **rating bintang**. |
 | **`/tiket rating`** | Rata-rata rating bintang, sebaran bintang, & statistik SLA server. |
+| **`/tiket catat teks:...`** *(Staf)* | Catatan internal — **tidak dikirim ke thread**, hanya tersimpan & tampil di dashboard. |
+| **`/tiket catatan [hapus:<nomor>]`** *(Staf)* | Lihat/hapus catatan internal tiket ini (1 = paling lama). |
+| **`/tiket topik [tambah:<nama>] [hapus:<nama>] [role:@Staf] [emoji:🛒] [deskripsi:...]`** *(Admin)* | Atur **beberapa topik** pada satu panel. Tanpa argumen = daftar topik. |
 | **`/tiket matikan`** *(Admin)* | Matikan sistem tiket (thread lama tetap bisa dibaca). |
 
 **Cara kerja:**
 1. Member klik **🎟️ Buat Tiket** → bot membuat **private thread** `tiket-<nama>` (bukan channel baru → tidak memakan slot 500 channel/server).
+   Bila panel sudah punya **topik** (mis. *Pembelian*, *Lapor Bug*), tombol tunggal berganti menjadi
+   **dropdown topik**; thread-nya bernama `tiket-<topik>-<nama>`, judul tiket menyebut topiknya, dan
+   yang diundang adalah **role staf topik itu** (kalau belum diatur, ikut role staf umum). Tombol
+   **Topik lain** tetap tersedia untuk keluhan yang tidak masuk daftar. Maksimal
+   `TICKET_TOPIC_MAX` (default **8**) topik per server, nama maks `TICKET_TOPIC_LEN` (40) karakter.
 2. Pembuat tiket otomatis ditambahkan, lalu **maksimal 15 staf** dari role petugas ikut ditambahkan; sisanya bisa lewat `/tiket tambah`.
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
+   Transkrip juga diarsipkan sebagai **HTML** di `data/transcripts/<server>/` sehingga bisa **dibuka & dicari
+   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Batas arsip
+   `TICKET_ARSIP_MAX` (default **200** tiket terbaru per server); arsip lama otomatis dipangkas.
+   Setiap tiket juga bisa diberi **catatan internal staf** (`/tiket catat` atau kotak di dashboard):
+   disimpan di `data/tickets.json`, maksimal **25 catatan** per tiket, dan **tidak pernah** dikirim
+   ke thread — member tidak bisa membacanya.
 5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
 
-**Kualitas layanan (v1.33.0-beta, 0 kuota AI):**
+**Kartu rank PNG (v1.40.0-beta, 0 kuota AI):**
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Perender tunggal** | `rank_card.py` merender kartu untuk **`/level kartu`** *dan* pratinjau dashboard (`GET /api/rank.png`) — preview = hasil asli, bukan gambar contoh. |
+| **Yang tampil** | Foto profil bulat + cincin warna aksen, nama, level, prestise (`· PRESTISE ×2`), peringkat `#3 / 24`, progress bar XP, total XP, server · musim · jumlah pesan. Member tanpa avatar dapat lingkaran inisial; nama & angka panjang dipotong dengan `…`, bukan merusak tata letak. |
+| **Latar** | Gradasi warna aksen bawaan, atau **gambar yang diunggah** dari dashboard (slot *kartu rank*, PNG/JPG/GIF/WEBP, maks 8 MB). |
+| **Setelan** | Sakelar **Kartu rank PNG**, warna aksen hex (`#5865F2`), unggah/hapus latar, dan **tombol tes** — semuanya di halaman **⚙️ Inti & level** (rule #72). |
+| **Batas** | Ukuran 1024×360 px, hasil ±18–30 KB. Tanpa Pillow terpasang, fitur otomatis mundur ke kartu teks (tidak pernah error ke member). |
+
+**Kualitas layanan tiket (v1.33.0-beta, 0 kuota AI):**
 
 | Fitur | Detail |
 | :--- | :--- |
@@ -838,23 +1180,32 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 ## J. Dashboard Web (`DASHBOARD_TOKEN`)
 
-Satu halaman web untuk memantau **dan** mengatur bot: status, pemakaian AI, papan level,
-peta fitur, **52 setelan server**, **kirim embed/webhook**, dan pengelolaan konten.
-Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
+Satu server web ringan (proses yang sama dengan bot) untuk memantau **dan** mengatur bot
+tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **56 setelan server
+dalam 14 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
+& kartu sambutan, kotak masuk tiket, kendali giveaway, panel moderasi (antrean laporan &
+banding), generator gambar & prompt AI server, petunjuk privasi mandiri, serta **24 tombol tes fitur**.
+Template halaman depan ada di [README](../README.md#-dashboard-web-sekilas); rincian tiap
+bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
 | Aspek | Detail |
 | :--- | :--- |
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Tujuh jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket), `/api/panel` (tombol/dropdown & verifikasi). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
-| **Endpoint unduh** | `/api/tren` (tren AI 7 hari) & `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian). |
-| **Setelan** | **52 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
+| **Endpoint tulis** | Empat belas jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/ai` (buat gambar atau simpan prompt server; prompt/gambar tidak masuk audit), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
+`/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan),
+`/api/transkrip` (hapus arsip transkrip tiket),
+`/api/keamanan` (penguji aturan anti-spam), `/api/lencana` (setelan lencana), `/api/bangun` (pratinjau tema/AI, terapkan, batal, bongkar tercatat),
+`/api/moderasi` (setelan jalur laporan, status antrean, cari kasus, cabut temp-ban). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
+| **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
+| **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
+| **Setelan** | **56 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
-| **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
+| **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Perubahan dicatat sebagai metadata di `data/dashboard_audit.json` dan log bot; prompt bebas serta isi gambar tidak direkam. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
-| **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
-| **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` bawaan **30 detik** (`DASHBOARD_REFRESH_SEC`; `0` = mati) dan bisa **dinyalakan/dijeda dari header** tanpa restart → ringan dibuka dari HP. |
+| **Biaya** | Membuka/mengatur dashboard tidak memanggil AI; `/gambar` dan rancangan AI `/bangun` memakai kuota hanya saat diminta. ±2–4 MB RAM, tanpa dependency baru, tetap **1 proses**. |
+| **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` bawaan **30 detik** (`DASHBOARD_REFRESH_SEC`; `0` = mati) dan **bisa diatur sendiri lewat satu dropdown di header** tanpa restart → ringan dibuka dari HP. |
 
 > ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
 > Di Wispbyte cek tab **Network / Allocations**; bila tidak ada alokasi, dashboard otomatis
@@ -864,7 +1215,7 @@ Rincian tiap bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-
 
 Bot menjalankan satu halaman web di port privat (`DASHBOARD_PORT`, token di env) yang
 memuat **status bot, pemakaian AI, papan level, peta fitur, dan pengaturan server** —
-semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
+fitur dibagi ke **14 halaman** per grup, tanpa dependency baru dan tetap satu proses. AI hanya dipanggil secara eksplisit untuk gambar atau rancangan `/bangun`.
 
 | Bagian | Isi |
 | :--- | :--- |
@@ -874,14 +1225,20 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | sakelar level, ekonomi, & pertumbuhan dengan **tombol yang mengikuti keadaan** (“Nonaktifkan” saat aktif, “Aktifkan” saat mati) + mode anti-spam & aksi anti-nuke |
-| **Setelan server** | **52 setelan** dalam 5 grup (lihat tabel di bawah) |
+| **Setelan server** | **56 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Kartu sambutan** | **unggah sendiri** tiga gambar kartu (sambutan, pamit, boost) di halaman `/sambutan` — satu bagian per kartu; disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa |
-| **Tes fitur** | tombol **Kirim tes** ada di tiap halaman fitur (sambutan, perpisahan, boost, pengumuman, panel, tiket, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
+| **Kartu rank** | Halaman `/inti` → panel **🖼️ Kartu rank (PNG)**: pratinjau `GET /api/rank.png` memakai perender yang **sama** dengan `/level kartu`, sakelar hidup/mati, warna aksen hex, unggah/hapus latar, & tombol tes render. |
+| **Tes fitur** | tombol **Kirim tes** ada di halaman fiturnya (sambutan, perpisahan, boost, pengumuman, panel, tiket, giveaway, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
+| **Kotak masuk formulir** | panel *📬 Kotak masuk formulir*: semua jawaban formulir dikumpulkan sebagai **antrean** (nomor, formulir, pengirim, waktu, status **baru/selesai**) — jawaban bisa dibaca langsung, **tandai selesai**, **buka lagi**, atau **hapus**. Batas 200/server, dibersihkan otomatis setelah 30 hari. Jalur tulis: `POST /api/konten` (`inbox-selesai:<nomor>`, `inbox-buka:<nomor>`, `inbox-hapus:<nomor>`). |
+| **AI & privasi** | halaman `/ai`: generator `/gambar` (prompt, channel, gaya, rasio, lampiran acuan opsional) + prompt kepribadian AI server. Lampiran divalidasi dan diproses di memori; prompt tidak dicatat di audit. Per-member memakai `/setelan-ai`; `/dataku` dan `/hapusdataku` tetap ephemeral dan hanya untuk pemilik akun. |
+| **Bangun server** | halaman `/bangun`: pilih satu dari 15 tema (0 kuota AI) atau rancang dengan AI; tinjau pratinjau, tekan Terapkan secara eksplisit, lihat riwayat, dan bongkar hanya item tercatat |
+| **Giveaway** | halaman `/giveaway`: buat giveaway dari HP (hadiah, channel, durasi, pemenang, level, umur akun, role bonus), **hentikan**, **undi ulang**, simpan/hapus **template**, dan atur **setelan bawaan** — semua memakai fungsi yang sama dengan command Discord |
 | **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web, plus **pasang panel tiket** |
+| **Moderasi** | Halaman `/moderasi`: antrean **laporan member** & **banding** (ubah status + catatan), **setelan jalur laporan** (channel, cooldown, DM pelapor), daftar **temp-ban** dengan tombol cabut, **pencarian kasus** (nomor/ID/kata/jenis aksi), **statistik staf** 30 hari, & kasus terbaru |
 | **Editor panel** | tambah/hapus **tombol** (role, tautan, perintah, alur, formulir) & **dropdown role** — panel di Discord langsung disegarkan |
 | **Panel verifikasi** | pasang/matikan gerbang verifikasi (tombol sekali klik → role) tanpa command |
 | **Ekspor CSV** | unduh data level, moderasi, tiket, & pemakaian AI langsung dari browser |
@@ -910,14 +1267,18 @@ menguji satu kelompok fitur tidak perlu berpindah-pindah halaman.
 
 | Halaman | Isi | Panel |
 | :--- | :--- | :--- |
-| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level, **tes koneksi AI** | 7 |
+| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level | 6 |
+| `/ai` | Generator gambar + lampiran acuan, prompt server, privasi mandiri, **tes koneksi AI** | 4 |
 | `/sambutan` | **sambutan + pamit + boost** jadi satu halaman: tiap bagian punya setelan, **gambar kartu**, & **tombol tes** sendiri (`#p-welcome`, `#p-goodbye`, `#p-boost`) | 1 |
-| `/inti` | **Kontrol Cepat** (sakelar level/ekonomi/pertumbuhan) + setelan grup **inti, level, & ekonomi** (prefix, koin harian, log pertumbuhan, …) | 2 |
+| `/inti` | **Kontrol Cepat** + setelan grup **inti, level, & ekonomi** (prefix, kartu rank, lencana, koin harian, …) | 4 |
 | `/keamanan` | setelan **anti-spam, anti-nuke, pengaman raid, verifikasi, & anti-phishing** | 1 |
-| `/tiket` | kotak masuk tiket + pasang panel tiket + setelan **tiket & sapaan harian** (termasuk ucapan ulang tahun) + **tes panel tiket** | 1 |
-| `/konten` | setelan **konten & interaksi** (Auto-Chat AI, starboard, saran, fakta harian, koran pagi, backup, …) + **tes koran pagi** | 1 |
+| `/moderasi` | Antrean laporan/banding, pencarian kasus, temp-ban, statistik staf, snipe | 2 |
+| `/tiket` | Kotak masuk tiket + pasang panel tiket + setelan **tiket & sapaan harian** + arsip + **tes panel tiket** | 1 |
+| `/konten` | **Konten & interaksi** (Auto-Chat AI, starboard, saran, fakta harian, koran pagi, backup, …) + statistik & tes | 2 |
+| `/bangun` | Tema lokal atau rancangan AI; pratinjau, Terapkan eksplisit, riwayat & bongkar item tercatat | 1 |
+| `/giveaway` | Buat/hentikan/undi ulang giveaway, template, syarat & setelan bawaan | 1 |
 | `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan | 2 |
-| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan + **tes pengumuman** | 2 |
+| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan & kotak masuk formulir | 3 |
 | `/panel` | Editor tombol & dropdown + gerbang verifikasi + **tes panel** | 1 |
 | `/ekspor` | Ekspor CSV + riwayat perubahan + **tes ekspor** | 2 |
 
@@ -925,12 +1286,12 @@ Aturan mainnya:
 
 | Bagian | Perilaku |
 | :--- | :--- |
-| **Menu halaman** | 📡 Ringkasan · 👋 Sambutan · ⚙️ Inti · 🛡️ Keamanan · 🎫 Tiket · 🧩 Konten · ✉️ Kirim · ➕ Buat · 🎨 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
+| **Menu halaman** | 📡 Ringkasan · 🤖 AI & Privasi · 👋 Sambutan · ⚙️ Inti · 🛡️ Keamanan · 🚨 Moderasi · 🎫 Tiket · 🧩 Konten · 🏗️ Bangun · 🎁 Giveaway · ✉️ Kirim · ➕ Buat · 🎨 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
 | **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
 | **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
 | **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
 | **Anchor tetap ada** | tiap panel & bagian masih punya `id` (`#p-welcome`, `#p-inti`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/sambutan#p-goodbye` bisa dipakai sebagai bookmark |
-| **Bookmark lama** | `/setelan` → `/inti`, `/perpisahan` & `/boost` → `/sambutan`, `/uji` → `/` (semua `303`); anchor lama (`#p-setelan` → `/inti`, `#p-perpisahan` → `/sambutan`) ikut diarahkan; `/api/*` tidak berubah |
+| **Bookmark lama** | `/setelan` → `/inti`, `/perpisahan` & `/boost` → `/sambutan`, `/uji` → `/ai` (semua `303`); anchor lama (`#p-setelan` → `/inti`, `#p-perpisahan` → `/sambutan`) ikut diarahkan; `/api/*` tidak berubah |
 
 #### Setelah menekan Simpan
 
@@ -1030,15 +1391,15 @@ channel pertama di kunci lama (`channel_id`), jadi config lama di disk tetap ter
 migrasi. Centang **🚫 Kosongkan** untuk mematikan fitur. Penjelasan teknis ada di modul
 `channel_targets.py`.
 
-#### Setelan yang bisa diubah dari web (52 fitur)
+#### Setelan yang bisa diubah dari web (56 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
-| 🧭 **Inti, level, & ekonomi** (8) | Level & XP, pengumuman naik level, channel pengumuman level, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
+| 🧭 **Inti, level, & ekonomi** (10) | Level & XP, pengumuman naik level, channel pengumuman level, **kartu rank PNG**, **warna aksen kartu rank**, ekonomi koin, koin harian, pelacakan pertumbuhan, channel log pertumbuhan, prefix custom |
 | 👋 **Sambutan & pamit** (10 — semuanya di halaman `/sambutan`, per bagian `#p-welcome`/`#p-goodbye`/`#p-boost`) | channel sambutan, sambutan via DM, kartu sambutan (mati/statis/dinamis), persona sambutan, **bahasa sapaan sambutan**, **latin & arti sapaan**, channel pamit, **bahasa kata perpisahan**, **latin & arti perpisahan**, channel ucapan boost |
 | 🛡️ **Keamanan** (10) | mode anti-spam, deteksi huruf kapital, log anti-spam, aksi anti-nuke (+log), pengaman raid (+aksi), channel & role verifikasi, proteksi anti-phishing |
 | 🎫 **Tiket & sapaan harian** (8) | sistem tiket, role staf, kategori, log, maksimal tiket terbuka, ping staf, rating tiket, channel ucapan ulang tahun |
-| 🧩 **Konten & interaksi** (16) | starboard (+ambang bintang), kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup, gaya bahasa AI, keamanan konten AI, jam tenang, zona waktu |
+| 🧩 **Konten & interaksi** (17) | starboard (+ambang & **warna embed**), **papan sorotan varian** (kelola di panel Konten), kotak saran, Auto-Chat AI, koran pagi, galeri AI, rangkum YouTube, pencarian berita, terjemahan otomatis, statistik server, fakta harian, channel backup, gaya bahasa AI, keamanan konten AI, jam tenang, zona waktu |
 
 Pilih nilai di dropdown → **Simpan**. Perubahan langsung tersimpan ke JSON bot (tanpa
 restart), dan setiap perubahan dicatat di `data/dashboard_audit.json` (maksimal 300 entri).
@@ -1197,10 +1558,10 @@ membawa token halaman.
 | Lapis | Jaminan |
 | :--- | :--- |
 | **Token** | semua endpoint baca & tulis wajib token (`?token=`, `X-Dashboard-Token`, `Bearer`, atau field tersembunyi pada form HTML) |
-| **Whitelist aksi** | hanya 48 kunci di `dashboard_admin.FITUR` yang bisa dijalankan — kunci lain ditolak |
-| **Tanpa PUT/DELETE/PATCH** | hanya enam jalur tulis `POST`: `/api/aksi`, `/api/kirim`, `/api/konten`, `/api/unggah`, `/api/tiket`, `/api/panel` |
+| **Whitelist aksi** | 56 setelan di `dashboard_admin.FITUR` punya kunci yang terdaftar; aksi tak dikenal ditolak |
+| **Tanpa PUT/DELETE/PATCH** | ada 14 jalur tulis `POST`, semuanya memeriksa token; data personal tetap memakai command Discord owner-only |
 | **Tanpa hapus data massal** | tombol Hapus hanya membuang satu item (pesan lama di Discord tidak ikut terhapus) |
-| **Jejak audit** | setiap perubahan (termasuk yang gagal) dicatat waktu, kunci, nilai, dan pesannya |
+| **Jejak audit** | perubahan mencatat metadata, waktu, status, dan hasil; prompt bebas serta isi gambar tidak ditulis ke audit |
 | **Bind privat** | default `DASHBOARD_HOST=0.0.0.0`, bisa diubah ke `127.0.0.1` + tunnel SSH |
 
 #### Endpoint
@@ -1211,22 +1572,33 @@ membawa token halaman.
 | `GET /api/status` · `/api/pemakaian` · `/api/level` · `/api/kontrol` · `/api/fitur` | data JSON |
 | `GET /api/setelan` | semua nilai setelan + ringkasan grup + riwayat |
 | `GET /api/tren?hari=7` | tren operasi AI & cache per hari (JSON) |
-| `POST /api/aksi` | ubah setelan: `action=set.<kunci>` (token boleh lewat body form) |
+| `POST /api/aksi` | ubah setelan: `action=set.<kunci>` atau sakelar cepat lama (token boleh lewat body form) |
+| `POST /api/ai` | `action=gambar` (multipart: `prompt`, `channel_id`, `style`, `ratio`, `acuan` opsional) / `action=prompt-server` (`prompt_server`, maks 500 huruf); prompt/gambar tidak masuk audit |
+| `POST /api/bangun` | tema/pratinjau AI, Terapkan eksplisit, batalkan, riwayat, dan bongkar item builder tercatat |
 | `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar`; tambahkan `pratinjau=1` untuk pratinjau tanpa kirim |
 | `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` / `banner.panel:<id>` / `hapusbanner.panel:<id>` |
 | `POST /api/unggah` | `action=unggah.simpan` (multipart, field `banner`) / `hapus.banner:<nama>` |
+| `POST /api/uji` | tes fitur; subjek opsional dan tanpa ID memakai pemilik server |
 | `GET /api/unggahan/<nama>?guild=<id>` | pratinjau banner tersimpan (wajib token) |
 | `GET /api/tiket?guild=<id>` | daftar tiket aktif + statistik (JSON) |
-| `POST /api/tiket` | `action=balas:<id>` (field `teks`, `identitas` opsional) / `action=tutup:<id>` / `action=panel` (field `channel`, `staff_role`, `log_channel`, `max_open`) / `action=matikan` |
+| `POST /api/tiket` | balas/tutup tiket, pasang/matikan panel, kelola topik & catatan staf |
 | `GET /api/panel?guild=<id>` | daftar panel + tombol/dropdown-nya (JSON) |
-| `POST /api/panel` | `action=tambah:<id panel>` (field `jenis`: `peran`/`tautan`/`perintah`/`alur`/`formulir`/`dropdown`) / `action=hapus:<id panel>:<ref item>` / `action=verifikasi` (field `channel`, `role`, `catatan`) / `action=verifikasi:matikan` |
+| `POST /api/panel` | tambah/hapus tombol atau dropdown, pasang/matikan verifikasi |
+| `POST /api/keamanan` | setel honeypot dan uji aturan anti-spam tanpa menindak member |
+| `POST /api/moderasi` | setelan jalur laporan, status antrean, cari kasus, cabut temp-ban |
+| `POST /api/lencana` | atur lencana dan hadiah role server |
+| `GET /api/giveaway` · `POST /api/giveaway` | daftar, buat/hentikan/undi ulang, template & setelan bawaan |
+| `GET /api/transkrip` · `POST /api/transkrip` | cari/unduh arsip HTML atau hapus satu transkrip tiket |
 | `GET /api/ekspor?jenis=<level\|moderasi\|tiket\|pemakaian>` | unduh CSV analitik server (wajib token) |
 | `GET /healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
 #### Yang tetap lebih enak di Discord
 
-Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**, dan
-**ekspor data**. Yang masih butuh percakapan interaktif di Discord:
+Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**,
+**generator gambar**, prompt AI server, dan **ekspor analitik server**. Ekspor/penghapusan
+data personal bukan API operator: `/dataku` dan `/hapusdataku` hanya dilakukan member
+yang menjalankan command di Discord (ephemeral + konfirmasi pemilik). Yang masih butuh
+percakapan interaktif di Discord:
 
 | Kebutuhan | Command |
 | :--- | :--- |
@@ -1235,11 +1607,21 @@ Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**
 | Moderasi, musik, permainan, AI chat | perintah masing-masing (bukan setelan) |
 
 > 💡 **Auto-refresh**: **aktif sendiri** setiap **30 detik** — tidak perlu menyetel apa pun.
-> Di header ada tulisan `🔄 auto-refresh 30s · jeda` untuk menjeda, dan
-> `⏸ auto-refresh mati · hidupkan` untuk menyalakan lagi. Pilihan itu disimpan di cookie
-> (30 hari) **tanpa restart**, jadi `.env` tidak perlu diubah. Untuk mematikan permanen,
-> isi `DASHBOARD_REFRESH_SEC=0`; untuk kembali ke nilai `.env`, klik `?refresh=auto`.
-> Jeda auto-refresh praktis saat mengisi form panjang dari HP — ketikan tidak ter-reset.
+> Mau diubah? Di header ada **satu dropdown** `🔄 Auto-refresh` + tombol **Set**:
+>
+> | Pilihan | Arti |
+> | :--- | :--- |
+> | `⏸ Mati` | tanpa `meta refresh` — aman mengisi form panjang dari HP |
+> | `1 menit` · `10 menit` · `30 menit` · `1 jam` | interval tetap |
+> | `✏️ Isi sendiri…` | memunculkan **kotak angka detik** (`0`–`3600`, mis. `45`) tepat di sebelah dropdown |
+> | `Ikut .env` | kembali mengikuti `DASHBOARD_REFRESH_SEC` |
+>
+> Angka bebas tidak “menghilang”: memilih `✏️ Isi sendiri…` lalu **Set** akan menampilkan
+> kotak angkanya; mengisi `45` di URL (`…&refresh=45`) atau cookie juga otomatis membuka
+> mode itu dengan angka yang sudah terisi. Di luar batas dipotong ke 0–3600 (bukan error),
+> isian bukan angka tidak mengubah apa pun, dan nilai 1–4 detik tetap dirender 5 detik oleh
+> `meta refresh`. Semua pilihan disimpan di cookie **30 hari** untuk **semua halaman**,
+> **tanpa restart** dan tanpa menyentuh `.env`.
 >
 > ⚠️ Token dashboard berlaku **satu bot penuh** (bukan per server). Rahasiakan, dan ganti
 > bila pernah ikut terlihat di tangkapan layar/percakapan.
@@ -1268,7 +1650,7 @@ python main.py
 | **Akses** | `http://IP:PORT/?token=TOKEN` — atau lewat header `X-Dashboard-Token` |
 | **Banyak server** | pakai dropdown **Server** di pojok atas halaman |
 | **Keamanan** | `DASHBOARD_HOST=127.0.0.1` + SSH tunnel, atau Cloudflare Tunnel untuk HTTPS |
-| **Auto-refresh** | bawaan **30 detik**; jeda/hidupkan lewat tautan di header (`?refresh=0` / `?refresh=30`), atau `DASHBOARD_REFRESH_SEC=0` untuk mati permanen |
+| **Auto-refresh** | bawaan **30 detik**; atur sendiri lewat satu dropdown di header (`Mati`/`1m`/`10m`/`30m`/`1 jam`/`✏️ Isi sendiri…`/`Ikut .env`), atau `DASHBOARD_REFRESH_SEC=0` untuk mati permanen |
 
 > 💡 Karena tiap instance punya token sendiri, kamu **tidak perlu** membagikan token ke siapa pun.
 > Pemakai lain menjalankan bot mereka sendiri dan membuat token mereka sendiri lewat perintah di atas.
@@ -1861,3 +2243,69 @@ Fitur-fitur baru (raid, playlist, rating tiket, musim, i18n, prefix, ekspor) men
 Laporan `/perawatan memori` menampilkan: RAM proses, ukuran `data/`, 6 cache terbesar beserta
 batasnya, 5 berkas `data/` terbesar, dan **saran otomatis** (mis. matikan gambar dinamis bila
 RAM sudah >200 MB, atau minta member merapikan playlist bila >2000 lagu).
+
+## X. Pembangun Server Instan (`/bangun`) & Meme Lokal (`/meme`)
+
+### 🏗️ `/bangun` — 15 tema siap pakai + perancang AI
+
+Terinspirasi **Instabot** (server langsung jadi dari tema) dan **purpleGPT** `/genserver`
+(jelaskan server impian, AI menyusun strukturnya). **Tidak ada yang dibuat sebelum Admin
+menekan tombol Terapkan.**
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/bangun tema tema:gaming` | Pratinjau struktur dari salah satu **15 tema** (gaming, komunitas, aesthetic, study, musik, seni, teknologi, crypto, anime, roleplay, bisnis, coding, kesehatan, keluarga, startup) — **0 kuota AI**. |
+| `/bangun rancang deskripsi:…` | **AI (Gemini)** menyusun kategori, channel, & role dari deskripsi bebas → pratinjau. Bila AI gagal/ngawur, otomatis memakai tema terdekat. |
+| `/bangun terapkan` | Terapkan rencana terakhir yang masih menunggu konfirmasi. |
+| `/bangun riwayat` | Apa yang terakhir dibangun (jumlah role/kategori/channel). |
+| `/bangun bongkar` | Hapus **hanya** item yang tercatat dibuat `/bangun` (rollback aman). |
+
+Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan hanya menghapus nama yang tercatat oleh builder. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
+
+Pengaman:
+
+- Rencana divalidasi dulu: maks **8 kategori / 40 channel / 12 role**, nama ≤100 huruf, tipe
+  channel harus salah satu yang didukung Discord.
+- Eksekusi memakai mesin `backup_restore` yang sudah teruji: urutan **role → kategori → channel**,
+  jeda anti rate-limit, **hanya menambah**, dan kegagalan satu item tidak menghentikan sisanya.
+- AI tidak pernah menyentuh API Discord: ia hanya menghasilkan **JSON rencana**; kode bot yang
+  membuat channel setelah konfirmasi.
+- Riwayat tersimpan di `data/server_builder.json` sehingga `/bangun bongkar` tetap bisa dipakai
+  setelah bot restart.
+
+### 🖼️ `/meme` — meme lokal, 0 kuota AI, tanpa aset gambar
+
+### 🎨 `/gambar` — buat & edit gambar dari slash command
+
+Dari purpleGPT (`/draw` & `/edit`). `/gambar buat prompt:… rasio:… gaya:…` membuat gambar baru
+(**5 rasio aspek**, belasan gaya), `/gambar edit prompt:…` mengubah lampiran gambar **atau
+otomatis memakai gambar terakhir** di channel itu (tanpa unggah ulang), dan `/gambar pilihan`
+menampilkan semua rasio & gaya. Kuota AI tetap dihitung seperti chat, dengan jeda 20 detik per
+pengguna agar tidak membanjiri API. Gaya/rasio per panggilan **tidak mengubah setelan channel**.
+
+### 📦 `/dataku` & `/hapusdataku` — privasi mandiri
+
+Dari janji purpleGPT *"export or delete your data anytime"*. `/dataku` mengirim lampiran **JSON**
+berisi level/XP, koin, lencana, kata kunci pantau, ulang tahun, skor game, dan kiriman formulir
+milikmu. `/hapusdataku` menampilkan tombol konfirmasi lalu menghapus permanen data itu dari
+`data/*.json` (hanya milikmu — data member lain tidak tersentuh) dan langsung menyimpannya ke disk.
+
+### ⚙️ `/setelan-ai` — gaya AI per member + kepribadian AI server
+
+Dari purpleGPT (`/settings` & `/server_prompt`), tanpa biaya tambahan: instruksi hanya berupa
+**teks tambahan** pada prompt AI, jadi kuota tetap sama dan model tidak berubah.
+
+- **Per member** (`/setelan-ai atur`): **panjang jawaban** (`singkat` maks 3 kalimat / `normal` /
+  `detail` poin + contoh), **temperature** (bawaan model / konsisten `0,2` / seimbang `0,7` /
+  kreatif `1,0`), **bahasa balasan** (otomatis atau Indonesia, Inggris, Spanyol, Prancis, Jepang,
+  Korea, Portugis, Mandarin), **prompt pribadi** (maks 300 huruf, mis. *"pakai analogi sederhana"*),
+  dan **rasio gambar bawaan** untuk `/gambar`.
+- **Per server** (`/setelan-ai prompt-server`, khusus Admin): satu "kepribadian" yang ditempelkan
+  ke semua balasan AI di server itu (maks 500 huruf; kosongkan untuk menghapus).
+- `/setelan-ai lihat` menampilkan semua setelan yang sedang berlaku, `/setelan-ai reset`
+  mengembalikan ke bawaan. Data disimpan di `data/ai_settings.json`.
+
+### 🖼️ `/meme teks_atas:"…" teks_bawah:"…" template:neon` menggambar meme sendiri dengan **Pillow**
+(tidak ada API gambar & tidak ada berkas aset): 6 gaya — `klasik`, `impact`, `drake` (dua panel
+ditolak/diterima), `neon`, `kertas`, `terminal`. Teks otomatis dibungkus (maks 6 baris × 120 huruf)
+dan hasilnya dikirim sebagai PNG 800×800.

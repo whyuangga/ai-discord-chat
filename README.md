@@ -5,9 +5,10 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **53 command utama** · **367 tes otomatis** · tanpa dependency baru
-> sejak v1.20 · detail tiap fitur ada di [daftar isi](#-daftar-isi) atau situs dokumentasi
-> (`site/`, cara deploy di [`site/README.md`](site/README.md)).
+> **Versi `v1.40.0-beta`** · **67 command utama** (292 subcommand) · **1044 tes otomatis**
+> (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
+> [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
+> [`site/README.md`](site/README.md)).
 
 ---
 
@@ -31,7 +32,9 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **52 setelan**, kirim embed/webhook + pratinjau, unggah banner, grafik tren, **kotak masuk tiket** (balas/tutup/pasang panel), editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, dan **tombol tes fitur** | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **56 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
+
+> `AI*` berarti kuota hanya terpakai bila operator secara eksplisit menjalankan generator gambar atau rancangan AI `/bangun`; membuka dashboard dan menyimpan prompt server tidak memanggil model.
 
 ---
 
@@ -64,25 +67,56 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 
 ---
 
+## 🛰️ Dashboard Web Sekilas
+
+Isi `DASHBOARD_TOKEN` (dan sediakan port) → buka `http://<ip>:<port>/?token=<token>`.
+Tanpa login OAuth, **tanpa JavaScript**, tetap **1 proses**; gambar AI dan rancangan `/bangun` hanya memakai kuota saat diminta.
+Penjelasan lengkap: [J. Dashboard Web](docs/fitur.md#j-dashboard-web-dashboard_token).
+
+| Halaman | Isi |
+| :--- | :--- |
+| `/` Ringkasan | uptime, RAM, latensi, status Gemini, pemakaian AI, tren 7 hari, papan level |
+| `/ai` AI & Privasi | Buat gambar ke channel pilihan, atur prompt server, tes koneksi AI; `/dataku` & `/hapusdataku` tetap khusus pemilik data |
+| `/sambutan` | **sambutan + pamit + boost** dalam satu halaman (setelan, gambar kartu, tombol tes per bagian) |
+| `/inti` | Kontrol Cepat + setelan level/XP, ekonomi koin, pelacakan pertumbuhan, prefix |
+| `/keamanan` · `/moderasi` | anti-spam, anti-nuke, pengaman raid, verifikasi, laporan, banding, kasus & temp-ban |
+| `/tiket` · `/giveaway` | kotak masuk tiket (balas/tutup), panel tiket, setelan tiket & ucapan ulang tahun; kendali giveaway |
+| `/konten` | Auto-Chat AI, starboard, kotak saran, fakta harian, koran pagi, backup |
+| `/bangun` | pilih tema / rancang dengan AI, tinjau, Terapkan, riwayat & bongkar hanya item tercatat |
+| `/kirim` · `/buat` · `/panel` · `/ekspor` | kirim embed & banner, buat konten, editor tombol/dropdown, ekspor CSV & riwayat |
+
+Tiga hal yang sering ditanya:
+
+| Pertanyaan | Jawaban |
+| :--- | :--- |
+| **Auto-refresh** | menyala sendiri tiap **30 detik**; ubah lewat dropdown di header (`Mati` · `1 menit` · `10 menit` · `30 menit` · `1 jam` · `✏️ Isi sendiri…` · `Ikut .env`), tersimpan di cookie 30 hari tanpa restart |
+| **Lebih dari satu channel** | fitur ber-channel (sambutan, pamit, boost, log, ultah, backup, AI per channel, …) bisa **banyak channel**; **koran pagi** & **fakta harian** tetap satu channel |
+| **Tes fitur tanpa menunggu event** | tiap halaman punya tombol **Kirim tes**; subjeknya **pemilik server** kalau kolomnya dikosongkan |
+
+---
+
 ## 📚 Daftar Isi
 
 1. [Peta Fitur (ringkasan semua area)](#-peta-fitur)
 2. [Kenapa ringan (angka RAM terukur)](#-kenapa-ringan-angka-terukur-bukan-perkiraan)
 3. [Mulai cepat (3 langkah)](#-mulai-cepat)
-4. [Penjelasan Lengkap Semua Fitur A–W](docs/fitur.md) — *dokumen terpisah*
-5. [Daftar Lengkap Command & Tombol](docs/command.md) — *dokumen terpisah*
-6. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
-7. [Cara Mematikan (**Disable**) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
-8. [Penjelasan Variabel `.env`](#-penjelasan-variabel-env)
-9. [Persiapan di Discord Developer Portal](#-persiapan-di-discord-developer-portal)
-10. [Checklist Uji Coba di Server Orang Lain](#-checklist-uji-coba-di-server-orang-lain)
-11. [Panduan Deploy di Wispbyte (Step-by-Step)](#-panduan-deploy-di-wispbyte-step-by-step)
-12. [Menjalankan Secara Lokal / VPS](#-menjalankan-secara-lokal--vps)
-13. [Struktur File Proyek (Modular `cogs/`)](#-struktur-file-proyek-modular-cogs)
-14. [FAQ & Solusi Masalah Umum](#-faq--solusi-masalah-umum)
-15. [Lisensi](#-lisensi)
+4. [Dashboard web sekilas (14 halaman, auto-refresh, multi-channel)](#-dashboard-web-sekilas)
+5. [Penjelasan Lengkap Semua Fitur A–W](docs/fitur.md) — *dokumen terpisah*
+6. [Daftar Lengkap Command & Tombol](docs/command.md) — *dokumen terpisah*
+7. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
+8. [Cara Mematikan (**Disable**) Fitur Kapan Saja](#-cara-mematikan-disable-fitur-kapan-saja)
+9. [Penjelasan Variabel `.env`](#-penjelasan-variabel-env)
+10. [Persiapan di Discord Developer Portal](#-persiapan-di-discord-developer-portal)
+11. [Checklist Uji Coba di Server Orang Lain](#-checklist-uji-coba-di-server-orang-lain)
+12. [Panduan Deploy di Wispbyte (Step-by-Step)](#-panduan-deploy-di-wispbyte-step-by-step)
+13. [Menjalankan Secara Lokal / VPS](#-menjalankan-secara-lokal--vps)
+14. [Struktur File Proyek (Modular `cogs/`)](#-struktur-file-proyek-modular-cogs)
+15. [FAQ & Solusi Masalah Umum](#-faq--solusi-masalah-umum)
+16. [Lisensi](#-lisensi)
 
 > 📌 **Catatan terpisah:** [rencana dashboard web, BYOK, & “isi sendiri API key” yang masih diparkir](docs/catatan-dashboard-dan-kunci-api.md).
+>
+> 🔍 **Rencana fitur:** [bedah 6 bot pembanding (Arclo, Axis, wisp, AdmiBot, ByteMate, breed) & roadmap paket A–D](docs/rencana-fitur-bot-lain.md).
 >
 > 🛰️ **Dashboard untuk instance sendiri:** jalankan `python tools/dashboard_token.py --tulis`
 > (membuat token & mengisi `.env`), lalu `python tools/dashboard_token.py --periksa` untuk cek
@@ -328,12 +362,12 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `DASHBOARD_TOKEN` | Opsional | Kosong | Kata sandi akses dashboard web. Kosong = dashboard nonaktif. |
 | `DASHBOARD_PORT` | Opsional | `0` | Port dashboard (`0` = ambil otomatis dari `SERVER_PORT`/`PORT` panel). |
 | `DASHBOARD_HOST` | Opsional | `0.0.0.0` | Alamat bind server dashboard (jangan diganti kecuali perlu). |
-| `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). Isi `0` untuk mematikan permanen — atau klik **jeda/hidupkan** di header dashboard (tersimpan di cookie, tanpa restart). |
+| `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). Isi `0` untuk mematikan permanen — atau atur dari header dashboard: **dropdown 🔄 Auto-refresh** (`Mati` / `1 menit` / `10 menit` / `30 menit` / `1 jam` / `✏️ Isi sendiri…` / `Ikut .env`). Pilihan `Isi sendiri…` memunculkan kotak angka detik bebas. Tersimpan di cookie 30 hari, tanpa restart. |
 | `DASHBOARD_UPLOAD_MB` | Opsional | `8` | Batas ukuran unggahan banner/gambar dari dashboard (MB, 1–25). Disimpan di `data/uploads/`. |
-| `TRANSLATE_RATE_LIMIT_SEC` | — | `3` | (internal, `translate_tools.py`) Jeda minimal antar-terjemahan per channel. |
 | `TICKET_MAX_OPEN_PER_USER` | Opsional | `2` | Batas tiket aktif per member. |
 | `TICKET_MAX_TRANSCRIPT_LINES` | Opsional | `400` | Jumlah baris pesan pada transkrip tiket. |
 | `TICKET_AUTO_CLOSE_HOURS` | Opsional | `0` | Tutup otomatis tiket menggantung setelah N jam (0 = nonaktif). |
+| `TICKET_ARSIP_MAX` | Opsional | `200` | Jumlah transkrip tiket (HTML + teks) yang disimpan per server & bisa dicari dari dashboard. |
 | `AI_DAILY_CAP_PER_USER` | Opsional | `0` | Batas operasi AI per member per hari (`0` = tanpa batas). |
 | `AI_DAILY_CAP_PER_GUILD` | Opsional | `0` | Batas operasi AI **per server** per hari (`0` = tanpa batas) + peringatan 80% ke Admin. |
 | `AI_REPLY_CACHE_TTL_SEC` | Opsional | `900` | Umur cache jawaban AI untuk pertanyaan identik, per channel (`0` = cache mati). |
@@ -501,85 +535,176 @@ python main.py
 
 ```text
 ai-discord-chat/
-├── main.py             # Entrypoint ringan (Wispbyte Startup File), sinkronisasi tree, & background loop
-├── cogs/               # Modul fitur terpisah (siap ekspansi All-in-One)
-│   ├── session_cog.py  # Grup /sesi (panel, model, reset, tutup) & perute ruang privat ai-/draw-
-│   ├── tools_cog.py    # Grup /ringkas (chat, channel, link), /cari, /bantuan, /status, & 3 Context Menus
-│   ├── agent_cog.py    # Grup /agent (panel, status, chat, gallery, persona, welcome, digest, info, dll.)
-│   ├── games_cog.py    # Grup /game (mulai 6 mode, papan_skor, stop, reset_skor)
-│   ├── server_cog.py   # Grup /serverstats, /autorole, /fakta, & /keamanan (Anti-Phishing, Anti-Spam)
-│   ├── community_cog.py# Grup /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
-│   ├── music_cog.py    # Grup /musik (putar, cari, antrean berhalaman, seek, sebelumnya, filter, autoplay, DJ, panel)
-│   ├── engagement_cog.py # Grup /giveaway, /ultah, /jawab-otomatis, /pengumuman (tanpa kuota AI)
-│   ├── growth_cog.py   # Grup /level (XP, papan peringkat) & /tiket (tiket thread privat)
-│   ├── insights_cog.py # Grup /pemakaian (statistik kuota AI) & /faq (jawaban lokal 0 kuota)
-│   ├── panel_cog.py    # Grup /panel (dashboard Control Center) & /tampilan (editor tema V2)
-│   ├── audit_cog.py    # Grup /log (audit log server)
-│   ├── economy_cog.py  # Grup /ekonomi (saldo, harian, toko, transfer, atur)
-│   ├── analytics_cog.py# Grup /tumbuh (ringkasan pertumbuhan, Top Inviter, atur)
-│   ├── menu_cog.py     # Grup /menu (buat panel, tombol role/link/command, dropdown, kelola)
-│   ├── antinuke_cog.py # Grup /nuke (status, atur, whitelist, uji, pulihkan, matikan)
-│   ├── events_cog.py   # Event listener terpusat (on_ready, on_message, audit & growth hooks, cleanup)
-│   └── helpers.py      # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
-├── welcome_media.py    # Penyimpanan banner (data/media/) + perender kartu sambutan dengan Pillow
-├── social_notify.py    # Notifikasi YouTube/Twitch/TikTok-RSS (parser feed, template, data/social.json)
-├── moderation.py       # Kasus moderasi, peringatan bertingkat, auto-punish (data/moderation.json)
-├── temp_voice.py       # Voice room sementara join-to-create (data/temp_voice.json)
-├── suggestions.py      # Kotak saran + voting & status (data/suggestions.json)
-├── server_tools.py     # AFK, auto-thread, lockdown, & snapshot backup struktur (data/afk.json)
-├── backup_restore.py   # Pemulihan struktur dari JSON: validasi, dry-run (plan), & eksekusi aman
-├── ui_theme.py         # Tema tampilan per server (aksen, emoji, kepadatan, footer) → data/ui_theme.json
-├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol, konfirmasi)
-├── community_agent.py  # Mesin AI Agent Komunitas, Forum Pintar, Persona Sambutan/Perpisahan, Digest, FAQ, & pembersih RAM
-├── server_features.py  # Server Stats, Auto Role, Fakta Unik Dunia, & mesin Anti-Phishing lokal
-├── community_tools.py  # Reaction Role, Reminder, Starboard, Sticky, Verifikasi, Backup, & Log Error (0 kuota AI)
-├── music.py            # Klien Lavalink (wavelink), panel pemutar Rythm (progress bar, filter, autoplay), pengaturan per server
-├── engagement.py       # Giveaway, ulang tahun, auto-responder, & pengumuman terjadwal (0 kuota AI)
-├── antispam.py         # Penjaga anti-spam & anti-raid ringan (mode bawaan: lapor saja)
-├── levels.py           # Sistem level & XP + role hadiah (Rumus 5L²+50L+100)
-├── tickets.py          # Tiket dukungan berbasis private thread + transkrip .txt
-├── insights.py         # Pencatat pemakaian AI, cache rekap berperiode, & mesin FAQ lokal (0 kuota)
-├── audit_log.py        # Audit log server: hapus/edit pesan, member, role, channel, voice (data/audit.json)
-├── economy.py          # Ekonomi koin: pesan, voice, hadiah harian ber-streak, toko role (data/economy.json)
-├── growth_tracker.py   # Invite tracker + statistik pertumbuhan & retensi member (data/growth.json)
-├── menu_builder.py     # Menu Builder: panel tombol/dropdown role, link, & command (data/menus.json)
-├── antinuke.py         # Anti-Nuke: deteksi audit log, tindakan bertingkat, & pemulihan (data/antinuke.json)
-├── raid_guard.py       # Raid Guard: mode darurat otomatis saat lonjakan join (data/raid.json)
-├── music_playlists.py  # Playlist musik per member (data/music_playlists.json)
-├── i18n.py             # Terjemahan teks kerangka ID/EN per server (data/i18n.json)
-├── prefixes.py         # Prefix command teks per server (data/prefixes.json)
-├── analytics_export.py # Ekspor CSV (level/moderasi/tiket/pemakaian) & kirim webhook (data/analytics.json)
-├── memory_audit.py     # Audit RAM, ukuran data/, & jumlah entri cache (/perawatan memori)
-├── games.py            # Mesin 6 Mode Mini-Game Tongkrongan AI & Papan Skor server
-├── ai_handler.py       # Klien async Gemini API (Chat, Vision, PDF, Voice Note, YouTube/Web, & Live Search)
-├── views/              # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)
-│   ├── __init__.py     # Re-export semua view: `from views import X` tetap bekerja
-│   ├── session.py      # Panel & tombol ruang AI privat (/sesi): panel utama, persona, gambar, model
-│   ├── agent.py        # /agent panel & /agent status (kartu V2, toggle berwarna), pengelola FAQ
-│   ├── music.py        # Panel pemutar ala Rythm, antrean berhalaman, panel musik V2
-│   ├── tickets.py      # Panel tiket persisten + tombol klaim/tutup di thread
-│   ├── community.py    # Gerbang verifikasi & tombol "Tandai Selesai" forum
-│   ├── engagement.py   # Tombol ikut/batalkan giveaway
-│   └── help.py         # Menu /bantuan klasik & panel panduan V2 (11 kategori)
-├── storage.py          # Penyimpanan sesi privat JSON atomik & auto-recovery dari Discord Thread
-├── utils.py            # Pemotong kode Markdown, Live Web/News Search gratis, SSRF guard, & jam lokal
-├── config.py           # Konfigurasi variabel .env, daftar 5 kepribadian Gemini, gaya & rasio gambar
-├── requirements.txt    # Daftar dependensi Python super ringan
-├── .env.example        # Template contoh pengisian variabel .env
-├── .gitignore          # Mencegah file rahasia (.env) & folder data sesi ikut ter-commit ke Git
-├── docs/               # Dokumentasi panjang (dipisah dari README)
-│   ├── fitur.md        # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md      # Referensi 53 command utama, subcommand, & tombol panel
-│   └── catatan-dashboard-dan-kunci-api.md  # Rencana dashboard/BYOK yang masih diparkir
-├── site/               # Situs dokumentasi statis (Hugo + tema Lotus Docs, deploy Vercel)
-│   ├── hugo.toml       # Konfigurasi situs: params.docs, pencarian, warna tema
-│   ├── vercel.json     # Setelan build Vercel (Hugo 0.169.0, output public)
-│   ├── data/landing.yaml  # Halaman depan: hero + 6 kartu fitur
-│   └── content/        # HASIL GENERATE dari docs/ — jangan diedit manual
+├── main.py                # Entrypoint ringan (Wispbyte Startup File), sinkronisasi tree, & background loop
+├── cogs/                  # Modul fitur (satu berkas = satu grup command)
+│   ├── mulai_cog.py       # /mulai — wizard pemasangan cepat untuk admin baru
+│   ├── session_cog.py     # /sesi (panel, model, reset, tutup) & perute ruang privat ai-/draw-
+│   ├── tools_cog.py       # /ringkas (chat, channel, link), /cari, /bantuan, /status, & 3 Context Menu
+│   ├── agent_cog.py       # /agent (panel, status, chat, gallery, persona, welcome, digest, info, dll.)
+│   ├── social_cog.py      # /sosial — notifikasi YouTube, Twitch, & TikTok/RSS per channel
+│   ├── games_cog.py       # /game (mulai 6 mode, papan_skor, stop, reset_skor)
+│   ├── server_cog.py      # /serverstats, /autorole, /fakta, & /keamanan (anti-phishing, anti-spam)
+│   ├── community_cog.py   # /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
+│   ├── suggestions_cog.py # /saran — kotak saran + voting & status
+│   ├── tempvoice_cog.py   # /tempvoice — voice room sementara (join-to-create) & voice linking (tautkan)
+│   ├── music_cog.py       # /musik (putar, cari, antrean berhalaman, seek, filter, autoplay, DJ, panel)
+│   ├── engagement_cog.py  # /giveaway, /ultah, /jawab-otomatis, /pengumuman
+│   ├── growth_cog.py      # /level (XP, papan peringkat) & /tiket (tiket thread privat)
+│   ├── insights_cog.py    # /pemakaian (statistik kuota AI) & /faq (jawaban lokal 0 kuota)
+│   ├── panel_cog.py       # /panel (dashboard Control Center) & /tampilan (editor tema V2)
+│   ├── audit_cog.py       # /log — audit log server
+│   ├── economy_cog.py     # /ekonomi (saldo, harian, toko, transfer, atur)
+│   ├── analytics_cog.py   # /tumbuh (ringkasan pertumbuhan, Top Inviter, atur)
+│   ├── export_cog.py      # /analitik — ekspor CSV & kirim ke webhook
+│   ├── menu_cog.py        # /menu (buat panel, tombol role/link/command, dropdown, kelola)
+│   ├── antinuke_cog.py    # /nuke (status, atur, whitelist, uji, pulihkan, matikan)
+│   ├── raid_cog.py        # /raid — raid guard mode darurat
+│   ├── moderation_cog.py  # /mod — warn, timeout, kick, ban, purge, tempban, softban, note, antrean
+│   ├── lencana_cog.py     # /lencana — lencana bertingkat + pemberian otomatis saat naik
+│   ├── tags_cog.py        # /tag — tag jawaban siap pakai (lihat/daftar/cari/buat/ubah/hapus)
+│   ├── highlights_cog.py  # /pantau — kata kunci → DM (0 kuota AI)
+│   ├── info_channel_cog.py # /kanal-info — channel aturan & info yang diperbarui otomatis
+│   ├── confessions_cog.py # /curhat — curhat anonim ke satu channel (0 kuota AI)
+│   ├── snipe_cog.py       # /snipe — pesan terakhir yang dihapus/diubah (staf)
+│   ├── translate_cog.py   # /terjemah — terjemahan ter-cache
+│   ├── language_cog.py    # /bahasa — antarmuka ID/EN per server
+│   ├── prefix_cog.py      # /prefix — prefix teks per server
+│   ├── utility_cog.py     # Utilitas pengelola lain yang tidak perlu grup sendiri
+│   ├── events_cog.py      # Event listener terpusat (on_ready, on_message, audit & growth hooks, cleanup)
+│   └── helpers.py         # Utilitas bersama antar-modul (proteksi cooldown, izin Admin, pembaca RAM)
+│
+├── views/                 # Paket komponen UI (dipecah agar tiap berkas tetap ringkas)
+│   ├── __init__.py        # Re-export semua view: `from views import X` tetap bekerja
+│   ├── session.py         # Panel & tombol ruang AI privat (/sesi)
+│   ├── agent.py           # /agent panel & /agent status (kartu V2, toggle berwarna), pengelola FAQ
+│   ├── music.py           # Panel pemutar ala Rythm, antrean berhalaman, panel musik V2
+│   ├── tickets.py         # Panel tiket persisten + tombol klaim/tutup di thread
+│   ├── community.py       # Gerbang verifikasi & tombol "Tandai Selesai" forum
+│   ├── engagement.py      # Tombol ikut/batalkan giveaway
+│   └── help.py            # Menu /bantuan klasik & panel panduan V2 (11 kategori)
+│
+├── ← DASHBOARD WEB (satu proses, tanpa JavaScript; AI hanya saat diminta) →
+│   ├── web_dashboard.py    # Server aiohttp: 14 halaman, endpoint /api/*, redirect bookmark lama
+│   ├── dashboard_admin.py  # Registry 56 setelan + grup, audit perubahan, & penulisan config
+│   ├── dashboard_bangun.py # Pratinjau, Terapkan, riwayat & bongkar aman /bangun
+│   ├── dashboard_ai.py     # Generator gambar, prompt server & petunjuk privasi owner-only
+│   ├── dashboard_curhat.py # Panel curhat anonim di halaman Konten & interaksi
+│   ├── dashboard_ui.py     # Blok HTML (setelan, kartu, tes, tiket, ekspor, unggahan, pemilih server)
+│   ├── dashboard_tema.py   # Semua warna & font (LATAR, TEKS, FONT_STACK, CSS_HALAMAN/PRATINJAU/HASIL)
+│   ├── dashboard_uji.py    # 24 tombol tes fitur + pemilihan subjek (pemilik server default)
+│   ├── dashboard_unggah.py # Unggah banner & kartu sambutan (magic bytes, batas 8 MB)
+│   ├── dashboard_pesan.py  # Konten tersimpan: pengumuman, tautan, panel, formulir, webhook
+│   ├── dashboard_tiket.py  # Kotak masuk tiket: balas, tutup, SLA, pasang panel
+│   ├── dashboard_giveaway.py # Kendali giveaway: buat, hentikan, reroll, template, setelan bawaan
+│   ├── dashboard_keamanan.py # Penguji aturan anti-spam + statistik per aturan (halaman Keamanan)
+│   ├── honeypot.py         # Channel jebakan untuk self-bot & skrip raid (lapor/hapus/timeout/kick/ban)
+│   ├── reports.py          # Laporan member (`/lapor`) & antrean banding (`/banding`) + status penanganan
+│   ├── tags.py             # Tag jawaban siap pakai (`/tag`) — 0 kuota AI
+│   ├── highlights.py       # Highlight kata kunci → DM (`/pantau`), tanpa simpan isi pesan
+│   ├── dashboard_highlights.py # Panel highlight di halaman Konten & interaksi
+│   ├── info_channel.py     # Channel aturan & info yang menyegarkan dirinya sendiri
+│   ├── dashboard_info.py   # Panel channel info di halaman Konten & interaksi
+│   ├── dashboard_form_inbox.py # Kotak masuk formulir di halaman Buat konten
+│   ├── dashboard_stats.py  # Channel statistik: angka + ikon per channel
+│   ├── voice_link.py       # Voice linking — role + channel teks privat selama di voice
+│   ├── dashboard_voice.py  # Panel voice linking di halaman Konten & interaksi
+│   ├── confessions.py      # Curhat anonim (`/curhat`) — tanpa menyimpan isi curhat
+│   ├── dashboard_curhat.py # Panel curhat di halaman Konten & interaksi
+│   ├── dashboard_sosial.py # Panel notifikasi sosial (YouTube/Twitch/TikTok/Reddit/RSS)
+│   ├── snipe.py            # Snipe & EditSnipe — memori saja, maks 5 pesan/channel
+│   ├── dashboard_snipe.py  # Panel snipe di halaman Moderasi
+│   ├── dashboard_tags.py   # Panel tag di halaman Konten & interaksi
+│   ├── achievements.py     # Lencana bertingkat (pesan/voice/level/undian) + role hadiah
+│   ├── dashboard_lencana.py # Panel lencana di halaman Inti & level
+│   ├── dashboard_moderasi.py # Panel Moderasi: antrean, setelan laporan, pencarian kasus, statistik staf
+│   ├── ticket_archive.py   # Arsip transkrip tiket HTML + teks, bisa dicari dari dashboard
+│   ├── rank_card.py        # Kartu rank PNG (Pillow) — perender /level kartu & pratinjau dashboard
+│   └── dashboard_panel.py  # Editor tombol/dropdown panel & gerbang verifikasi
+│
+├── ← INTI AI →
+│   ├── ai_handler.py       # Klien async Gemini API (chat, vision, PDF, voice note, YouTube/web, live search)
+│   ├── ai_guard.py         # Penjaga kuota, cache jawaban, & cap harian
+│   ├── community_agent.py  # Mesin AI Agent Komunitas, forum pintar, persona sambutan/pamit, digest, FAQ
+│   ├── insights.py         # Pencatat pemakaian AI, cache rekap berperiode, & mesin FAQ lokal (0 kuota)
+│   └── config.py           # Variabel .env, 5 kepribadian Gemini, gaya & rasio gambar
+│
+├── ← FITUR KOMUNITAS (0 kuota AI) →
+│   ├── levels.py           # Level & XP + role hadiah (rumus 5L²+50L+100)
+│   ├── economy.py          # Koin, hadiah harian ber-streak, toko role, transfer
+│   ├── growth_tracker.py   # Invite tracker + statistik pertumbuhan & retensi member
+│   ├── tickets.py          # Tiket dukungan berbasis private thread + transkrip .txt
+│   ├── engagement.py       # Giveaway, ulang tahun, auto-responder, & pengumuman terjadwal
+│   ├── menu_builder.py     # Menu builder: panel tombol/dropdown role, link, & command
+│   ├── flows.py            # Alur otomatis (multi-langkah) & tombol pemicunya
+│   ├── flow_triggers.py    # Pemicu alur dari event (join, reaksi, tombol) 
+│   ├── modal_forms.py      # Formulir modal Discord (input teks/pilihan)
+│   ├── link_embed.py       # Tautan embed /l/<kode> dengan pengalihan & pelacakan klik
+│   ├── webhook_identity.py # Kirim pesan memakai identitas webhook (nama & avatar sendiri)
+│   ├── message_template.py # Template teks bertoken ({member.*}, {server.*}, {now…})
+│   ├── presets.py          # Preset tema/pesan siap pakai
+│   ├── suggestions.py      # Kotak saran + voting & status
+│   ├── server_tools.py     # AFK, auto-thread, lockdown, & snapshot backup struktur
+│   ├── server_features.py  # Server stats, auto role, fakta unik dunia, & anti-phishing lokal
+│   ├── community_tools.py  # Reaction role, reminder, starboard, sticky, verifikasi, backup, log error
+│   ├── music.py            # Klien Lavalink (wavelink), panel pemutar, pengaturan per server
+│   ├── music_playlists.py  # Playlist musik per member
+│   ├── temp_voice.py       # Voice room sementara (join-to-create)
+│   ├── social_notify.py    # Notifikasi YouTube/Twitch/TikTok-RSS (parser feed, template)
+│   ├── voice_activity.py   # Pencatat aktivitas voice untuk XP & statistik
+│   ├── welcome_media.py    # Penyimpanan banner + perender kartu sambutan (Pillow)
+│   ├── translate_tools.py  # Mesin terjemahan + rate limit per channel
+│   ├── analytics_export.py # Ekspor CSV (level/moderasi/tiket/pemakaian) & kirim webhook
+│   └── memory_audit.py     # Audit RAM, ukuran data/, & jumlah entri cache
+│
+├── ← KEAMANAN →
+│   ├── antispam.py         # Penjaga anti-spam & anti-raid ringan (mode bawaan: lapor saja)
+│   ├── antinuke.py         # Anti-nuke: deteksi audit log, tindakan bertingkat, pemulihan
+│   ├── raid_guard.py       # Raid guard: mode darurat otomatis saat lonjakan join
+│   ├── moderation.py       # Kasus moderasi, peringatan bertingkat, auto-punish
+│   ├── audit_log.py        # Audit log server: pesan, member, role, channel, voice
+│   └── command_policy.py   # Penyembunyian command pengelola (139 entri) & audit permukaan command
+│
+├── ← INFRASTRUKTUR →
+│   ├── storage.py          # Penyimpanan sesi privat JSON atomik & auto-recovery dari thread Discord
+│   ├── channel_targets.py  # Satu fitur → banyak channel (parse, setel, sebarkan, label)
+│   ├── ui_theme.py         # Tema tampilan per server (aksen, emoji, kepadatan, footer)
+│   ├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol)
+│   ├── i18n.py             # Teks kerangka ID/EN per server
+│   ├── prefixes.py         # Prefix command teks per server
+│   ├── server_builder.py   # /bangun: 15 tema server instan + perancang AI
+│   ├── cogs/bangun_cog.py  # Command /bangun (tema/rancang/terapkan/riwayat/bongkar)
+│   ├── cogs/meme_cog.py    # Command /meme (6 gaya, Pillow, 0 kuota AI)
+│   ├── cogs/gambar_cog.py  # Command /gambar (buat/edit/pilihan, 5 rasio & belasan gaya)
+│   ├── cogs/dataku_cog.py  # Command /dataku & /hapusdataku (privasi mandiri)
+│   ├── cogs/setelan_ai_cog.py # Command /setelan-ai (gaya AI per member & server)
+│   ├── user_data.py        # Ekspor & hapus data pribadi lintas 7 modul
+│   ├── ai_user_settings.py # Setelan AI per member + kepribadian AI per server
+│   ├── meme_maker.py       # /meme: 6 gaya meme lokal lewat Pillow (0 kuota AI)
+├── backup_restore.py   # Pemulihan struktur dari JSON: validasi, dry-run, eksekusi aman
+│   ├── games.py            # Mesin 6 mode mini-game tongkrongan AI & papan skor server
+│   └── utils.py            # Pemotong kode Markdown, live web/news search, SSRF guard, jam lokal
+│
+├── requirements.txt        # Dependensi Python (discord.py, aiohttp, wavelink, Pillow, PyNaCl, devey)
+├── pyproject.toml          # Metadata paket, versi, & konfigurasi pytest
+├── .env.example            # Template variabel .env (75 kunci, semua berkomentar)
+├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
+├── docs/
+│   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
+│   ├── command.md          # Referensi 61 command utama, 280 subcommand, & tombol panel
+│   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
+│   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
+├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
+│   ├── hugo.toml           # Konfigurasi situs: params.docs, pencarian, warna tema
+│   ├── vercel.json         # Setelan build Vercel (Hugo 0.169.0, output public)
+│   ├── data/landing.yaml   # Halaman depan: hero + 6 kartu fitur
+│   └── content/            # HASIL GENERATE dari docs/ — jangan diedit manual
 ├── tools/
-│   └── sync_docs.py    # docs/*.md → site/content/ (juga dipakai tes sinkronisasi)
-├── LICENSE             # Lisensi Open-Source MIT
-└── tests/              # Pengujian otomatis (pytest — 149 test) untuk memastikan seluruh modul bebas bug
+│   ├── sync_docs.py        # docs/*.md → site/content/ (juga dipakai tes sinkronisasi)
+│   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
+│   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
+├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
+├── tests/                  # 59 berkas pytest → 1044 tes (1039 lulus, 5 dilewati)
+└── LICENSE                 # Lisensi MIT
 ```
 
 ---

@@ -127,6 +127,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     music.music_guilds.clear()
     music.announce_channels.clear()
     engagement.giveaways.clear()
+    engagement.giveaway_templates.clear()
+    engagement.giveaway_defaults.clear()
     engagement.birthday_guilds.clear()
     engagement.birthdays.clear()
     engagement.auto_reply_channels.clear()
@@ -168,6 +170,8 @@ def clean_storage_state(tmp_path, monkeypatch):
     server_features.security_guilds.clear()
     community_agent.channel_histories.clear()
     engagement.giveaways.clear()
+    engagement.giveaway_templates.clear()
+    engagement.giveaway_defaults.clear()
     engagement.birthday_guilds.clear()
     engagement.birthdays.clear()
     engagement.auto_reply_channels.clear()
@@ -2243,6 +2247,14 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "prefix",
         # v1.38.0-beta: ekspor analitik CSV & webhook
         "analitik",
+        # v1.40.0-beta (Paket B): jalur resmi member → staf
+        "lapor", "banding",
+        # v1.40.0-beta (Paket C): tag jawaban siap pakai, lencana bertingkat, highlight
+        "tag", "lencana", "pantau", "snipe", "curhat",
+        # v1.40.0-beta (Paket D): kanal info yang menyegarkan dirinya sendiri
+        "kanal-info",
+        # v1.40.0-beta (Paket E): bangun server instan + meme lokal (0 kuota AI)
+        "bangun", "meme", "gambar", "dataku", "hapusdataku", "setelan-ai",
     }
     assert len(chat_cmds) <= 100
 
@@ -3179,7 +3191,7 @@ def test_community_command_and_view_limits():
     expected_subs = {
         "panel-role": {"pasang", "tambah", "hapus", "daftar"},
         "ingatkan": {"pasang", "daftar", "batal"},
-        "starboard": {"atur", "status"},
+        "starboard": {"atur", "status", "varian"},
         "verifikasi": {"pasang", "status", "matikan"},
         "sticky": {"pasang", "lepas", "status"},
         "info": {"user", "server"},
@@ -3706,9 +3718,9 @@ async def test_engagement_giveaway_flow_and_persistence():
     )
     assert cfg["prize"] == "Nitro 1 Bulan" and cfg["winner_count"] == 2
 
-    # Peserta tanpa role syarat ditolak
+    # Peserta tanpa role syarat ditolak (alasan spesifik: syarat_role)
     status, _ = engagement.join_giveaway(555, 501, role_ids={7})
-    assert status == "syarat"
+    assert status == "syarat_role"
     # Peserta dengan role syarat diterima
     assert engagement.join_giveaway(555, 501, role_ids={42})[0] == "ok"
     assert engagement.join_giveaway(555, 502, role_ids={42, 9})[0] == "ok"
@@ -3778,6 +3790,202 @@ async def test_engagement_giveaway_check_closes_due_and_updates_message():
     assert channel.edited, "pesan giveaway harus diedit saat selesai"
     # Putaran kedua tidak lagi memproses giveaway yang sama
     assert await engagement.run_giveaway_check(bot) == 0
+
+
+def test_engagement_giveaway_berlapis_syarat_bobot_dan_riwayat():
+    """Giveaway berlapis: syarat level/umur/role terpisah, peluang bonus, & riwayat undian."""
+    cfg = engagement.create_giveaway(
+        guild_id=10,
+        channel_id=700,
+        message_id=560,
+        prize="Nitro 1 Bulan",
+        host_id=1,
+        seconds=3600,
+        requirements={"roles": [42, 43], "level": 5, "account_age_days": 30},
+        bonus_roles={99: 2},
+    )
+    assert cfg["requirements"] == {"roles": [42, 43], "level": 5, "account_age_days": 30}
+    assert cfg["bonus_roles"] == {"99": 2}
+    assert cfg["role_id"] == 42, "role_id lama tetap terisi role syarat pertama"
+    assert cfg["weights"] == {} and cfg["history"] == []
+
+    # Tiap syarat punya kode penolakan sendiri supaya member tahu apa yang kurang
+    assert engagement.join_giveaway(560, 501, {42}, level=9, account_age_days=40)[0] == "syarat_role"
+    assert engagement.join_giveaway(560, 501, {42, 43}, level=4, account_age_days=40)[0] == "syarat_level"
+    assert engagement.join_giveaway(560, 501, {42, 43}, level=9, account_age_days=3)[0] == "syarat_umur"
+    # Tanpa data level/umur, syarat tidak dianggap lolos
+    assert engagement.join_giveaway(560, 501, {42, 43})[0] == "syarat_level"
+
+    status, cfg = engagement.join_giveaway(560, 501, {42, 43, 99}, level=9, account_age_days=40)
+    assert status == "ok"
+    assert cfg["weights"] == {"501": 3}
+    assert cfg["entry_log"][-1] == {"user_id": 501, "at": cfg["entry_log"][-1]["at"], "weight": 3, "bonus": [99]}
+    assert engagement.join_giveaway(560, 502, {42, 43}, level=9, account_age_days=40)[0] == "ok"
+    assert engagement.entry_weight(cfg, {42, 43, 99})[0] == 3
+    assert engagement.entry_weight(cfg, {42, 43})[0] == 1
+    # Bobot dibatasi supaya tidak bisa dicurangi dengan menumpuk role
+    assert engagement.entry_weight({**cfg, "bonus_roles": {"1": 5, "2": 5, "3": 5}}, {1, 2, 3})[0] == 6
+
+    ringkas = engagement.requirement_summary(cfg)
+    assert "Level minimal" in ringkas and "30 hari" in ringkas and "+2" in ringkas
+    assert "Belum bisa ikut" in engagement.describe_rejection("syarat_umur", cfg)
+    embed = engagement.build_giveaway_embed(cfg)
+    teks = " ".join(f"{f.name} {f.value}" for f in embed.fields)
+    assert "Syarat Ikut" in teks and "Peluang ekstra" in teks
+    assert "satu peluang" in embed.footer.text
+
+    # Akhiri + reroll sama-sama tercatat di riwayat (bisa diaudit dari dashboard)
+    import random
+
+    ended = engagement.end_giveaway(560, rng=random.Random(5), actor_id=777)
+    assert ended["ended"] is True and len(ended["winners"]) == 1
+    riwayat = engagement.giveaway_history(560)
+    assert riwayat[-1]["aksi"] == "akhir" and riwayat[-1]["oleh"] == 777
+    assert engagement.reroll_pool_size(560) == 1
+
+    status, cfg = engagement.reroll_giveaway(560, rng=random.Random(9), actor_id=777)
+    assert status == "ok"
+    assert engagement.giveaway_history(560)[-1]["aksi"] == "reroll"
+    assert engagement.giveaway_history(560)[-1]["pemenang"] == cfg["winners"]
+    assert engagement.reroll_pool_size(560) == 0
+    # Semua peserta sudah pernah menang, tapi reroll tetap boleh mengulang putaran ini
+    assert engagement.reroll_giveaway(560, rng=random.Random(9))[0] == "ok"
+
+
+def test_engagement_pick_winners_berbobot():
+    """Undian berbobot: role bonus menambah peluang tanpa pernah memilih dua kali."""
+    import random
+
+    hitung = {1: 0, 2: 0}
+    for i in range(400):
+        for uid in engagement.pick_winners([1, 2], 1, rng=random.Random(i), weights={1: 6, 2: 1}):
+            hitung[uid] += 1
+    assert hitung[1] > hitung[2] * 2, "peserta berbobot 6× harus menang jauh lebih sering"
+    assert len(set(engagement.pick_winners([1, 2, 3, 4], 3, rng=random.Random(1)))) == 3
+    assert engagement.pick_winners([], 2) == []
+    assert engagement.pick_winners([7], 5, weights={"7": 3}) == [7]
+
+
+@pytest.mark.asyncio
+async def test_engagement_giveaway_template_setelan_bawaan_dan_persistensi():
+    """Template & setelan bawaan giveaway: simpan, pakai ulang, lalu bertahan setelah restart."""
+    d = engagement.set_giveaway_defaults(
+        10,
+        winner_count=3,
+        seconds=7200,
+        level=7,
+        account_age_days=14,
+        bonus_role_id=99,
+        bonus_weight=2,
+        ping_everyone=True,
+    )
+    assert d["winner_count"] == 3 and d["level"] == 7 and d["bonus_role_id"] == 99
+    assert engagement.default_giveaway_config(10)["ping_everyone"] is True
+    assert engagement.default_requirements(10)["level"] == 7
+    assert engagement.default_bonus_roles(10) == {"99": 2}
+    # Nilai aneh dari dashboard tetap aman
+    assert engagement.set_giveaway_defaults(10, winner_count=0, seconds=-5)["winner_count"] == 1
+
+    ok, pesan = engagement.save_giveaway_template(
+        10,
+        "Nitro Bulanan",
+        winner_count=2,
+        seconds=3600,
+        requirements={"roles": [42], "level": 5},
+        bonus_roles={99: 3},
+    )
+    assert ok is True and "disimpan" in pesan
+    assert engagement.get_giveaway_template(10, "NITRO bulanan")["winner_count"] == 2
+    assert len(engagement.list_giveaway_templates(10)) == 1
+    pakai = engagement.apply_giveaway_template(10, "nitro bulanan")
+    assert pakai["requirements"]["level"] == 5 and pakai["bonus_roles"] == {"99": 3}
+    assert engagement.delete_giveaway_template(10, "Nitro Bulanan") is True
+    assert engagement.delete_giveaway_template(10, "Nitro Bulanan") is False
+    assert engagement.save_giveaway_template(10, "  ") [0] is False
+
+    engagement.save_giveaway_template(10, "Reguler", winner_count=1, seconds=1800)
+    engagement.create_giveaway(
+        guild_id=10,
+        channel_id=700,
+        message_id=561,
+        prize="Pulsa 10rb",
+        host_id=1,
+        seconds=1800,
+        requirements={"level": 7},
+        bonus_roles={99: 2},
+    )
+    engagement.join_giveaway(561, 501, level=8, account_age_days=0)
+    await engagement.save_engagement_to_disk()
+
+    engagement.giveaways.clear()
+    engagement.giveaway_templates.clear()
+    engagement.giveaway_defaults.clear()
+    engagement.load_engagement_from_disk()
+    assert engagement.default_giveaway_config(10)["winner_count"] == 1
+    assert engagement.default_giveaway_config(10)["level"] == 7
+    assert engagement.get_giveaway_template(10, "reguler")["seconds"] == 1800
+    cfg = engagement.giveaways[561]
+    assert cfg["requirements"]["level"] == 7 and cfg["bonus_roles"] == {"99": 2}
+    assert cfg["weights"] == {"501": 1}
+    assert [g["message_id"] for g in engagement.guild_giveaways(10)] == [561]
+
+
+@pytest.mark.asyncio
+async def test_engagement_giveaway_tombol_menjelaskan_syarat_yang_kurang():
+    """Tombol 🎉 memberi alasan spesifik (level/umur) tanpa membocorkan data lain."""
+    from views import GiveawayJoinView
+
+    message_id = 562
+    engagement.create_giveaway(
+        guild_id=10,
+        channel_id=700,
+        message_id=message_id,
+        prize="Mouse Gaming",
+        host_id=1,
+        seconds=3600,
+        requirements={"level": 5},
+    )
+
+    class _Resp:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, content=None, *, embed=None, ephemeral=False, view=None):
+            self.sent.append({"content": content, "ephemeral": ephemeral})
+
+    class _Msg:
+        id = message_id
+
+        async def edit(self, *args, **kwargs):  # pragma: no cover - tidak dipanggil saat ditolak
+            raise AssertionError("pesan tidak boleh diedit saat peserta ditolak")
+
+    user = type("U", (), {"id": 504, "roles": [], "created_at": discord.utils.utcnow()})()
+    guild = type("G", (), {"id": 10})()
+    ix = type("Ix", (), {"guild": guild, "user": user, "message": _Msg(), "response": _Resp()})()
+    await GiveawayJoinView().join_btn.callback(ix)
+    assert "Belum bisa ikut" in ix.response.sent[0]["content"]
+    assert "Level minimal" in ix.response.sent[0]["content"]
+    assert engagement.giveaways[message_id]["entries"] == []
+
+    # Syarat umur akun dicek dari tanggal pembuatan akun Discord
+    engagement.create_giveaway(
+        guild_id=10,
+        channel_id=700,
+        message_id=563,
+        prize="Mouse Gaming",
+        host_id=1,
+        seconds=3600,
+        requirements={"account_age_days": 30},
+    )
+    ix2 = type(
+        "Ix",
+        (),
+        {"guild": guild, "user": user, "message": type("M", (), {"id": 563})(), "response": _Resp()},
+    )()
+    await GiveawayJoinView().join_btn.callback(ix2)
+    assert "umur akun" in ix2.response.sent[0]["content"].lower()
+
+
 
 
 @pytest.mark.asyncio
@@ -3913,7 +4121,10 @@ async def test_engagement_command_structure_and_views():
     from cogs.engagement_cog import giveaway_group, jawab_group, pengumuman_group, ultah_group
 
     assert giveaway_group.name == "giveaway"
-    assert {c.name for c in giveaway_group.commands} == {"mulai", "akhiri", "reroll", "daftar"}
+    assert {c.name for c in giveaway_group.commands} == {
+        "mulai", "akhiri", "reroll", "daftar", "peserta",
+        "template-simpan", "template-daftar", "template-hapus",
+    }
     assert {c.name for c in ultah_group.commands} == {"set", "hapus", "daftar", "atur"}
     assert jawab_group.name == "jawab-otomatis"
     assert {c.name for c in jawab_group.commands} == {"tambah", "hapus", "daftar", "atur"}
@@ -4282,7 +4493,10 @@ async def test_antispam_command_and_help_structure():
     """`/keamanan spam` & `/keamanan spam-status` terdaftar, plus panduan /bantuan diperbarui."""
     from cogs.server_cog import keamanan_group
 
-    assert {c.name for c in keamanan_group.commands} == {"phising", "cek", "spam", "spam-status"}
+    # v1.40: honeypot (channel jebakan) menambah satu subcommand
+    assert {c.name for c in keamanan_group.commands} == {
+        "phising", "cek", "spam", "spam-status", "honeypot"
+    }
     for cmd in keamanan_group.commands:
         assert len(cmd.description) <= 100
 
@@ -4505,12 +4719,18 @@ async def test_growth_commands_views_and_help():
         "lihat", "papan", "atur", "role", "status", "voice",
         # v1.34.0-beta: musim & prestige
         "musim", "prestise",
+        # v1.40: kartu rank PNG (perender sendiri, 0 kuota AI)
+        "kartu",
     }
     assert tiket_group.name == "tiket"
     assert {c.name for c in tiket_group.commands} == {
         "panel", "status", "tutup", "tambah", "daftar", "matikan",
         # v1.33.0-beta: rating bintang, SLA respons pertama, & auto-close
         "atur", "rating",
+        # v1.40: catatan internal staf (tidak dikirim ke member)
+        "catat", "catatan",
+        # v1.40: beberapa topik per panel
+        "topik",
     }
     for group in (level_group, tiket_group):
         assert len(group.description) <= 100
@@ -5635,11 +5855,11 @@ async def test_social_notify_seeding_and_dispatch(monkeypatch):
     info = await sn.diagnose(None)
     assert info["twitch_configured"] is False
     assert info["twitch_token_ok"] is False
-    assert set(info["counts"]) == {"youtube", "twitch", "tiktok"}
+    assert set(info["counts"]) == {"youtube", "twitch", "tiktok", "reddit", "rss"}
     assert info["total"] == len(sn.get_subscriptions(gid))
     tambah = next(c for c in sosial_group.commands if c.name == "tambah")
     platform_choices = tambah.parameters[0].choices
-    assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok"}
+    assert {ch.value for ch in platform_choices} == {"youtube", "twitch", "tiktok", "reddit", "rss"}
 
     sn.social_guilds.pop(gid, None)
 
@@ -5718,6 +5938,10 @@ async def test_moderation_cases_auto_punish_and_persistence():
         "warn", "timeout", "kick", "ban", "unban", "purge", "catatan", "hapus", "atur",
         # v1.28.0-beta: perkakas moderasi harian
         "slowmode", "role", "role-massal", "nickname",
+        # v1.40.0-beta (Paket B): tangga hukuman lengkap + statistik staf
+        "tempban", "softban", "note", "statistik",
+        # antrean laporan member & banding
+        "antrean", "tindak",
     } == names
 
     md.mod_cases.pop(gid, None)
@@ -5785,7 +6009,7 @@ async def test_temp_voice_config_rooms_and_persistence():
 
     # 7. Command /tempvoice terdaftar
     assert {c.name for c in tempvoice_group.commands} == {
-        "atur", "status", "kunci", "nama", "limit", "tendang"
+        "atur", "status", "kunci", "nama", "limit", "tendang", "tautkan"
     }
 
     tv.unregister_room(9001)
@@ -6503,9 +6727,9 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     finally:
         await web_dashboard.stop_dashboard()
 
-    # 6. Jalur tulis dibatasi 7 endpoint POST (tanpa PUT/DELETE/PATCH)
+    # 6. Jalur tulis dibatasi 14 endpoint POST (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    assert src.count("add_post(") == 7
+    assert src.count("add_post(") == 14
     for jalur in (
         'add_post("/api/aksi"',
         'add_post("/api/kirim"',
@@ -6514,6 +6738,13 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
         'add_post("/api/tiket"',
         'add_post("/api/panel"',
         'add_post("/api/uji"',
+        'add_post("/api/bangun"',
+        'add_post("/api/ai"',
+        'add_post("/api/giveaway"',
+        'add_post("/api/transkrip"',
+        'add_post("/api/keamanan"',
+        'add_post("/api/moderasi"',
+        'add_post("/api/lencana"',
     ):
         assert jalur in src, f"endpoint tulis {jalur} hilang"
     for needle in ("add_put(", "add_delete(", "add_patch("):

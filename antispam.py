@@ -65,6 +65,10 @@ _recent_joins: dict[int, list[tuple[float, int]]] = {}
 _last_alert: dict[tuple[int, int], float] = {}
 
 _URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
+_MENTION_RE = re.compile(r"<@!?\d{1,25}>")
+
+#: Aturan yang bisa diuji dari dashboard (urutan = urutan pemeriksaan).
+ATURAN_UJI: tuple[str, ...] = ("mention", "link", "flood", "duplikat", "caps")
 ALERT_COOLDOWN_SEC = 120.0
 
 
@@ -93,6 +97,8 @@ def default_config() -> dict:
         "exempt_roles": [],
         "exempt_channels": [],
         "blocked": 0,
+        # Statistik per aturan: {"mention": {"hari": "YYYY-MM-DD", "hari_ini": 2, "total": 9}}
+        "stats": {},
     }
 
 
@@ -135,6 +141,15 @@ def load_antispam_from_disk() -> int:
                 "exempt_roles": [_to_int(r) for r in (data.get("exempt_roles") or []) if _to_int(r)],
                 "exempt_channels": [_to_int(c) for c in (data.get("exempt_channels") or []) if _to_int(c)],
                 "blocked": max(0, _to_int(data.get("blocked"))),
+                "stats": {
+                    str(kunci): {
+                        "hari": str(isi.get("hari") or ""),
+                        "hari_ini": max(0, _to_int(isi.get("hari_ini"))),
+                        "total": max(0, _to_int(isi.get("total"))),
+                    }
+                    for kunci, isi in (data.get("stats") or {}).items()
+                    if isinstance(isi, dict) and str(kunci) in SPAM_REASONS
+                },
             }
         )
         spam_guilds[gid] = base
@@ -379,6 +394,178 @@ def detect_spam(message, *, now: float | None = None) -> dict | None:
 
 
 # ==============================================================================
+# PENGUJI ATURAN & STATISTIK PER ATURAN (dashboard halaman Keamanan)
+# ==============================================================================
+def catat_aturan(guild_id: int, reason: str, *, now: float | None = None) -> dict:
+    """Menaikkan penghitung satu aturan (`hari_ini` & `total`)."""
+    gid = _to_int(guild_id)
+    if str(reason) not in SPAM_REASONS or gid not in spam_guilds:
+        return {}
+    cfg = spam_guilds[gid]
+    stats = cfg.setdefault("stats", {})
+    current = time.time() if now is None else float(now)
+    hari = time.strftime("%Y-%m-%d", time.localtime(current))
+    lama = stats.get(reason) or {}
+    total = max(0, _to_int(lama.get("total")))
+    hari_ini = max(0, _to_int(lama.get("hari_ini"))) if lama.get("hari") == hari else 0
+    baru = {"hari": hari, "hari_ini": hari_ini + 1, "total": total + 1}
+    stats[reason] = baru
+    return baru
+
+
+def statistik_aturan(guild_id: int, *, now: float | None = None) -> dict:
+    """Ringkasan statistik tiap aturan (untuk halaman Keamanan)."""
+    gid = _to_int(guild_id)
+    cfg = spam_guilds.get(gid) or default_config()
+    stats = cfg.get("stats") or {}
+    current = time.time() if now is None else float(now)
+    hari = time.strftime("%Y-%m-%d", time.localtime(current))
+    baris = []
+    for kunci in ATURAN_UJI:
+        item = stats.get(kunci) or {}
+        baris.append(
+            {
+                "kunci": kunci,
+                "label": SPAM_REASONS[kunci],
+                "hari_ini": max(0, _to_int(item.get("hari_ini"))) if item.get("hari") == hari else 0,
+                "total": max(0, _to_int(item.get("total"))),
+            }
+        )
+    return {
+        "hari": hari,
+        "mode": str(cfg.get("mode") or "lapor"),
+        "aktif": bool(cfg.get("enabled")) and gid in spam_guilds,
+        "blocked": max(0, _to_int(cfg.get("blocked"))),
+        "aturan": baris,
+    }
+
+
+def uji_aturan(
+    teks: str,
+    *,
+    guild_id: int = 0,
+    cfg: dict | None = None,
+    ulang: int = 1,
+    now: float | None = None,
+) -> dict:
+    """Menguji teks terhadap **semua** aturan anti-spam tanpa efek samping.
+
+    Berbeda dari `detect_spam`, fungsi ini **tidak** mencatat riwayat, tidak
+    menghapus pesan, dan tidak menghukum siapa pun — persis seperti “penguji aturan”
+    punya Arclo. Aturan yang butuh riwayat (`flood`, `duplikat`) disimulasikan
+    dengan parameter `ulang` (berapa kali teks yang sama dibayangkan dikirim).
+    """
+    isi = str(teks or "")
+    data = cfg if cfg is not None else (spam_guilds.get(_to_int(guild_id)) or default_config())
+    kali = max(1, min(50, _to_int(ulang, 1)))
+    current = time.time() if now is None else float(now)
+    _ = current  # jendela waktu hanya relevan untuk aturan berbasis riwayat nyata
+
+    baris: list[dict] = []
+
+    # 1. Mention massal
+    mention_limit = max(2, _to_int(data.get("mention_limit"), SPAM_MENTION_LIMIT))
+    jumlah_mention = len(_MENTION_RE.findall(isi))
+    jumlah_mention += sum(
+        1 for kata in ("@everyone", "@here") if kata in isi.lower()
+    )
+    baris.append(
+        {
+            "kunci": "mention",
+            "label": SPAM_REASONS["mention"],
+            "aktif": True,
+            "kena": jumlah_mention >= mention_limit,
+            "detail": f"`{jumlah_mention}` mention (batas `{mention_limit}`).",
+        }
+    )
+
+    # 2. Link beruntun / link sama berulang
+    link_limit = max(1, _to_int(data.get("link_limit"), SPAM_LINK_LIMIT))
+    links = extract_links(isi)
+    ganda = ""
+    for link in set(links):
+        if links.count(link) >= 3:
+            ganda = link
+            break
+    baris.append(
+        {
+            "kunci": "link",
+            "label": SPAM_REASONS["link"],
+            "aktif": True,
+            "kena": len(links) >= link_limit or bool(ganda),
+            "detail": (
+                f"Link sama diulang: `{ganda[:120]}`."
+                if ganda
+                else f"`{len(links)}` link (batas `{link_limit}`)."
+            ),
+        }
+    )
+
+    # 3. Banjir pesan (butuh riwayat → disimulasikan)
+    flood_count = max(3, _to_int(data.get("flood_count"), SPAM_FLOOD_COUNT))
+    flood_window = max(3, _to_int(data.get("flood_window"), SPAM_FLOOD_WINDOW_SEC))
+    baris.append(
+        {
+            "kunci": "flood",
+            "label": SPAM_REASONS["flood"],
+            "aktif": True,
+            "kena": kali >= flood_count,
+            "detail": (
+                f"Simulasi `{kali}`× kirim; aturan aktif bila `{flood_count}` pesan "
+                f"dalam `{flood_window}` detik."
+            ),
+        }
+    )
+
+    # 4. Pesan berulang (isi sama)
+    duplicate_count = max(2, _to_int(data.get("duplicate_count"), 3))
+    duplicate_window = max(5, _to_int(data.get("duplicate_window"), 30))
+    normal = normalize_text(isi)
+    baris.append(
+        {
+            "kunci": "duplikat",
+            "label": SPAM_REASONS["duplikat"],
+            "aktif": True,
+            "kena": len(normal) >= 4 and kali >= duplicate_count,
+            "detail": (
+                f"Simulasi `{kali}`× isi sama; aturan aktif pada `{duplicate_count}`× "
+                f"dalam `{duplicate_window}` detik."
+                + ("" if len(normal) >= 4 else " Teks terlalu pendek (<4 karakter) jadi dilewati.")
+            ),
+        }
+    )
+
+    # 5. Huruf kapital berlebihan (opsional)
+    caps_on = bool(data.get("caps_enabled"))
+    caps_min = max(8, _to_int(data.get("caps_min_length"), SPAM_CAPS_MIN_LENGTH))
+    rasio = caps_ratio(isi)
+    baris.append(
+        {
+            "kunci": "caps",
+            "label": SPAM_REASONS["caps"],
+            "aktif": caps_on,
+            "kena": bool(caps_on and len(isi) >= caps_min and rasio >= 0.7),
+            "detail": (
+                f"`{int(rasio * 100)}%` kapital pada `{len(isi)}` karakter "
+                f"(minimal `{caps_min}` karakter & ≥ 70%)."
+                if caps_on
+                else "Aturan ini sedang dimatikan di setelan Keamanan."
+            ),
+        }
+    )
+
+    kena = [item["kunci"] for item in baris if item["kena"]]
+    return {
+        "teks": isi[:2000],
+        "ulang": kali,
+        "mode": str(data.get("mode") or "lapor"),
+        "aturan": baris,
+        "kena": kena,
+        "hari": time.strftime("%Y-%m-%d", time.localtime(current)),
+    }
+
+
+# ==============================================================================
 # TINDAKAN & LAPORAN
 # ==============================================================================
 def build_spam_alert_embed(
@@ -477,6 +664,7 @@ async def handle_spam_guard(message, *, bot=None, now: float | None = None) -> b
                 logger.warning("Gagal time-out member spam: %s", sanitize_error_message(exc))
 
     cfg["blocked"] = int(cfg.get("blocked") or 0) + 1
+    catat_aturan(gid, str(violation.get("reason") or ""), now=current)
 
     # Satu laporan per member per 2 menit supaya log tidak dibanjiri
     alert_key = (gid, uid)

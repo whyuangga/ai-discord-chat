@@ -50,7 +50,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/agent kartu` | `mode` | *(Admin)* Tampilan sambutan: teks, banner statis, atau kartu dinamis (avatar + nama). |
 | `/agent dm` | `aktif` | *(Admin)* Kirim salinan sambutan lewat DM ke member baru. |
 | `/agent boost` | `channel`, `aktif`, `pesan` | *(Admin)* Pesan terima kasih otomatis saat ada member boost server. |
-| `/sosial tambah` | `platform`, `target`, `channel`, `role`, `pesan` | *(Admin)* Pantau YouTube / Twitch / feed RSS lalu kirim notifikasi otomatis (0 kuota AI). |
+| `/sosial tambah` | `platform`, `target`, `channel`, `role`, `pesan` | *(Admin)* Pantau YouTube / Twitch / TikTok / **Reddit** / **RSS-Atom** lalu kirim notifikasi otomatis (0 kuota AI). |
 | `/sosial daftar` | — | Lihat semua langganan notifikasi + ID-nya. |
 | `/sosial hapus` | `id` | Hentikan pemantauan satu langganan. |
 | `/sosial tes` | `id` | Kirim contoh notifikasi sekarang untuk memastikan konfigurasi benar. |
@@ -59,11 +59,57 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/mod timeout` | `member`, `durasi`, `alasan` | *(Staff)* Timeout native Discord. |
 | `/mod kick` / `/mod ban` / `/mod unban` | `member`/`user_id`, `alasan` | *(Staff)* Tindakan disipliner, tercatat sebagai kasus. |
 | `/mod purge` | `jumlah`, `member`, `tipe` | *(Staff)* Hapus pesan massal dengan filter. |
+| `/mod tempban` | `member`, `durasi`, `alasan`, `hapus_pesan_hari` | *(Staff)* Ban sementara, dicabut otomatis saat durasi habis. |
+| `/mod softban` | `member`, `alasan`, `hapus_pesan_hari` | *(Staff)* Ban + cabut langsung (pembersihan pesan tanpa hukuman permanen). |
+| `/mod note` | `member`, `teks` | *(Staff)* Catatan internal staff, tanpa tindakan apa pun. |
+| `/snipe hapus` / `/snipe edit` | `jumlah` | *(Staf)* Lihat pesan terakhir yang dihapus/diubah di channel (memori saja). |
+| `/snipe atur` | `aktif`, `hapus`, `edit` | *(Admin)* Sakelar snipe & edit-snipe. |
+| `/mod statistik` | `hari` | *(Staff)* Siapa menindak berapa banyak + temp-ban yang masih berjalan. |
 | `/mod catatan` | `member`, `jumlah` | *(Staff)* Riwayat kasus + jumlah peringatan aktif. |
+| `/mod antrean` | `status`, `jenis` | *(Staff)* Antrean laporan member & banding hukuman. |
+| `/mod tindak` | `kode`, `status`, `catatan`, `cabut` | *(Staff)* Ubah status antrean; `cabut` mencabut hukuman dari banding yang diterima. |
+| `/lapor` | `member`, `alasan`, `bukti` | **(Semua member)** Laporkan member ke staf — masuk antrean, bukan langsung hukuman. |
+| `/banding` | `alasan`, `kasus` | **(Semua member)** Ajukan peninjauan hukuman (bisa dari DM bila sudah diban). |
 | `/mod hapus` | `id` | *(Admin)* Hapus satu kasus dari catatan. |
 | `/mod atur` | `log_channel`, `ambang_warn`, `durasi_auto`, `jendela_hari`, `dm` | *(Admin)* Pengaturan moderasi. |
+| `/lencana lihat` | `member` | Lencana + progres seorang member (kosongkan = dirimu). |
+| `/lencana papan` | — | Papan lencana server (10 teratas). |
+| `/lencana periksa` | `member` | *(Staf)* Segarkan lencana sekarang tanpa menunggu aktivitas berikutnya. |
+| `/lencana atur` | `channel`, `aktif` | *(Admin)* Channel pengumuman lencana & sakelar global. |
+| `/lencana role` | `kunci`, `tingkat`, `role` | *(Admin)* Role hadiah per tingkat lencana (kosongkan `role` = hapus). |
+| `/pantau tambah` | `kata` | Pantau kata/frasa → DM saat muncul di chat (maks 10/member). |
+| `/pantau hapus` | `kata` | Berhenti memantau satu kata kunci. |
+| `/pantau daftar` | — | Lihat kata kunci, daftar abaikan, & jumlah DM terkirim. |
+| `/pantau abaikan` | `channel`, `kata` | Abaikan channel atau kata tertentu. |
+| `/pantau bersihkan` | — | Hapus semua setelan highlight milikmu. |
+| `/pantau atur` | `aktif`, `abaikan_channel` | *(Admin)* Sakelar server & channel yang selalu diabaikan. |
+| `/curhat kirim` | `teks` | Kirim curhat anonim ke satu channel (10–900 huruf, maks 3/jam). |
+| `/curhat atur` | `channel`, `aktif`, `izinkan_link`, `jeda_menit` | *(Admin)* Setelan channel, sakelar, izin tautan, & jeda per orang. |
+| `/curhat hapus` | `nomor` | *(Staf)* Hapus satu curhat yang melanggar. |
+| `/bangun tema` | `tema` | *(Admin)* Pratinjau struktur server dari salah satu **15 tema** (0 kuota AI) + tombol Terapkan/Batal. |
+| `/bangun rancang` | `deskripsi` | *(Admin)* AI menyusun kategori/channel/role dari deskripsi bebas, lalu pratinjau. |
+| `/bangun terapkan` | — | *(Admin)* Terapkan rencana terakhir yang menunggu konfirmasi. |
+| `/bangun riwayat` | — | Lihat pembangunan terakhir di server ini. |
+| `/bangun bongkar` | — | *(Admin)* Hapus hanya item yang tercatat dibuat `/bangun`. |
+| `/setelan-ai lihat` | — | Lihat setelan AI-mu (panjang, temperature, bahasa, prompt pribadi, rasio, kepribadian server). |
+| `/setelan-ai atur` | `panjang`, `prompt`, `rasio`, `temperatur`, `bahasa` | Atur gaya jawaban, temperature, bahasa balasan, prompt pribadi & rasio gambar bawaanmu. |
+| `/setelan-ai prompt-server` | `teks` | *(Admin)* Kepribadian AI untuk seluruh server (kosongkan untuk menghapus). |
+| `/setelan-ai reset` | — | Kembalikan setelan AI-mu ke bawaan. |
+| `/gambar buat` | `prompt`, `rasio`, `gaya`, `acuan` | Buat gambar AI (5 rasio, belasan gaya); opsional gambar acuan. |
+| `/gambar edit` | `prompt`, `acuan` | Ubah gambar lampiran **atau** gambar terakhir di channel itu. |
+| `/gambar pilihan` | — | Daftar rasio & gaya yang tersedia. |
+| `/dataku` | — | Ekspor data pribadimu sebagai lampiran JSON. |
+| `/hapusdataku` | — | Hapus permanen data pribadimu (dengan tombol konfirmasi). |
+| `/meme` | `teks_atas`, `teks_bawah`, `template` | Buat meme lokal (6 gaya), 0 kuota AI. |
+| `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
+| `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |
+| `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |
 | `/tempvoice atur` | `hub`, `aktif`, `nama`, `limit` | *(Admin)* Aktifkan voice room sementara (join-to-create). |
 | `/tempvoice status` | — | Lihat hub & room sementara yang aktif. |
+| `/tempvoice tautkan` | `aktif`, `role`, `channel_privat`, `hapus_kosong`, `kategori` | *(Admin)* Voice linking: role + channel teks privat selama member di voice. |
+| `/kanal-info atur` | `channel`, `aktif`, `judul`, `warna`, `interval_menit` | *(Admin)* Channel aturan & info yang diperbarui otomatis. |
+| `/kanal-info isi` | `teks` | *(Admin)* Tulis/ganti isi aturan & info (20–3500 huruf). |
+| `/kanal-info segarkan` / `/kanal-info status` | — | *(Admin)* Terbitkan/perbarui pesan sekarang / lihat ringkasan setelan. |
 | `/tempvoice kunci` / `nama` / `limit` / `tendang` | `aktif` / `nama` / `jumlah` / `member` | Pengaturan room oleh **pemilik room**. |
 | `/saran pasang` | `channel`, `nonaktifkan` | *(Admin)* Tentukan channel kotak saran. |
 | `/saran kirim` | `teks` | Kirim usulan dengan tombol voting 👍/👎. |
@@ -95,7 +141,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | :--- | :--- | :--- |
 | `/serverstats lihat` | — | Kartu statistik server: anggota, online, boost, channel, role, emoji, stiker, tanggal dibuat, & pemilik. |
 | `/serverstats otomatis` | `aktif` | *(Admin)* Membuat/mematikan Voice Channel penghitung statistik yang diperbarui ±10 menit. |
-| `/serverstats ikon` | `anggota`, `manusia`, `bot`, `online`, `boost`, `kategori`, `reset` | *(Admin)* Ganti atau hapus emoji ikon tiap channel statistik + nama kategori. Isi `-` untuk menghapus ikon. |
+| `/serverstats ikon` | `anggota`, `manusia`, `bot`, `online`, `boost`, `tiket`, `sosial`, `kategori`, `reset` | *(Admin)* Ganti atau hapus emoji ikon tiap channel statistik + nama kategori. Isi `-` untuk menghapus ikon. |
 | `/serverstats tipe` | `channel`, `aktif` | *(Admin)* Pilih **jenis channel** counter: `voice` 🔊, `text` #️⃣, `announcement` 📢, atau `stage` 🎤 — ikon di kiri nama channel ikut berubah. |
 | `/autorole atur` | `role`, `role2`, `role3`, `aktif` | *(Admin)* Atur 1–3 role otomatis untuk setiap member baru. |
 | `/autorole status` | — | *(Admin)* Lihat role Auto Role aktif & peringatan hierarki role bot. |
@@ -107,6 +153,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/keamanan cek` | `link` | Periksa keamanan sebuah link (semua member). |
 | `/keamanan spam` | `aktif`, `mode`, `log_channel`, `ambang_banjir`, `jendela`, `mention_maks`, `link_maks`, `kapital`, `timeout_detik`, `kecualikan_channel`, `kecualikan_role` | *(Admin)* Anti-spam & anti-raid, **mode bawaan `lapor`** (tanpa menghapus apa pun). |
 | `/keamanan spam-status` | — | Lihat ambang deteksi, pengecualian, & statistik penjaga spam. |
+| `/keamanan honeypot` | `channel`, `aksi`, `timeout_detik`, `log_channel`, `abaikan_staf`, `aktif` | *(Admin)* Channel jebakan (maks 3): lapor / hapus / timeout / kick / ban. Bawaan hanya **melapor**, staf & bot selalu aman. |
 
 ## 5. Slash Commands Fitur Komunitas Ringan (Gratis, Tanpa Kuota AI)
 
@@ -119,8 +166,9 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/ingatkan pasang` | `waktu`, `pesan`, `channel` | Pasang pengingat pribadi (`10m`, `2j`, `2 hari`, `1j30m`). |
 | `/ingatkan daftar` / `batal` | `nomor` | Lihat / batalkan pengingat aktif. |
 | `/starboard atur` | `channel`, `batas`, `emoji`, `aktif` | *(Admin)* Atur channel sorotan & ambang bintang. |
-| `/starboard status` | — | Lihat konfigurasi & jumlah pesan tersorot. |
-| `/verifikasi pasang` | `channel`, `role`, `catatan` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya**. |
+| `/starboard status` | — | Lihat semua papan sorotan & jumlah pesan tersorot. |
+| `/starboard varian` | `tambah`, `emoji`, `batas`, `channel`, `warna`, `hapus` | *(Admin)* Papan sorotan tambahan (skullboard 💀, clownboard 🤡, …) dengan emoji, ambang, channel, & warna sendiri — maks 4 papan/server. |
+| `/verifikasi pasang` | `channel`, `role`, `catatan`, `captcha` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya** (opsional: kode CAPTCHA). |
 | `/verifikasi status` / `matikan` | — | Pantau / matikan gerbang verifikasi. |
 | `/sticky pasang` | `isi`, `channel`, `judul` | *(Admin)* Pasang pesan petunjuk yang selalu di bawah channel. |
 | `/sticky lepas` / `status` | `channel` | Lepas / lihat daftar sticky message. |
@@ -181,6 +229,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | Command | Parameter | Fungsi |
 | :--- | :--- | :--- |
 | `/level lihat` | `member` | Kartu level + progress bar XP. |
+| `/level kartu` | `member`, `publik` | **Kartu rank PNG** (level, XP, peringkat, prestise) dirender server — 0 kuota AI. |
 | `/level papan` | `halaman` | Papan peringkat 10 besar server. |
 | `/level atur` | `aktif`, `pengumuman`, `channel_pengumuman`, `jeda`, `xp_minimal`, `xp_maksimal`, `abaikan_channel`, `abaikan_role` | *(Admin)* Konfigurasi leveling. |
 | `/level role` | `level`, `role` | *(Admin)* Hadiah role otomatis per level. |

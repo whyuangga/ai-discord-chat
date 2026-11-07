@@ -82,6 +82,14 @@ def collect_tiket(guild_id: int, *, limit: int = 20) -> dict:
                 "diam": _umur((sekarang - aktivitas) / 3600) if aktivitas else "-",
                 "sla": lewat_sla,
                 "sla_jam": sla,
+                "catatan": [
+                    {
+                        "teks": str(item.get("teks") or ""),
+                        "oleh": str(_to_int(item.get("oleh"))),
+                        "waktu": _waktu_singkat(item.get("at")),
+                    }
+                    for item in (data.get("notes") or [])[:25]
+                ],
             }
         )
         if len(aktif) >= max(1, int(limit)):
@@ -101,7 +109,11 @@ def collect_tiket(guild_id: int, *, limit: int = 20) -> dict:
         statistik["sla_jam"] = int(cfg.get("sla_jam") or 0)
     except Exception:  # pragma: no cover - jaring aman
         pass
-    return {"guild": gid, "items": aktif, "statistik": statistik}
+    try:
+        topik = tickets.list_ticket_topics(gid)
+    except Exception:  # pragma: no cover - jaring aman
+        topik = []
+    return {"guild": gid, "items": aktif, "statistik": statistik, "topik": topik}
 
 
 async def _thread(bot, guild_id: int, thread_id: int):
@@ -208,6 +220,16 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
     try:
         pesan = await tickets.collect_thread_messages(thread)
         teks, nama_berkas = tickets.build_transcript(closed, pesan)
+        try:
+            import ticket_archive
+
+            gid_guild = _to_int(closed.get("guild_id")) or gid
+            guild = bot.get_guild(gid_guild) if callable(getattr(bot, "get_guild", None)) else None
+            ticket_archive.simpan(
+                closed, pesan, guild_name=str(getattr(guild, "name", "") or ""), teks=teks
+            )
+        except Exception:  # pragma: no cover - arsip opsional
+            pass
         dikirim = await tickets.send_transcript(bot, closed, teks, nama_berkas)
     except Exception as exc:  # pragma: no cover - transkrip opsional
         logger.warning("Transkrip tiket dari dashboard gagal: %s", exc)
@@ -226,6 +248,79 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
         f"Tiket {nomor} ditutup"
         + (" dan transkrip dikirim ke channel log." if dikirim else " (channel log transkrip belum diatur).")
     )
+
+
+def catat(guild_id: int, thread_id: int, teks: str) -> tuple[bool, str]:
+    """Simpan catatan internal staf dari dashboard (tidak dikirim ke thread)."""
+    import tickets
+
+    gid = _to_int(guild_id)
+    data = tickets.get_ticket(_to_int(thread_id))
+    if data is None or not _milik_server(data, gid):
+        return False, "Tiket tidak ditemukan di server ini."
+
+    status, data = tickets.add_note(_to_int(thread_id), 0, teks)
+    if status == "kosong":
+        return False, "Catatan tidak boleh kosong."
+    if status == "penuh":
+        return False, (
+            f"Catatan tiket ini sudah penuh (maksimal {tickets.TICKET_NOTE_MAX}). "
+            "Hapus satu dulu."
+        )
+    if status != "ok":
+        return False, "Catatan gagal disimpan."
+    return True, f"Catatan internal tersimpan ({len((data or {}).get('notes') or [])} total)."
+
+
+def hapus_catatan(guild_id: int, thread_id: int, nomor: int) -> tuple[bool, str]:
+    """Hapus catatan internal nomor ke-`nomor` (1 = paling lama)."""
+    import tickets
+
+    data = tickets.get_ticket(_to_int(thread_id))
+    if data is None or not _milik_server(data, _to_int(guild_id)):
+        return False, "Tiket tidak ditemukan di server ini."
+    status, data = tickets.remove_note(_to_int(thread_id), int(nomor))
+    if status != "ok":
+        return False, f"Catatan nomor `{nomor}` tidak ada."
+    return True, f"Catatan nomor `{nomor}` dihapus."
+
+
+def topik_tambah(
+    guild_id: int,
+    nama: str,
+    *,
+    role_id: int = 0,
+    emoji: str = "",
+    deskripsi: str = "",
+) -> tuple[bool, str]:
+    """Tambah/perbarui satu topik tiket dari dashboard."""
+    import tickets
+
+    ok, pesan = tickets.add_ticket_topic(
+        _to_int(guild_id),
+        nama,
+        emoji=emoji,
+        staff_role_id=_to_int(role_id),
+        deskripsi=deskripsi,
+    )
+    if ok:
+        pesan += " Pasang ulang panel tiket agar dropdown-nya ikut berubah."
+    return ok, pesan
+
+
+def topik_hapus(guild_id: int, nama: str) -> tuple[bool, str]:
+    """Hapus satu topik tiket dari dashboard."""
+    import tickets
+
+    return tickets.remove_ticket_topic(_to_int(guild_id), nama)
+
+
+def _waktu_singkat(nilai: object) -> str:
+    """Waktu ringkas `dd-mm hh:mm` untuk daftar catatan di dashboard."""
+    try:
+        return time.strftime("%d-%m %H:%M", time.localtime(float(nilai or 0)))
+    except (TypeError, ValueError, OSError):
+        return "-"
 
 
 # ==============================================================================

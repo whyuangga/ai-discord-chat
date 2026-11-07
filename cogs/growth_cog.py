@@ -5,6 +5,7 @@ menyalakannya. Tiket dibuat sebagai **private thread** sehingga tidak memakan
 slot channel server.
 """
 
+import io
 import logging
 
 import discord
@@ -14,6 +15,7 @@ from discord.ext import commands
 
 import economy
 import levels
+import rank_card
 import tickets
 import ui_kit
 import ui_theme
@@ -44,6 +46,11 @@ async def _reject_non_admin(interaction: discord.Interaction) -> None:
 # ==============================================================================
 # /level — LEVELING & XP
 # ==============================================================================
+def filename_kartu(data: dict) -> str:
+    """Nama berkas kartu rank (aman, tanpa karakter aneh)."""
+    return f"kartu-rank-{int(data.get('user_id') or 0)}.png"
+
+
 level_group = app_commands.Group(
     name="level",
     description="Level & XP member: lihat kartu level, papan peringkat, & atur hadiah role",
@@ -71,6 +78,71 @@ async def level_lihat_cmd(interaction: discord.Interaction, member: discord.Memb
     await interaction.response.send_message(
         embed=levels.build_level_embed(target, data, cfg),
         ephemeral=True,
+    )
+
+
+@level_group.command(
+    name="kartu",
+    description="Kartu rank PNG (level, XP, peringkat) — dirender server, 0 kuota AI",
+)
+@app_commands.describe(
+    member="Member yang ingin dibuatkan kartu (kosongkan untuk dirimu sendiri)",
+    publik="True untuk mengirim kartu di channel, bukan hanya untukmu",
+)
+async def level_kartu_cmd(
+    interaction: discord.Interaction,
+    member: discord.Member | None = None,
+    publik: bool = False,
+):
+    if interaction.guild is None:
+        return
+
+    cfg = levels.get_level_config(interaction.guild.id)
+    if not cfg.get("enabled"):
+        await interaction.response.send_message(
+            "ℹ️ Fitur leveling belum aktif di server ini. "
+            "Admin bisa menyalakannya dengan `/level atur aktif:True`.",
+            ephemeral=True,
+        )
+        return
+    if not rank_card.kartu_aktif(interaction.guild.id):
+        await interaction.response.send_message(
+            "ℹ️ Kartu rank dimatikan di server ini (Admin: dashboard → **Inti & level** "
+            "→ *Kartu rank*). Pakai `/level lihat` untuk versi teks.",
+            ephemeral=True,
+        )
+        return
+
+    target = member or interaction.user
+    await interaction.response.defer(ephemeral=not publik)
+
+    data = rank_card.data_kartu(
+        interaction.guild.id,
+        target.id,
+        nama=getattr(target, "display_name", "") or getattr(target, "name", ""),
+        guild_name=interaction.guild.name,
+    )
+    png = await rank_card.render_kartu(
+        data, avatar_bytes=await rank_card.baca_avatar(target)
+    )
+    if not png:
+        await interaction.followup.send(
+            embed=levels.build_level_embed(target, data, cfg),
+            ephemeral=not publik,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"🖼️ Kartu rank · {getattr(target, 'display_name', 'Member')}",
+        description="\n".join(rank_card.baris_data(data)),
+        color=ui_theme.accent_color(interaction.guild.id),
+    )
+    embed.set_image(url=f"attachment://{filename_kartu(data)}")
+    embed.set_footer(text="Dirender di server bot · tanpa kuota AI")
+    await interaction.followup.send(
+        embed=embed,
+        file=discord.File(io.BytesIO(png), filename=filename_kartu(data)),
+        ephemeral=not publik,
     )
 
 
@@ -530,6 +602,18 @@ async def run_voice_xp_check(bot: commands.Bot) -> int:
         _voice_flush_since_save = 0
         await levels.save_levels_to_disk()
 
+    # Lencana voice: dicek untuk setiap sesi yang baru dicairkan (murah, tanpa I/O)
+    try:
+        from cogs.lencana_cog import proses_lencana
+
+        for award in awards:
+            guild = bot.get_guild(award["guild_id"]) if callable(getattr(bot, "get_guild", None)) else None
+            member = guild.get_member(award["user_id"]) if guild is not None else None
+            if member is not None:
+                await proses_lencana(bot, guild, member, sumber="voice")
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Lencana voice dilewati: %s", exc)
+
     announced = 0
     for award in level_up_awards:
         guild = bot.get_guild(award["guild_id"]) if callable(getattr(bot, "get_guild", None)) else None
@@ -599,6 +683,15 @@ async def handle_message_xp(bot: commands.Bot, message) -> None:
         return
 
     await levels.save_levels_to_disk()
+
+    # Lencana (achievements) — dihitung dari data yang sudah tercatat, 0 kuota AI
+    try:
+        from cogs.lencana_cog import proses_lencana
+
+        await proses_lencana(bot, guild, author, sumber="chat")
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Lencana pesan dilewati: %s", exc)
+
     if not result.get("level_up"):
         return
 
@@ -750,6 +843,14 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
 
     await tickets.save_tickets_to_disk()
     text, filename = tickets.build_transcript(closed, messages)
+    # Arsip HTML: bisa dibuka & dicari dari dashboard (tanpa JavaScript).
+    try:
+        import ticket_archive
+
+        guild_name = getattr(interaction.guild, "name", "") or ""
+        ticket_archive.simpan(closed, messages, guild_name=guild_name, teks=text)
+    except Exception:  # pragma: no cover - arsip opsional
+        pass
     sent = await tickets.send_transcript(interaction.client, closed, text, filename)
     # Kartu rating bintang dikirim SEBELUM thread dikunci
     await send_rating_prompt(interaction.channel, interaction.guild.id, closed)
@@ -807,6 +908,129 @@ async def tiket_tambah_cmd(interaction: discord.Interaction, member: discord.Mem
         f"➕ {member.mention} ditambahkan ke tiket ini.",
         allowed_mentions=discord.AllowedMentions.none(),
     )
+
+
+def _staf_tiket(interaction: discord.Interaction, cfg: dict) -> bool:
+    """True bila pengguna adalah staf tiket (izin kelola thread/administrator atau role staf)."""
+    perms = getattr(interaction.user, "guild_permissions", None)
+    roles = {
+        getattr(role, "id", 0) for role in (getattr(interaction.user, "roles", None) or [])
+    }
+    izin = bool(
+        perms
+        and (
+            getattr(perms, "administrator", False)
+            or getattr(perms, "manage_threads", False)
+            or getattr(perms, "manage_channels", False)
+        )
+    )
+    return izin or (bool(cfg.get("staff_role_id")) and int(cfg["staff_role_id"]) in roles)
+
+
+@tiket_group.command(
+    name="catat",
+    description="Simpan catatan internal staf di tiket ini (hanya terlihat di dashboard)",
+)
+@app_commands.describe(teks=f"Isi catatan (maksimal {tickets.TICKET_NOTE_LEN} karakter)")
+async def tiket_catat_cmd(interaction: discord.Interaction, teks: str):
+    if interaction.guild is None:
+        return
+    data = tickets.get_ticket(interaction.channel_id)
+    if data is None:
+        await interaction.response.send_message(
+            "⚠️ Command ini hanya bisa dipakai **di dalam thread tiket**.", ephemeral=True
+        )
+        return
+
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    if not _staf_tiket(interaction, cfg):
+        await interaction.response.send_message(
+            "⚠️ Catatan internal hanya bisa ditulis **staf**.", ephemeral=True
+        )
+        return
+
+    status, data = tickets.add_note(interaction.channel_id, interaction.user.id, teks)
+    if status == "kosong":
+        await interaction.response.send_message("⚠️ Catatan tidak boleh kosong.", ephemeral=True)
+        return
+    if status == "penuh":
+        await interaction.response.send_message(
+            f"⚠️ Catatan tiket ini sudah penuh (maksimal {tickets.TICKET_NOTE_MAX}). "
+            "Hapus satu dulu dengan `/tiket catatan hapus:<nomor>`.",
+            ephemeral=True,
+        )
+        return
+
+    await tickets.save_tickets_to_disk()
+    jumlah = len((data or {}).get("notes") or [])
+    await interaction.response.send_message(
+        f"📝 Catatan internal tersimpan (`{jumlah}/{tickets.TICKET_NOTE_MAX}`). "
+        "Member tidak melihat pesan ini — catatan hanya tampil di dashboard tiket.",
+        ephemeral=True,
+    )
+
+
+@tiket_group.command(name="catatan", description="Lihat catatan internal staf pada tiket ini")
+@app_commands.describe(hapus="Nomor catatan yang ingin dihapus (1 = paling lama)")
+async def tiket_catatan_cmd(interaction: discord.Interaction, hapus: int = 0):
+    if interaction.guild is None:
+        return
+    data = tickets.get_ticket(interaction.channel_id)
+    if data is None:
+        await interaction.response.send_message(
+            "⚠️ Command ini hanya bisa dipakai **di dalam thread tiket**.", ephemeral=True
+        )
+        return
+
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    if not _staf_tiket(interaction, cfg):
+        await interaction.response.send_message(
+            "⚠️ Catatan internal hanya bisa dibaca **staf**.", ephemeral=True
+        )
+        return
+
+    catatan = tickets.list_notes(interaction.channel_id)
+    if hapus > 0:
+        status, _ = tickets.remove_note(interaction.channel_id, hapus)
+        if status != "ok":
+            await interaction.response.send_message(
+                f"⚠️ Catatan nomor `{hapus}` tidak ada (tersimpan `{len(catatan)}`).",
+                ephemeral=True,
+            )
+            return
+        await tickets.save_tickets_to_disk()
+        catatan = tickets.list_notes(interaction.channel_id)
+        await interaction.response.send_message(
+            f"🗑️ Catatan nomor `{hapus}` dihapus. Sisa `{len(catatan)}`.",
+            ephemeral=True,
+        )
+        return
+
+    if not catatan:
+        await interaction.response.send_message(
+            "ℹ️ Belum ada catatan internal di tiket ini. "
+            "Tambahkan dengan `/tiket catat teks:<isi>`.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"📝 Catatan internal tiket #{int(data.get('number') or 0):04d}",
+        color=discord.Color.blurple(),
+        description="Hanya staf yang melihat catatan ini — member tidak menerimanya.",
+    )
+    for nomor, item in enumerate(catatan, start=1):
+        # Timestamp relatif milik Discord (<t:…:R>) — tanpa helper tambahan.
+        waktu = f"<t:{int(float(item.get('at') or 0))}:R>"
+        embed.add_field(
+            name=f"{nomor}. <@{item.get('oleh')}> · {waktu}",
+            value=str(item.get("teks") or "-")[:1024],
+            inline=False,
+        )
+    embed.set_footer(
+        text=f"{len(catatan)}/{tickets.TICKET_NOTE_MAX} catatan · hapus: /tiket catatan hapus:<nomor>"
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @tiket_group.command(name="daftar", description="Lihat tiket yang masih aktif di server ini")
@@ -956,6 +1180,93 @@ async def tiket_matikan_cmd(interaction: discord.Interaction):
         else "ℹ️ Sistem tiket memang belum aktif.",
         ephemeral=True,
     )
+
+
+@tiket_group.command(
+    name="topik",
+    description="Atur beberapa topik tiket; tiap topik bisa punya role staf sendiri",
+)
+@app_commands.describe(
+    tambah="Nama topik baru (atau yang diperbarui). Kosongkan untuk melihat daftar.",
+    hapus="Nama topik yang ingin dihapus",
+    role="Role staf khusus untuk topik ini (opsional)",
+    emoji="Emoji topik, mis. 🛒 (opsional)",
+    deskripsi="Keterangan singkat yang tampil di dropdown (opsional)",
+)
+async def tiket_topik_cmd(
+    interaction: discord.Interaction,
+    tambah: str = "",
+    hapus: str = "",
+    role: discord.Role | None = None,
+    emoji: str = "",
+    deskripsi: str = "",
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    gid = interaction.guild.id
+    if hapus:
+        ok, pesan = tickets.remove_ticket_topic(gid, hapus)
+        if ok:
+            await tickets.save_tickets_to_disk()
+        await interaction.response.send_message(
+            ("🗑️ " if ok else "⚠️ ") + pesan, ephemeral=True
+        )
+        return
+
+    if tambah:
+        ok, pesan = tickets.add_ticket_topic(
+            gid,
+            tambah,
+            emoji=emoji,
+            staff_role_id=role.id if role else 0,
+            deskripsi=deskripsi,
+        )
+        if ok:
+            await tickets.save_tickets_to_disk()
+            pesan += (
+                f"\n• Role staf: {role.mention if role else '_ikut role staf umum_'}\n"
+                f"• Total topik: `{len(tickets.list_ticket_topics(gid))}/"
+                f"{tickets.TICKET_TOPIC_MAX}`\n"
+                "Pasang ulang panel dengan `/tiket panel` agar dropdown topik muncul."
+            )
+        await interaction.response.send_message(
+            ("✅ " if ok else "⚠️ ") + pesan[:1500], ephemeral=True
+        )
+        return
+
+    daftar = tickets.list_ticket_topics(gid)
+    if not daftar:
+        await interaction.response.send_message(
+            "ℹ️ Belum ada topik. Panel tiket memakai satu tombol **Buat Tiket** biasa.\n"
+            "Tambah topik dengan `/tiket topik tambah:Pembelian role:@Kasir emoji:🛒`.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🧩 Topik panel tiket",
+        color=discord.Color.blurple(),
+        description=(
+            f"`{len(daftar)}/{tickets.TICKET_TOPIC_MAX}` topik · member memilih topik dari "
+            "dropdown di panel, lalu role staf topik itu yang diberi tahu."
+        ),
+    )
+    for nomor, item in enumerate(daftar, start=1):
+        role_id = int(item.get("staff_role_id") or 0)
+        embed.add_field(
+            name=f"{nomor}. {item.get('emoji') or '🎟️'} {item.get('nama')}",
+            value=(
+                (f"{item.get('deskripsi')}\n" if item.get("deskripsi") else "")
+                + f"Staf: {f'<@&{role_id}>' if role_id else '_role staf umum'}"
+            )[:1024],
+            inline=False,
+        )
+    embed.set_footer(text="Hapus: /tiket topik hapus:<nama> · pasang ulang panel setelah berubah")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 def register_growth_cog(bot: commands.Bot) -> None:

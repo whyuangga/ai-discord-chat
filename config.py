@@ -153,6 +153,13 @@ COMMUNITY_TOOLS_FILE = DATA_DIR / "community_tools.json"
 MUSIC_SETTINGS_FILE = DATA_DIR / "music_settings.json"
 ENGAGEMENT_FILE = DATA_DIR / "engagement.json"
 ANTISPAM_FILE = DATA_DIR / "antispam.json"
+# Channel jebakan (honeypot) — self-bot & skrip raid tidak membaca aturan.
+HONEYPOT_FILE = DATA_DIR / "honeypot.json"
+REPORTS_FILE = DATA_DIR / "reports.json"
+TAGS_FILE = DATA_DIR / "tags.json"
+CONFESSIONS_FILE = DATA_DIR / "confessions.json"
+ACHIEVEMENTS_FILE = DATA_DIR / "achievements.json"
+HIGHLIGHTS_FILE = DATA_DIR / "highlights.json"
 LEVELS_FILE = DATA_DIR / "levels.json"
 TRANSLATE_FILE = DATA_DIR / "translate.json"
 AUDIT_FILE = DATA_DIR / "audit.json"
@@ -173,6 +180,8 @@ MEDIA_DIR = DATA_DIR / "media"
 SOCIAL_FILE = DATA_DIR / "social.json"
 MODERATION_FILE = DATA_DIR / "moderation.json"
 TEMP_VOICE_FILE = DATA_DIR / "temp_voice.json"
+VOICE_LINK_FILE = DATA_DIR / "voice_link.json"
+INFO_CHANNEL_FILE = DATA_DIR / "info_channel.json"
 AFK_FILE = DATA_DIR / "afk.json"
 FORMS_FILE = DATA_DIR / "forms.json"          # formulir (modal) buatan Admin
 LINKS_FILE = DATA_DIR / "links.json"          # tautan embed (link embed) yang dibuat bot
@@ -271,6 +280,8 @@ DASHBOARD_REFRESH_SEC: int = _env_int("DASHBOARD_REFRESH_SEC", 30, minimum=0)
 TICKET_MAX_OPEN_PER_USER: int = _env_int("TICKET_MAX_OPEN_PER_USER", 2, minimum=1)
 TICKET_MAX_TRANSCRIPT_LINES: int = _env_int("TICKET_MAX_TRANSCRIPT_LINES", 400, minimum=50)
 TICKET_AUTO_CLOSE_HOURS: int = _env_int("TICKET_AUTO_CLOSE_HOURS", 0, minimum=0)
+# Arsip transkrip HTML per server yang disimpan di data/transcripts/.
+TICKET_ARSIP_MAX: int = _env_int("TICKET_ARSIP_MAX", 200, minimum=10)
 
 # ==============================================================================
 # ANTI-SPAM & ANTI-RAID RINGAN (Tier 2B) — default LAPOR SAJA

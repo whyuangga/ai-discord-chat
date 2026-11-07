@@ -1,7 +1,20 @@
 """Engagement views — dipisah dari views.py agar berkas tidak membengkak."""
 
 import discord
+
 import engagement
+import levels
+
+
+def _account_age_days(user) -> int:
+    """Umur akun Discord dalam hari (0 bila tanggal pembuatan tidak tersedia)."""
+    dibuat = getattr(user, "created_at", None)
+    if dibuat is None:
+        return 0
+    try:
+        return max(0, (discord.utils.utcnow() - dibuat).days)
+    except (TypeError, AttributeError):  # pragma: no cover - jaring aman
+        return 0
 
 
 class GiveawayJoinView(discord.ui.View):
@@ -29,8 +42,17 @@ class GiveawayJoinView(discord.ui.View):
         role_ids = {
             getattr(role, "id", 0) for role in (getattr(interaction.user, "roles", None) or [])
         }
+        # Syarat berlapis dicek dari data asli: role, level server, & umur akun.
+        try:
+            level = levels.get_member_level(interaction.guild.id, interaction.user.id).get("level", 0)
+        except Exception:  # pragma: no cover - modul level opsional
+            level = 0
         status, cfg = engagement.join_giveaway(
-            interaction.message.id, interaction.user.id, role_ids=role_ids
+            interaction.message.id,
+            interaction.user.id,
+            role_ids=role_ids,
+            level=int(level or 0),
+            account_age_days=_account_age_days(interaction.user),
         )
         if status == "tidak_ada":
             await interaction.response.send_message(
@@ -47,16 +69,24 @@ class GiveawayJoinView(discord.ui.View):
                 "✅ Kamu **sudah terdaftar**. Semoga beruntung!", ephemeral=True
             )
             return
-        if status == "syarat":
+        if status in ("syarat_role", "syarat_level", "syarat_umur"):
             await interaction.response.send_message(
-                f"🔒 Giveaway ini hanya untuk pemilik <@&{cfg.get('role_id')}>.", ephemeral=True
+                engagement.describe_rejection(status, cfg or {})[:1500], ephemeral=True
             )
             return
 
         await engagement.save_engagement_to_disk()
         await self._refresh(interaction, cfg or {})
+        bobot, bonus = engagement.entry_weight(cfg or {}, role_ids)
+        ekstra = ""
+        if bobot > 1:
+            ekstra = (
+                f"\n🍀 Peluangmu **{bobot}×** lebih besar"
+                + (f" (role bonus: {', '.join(f'<@&{rid}>' for rid in bonus)})" if bonus else "")
+                + "."
+            )
         await interaction.response.send_message(
-            f"🎉 **Berhasil ikut!** Total peserta sekarang `{len(cfg.get('entries') or [])}` orang.",
+            f"🎉 **Berhasil ikut!** Total peserta sekarang `{len(cfg.get('entries') or [])}` orang.{ekstra}",
             ephemeral=True,
         )
 

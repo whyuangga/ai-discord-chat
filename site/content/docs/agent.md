@@ -90,7 +90,7 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 > Mode **dinamis** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang,
 > bot otomatis mundur ke mode banner statis — tidak ada error.
 
-## 9. 🔔 Notifikasi Sosial: YouTube, Twitch & TikTok/RSS (`/sosial`)
+## 9. 🔔 Notifikasi Sosial: YouTube, Twitch, TikTok, Reddit & RSS/Atom (`/sosial`)
 
 Tidak perlu dashboard web seperti Sapphire — semua dari Discord, **0 kuota AI** (pesan memakai template).
 
@@ -99,12 +99,16 @@ Tidak perlu dashboard web seperti Sapphire — semua dari Discord, **0 kuota AI*
 | 🎬 **YouTube** | RSS resmi `youtube.com/feeds/videos.xml` | **tidak perlu** |
 | 🟣 **Twitch** | Helix API (Client Credentials) | `TWITCH_CLIENT_ID` + `TWITCH_CLIENT_SECRET` (gratis di dev.twitch.tv) |
 | 🎵 **TikTok / RSS** | URL feed RSS (mis. instance RSSHub) | **tidak perlu** |
+| 👽 **Reddit** | feed `.rss` resmi `reddit.com/r/<sub>/new/.rss` | **tidak perlu** |
+| 📰 **RSS / Atom** | URL feed situs apa pun (blog, berita, Substack, dsb.) | **tidak perlu** |
 
 Contoh pemasangan:
 ```bash
 /sosial tambah platform:🎬 YouTube target:@NamaChannel channel:#info
 /sosial tambah platform:🟣 Twitch target:ninja channel:#live role:@Warga
 /sosial tambah platform:🎵 TikTok target:https://rsshub.app/tiktok/user/namaakun channel:#tiktok
+/sosial tambah platform:👽 Reddit target:r/indonesia channel:#reddit
+/sosial tambah platform:📰 RSS/Atom target:https://blog.contoh.com/feed.xml channel:#artikel
 /sosial daftar          # lihat ID tiap langganan
 /sosial tes id:ab12cd34 # kirim contoh notifikasi sekarang
 /sosial hapus id:ab12cd34
@@ -114,7 +118,17 @@ Cara kerja & pengaman:
 - **Anti-banjir:** pemeriksaan pertama hanya *menandai* konten lama sebagai sudah dilihat — channel tidak dibanjiri video lama.
 - **Twitch:** notifikasi hanya dikirim saat status berubah **offline → live**, bukan setiap pengecekan.
 - **Jadwal:** id channel YouTube & feed RSS dicek ≤5 menit, Twitch tiap 2 menit. Semua dijalankan di dalam watcher yang sudah ada, jadi **tidak menambah proses** di Wispbyte.
+- **Reddit tanpa API key:** cukup tulis nama subreddit (`r/indonesia`, `indonesia`, atau link
+  subreddit) — bot menyusun sendiri URL `…/r/<sub>/new/.rss` dan membaca format Atom-nya.
+- **RSS/Atom generik:** tempel URL feed apa pun; kalau situs tidak punya feed, fitur ini tidak
+  bisa memantaunya (tidak ada scraping HTML).
 - **Batas:** maksimal 12 langganan per server; `seen` disimpan 25 ID terakhir per langganan agar `data/social.json` tetap kecil.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔔 Notifikasi sosial* — daftar
+  langganan (platform, URL feed sebenarnya, channel, jejak item), form tambah dengan pilihan
+  platform & role, serta tombol hapus per langganan. Jalur tulis: `POST /api/konten`
+  (`sosial-tambah`, `sosial-hapus:<id>`).
+- Tombol tes **Notifikasi sosial** hanya memeriksa bentuk URL feed semua langganan —
+  **tanpa memanggil jaringan** dan tanpa mengirim pesan.
 - **Template kustom:** `{source}` `{title}` `{url}` `{game}` — mis. `pesan:"Video baru dari {source}: {title} {url}"`.
 
 ## Cara mendapatkan `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET` (sekali saja, gratis)

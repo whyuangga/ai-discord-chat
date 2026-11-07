@@ -31,13 +31,40 @@ toc: true
 ## 4. ⭐ Starboard — Sorotan Pesan Populer (`/starboard`)
 - **`/starboard atur channel:#starboard batas:3 emoji:⭐`** — pesan warga yang mendapat **3 reaksi bintang** otomatis disalin ke channel sorotan (embed cantik + tautan sumber).
 - Bila reaksi turun di bawah batas, sorotannya **otomatis dihapus** agar starboard tetap rapi.
-- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan konfigurasi + jumlah sorotan.
+- Pesan bot dilewati, emoji bisa diganti bebas (`🔥`, `❤️`, dll.), dan **`/starboard status`** menampilkan semua papan + jumlah sorotan.
+
+**Papan berlapis / varian (v1.40.0-beta):**
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Papan utama + varian** | Papan ⭐ tetap seperti biasa. Tambahkan **skullboard 💀**, **clownboard 🤡**, dll. dengan `/starboard varian tambah:Skull emoji:💀 batas:5 channel:#skull warna:#FF8A00`. Maksimal `STARBOARD_MAX_BOARD` = **4 papan** per server (termasuk papan utama). |
+| **Mandiri** | Tiap papan punya emoji, ambang, channel, dan warna embed sendiri. Satu pesan bisa masuk ke **beberapa papan sekaligus**; entri sorotan disimpan per papan sehingga menghapus sorotan di satu papan tidak mengganggu papan lain. |
+| **Channel kosong** | Bila channel papan tidak diisi, papan itu ikut channel papan utama. |
+| **Angka ikut naik** | Saat reaksi bertambah, angka di pesan sorotan **diperbarui** (bukan mengirim ulang); turun di bawah ambang → sorotan papan itu dihapus. |
+| **Anti-loop** | Pesan yang berada di channel papan mana pun tidak akan disorot lagi. |
+| **Dashboard** | Halaman **🧩 Konten & interaksi** → panel *Papan sorotan (varian)*: daftar papan + tombol hapus, form tambah (nama, emoji, ambang, channel, warna), dan setelan **warna embed** papan utama. |
 
 ## 5. ✅ Gerbang Verifikasi Anti-Bot (`/verifikasi`)
 - **`/verifikasi pasang channel:#verifikasi role:@Member`** — panel dengan tombol **✅ Verifikasi Saya**.
 - Member baru klik sekali → langsung dapat role akses, tanpa perlu Admin menunggu. Cocok dipadukan dengan `/autorole`.
 - **`/verifikasi status`** & **`/verifikasi matikan`** — pantau / matikan kapan saja.
 - Tombol bersifat **persisten** (`custom_id`), jadi tetap berfungsi setelah bot restart.
+
+**CAPTCHA (v1.40.0-beta, tanpa dependency baru):**
+
+```bash
+/verifikasi pasang channel:#verifikasi role:@Member captcha:True
+```
+
+- Member menekan **✅ Verifikasi Saya** → muncul **modal** berisi kode **5 huruf** (alfabet
+  tanpa `0/O/1/I/L` supaya tidak salah baca). Kode hanya terlihat oleh member itu.
+- Salah ketik: **3 percobaan**, kode **kedaluwarsa 5 menit**; habis/kedaluwarsa → tekan tombol
+  lagi untuk kode baru. Kode disimpan **di memori** saja dan dibersihkan otomatis tiap jam.
+- Bedanya dengan tombol biasa: bot self-bot/otomasi tidak bisa menyelesaikan modal, jadi
+  gerbang ini menahan akun yang "rajin" klik.
+- **Dashboard:** halaman **🛡️ Keamanan** → sakelar *CAPTCHA verifikasi* (butuh channel
+  verifikasi terpasang dulu) + tombol tes **Gerbang verifikasi & CAPTCHA** yang hanya
+  memeriksa setelan — **tidak** memberikan role ke siapa pun.
 
 ## 6. 📌 Sticky Message — Petunjuk Selalu di Bawah (`/sticky`)
 - **`/sticky pasang isi:"Baca #rules dulu sebelum chat!" channel:#umum judul:"📌 Aturan"`**
@@ -133,3 +160,168 @@ Detail penting:
 - **Aman restart:** daftar room di `data/temp_voice.json`; room yatim dibersihkan lewat penyapuan tiap 5 menit.
 - **Tidak mengganggu musik:** listener hanya menyentuh channel hub & room yang dibuatnya sendiri.
 - **0 kuota AI.**
+
+## 11. 🏷️ Tag Jawaban Siap Pakai (`/tag`)
+
+Jawaban yang paling sering ditanya staf (`aturan`, `harga`, `cara refund`) disimpan
+sekali, lalu dipanggil kapan saja oleh siapa pun. **Tanpa AI sama sekali** — isi tag
+tidak pernah dikirim ke Gemini, jadi 0 kuota dan tidak bisa "dikarang" model.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/tag lihat nama:aturan` | Tampilkan isi tag (siapa pun boleh). Nama bisa dicari langsung dari dropdown. |
+| `/tag daftar` | Daftar semua tag server + jumlah pemakaian. |
+| `/tag cari kata:refund` | Cari tag lewat **nama atau isi** — berguna saat staf lupa nama tag-nya. |
+| `/tag buat nama:aturan isi:…` | *(Staf)* Buat tag baru. |
+| `/tag ubah nama:aturan isi:…` | *(Staf)* Perbarui isi tag. |
+| `/tag hapus nama:aturan` | *(Staf)* Hapus tag. |
+
+Detail penting:
+- Nama tag **dinormalisasi** otomatis (`Aturan Server!` → `aturan-server`) supaya mudah dipanggil.
+- Maksimal **100 tag/server**, isi maks **1.800 huruf** (batas embed), tanpa biaya kuota.
+- Penghitung `dipakai` membantu melihat tag mana yang benar-benar berguna (dan mana yang usang).
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🏷️ Tag jawaban siap pakai* — tambah/perbarui, hapus per tag, lihat statistik pemakaian, dan **sakelar aktif/nonaktif** (data tetap tersimpan). Jalur tulis: `POST /api/konten` (`tag-simpan`, `tag-hapus:<nama>`, `tag-aktif:1|0`).
+- Data di `data/tags.json`; tombol tes **Tag jawaban server** hanya menyimulasikan pencarian tanpa menaikkan penghitung.
+
+## 12. 🏅 Lencana Bertingkat (`/lencana`)
+
+Pencapaian yang **dihitung dari data yang sudah dicatat bot** (jumlah pesan, menit voice,
+level, riwayat menang undian). Tidak ada pelacakan baru, tidak ada tabel tambahan, dan
+**0 kuota AI**.
+
+| Lencana | Tangga tingkat |
+| :--- | :--- |
+| 💬 Rajin Ngobrol | 50 · 250 · 1.000 · 5.000 · 15.000 pesan |
+| 🎙️ Penghuni Voice | 60 · 300 · 1.200 · 5.000 menit voice |
+| 📈 Pendaki Level | 5 · 10 · 25 · 50 level (prestise menambah 100) |
+| 🎉 Hoki Undian | 1 · 3 · 10 kali menang undian |
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lencana lihat [member]` | Lencana + bar progres + sisa menuju tingkat berikutnya. |
+| `/lencana papan` | Papan lencana server (10 teratas, medali 🥇🥈🥉). |
+| `/lencana periksa [member]` | *(Staf)* Segarkan lencana sekarang — berguna setelah impor data level. |
+| `/lencana atur channel:… aktif:…` | *(Admin)* Channel pengumuman lencana & sakelar global. |
+| `/lencana role kunci:… tingkat:… role:…` | *(Admin)* Role hadiah per tingkat (kosongkan `role` untuk menghapus). |
+
+Detail penting:
+- Pemeriksaan otomatis menempel di alur XP pesan & voice, jadi tidak ada pekerjaan latar
+  tambahan dan tidak menambah beban CPU server Free Tier.
+- Pemberian role hadiah **idempoten**: tingkat yang sudah diumumkan tidak diulang, dan
+  pemberian lencana selalu aman walau bot restart (tersimpan di `data/achievements.json`).
+- Maksimal **500 member terdata per server** (yang paling lama tidak aktif dikeluarkan lebih dulu).
+- **Panel dashboard:** halaman **⚙️ Inti & level** → *🏅 Lencana bertingkat* — setelan channel
+  pengumuman, sakelar aktif/nonaktif, pemasangan/penghapusan role hadiah per tingkat, tangga
+  tingkat, dan papan lencana. Jalur tulis: `POST /api/lencana`
+  (`lencana-setelan`, `lencana-role`, `lencana-hapus:<kunci>:<tingkat>`).
+- Tombol tes **Lencana bertingkat** hanya menghitung progres (simulasi) — tidak memberi role
+  dan tidak mengirim pengumuman.
+
+## 13. 🔔 Highlight Kata Kunci (`/pantau`)
+
+Member memilih kata kunci sendiri (mis. `open order`, nama barang, nama dirinya), lalu bot
+mengirim **DM** berisi tautan pesan, penulis, channel, dan cuplikan singkat setiap kali kata
+itu muncul di chat. Khas bot besar, tapi di sini **tanpa AI** dan **tanpa menyimpan isi pesan**.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/pantau tambah kata:open order` | Pantau satu kata/frasa (maks **10** per member). |
+| `/pantau hapus kata:open order` | Berhenti memantau satu kata. |
+| `/pantau daftar` | Lihat kata kunci, channel & kata yang diabaikan, jumlah DM terkirim. |
+| `/pantau abaikan channel:#umum` | Channel ini tidak memicu highlight untukmu. |
+| `/pantau abaikan kata:spam` | Kata ini tidak memicu highlight untuk siapa pun. |
+| `/pantau bersihkan` | Hapus semua setelan highlight milikmu (opt-out total). |
+| `/pantau atur aktif:… abaikan_channel:…` | *(Admin)* Sakelar server & channel yang selalu diabaikan. |
+
+Detail penting:
+- **Pencocokan batas kata** (`bot` cocok di “bot itu”, tidak di “robot”), tidak peka huruf besar.
+- **Anti-banjir:** jeda 5 menit untuk kata yang sama per member + maksimal **5 DM/menit**
+  (bisa diturunkan dari dashboard). Satu pesan = maksimal satu DM per member.
+- Penulis pesan tidak dikirimi DM untuk pesannya sendiri; DM yang ditutup member dilewati
+  tanpa mengganggu chat.
+- Tidak ada isi pesan yang ditulis ke disk — `data/highlights.json` hanya berisi kata kunci,
+  daftar abaikan, dan penghitung.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔔 Highlight kata kunci* — sakelar
+  aktif, batas DM/menit, daftar channel yang diabaikan, daftar pelanggan + tombol hapus.
+  Jalur tulis: `POST /api/konten` (`pantau-setelan`, `pantau-hapus:<user_id>`).
+- Tombol tes **Highlight kata kunci** hanya menyimulasikan pencocokan kalimat contoh —
+  tidak ada DM yang dikirim.
+
+## 14. 💌 Curhat Anonim (`/curhat`)
+
+Satu channel khusus untuk **curhat tanpa nama** ala bot besar. Pesan diposting bot dengan
+nomor urut dan tanpa penulis; bot **tidak menyimpan isi curhat**. 0 kuota AI.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/curhat kirim teks:…` | Kirim curhat anonim ke channel yang sudah diatur. |
+| `/curhat atur channel:… aktif:… izinkan_link:… jeda_menit:…` | *(Admin)* Pilih channel, sakelar, izin tautan, jeda per orang. |
+| `/curhat hapus nomor:…` | *(staf)* Hapus curhat yang melanggar + catatannya. |
+
+Detail penting:
+- **Batas:** 10–900 huruf, maksimal **3 curhat/jam** per penanda penulis, jeda bawaan **5 menit**.
+- **Tautan** diblokir kecuali Admin mengizinkan (`izinkan_link`).
+- Identitas penulis hanya disimpan sebagai **hash 12 huruf** (`sha256`) — cukup untuk
+  menegakkan jeda, tapi tidak membocorkan siapa penulisnya.
+- `data/confessions.json` hanya berisi setelan, **nomor**, `pesan_id`, `channel_id`, waktu,
+  dan hash — **tanpa teks curhat**.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *💌 Curhat anonim* — channel,
+  sakelar, izin tautan, jeda, daftar curhat terakhir (nomor + penanda hash) + tombol hapus
+  catatan. Jalur tulis: `POST /api/konten` (`curhat-setelan`, `curhat-hapus:<nomor>`).
+- Tombol tes **Curhat anonim** menjalankan validasi aturan pada kalimat contoh — tidak ada
+  pesan yang diposting dan nomor tidak terpakai.
+
+## 15. 🔗 Voice Linking (`/tempvoice tautkan`)
+
+Ala bot besar: selama member berada di voice channel, bot memberi **role khusus** dan membuka
+**channel teks privat** untuk voice itu. Keluar voice → akses dicabut otomatis. **0 kuota AI.**
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/tempvoice tautkan` | Lihat status voice linking (role, channel privat, jumlah channel). |
+| `/tempvoice tautkan aktif:True role:@Warga Voice` | *(Admin)* Nyalakan & pilih role selama di voice. |
+| `/tempvoice tautkan channel_privat:True kategori:#Voice` | *(Admin)* Buat channel teks privat per voice, di kategori tertentu. |
+| `/tempvoice tautkan hapus_kosong:False` | *(Admin)* Biarkan channel privat tetap ada walau voice kosong. |
+
+Cara kerja:
+- Saat member **masuk** voice: role diberikan (hanya bila dia belum memilikinya) dan channel
+  `⌨️-<nama voice>` dibuat/disiapkan. `@everyone` **tidak** bisa melihat; hanya member yang
+  sedang di voice itu yang mendapat izin lihat + kirim.
+- Saat member **keluar**: izinnya dicabut. Bila voice channel jadi kosong dan
+  `hapus_kosong` menyala, channel privatnya dihapus. Pindah voice **tidak** mencabut role.
+- Role yang **sudah dimiliki member sebelum masuk voice** tidak akan dicabut saat keluar —
+  bot hanya mencabut role yang benar-benar ia berikan.
+- Batas **40** channel privat per server. Butuh izin **Manage Roles** & **Manage Channels**.
+- Satu listener voice dipakai bersama XP voice, audit log, dan Temp Voice (supaya tidak saling
+  menimpa) — lihat `cogs/events_cog.py`.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔗 Voice linking* — sakelar, role,
+  channel privat, hapus-saat-kosong, kategori, daftar channel yang dikelola + tombol lepas.
+  Jalur tulis: `POST /api/konten` (`voice-setelan`, `voice-lepas:<voice_id>`).
+- Tombol tes **Voice linking** hanya memeriksa setelan & keberadaan role — tidak mengubah role
+  atau channel siapa pun.
+
+## 16. ℹ️ Channel Info Otomatis (`/kanal-info`)
+
+Channel baca-saja berisi **aturan & info penting** yang diperbarui sendiri. Admin menulis isinya
+sekali; bot menerbitkan **satu pesan embed** lalu **mengedit pesan yang sama** setiap kali isi
+berubah — channel tidak penuh pesan lama. **0 kuota AI**, menumpang watcher yang sudah ada.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/kanal-info atur` | *(Admin)* Pilih channel, sakelar, judul, warna, & interval cek. |
+| `/kanal-info isi` | *(Admin)* Tulis/ganti isi aturan & info (20–3500 huruf, boleh multi-baris). |
+| `/kanal-info segarkan` | *(Admin)* Terbitkan/perbarui pesan sekarang juga. |
+| `/kanal-info status` | Lihat ringkasan setelan + cuplikan isi. |
+
+Cara kerja:
+- Pesan diterbitkan saat isi pertama kali disimpan; setelah itu **hanya diedit** (id pesan
+  disimpan di `data/info_channel.json`).
+- Bila pesan terhapus manual, bot menerbitkannya lagi pada pemeriksaan berikutnya.
+- Interval (5–1440 menit) dipakai untuk **memverifikasi** pesan masih ada, bukan untuk
+  menulis ulang isi.
+- Bot butuh izin **Send Messages**, **Embed Links**, & **Manage Messages** di channel itu.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *ℹ️ Channel info otomatis* —
+  channel, sakelar, judul, warna, interval, kotak isi + tombol simpan & segarkan, plus
+  pratinjau embed. Jalur tulis: `POST /api/konten` (`info-setelan`, `info-isi`, `info-segarkan`).
+- Tombol tes **Channel info otomatis** hanya memeriksa kelengkapan setelan — tidak mengedit
+  pesan di channel.

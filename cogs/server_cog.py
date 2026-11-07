@@ -11,6 +11,12 @@ from antispam import (
     save_antispam_to_disk,
     set_spam_config,
 )
+from honeypot import (
+    AKSI_HONEYPOT,
+    save_honeypot_to_disk,
+    set_honeypot,
+    status as status_honeypot,
+)
 from cogs.helpers import get_interaction_http_session
 from server_features import (
     PHISHING_ACTIONS,
@@ -150,7 +156,7 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
 
 @serverstats_group.command(
     name="ikon",
-    description="Ganti emoji ikon tiap Voice Channel statistik (atau hapus ikonnya)",
+    description="Ganti emoji ikon tiap channel statistik tiket & sosial (atau hapus ikonnya)",
 )
 @app_commands.describe(
     anggota="Emoji untuk channel Total Member (contoh: 👥)",
@@ -158,6 +164,8 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
     bot="Emoji untuk channel Bot (contoh: 🤖)",
     online="Emoji untuk channel Online (contoh: 🟢)",
     boost="Emoji untuk channel Boost (contoh: 💎)",
+    tiket="Emoji untuk channel Tiket Terbuka (contoh: 🎫)",
+    sosial="Emoji untuk channel Langganan Sosial (contoh: 🔔)",
     kategori="Nama kategori statistik (contoh: 📈 Statistik Server)",
     reset="True untuk mengembalikan semua ikon & nama kategori ke bawaan bot",
 )
@@ -168,6 +176,8 @@ async def serverstats_ikon_cmd(
     bot: str | None = None,
     online: str | None = None,
     boost: str | None = None,
+    tiket: str | None = None,
+    sosial: str | None = None,
     kategori: str | None = None,
     reset: bool = False,
 ):
@@ -189,6 +199,8 @@ async def serverstats_ikon_cmd(
                 "bots": bot,
                 "online": online,
                 "boosts": boost,
+                "tickets": tiket,
+                "social": sosial,
             },
         )
         if kategori is not None:
@@ -966,6 +978,110 @@ async def keamanan_spam_cmd(
         f"• **Huruf kapital:** {'✅ aktif' if cfg.get('caps_enabled') else '⛔ nonaktif'}\n"
         f"• **Anti-Raid:** lapor otomatis (tidak menendang)\n"
         f"> Admin, pengurus, & role pengecualian **tidak pernah** diperiksa.{warn}",
+        ephemeral=True,
+    )
+
+
+@keamanan_group.command(
+    name="honeypot",
+    description="Channel jebakan: siapa pun yang menulis di sana langsung ditindak (self-bot & skrip raid)",
+)
+@app_commands.describe(
+    channel="Channel jebakan (boleh lebih dari satu, maks 3). Kosongkan untuk melihat status.",
+    aksi="Tindakan saat ada yang menulis di channel jebakan (default: lapor saja)",
+    timeout_detik="Lama time-out bila aksi=timeout (60–86400 detik)",
+    log_channel="Channel untuk mencatat setiap tangkapan honeypot",
+    abaikan_staf="True (default) = Admin/pengurus tidak pernah ditindak",
+    aktif="False untuk mematikan honeypot tanpa menghapus channel jebakan",
+)
+@app_commands.choices(
+    aksi=[
+        app_commands.Choice(name=teks[:100], value=kunci)
+        for kunci, teks in AKSI_HONEYPOT.items()
+    ]
+)
+async def keamanan_honeypot_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel | None = None,
+    aksi: app_commands.Choice[str] | None = None,
+    timeout_detik: int = 0,
+    log_channel: discord.TextChannel | None = None,
+    abaikan_staf: bool = True,
+    aktif: bool = True,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    gid = interaction.guild.id
+    if not aktif:
+        set_honeypot(gid, enabled=False)
+        await save_honeypot_to_disk()
+        await interaction.response.send_message(
+            "🛑 **Honeypot dimatikan.** Channel jebakan tetap tersimpan, jadi bisa "
+            "dinyalakan lagi kapan pun.",
+            ephemeral=True,
+        )
+        return
+
+    if channel is None and aksi is None and not timeout_detik and log_channel is None:
+        data = status_honeypot(gid)
+        if not data["aktif"]:
+            await interaction.response.send_message(
+                "ℹ️ Honeypot belum aktif. Pilih channel jebakan dulu:\n"
+                "`/keamanan honeypot channel:#promo-gratis aksi:timeout`.",
+                ephemeral=True,
+            )
+            return
+        daftar = ", ".join(f"<#{cid}>" for cid in data["channel_ids"]) or "-"
+        terakhir = data.get("terakhir") or {}
+        jejak = (
+            f"\n• **Terakhir:** <@{int(terakhir.get('user_id') or 0)}> di "
+            f"<#{int(terakhir.get('channel_id') or 0)}> (`{terakhir.get('aksi')}`)"
+            if terakhir
+            else ""
+        )
+        await interaction.response.send_message(
+            "🪤 **Status Honeypot**\n"
+            f"• **Channel jebakan:** {daftar}\n"
+            f"• **Tindakan:** {data['label_aksi']}\n"
+            f"• **Abaikan staf:** {'ya' if data['abaikan_staf'] else 'tidak'}\n"
+            f"• **Total tertangkap:** `{data['tangkap']}`"
+            f"{jejak}\nKosongkan channel untuk mematikan? Pakai `/keamanan honeypot aktif:False`.",
+            ephemeral=True,
+        )
+        return
+
+    lama = status_honeypot(gid)
+    ids = list(lama["channel_ids"])
+    if channel is not None and channel.id not in ids:
+        ids.append(channel.id)
+    cfg = set_honeypot(
+        gid,
+        channel_ids=ids,
+        aksi=aksi.value if aksi is not None else None,
+        timeout_sec=timeout_detik or None,
+        log_channel_id=log_channel.id if log_channel is not None else None,
+        abaikan_staf=abaikan_staf,
+    )
+    await save_honeypot_to_disk()
+    assert cfg is not None
+    data = status_honeypot(gid)
+    log_tujuan = f"<#{data['log_channel_id']}>" if data["log_channel_id"] else "belum diatur"
+    catatan = ""
+    if data["aksi"] in ("kick", "ban") and not abaikan_staf:
+        catatan = "\n⚠️ **Abaikan staf dimatikan** — Admin/pengurus juga bisa tertangkap!"
+    elif data["aksi"] == "lapor":
+        catatan = "\nℹ️ Mode **lapor** belum menindak apa pun. Pilih `aksi:hapus`/`timeout` bila sudah yakin."
+    await interaction.response.send_message(
+        "🪤 **Honeypot aktif**\n"
+        f"• **Channel jebakan:** {', '.join(f'<#{cid}>' for cid in data['channel_ids'])}\n"
+        f"• **Tindakan:** {data['label_aksi']}\n"
+        f"• **Log:** {log_tujuan}\n"
+        "• Pesan pertama di channel itu langsung dianggap bukti spam/self-bot."
+        f"{catatan}",
         ephemeral=True,
     )
 

@@ -14,6 +14,7 @@ toc: true
 | Command | Fungsi |
 | :--- | :--- |
 | **`/level lihat [member]`** | Kartu level + progress bar `▰▰▰▱▱`, total XP, & jumlah pesan. |
+| **`/level kartu [member] [publik:True]`** | **Kartu rank PNG** dirender server (Pillow): foto profil bulat, nama, level, prestise, peringkat `#3 / 24`, progress bar, & ringkasan aktivitas. Tanpa Pillow/kartu dimatikan → otomatis kembali ke kartu teks. |
 | **`/level papan halaman:1`** | Papan peringkat 10 besar (🥇🥈🥉) + total member terdata. |
 | **`/level atur aktif:True jeda:60 xp_minimal:15 xp_maksimal:25`** *(Admin)* | Nyalakan & atur XP. |
 | **`/level atur pengumuman:False channel_pengumuman:#level`** | Atur pengumuman naik level. |
@@ -60,16 +61,40 @@ toc: true
 | **`/tiket tutup`** | Tutup tiket (pembuat atau staf) + kirim transkrip. |
 | **`/tiket atur sla_jam:2 auto_close_jam:72 rating_aktif:True channel_sla:#mod-log`** *(Admin)* | Batas **SLA respons pertama**, **auto-close** tiket menganggur, & kartu **rating bintang**. |
 | **`/tiket rating`** | Rata-rata rating bintang, sebaran bintang, & statistik SLA server. |
+| **`/tiket catat teks:...`** *(Staf)* | Catatan internal — **tidak dikirim ke thread**, hanya tersimpan & tampil di dashboard. |
+| **`/tiket catatan [hapus:<nomor>]`** *(Staf)* | Lihat/hapus catatan internal tiket ini (1 = paling lama). |
+| **`/tiket topik [tambah:<nama>] [hapus:<nama>] [role:@Staf] [emoji:🛒] [deskripsi:...]`** *(Admin)* | Atur **beberapa topik** pada satu panel. Tanpa argumen = daftar topik. |
 | **`/tiket matikan`** *(Admin)* | Matikan sistem tiket (thread lama tetap bisa dibaca). |
 
 **Cara kerja:**
 1. Member klik **🎟️ Buat Tiket** → bot membuat **private thread** `tiket-<nama>` (bukan channel baru → tidak memakan slot 500 channel/server).
+   Bila panel sudah punya **topik** (mis. *Pembelian*, *Lapor Bug*), tombol tunggal berganti menjadi
+   **dropdown topik**; thread-nya bernama `tiket-<topik>-<nama>`, judul tiket menyebut topiknya, dan
+   yang diundang adalah **role staf topik itu** (kalau belum diatur, ikut role staf umum). Tombol
+   **Topik lain** tetap tersedia untuk keluhan yang tidak masuk daftar. Maksimal
+   `TICKET_TOPIC_MAX` (default **8**) topik per server, nama maks `TICKET_TOPIC_LEN` (40) karakter.
 2. Pembuat tiket otomatis ditambahkan, lalu **maksimal 15 staf** dari role petugas ikut ditambahkan; sisanya bisa lewat `/tiket tambah`.
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
+   Transkrip juga diarsipkan sebagai **HTML** di `data/transcripts/<server>/` sehingga bisa **dibuka & dicari
+   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Batas arsip
+   `TICKET_ARSIP_MAX` (default **200** tiket terbaru per server); arsip lama otomatis dipangkas.
+   Setiap tiket juga bisa diberi **catatan internal staf** (`/tiket catat` atau kotak di dashboard):
+   disimpan di `data/tickets.json`, maksimal **25 catatan** per tiket, dan **tidak pernah** dikirim
+   ke thread — member tidak bisa membacanya.
 5. Batas tiket aktif per member `TICKET_MAX_OPEN_PER_USER` (default **2**) mencegah spam tiket.
 
-**Kualitas layanan (v1.33.0-beta, 0 kuota AI):**
+**Kartu rank PNG (v1.40.0-beta, 0 kuota AI):**
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Perender tunggal** | `rank_card.py` merender kartu untuk **`/level kartu`** *dan* pratinjau dashboard (`GET /api/rank.png`) — preview = hasil asli, bukan gambar contoh. |
+| **Yang tampil** | Foto profil bulat + cincin warna aksen, nama, level, prestise (`· PRESTISE ×2`), peringkat `#3 / 24`, progress bar XP, total XP, server · musim · jumlah pesan. Member tanpa avatar dapat lingkaran inisial; nama & angka panjang dipotong dengan `…`, bukan merusak tata letak. |
+| **Latar** | Gradasi warna aksen bawaan, atau **gambar yang diunggah** dari dashboard (slot *kartu rank*, PNG/JPG/GIF/WEBP, maks 8 MB). |
+| **Setelan** | Sakelar **Kartu rank PNG**, warna aksen hex (`#5865F2`), unggah/hapus latar, dan **tombol tes** — semuanya di halaman **⚙️ Inti & level** (rule #72). |
+| **Batas** | Ukuran 1024×360 px, hasil ±18–30 KB. Tanpa Pillow terpasang, fitur otomatis mundur ke kartu teks (tidak pernah error ke member). |
+
+**Kualitas layanan tiket (v1.33.0-beta, 0 kuota AI):**
 
 | Fitur | Detail |
 | :--- | :--- |

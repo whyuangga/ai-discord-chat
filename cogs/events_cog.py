@@ -36,6 +36,11 @@ from community_tools import (
     maybe_refresh_sticky,
     save_community_tools_to_disk,
 )
+from honeypot import (
+    handle_channel_delete as handle_honeypot_channel_delete,
+    handle_honeypot,
+    save_honeypot_to_disk,
+)
 from antispam import (
     handle_channel_delete as handle_antispam_channel_delete,
     handle_member_join_guard,
@@ -187,6 +192,9 @@ def register_events_cog(bot: commands.Bot) -> None:
             )
             if audit_log.handle_channel_delete(getattr(channel, "id", 0)):
                 await audit_log.save_audit_to_disk()
+            import snipe
+
+            snipe.lupakan_channel(getattr(channel, "id", 0))
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Audit log channel hapus dilewati: %s", exc)
         removed = False
@@ -246,6 +254,8 @@ def register_events_cog(bot: commands.Bot) -> None:
         try:
             import antinuke
 
+            if handle_honeypot_channel_delete(channel):
+                await save_honeypot_to_disk()
             if antinuke.handle_channel_delete(getattr(channel, "id", 0)):
                 await antinuke.save_antinuke_to_disk()
         except Exception as exc:  # pragma: no cover - jaring aman
@@ -304,6 +314,14 @@ def register_events_cog(bot: commands.Bot) -> None:
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Audit log pesan hapus dilewati: %s", exc)
 
+        # Snipe: simpan 5 pesan terakhir per channel **di memori** untuk staf.
+        try:
+            import snipe
+
+            snipe.catat_hapus(message)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Snipe hapus dilewati: %s", exc)
+
     @bot.event
     async def on_bulk_message_delete(messages):
         """Mencatat hapus massal (purge) ke Audit Log."""
@@ -314,6 +332,15 @@ def register_events_cog(bot: commands.Bot) -> None:
         except Exception as exc:  # pragma: no cover
             logger.debug("Audit log hapus massal dilewati: %s", exc)
 
+        # Snipe: catat juga pesan yang terhapus lewat purge (tanpa membanjiri memori).
+        try:
+            import snipe
+
+            for pesan in list(messages)[-snipe.MAX_PER_CHANNEL:]:
+                snipe.catat_hapus(pesan)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Snipe hapus massal dilewati: %s", exc)
+
     @bot.event
     async def on_message_edit(before: discord.Message, after: discord.Message):
         """Mencatat pesan yang diedit ke Audit Log."""
@@ -323,6 +350,14 @@ def register_events_cog(bot: commands.Bot) -> None:
             await audit_log.log_message_edit(bot, before, after)
         except Exception as exc:  # pragma: no cover
             logger.debug("Audit log pesan edit dilewati: %s", exc)
+
+        # EditSnipe: isi sebelum & sesudah (memori saja, maks 5/channel).
+        try:
+            import snipe
+
+            snipe.catat_edit(before, after)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Snipe edit dilewati: %s", exc)
 
     @bot.event
     async def on_audit_log_entry_create(entry):
@@ -478,7 +513,11 @@ def register_events_cog(bot: commands.Bot) -> None:
 
     @bot.event
     async def on_voice_state_update(member, before, after):
-        """Memulai/menghentikan hitungan XP voice (0 kuota AI)."""
+        """Satu-satunya listener voice: XP voice, audit log, Temp Voice, & voice linking.
+
+        Penting: `bot.event` menimpa handler dengan nama sama, jadi semua fitur voice
+        harus dipanggil dari sini (bukan mendaftarkan listener kedua).
+        """
         try:
             import voice_activity
 
@@ -491,6 +530,19 @@ def register_events_cog(bot: commands.Bot) -> None:
             await audit_log.log_voice_change(bot, member, before, after)
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Audit log voice dilewati: %s", exc)
+        try:
+            import temp_voice as tv
+
+            if not (getattr(member, "bot", False) and getattr(before, "channel", None) == getattr(after, "channel", None)):
+                await tv.handle_voice_update(before, after, member)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Temp Voice gagal memproses perubahan voice: %s", exc)
+        try:
+            import voice_link
+
+            await voice_link.handle_voice_state(member, before, after)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Voice linking dilewati: %s", exc)
 
     @bot.event
     async def on_member_remove(member: discord.Member):
@@ -584,6 +636,24 @@ def register_events_cog(bot: commands.Bot) -> None:
                     return
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Anti-Phishing gagal memeriksa pesan: %s", exc)
+
+        # 1B-1. Honeypot: channel jebakan. Siapa pun yang menulis di sana hampir pasti
+        #       self-bot / skrip spam, jadi pemeriksaan ini didahulukan & tanpa ambang.
+        if message.guild is not None:
+            try:
+                if await handle_honeypot(message, bot=bot):
+                    return
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.warning("Honeypot gagal memeriksa pesan: %s", exc)
+
+        # 1B-1b. Highlight kata kunci → DM (0 kuota AI, hanya pencocokan teks biasa).
+        if message.guild is not None:
+            try:
+                from cogs.highlights_cog import maybe_highlight
+
+                await maybe_highlight(bot, message)
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Highlight dilewati: %s", exc)
 
         # 1B-2. Penjaga Anti-Spam ringan (mode default: hanya lapor ke channel log).
         #       Admin, staf, bot, & channel/role pengecualian selalu diabaikan sehingga

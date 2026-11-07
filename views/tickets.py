@@ -9,8 +9,32 @@ from utils import sanitize_error_message
 logger = logging.getLogger("gemini_bot.views.tickets")
 
 
-async def handle_ticket_open(interaction: discord.Interaction) -> None:
-    """Logika bersama tombol "Buat Tiket" (dipakai panel V2 maupun versi embed)."""
+def _id(nilai: object) -> int:
+    """Angka ID yang aman dari `None`/teks aneh."""
+    try:
+        return int(nilai)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def _nilai_select(interaction) -> str:
+    """Nilai dropdown yang dipilih (aman untuk interaksi tiruan di tes)."""
+    data = getattr(interaction, "data", None)
+    if isinstance(data, dict):
+        values = data.get("values") or []
+        if values:
+            return str(values[0])
+    return ""
+
+
+def _slug(nama: str) -> str:
+    """Nama topik → bagian nama thread (`Lapor Bug` → `lapor-bug`)."""
+    bersih = "".join(ch if ch.isalnum() else "-" for ch in str(nama or "").lower())
+    return "-".join(bagian for bagian in bersih.split("-") if bagian)[:30]
+
+
+async def handle_ticket_open(interaction: discord.Interaction, topik: dict | None = None) -> None:
+    """Logika bersama tombol "Buat Tiket" & dropdown topik (panel V2 maupun embed)."""
     if interaction.guild is None:
         await interaction.response.send_message("⚠️ Tiket hanya bisa dibuat di dalam server.", ephemeral=True)
         return
@@ -30,11 +54,15 @@ async def handle_ticket_open(interaction: discord.Interaction) -> None:
         return
 
     await interaction.response.defer(ephemeral=True)
+    nama_topik = str((topik or {}).get("nama") or "").strip()
     topic = f"Bantuan dari {interaction.user.display_name}"[:100]
+    if nama_topik:
+        topic = f"{nama_topik} — {interaction.user.display_name}"[:100]
     thread = None
     try:
+        dasar_nama = f"tiket-{_slug(nama_topik)}-{interaction.user.name}" if nama_topik else f"tiket-{interaction.user.name}"
         thread = await channel.create_thread(
-            name=f"tiket-{interaction.user.name}"[:90],
+            name=dasar_nama[:90],
             type=discord.ChannelType.private_thread,
             invitable=False,
             auto_archive_duration=1440,
@@ -44,7 +72,7 @@ async def handle_ticket_open(interaction: discord.Interaction) -> None:
         logger.warning("Gagal membuat private thread tiket: %s", sanitize_error_message(exc))
         try:  # Fallback: thread publik bila private thread tidak diizinkan
             thread = await channel.create_thread(
-                name=f"tiket-{interaction.user.name}"[:90],
+                name=dasar_nama[:90],
                 type=discord.ChannelType.public_thread,
                 auto_archive_duration=1440,
                 reason="Tiket dukungan (fallback thread publik)",
@@ -66,7 +94,8 @@ async def handle_ticket_open(interaction: discord.Interaction) -> None:
         await thread.add_user(interaction.user)
     except (discord.Forbidden, discord.HTTPException):
         pass
-    staff_role_id = cfg.get("staff_role_id")
+    # Topik boleh punya role staf sendiri; bila tidak, pakai role staf umum.
+    staff_role_id = _id((topik or {}).get("staff_role_id")) or cfg.get("staff_role_id")
     if staff_role_id:
         role = interaction.guild.get_role(int(staff_role_id))
         for member in list(getattr(role, "members", []) or [])[:15]:
@@ -82,6 +111,7 @@ async def handle_ticket_open(interaction: discord.Interaction) -> None:
         interaction.guild.id,
         interaction.user.id,
         topic=topic,
+        topik=nama_topik,
     )
     await tickets.save_tickets_to_disk()
 
@@ -106,6 +136,51 @@ class TicketPanelView(ui_kit.ui.LayoutView):
     def __init__(self, guild_id: int | None = None):
         super().__init__(timeout=None)
         self.guild_id = guild_id
+        daftar_topik = tickets.list_ticket_topics(guild_id) if guild_id else []
+        baris = []
+        if daftar_topik:
+            opsi = [
+                ui_kit.option(
+                    f"{item.get('emoji') or ''} {item['nama']}".strip(),
+                    item["nama"],
+                    emoji=item.get("emoji") or None,
+                    description=item.get("deskripsi") or None,
+                )
+                for item in daftar_topik
+            ]
+            baris.append(
+                ui_kit.action_row(
+                    ui_kit.select_menu(
+                        "ticket:panel:topik",
+                        "Pilih topik bantuan…",
+                        opsi,
+                        callback=self._pilih_topik,
+                    )
+                )
+            )
+            baris.append(
+                ui_kit.action_row(
+                    ui_kit.button(
+                        "Topik lain",
+                        emoji="🎟️",
+                        style=discord.ButtonStyle.secondary,
+                        custom_id="ticket:panel:open",
+                        callback=handle_ticket_open,
+                    )
+                )
+            )
+        else:
+            baris.append(
+                ui_kit.action_row(
+                    ui_kit.button(
+                        "Buat Tiket",
+                        emoji="🎟️",
+                        style=discord.ButtonStyle.primary,
+                        custom_id="ticket:panel:open",
+                        callback=handle_ticket_open,
+                    )
+                )
+            )
         self.add_item(
             ui_kit.card(
                 guild_id,
@@ -124,17 +199,15 @@ class TicketPanelView(ui_kit.ui.LayoutView):
                     "• Tulis pertanyaanmu di thread; staf terkait akan diberi tahu.\n"
                     "• Setelah selesai, staf menutup tiket dan transkrip bisa disimpan."
                 ),
-                ui_kit.action_row(
-                    ui_kit.button(
-                        "Buat Tiket",
-                        emoji="🎟️",
-                        style=discord.ButtonStyle.primary,
-                        custom_id="ticket:panel:open",
-                        callback=handle_ticket_open,
-                    )
-                ),
+                *baris,
             )
         )
+
+    async def _pilih_topik(self, interaction: discord.Interaction) -> None:
+        """Member memilih satu topik dari dropdown → buat tiket dengan role staf topik itu."""
+        nama = _nilai_select(interaction)
+        topik = tickets.find_topic(self.guild_id or 0, nama) if self.guild_id else None
+        await handle_ticket_open(interaction, topik=topik)
 class TicketPanelFallbackView(discord.ui.View):
     """Versi klasik tombol tiket (dipakai bila klien menolak Components V2)."""
 

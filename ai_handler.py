@@ -28,6 +28,7 @@ from config import (
     GEMINI_TEXT_FALLBACK_CHAIN,
     MAX_CONCURRENT_MEDIA_TASKS,
     RATIO_OPTIONS,
+    STYLE_OPTIONS,
     STYLE_PROMPTS,
     parse_gemini_keys,
     resolve_model_key,
@@ -316,8 +317,22 @@ async def get_ai_response(
     bot_user_id: int | None = None,
     server_knowledge: str = "",
     safety_level: str | None = None,
+    user_id: int | None = None,
+    guild_id: int | None = None,
 ) -> str:
     """Mendapatkan balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search) dari Google Gemini API."""
+
+    # Setelan AI per member & kepribadian server (tanpa menambah kuota: hanya teks tambahan).
+    temperature_override: float | None = None
+    try:
+        import ai_user_settings
+
+        instruksi = ai_user_settings.gabung_instruksi(user_id, guild_id)
+        temperature_override = ai_user_settings.get_temperature(user_id)
+        if instruksi:
+            prompt = f"{prompt}\n\n[Instruksi gaya — patuhi bila tidak bertentangan dengan aturan: {instruksi}]"
+    except Exception:  # pragma: no cover - jaring aman
+        pass
     global _paid_google_search_available
     if not is_gemini_key_configured():
         return (
@@ -476,7 +491,10 @@ async def get_ai_response(
                 tools_list.append({"google_search": {}})
 
             for s_idx, s_model in enumerate(grounded_models):
-                s_gen_cfg: dict = {"temperature": 0.5, "maxOutputTokens": 4096}
+                s_gen_cfg: dict = {
+                    "temperature": temperature_override if temperature_override is not None else 0.5,
+                    "maxOutputTokens": 4096,
+                }
                 s_think = build_thinking_config(s_model, "low")
                 if s_think:
                     s_gen_cfg["thinkingConfig"] = s_think
@@ -535,7 +553,11 @@ async def get_ai_response(
         models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
         for attempt_idx, candidate_model in enumerate(models_to_try):
             gen_config: dict = {
-                "temperature": model_info.get("temperature", 0.7),
+                "temperature": (
+                    temperature_override
+                    if temperature_override is not None
+                    else model_info.get("temperature", 0.7)
+                ),
                 "maxOutputTokens": 8192,
             }
             thinking_cfg = build_thinking_config(candidate_model, desired_thinking)
@@ -640,6 +662,8 @@ async def generate_image(
     *,
     reference_images: list[dict] | None = None,
     http_session: aiohttp.ClientSession | None = None,
+    style: str | None = None,
+    ratio: str | None = None,
 ) -> tuple[str | None, discord.File | None, str | None]:
     """Menghasilkan (atau mengedit) gambar.
     - Jika `GEMINI_PAID_IMAGE_ENABLED=true` (atau pengguna mengedit lampiran gambar), memakai Gemini Nano Banana.
@@ -649,8 +673,9 @@ async def generate_image(
         (engine_label, discord_file, error_message)
     """
     settings = get_image_settings(thread_id)
-    style_name = settings["style"]
-    ratio_name = settings["ratio"]
+    # Gaya & rasio bisa ditimpa per panggilan (dipakai `/gambar`), tanpa mengubah setelan channel.
+    style_name = style if style in STYLE_OPTIONS else settings["style"]
+    ratio_name = ratio if ratio in RATIO_OPTIONS else settings["ratio"]
 
     style_suffix = STYLE_PROMPTS.get(style_name, "")
     ratio_meta = RATIO_OPTIONS.get(ratio_name, RATIO_OPTIONS["1:1 (Persegi)"])

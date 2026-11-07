@@ -6,12 +6,14 @@ Auto-punish: setelah N `warn` (default 3 dalam 30 hari), bot otomatis memberi ti
 """
 
 import logging
+import time
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 import moderation as mod
+import reports
 import ui_kit
 import ui_theme
 
@@ -26,6 +28,8 @@ ACTION_COLORS: dict[str, int] = {
     "unban": 0x2ECC71,
     "unmute": 0x3498DB,
     "note": 0x9B59B6,
+    "tempban": 0xE67E22,
+    "softban": 0x1ABC9C,
 }
 
 mod_group = app_commands.Group(
@@ -334,6 +338,131 @@ async def mod_ban_cmd(
     )
 
 
+@mod_group.command(
+    name="tempban", description="Ban sementara — dicabut otomatis saat durasi habis"
+)
+@app_commands.describe(
+    member="Member (atau ID) yang diban sementara",
+    durasi="Contoh: 1h, 12j, 2d, 1j30m",
+    alasan="Alasan temp-ban",
+    hapus_pesan_hari="Hapus pesan N hari terakhir (0–7)",
+)
+async def mod_tempban_cmd(
+    interaction: discord.Interaction,
+    member: discord.User,
+    durasi: str = "1d",
+    alasan: str = "Tidak disebutkan",
+    hapus_pesan_hari: app_commands.Range[int, 0, 7] = 0,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    target_member = interaction.guild.get_member(member.id)
+    if target_member is not None:
+        problem = _hierarchy_problem(interaction.guild, target_member)
+        if problem:
+            await interaction.response.send_message(f"⚠️ {problem}", ephemeral=True)
+            return
+
+    seconds = min(max(mod.parse_duration(durasi, default_sec=86400), 60), 365 * 86400)
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await interaction.guild.ban(
+            member, reason=f"Temp-ban {mod.format_duration(seconds)}: {alasan}"[:400],
+            delete_message_days=int(hapus_pesan_hari or 0),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.followup.send(f"⚠️ Gagal temp-ban: {exc}", ephemeral=True)
+        return
+
+    until = time.time() + seconds
+    case = mod.add_case(
+        interaction.guild.id, member.id, interaction.user.id, "tempban", alasan,
+        duration_sec=seconds, expires_at=until,
+    )
+    mod.add_tempban(
+        interaction.guild.id, member.id, case_id=case["id"], until=until,
+        oleh=interaction.user.id, reason=alasan,
+    )
+    await mod.save_moderation_to_disk()
+    await _announce(interaction, case, member)
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Temp-ban Diterapkan",
+            f"**{member}** (`{member.id}`) diban selama **{mod.format_duration(seconds)}** "
+            f"dan akan **dicabut otomatis** <t:{int(until)}:R>.\n"
+            f"• Alasan: {alasan}\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(
+    name="softban", description="Softban — hapus pesan member lalu cabut ban-nya saat itu juga"
+)
+@app_commands.describe(
+    member="Member (atau ID) yang di-softban",
+    alasan="Alasan softban",
+    hapus_pesan_hari="Hapus pesan N hari terakhir (0–7)",
+)
+async def mod_softban_cmd(
+    interaction: discord.Interaction,
+    member: discord.User,
+    alasan: str = "Tidak disebutkan",
+    hapus_pesan_hari: app_commands.Range[int, 0, 7] = 7,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    target_member = interaction.guild.get_member(member.id)
+    if target_member is not None:
+        problem = _hierarchy_problem(interaction.guild, target_member)
+        if problem:
+            await interaction.response.send_message(f"⚠️ {problem}", ephemeral=True)
+            return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await interaction.guild.ban(
+            member, reason=f"Softban: {alasan}"[:400],
+            delete_message_days=int(hapus_pesan_hari or 0),
+        )
+        await interaction.guild.unban(
+            discord.Object(id=member.id), reason="Softban: ban dicabut (pembersihan pesan)"
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        await interaction.followup.send(f"⚠️ Gagal softban: {exc}", ephemeral=True)
+        return
+
+    case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "softban", alasan)
+    await mod.save_moderation_to_disk()
+    await _announce(
+        interaction, case, member,
+        extra="🧹 Softban: ban sudah dicabut, member **boleh bergabung lagi**.",
+    )
+    await ui_kit.send_status(
+        interaction,
+        follow=True,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Softban Selesai",
+            f"**{member}** (`{member.id}`) ditendang sebagai ban lalu **langsung dicabut** "
+            f"— pesan {hapus_pesan_hari} hari terakhir ikut dihapus.\n"
+            f"• Alasan: {alasan}\n• Kasus: `#{case['id']}`",
+        ),
+        ephemeral=True,
+    )
+
+
 @mod_group.command(name="unban", description="Cabut ban member berdasarkan ID")
 @app_commands.describe(user_id="ID Discord member", alasan="Alasan pencabutan ban")
 async def mod_unban_cmd(interaction: discord.Interaction, user_id: str, alasan: str = "Tidak disebutkan"):
@@ -513,6 +642,240 @@ async def mod_hapus_cmd(interaction: discord.Interaction, id: app_commands.Range
         ),
         ephemeral=True,
     )
+
+
+@mod_group.command(
+    name="note", description="Tulis catatan internal staff tentang seorang member (tanpa hukuman)"
+)
+@app_commands.describe(member="Member yang dicatat", teks="Isi catatan (hanya staff yang bisa lihat)")
+async def mod_note_cmd(interaction: discord.Interaction, member: discord.Member, teks: str):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    case = mod.add_case(interaction.guild.id, member.id, interaction.user.id, "note", teks)
+    await mod.save_moderation_to_disk()
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Catatan Staff Disimpan",
+            f"Catatan `#{case['id']}` untuk {member.mention} tersimpan.\n"
+            "Member **tidak** diberi tahu & **tidak** dihukum — catatan hanya muncul di "
+            "`/mod catatan` dan dashboard.",
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(name="statistik", description="Statistik moderasi: siapa menindak berapa banyak")
+@app_commands.describe(hari="Batasi ke N hari terakhir (0 = semua)")
+async def mod_statistik_cmd(
+    interaction: discord.Interaction,
+    hari: app_commands.Range[int, 0, 365] = 30,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    data = mod.staff_stats(interaction.guild.id, days=int(hari) or None, limit=10)
+    if not data["total"]:
+        body = (
+            f"_Belum ada tindakan moderasi dalam {hari} hari terakhir._"
+            if hari else "_Belum ada tindakan moderasi tercatat._"
+        )
+    else:
+        lines = [
+            f"**{data['total']} tindakan**"
+            + (f" dalam **{hari} hari** terakhir" if hari else " sepanjang waktu"),
+            "",
+        ]
+        for nomor, orang in enumerate(data["moderator"], start=1):
+            nama = "🤖 otomatis" if orang["moderator_id"] == 0 else f"<@{orang['moderator_id']}>"
+            rincian = " · ".join(
+                f"{mod.ACTIONS.get(a, {}).get('emoji', '•')}{n}" for a, n in orang["per_aksi"].items()
+            )
+            lines.append(f"`{nomor}.` {nama} — **{orang['total']}** ({rincian})")
+        lines.append("")
+        lines.append(
+            "Per jenis aksi: "
+            + " · ".join(f"{a}: {n}" for a, n in sorted(data["per_aksi"].items()))
+        )
+        body = "\n".join(lines)
+
+    embed = ui_theme.apply_embed_theme(
+        discord.Embed(title="📊 Statistik Moderasi", description=body[:4000]),
+        interaction.guild.id,
+    )
+    if mod.list_tempbans(interaction.guild.id):
+        embed.add_field(
+            name="⏳ Temp-ban aktif",
+            value="\n".join(
+                f"`#{e['case_id']}` <@{e['user_id']}> — berakhir <t:{int(e['until'])}:R>"
+                for e in mod.list_tempbans(interaction.guild.id)[:8]
+            )[:1024],
+            inline=False,
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@mod_group.command(name="antrean", description="Antrean laporan member & banding hukuman")
+@app_commands.describe(status="Saring satu status saja", jenis="Saring laporan atau banding")
+@app_commands.choices(
+    status=[
+        app_commands.Choice(name="🆕 Baru", value="baru"),
+        app_commands.Choice(name="🔎 Diproses", value="diproses"),
+        app_commands.Choice(name="✅ Diterima", value="diterima"),
+        app_commands.Choice(name="❌ Ditolak", value="ditolak"),
+    ],
+    jenis=[
+        app_commands.Choice(name="🚩 Laporan member", value="laporan"),
+        app_commands.Choice(name="⚖️ Banding hukuman", value="banding"),
+    ],
+)
+async def mod_antrean_cmd(
+    interaction: discord.Interaction,
+    status: app_commands.Choice[str] | None = None,
+    jenis: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    data = reports.status(interaction.guild.id)
+    entries = reports.daftar(
+        interaction.guild.id,
+        status=status.value if status else None,
+        jenis=jenis.value if jenis else None,
+        limit=12,
+    )
+    ringkas = (
+        f"Menunggu **{data['menunggu']}** · laporan **{data['laporan']}** · "
+        f"banding **{data['banding']}** · diterima **{data['diterima']}** · "
+        f"ditolak **{data['ditolak']}**"
+    )
+    if not entries:
+        body = f"{ringkas}\n\n_Tidak ada antrean yang cocok._"
+    else:
+        baris = [ringkas, ""]
+        for entri in entries:
+            jenis_teks = reports.JENIS.get(str(entri.get("jenis")), "•")
+            status_teks = reports.STATUS.get(str(entri.get("status")), "•")
+            target = (
+                f" → <@{entri['target_id']}>" if entri.get("target_id") else ""
+            )
+            kasus = f" (kasus `#{entri['kasus_id']}`)" if entri.get("kasus_id") else ""
+            baris.append(
+                f"`#{entri['id']}` {jenis_teks} dari <@{entri['pelapor_id']}>{target}"
+                f"{kasus} — {status_teks}\n   _{entri.get('alasan', '')[:180]}_"
+            )
+        body = "\n".join(baris)
+
+    await interaction.response.send_message(
+        embed=ui_theme.apply_embed_theme(
+            discord.Embed(title="📮 Antrean Laporan & Banding", description=body[:4000]),
+            interaction.guild.id,
+        ),
+        ephemeral=True,
+    )
+
+
+@mod_group.command(
+    name="tindak", description="Ubah status laporan/banding (banding bisa sekaligus mencabut hukuman)"
+)
+@app_commands.describe(
+    kode="Nomor antrean (lihat /mod antrean)",
+    status="Status baru",
+    catatan="Catatan staf untuk pelapor (opsional)",
+    cabut="Cabut hukuman terkait — hanya untuk banding",
+)
+@app_commands.choices(
+    status=[
+        app_commands.Choice(name="🔎 Diproses", value="diproses"),
+        app_commands.Choice(name="✅ Diterima", value="diterima"),
+        app_commands.Choice(name="❌ Ditolak", value="ditolak"),
+    ]
+)
+async def mod_tindak_cmd(
+    interaction: discord.Interaction,
+    kode: app_commands.Range[int, 1, 100000],
+    status: app_commands.Choice[str],
+    catatan: str = "",
+    cabut: bool = False,
+):
+    if interaction.guild is None:
+        return
+    if not _is_staff(interaction):
+        return await _reject(interaction)
+
+    entri = reports.ambil(interaction.guild.id, int(kode))
+    if entri is None:
+        await interaction.response.send_message(
+            f"⚠️ Tidak ada antrean dengan nomor `#{kode}`.", ephemeral=True
+        )
+        return
+
+    entri = reports.ubah_status(
+        interaction.guild.id, int(kode), status.value,
+        oleh=interaction.user.id, catatan=catatan,
+    )
+    await reports.save_reports_to_disk()
+
+    tambahan = ""
+    if cabut and str(entri.get("jenis")) != "banding":
+        tambahan = "\n\n_Catatan: \"cabut hukuman\" hanya berlaku untuk banding._"
+    elif cabut:
+        tambahan = await _cabut_hukuman(interaction, entri)
+
+    status_teks = reports.STATUS.get(status.value, status.value)
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok",
+            "Antrean Diperbarui",
+            f"`#{kode}` → {status_teks}"
+            + (f"\n• Catatan: {catatan}" if catatan else "")
+            + tambahan,
+        ),
+        ephemeral=True,
+    )
+
+
+async def _cabut_hukuman(interaction: discord.Interaction, entri: dict) -> str:
+    """Mencabut hukuman yang dibanding (timeout / ban / temp-ban). Mengembalikan keterangan."""
+    guild = interaction.guild
+    if guild is None:
+        return ""
+    kasus_id = int(entri.get("kasus_id") or 0)
+    kasus = mod.get_case(guild.id, kasus_id) if kasus_id else None
+    if kasus is None:
+        return "\n\n⚠️ Banding ini tidak terhubung ke kasus mana pun — hukuman **tidak** diubah."
+    uid = int(kasus.get("user_id", 0))
+    aksi = str(kasus.get("action"))
+    alasan = f"Banding #{entri['id']} diterima"
+
+    try:
+        if aksi == "timeout":
+            member = guild.get_member(uid)
+            if member is None:
+                return f"\n\n⚠️ Member `{uid}` tidak ada di server — timeout tidak bisa dicabut."
+            await member.timeout(None, reason=alasan)
+            baru = mod.add_case(guild.id, uid, interaction.user.id, "unmute", alasan)
+            return f"\n\n🔊 Timeout dicabut (kasus `#{baru['id']}`)."
+        if aksi in ("ban", "tempban"):
+            await guild.unban(discord.Object(id=uid), reason=alasan)
+            mod.drop_tempban(guild.id, uid)
+            baru = mod.add_case(guild.id, uid, interaction.user.id, "unban", alasan)
+            return f"\n\n🔓 Ban dicabut (kasus `#{baru['id']}`)."
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        return f"\n\n⚠️ Gagal mencabut hukuman: {exc}"
+    await mod.save_moderation_to_disk()
+    return f"\n\nℹ️ Aksi `{aksi}` tidak bisa dicabut otomatis (tidak ada hukuman aktif)."
 
 
 @mod_group.command(name="atur", description="Atur channel log, ambang auto-punish, & DM member")
@@ -892,9 +1255,219 @@ def _role_change_problem(guild: discord.Guild, member: discord.Member, role: dis
     return True, ""
 
 
+# ==============================================================================
+# JALUR MEMBER: /lapor & /banding
+# ==============================================================================
+def _channel_laporan(guild: discord.Guild) -> discord.TextChannel | None:
+    """Channel tujuan laporan: setelan laporan → channel log moderasi."""
+    cfg = reports.peek_config(guild.id)
+    kandidat = [cfg.get("channel_id"), mod.get_settings(guild.id).get("log_channel")]
+    for cid in kandidat:
+        if not cid:
+            continue
+        channel = guild.get_channel(int(cid))
+        if isinstance(channel, discord.TextChannel):
+            return channel
+    return None
+
+
+def _embed_antrean(guild: discord.Guild, entri: dict, pelapor, target=None) -> discord.Embed:
+    jenis = reports.JENIS.get(str(entri.get("jenis")), "•")
+    embed = discord.Embed(
+        title=f"{jenis} #{entri['id']}",
+        description=str(entri.get("alasan") or "")[:2000],
+        colour=discord.Colour(0xF1C40F if entri.get("jenis") == "banding" else 0xE74C3C),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.add_field(name="Pelapor", value=f"{pelapor} (`{entri['pelapor_id']}`)", inline=True)
+    if target is not None:
+        embed.add_field(name="Dilaporkan", value=f"{target} (`{entri['target_id']}`)", inline=True)
+    if entri.get("kasus_id"):
+        embed.add_field(name="Kasus", value=f"`#{entri['kasus_id']}`", inline=True)
+    if entri.get("bukti"):
+        embed.add_field(name="Bukti", value=str(entri["bukti"])[:1024], inline=False)
+    embed.set_footer(
+        text=f"{guild.name} • tindak lanjut: /mod tindak kode:{entri['id']}"[:120]
+    )
+    return embed
+
+
+@app_commands.command(
+    name="lapor", description="Laporkan member/pesan ke staf — masuk antrean, bukan langsung hukuman"
+)
+@app_commands.describe(
+    member="Member yang dilaporkan",
+    alasan="Apa yang terjadi? (minimal 10 huruf)",
+    bukti="Link pesan atau keterangan tambahan (opsional)",
+)
+@app_commands.guild_only()
+async def lapor_cmd(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    alasan: str,
+    bukti: str = "",
+):
+    guild = interaction.guild
+    if guild is None:
+        return
+    if member.id == interaction.user.id:
+        await interaction.response.send_message(
+            "⚠️ Kamu tidak bisa melaporkan diri sendiri.", ephemeral=True
+        )
+        return
+    if member.bot:
+        await interaction.response.send_message(
+            "⚠️ Bot tidak bisa dilaporkan. Hubungi pengelola server bila bot itu bermasalah.",
+            ephemeral=True,
+        )
+        return
+
+    kode, entri = reports.tambah(
+        guild.id,
+        jenis="laporan",
+        pelapor_id=interaction.user.id,
+        target_id=member.id,
+        alasan=alasan,
+        bukti=bukti,
+    )
+    if kode == "cooldown":
+        sisa = reports.sisa_cooldown(guild.id, interaction.user.id, "laporan")
+        await interaction.response.send_message(
+            f"⏳ Laporan sebelumnya masih diproses. Coba lagi dalam **{mod.format_duration(sisa)}**.",
+            ephemeral=True,
+        )
+        return
+    if kode == "terlalu_pendek":
+        await interaction.response.send_message(
+            f"⚠️ Alasan terlalu pendek — tulis minimal **{reports.MIN_ALASAN} huruf** "
+            "supaya staf tahu apa yang harus dicek.",
+            ephemeral=True,
+        )
+        return
+    if entri is None:
+        await interaction.response.send_message(
+            "⚠️ Laporan member sedang dimatikan di server ini.", ephemeral=True
+        )
+        return
+
+    await reports.save_reports_to_disk()
+    channel = _channel_laporan(guild)
+    if channel is not None:
+        try:
+            await channel.send(embed=_embed_antrean(guild, entri, interaction.user, member))
+        except (discord.Forbidden, discord.HTTPException):
+            logger.info("Tidak bisa mengirim laporan ke channel %s", channel.id)
+
+    cfg = reports.peek_config(guild.id)
+    if cfg.get("dm_pelapor", True):
+        try:
+            await interaction.user.send(
+                f"🚩 Laporan `#{entri['id']}` di **{guild.name}** sudah diterima staf.\n"
+                f"• Dilaporkan: **{member}**\n• Alasan: {entri['alasan'][:300]}\n"
+                "Kamu akan dihubungi bila staf butuh detail tambahan."
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+    await interaction.response.send_message(
+        f"🚩 Laporan `#{entri['id']}` terkirim ke staf. Terima kasih — "
+        "laporanmu **tidak** langsung menghukum siapa pun, staf akan meninjau dulu.",
+        ephemeral=True,
+    )
+
+
+@app_commands.command(
+    name="banding", description="Ajukan banding untuk hukuman yang kamu terima (ditinjau staf)"
+)
+@app_commands.describe(
+    alasan="Kenapa hukuman ini perlu ditinjau ulang?",
+    kasus="Nomor kasus (opsional — kosongkan untuk memakai kasus terakhirmu)",
+)
+async def banding_cmd(
+    interaction: discord.Interaction,
+    alasan: str,
+    kasus: app_commands.Range[int, 1, 1000000] | None = None,
+):
+    guild_id = interaction.guild.id if interaction.guild else None
+    kandidat = None
+    if kasus is not None:
+        for gid in ([guild_id] if guild_id else list(mod.mod_cases)):
+            case = mod.get_case(gid, int(kasus))
+            if case is not None and int(case.get("user_id", 0)) == interaction.user.id:
+                kandidat = (gid, case)
+                break
+    else:
+        kandidat = mod.latest_punishment(interaction.user.id, guild_id)
+
+    if kandidat is None:
+        await interaction.response.send_message(
+            "⚠️ Tidak ada kasus hukuman atas namamu yang bisa dibanding."
+            + (" Sertakan nomor kasus bila kamu tahu (mis. `/banding kasus:12`)." if kasus else ""),
+            ephemeral=True,
+        )
+        return
+
+    gid, case = kandidat
+    kode, entri = reports.tambah(
+        gid,
+        jenis="banding",
+        pelapor_id=interaction.user.id,
+        target_id=interaction.user.id,
+        kasus_id=int(case["id"]),
+        alasan=alasan,
+        bukti=f"Kasus #{case['id']} ({case.get('action')})",
+    )
+    if kode == "cooldown":
+        sisa = reports.sisa_cooldown(gid, interaction.user.id, "banding")
+        await interaction.response.send_message(
+            f"⏳ Banding sebelumnya masih ditinjau. Coba lagi dalam **{mod.format_duration(sisa)}**.",
+            ephemeral=True,
+        )
+        return
+    if entri is None:
+        await interaction.response.send_message(
+            f"⚠️ Alasan terlalu pendek — minimal **{reports.MIN_ALASAN} huruf** "
+            "supaya staf paham situasimu.",
+            ephemeral=True,
+        )
+        return
+
+    await reports.save_reports_to_disk()
+    guild = interaction.guild
+    channel = _channel_laporan(guild) if guild is not None else None
+    if channel is not None:
+        embed = _embed_antrean(guild, entri, interaction.user)
+        embed.add_field(
+            name="Kasus asal",
+            value=f"`#{case['id']}` {mod.ACTIONS.get(str(case.get('action')), {}).get('label', '')} — "
+                  f"{(case.get('reason') or 'tanpa alasan')[:200]}",
+            inline=False,
+        )
+        try:
+            await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException):
+            logger.info("Tidak bisa mengirim banding ke channel %s", channel.id)
+
+    try:
+        await interaction.user.send(
+            f"⚖️ Banding `#{entri['id']}` untuk kasus `#{case['id']}` sudah diterima staf. "
+            "Keputusan akan dikirim lewat DM."
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+    await interaction.response.send_message(
+        f"⚖️ Banding `#{entri['id']}` untuk kasus `#{case['id']}` terkirim. "
+        "Staf akan meninjau dan menghubungimu.",
+        ephemeral=True,
+    )
+
+
 def register_moderation_cog(bot: commands.Bot) -> None:
-    """Mendaftarkan group `/mod` ke bot."""
+    """Mendaftarkan group `/mod` + jalur member `/lapor` & `/banding`."""
     bot.tree.add_command(mod_group)
+    bot.tree.add_command(lapor_cmd)
+    bot.tree.add_command(banding_cmd)
 
 
-__all__ = ["mod_group", "register_moderation_cog"]
+__all__ = ["banding_cmd", "lapor_cmd", "mod_group", "register_moderation_cog"]

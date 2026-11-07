@@ -13,6 +13,9 @@ toc: true
 | `/mod warn member @x alasan:...` | Peringatan resmi + tercatat. Setelah ambang tercapai → **timeout otomatis**. |
 | `/mod timeout member @x durasi:1h30m alasan:...` | Bisukan sementara (timeout native Discord, maks 28 hari). |
 | `/mod kick` / `/mod ban` / `/mod unban` | Kick, ban (opsional hapus pesan 0–7 hari), cabut ban via ID. |
+| `/mod tempban member:@x durasi:2d alasan:...` | **Ban sementara** — dicabut **otomatis** saat durasi habis (maks 365 hari), tanpa perlu staf mengingat. |
+| `/mod softban member:@x hapus_pesan_hari:7` | **Softban** — ban sebentar untuk menghapus pesan, ban **langsung dicabut** sehingga member boleh kembali. |
+| `/mod note member:@x teks:...` | **Catatan internal staff** (tidak menghukum, tidak memberi tahu member). |
 | `/mod purge jumlah:50 member:@x tipe:link` | Hapus massal dengan filter **semua / bot / link / gambar**. |
 | `/mod catatan member:@x` | Riwayat kasus + jumlah peringatan aktif. |
 | `/mod hapus id:12` | Hapus kasus salah catat (khusus Admin). |
@@ -21,12 +24,57 @@ toc: true
 | `/mod role member:@x role:@Gamer aksi:beri` | Beri/cabut satu role (hierarki & role terkelola dijaga). |
 | `/mod role-massal role:@Event aksi:beri filter_role:@Aktif batas:50` | **Beri/cabut role ke banyak member** sekaligus, dengan dialog konfirmasi & ringkasan hasil. |
 | `/mod nickname member:@x nama:Sobat` | Ubah/reset nickname member (kosongkan `nama` untuk reset). |
+| `/mod statistik hari:30` | **Statistik staf**: siapa menindak berapa banyak, rincian per jenis aksi, & daftar temp-ban yang masih berjalan. |
 
 Pengaman bawaan:
 - **Hierarki dihormati** — bot menolak menindak pemilik server, Administrator, atau role yang lebih tinggi darinya (pesan errornya menjelaskan cara memperbaikinya).
 - **Semua aksi terlihat** — DM ke member (bisa dimatikan) + laporan embed ke channel log.
 - **Anti salah hapus** — `/mod purge` hanya menghapus pesan, tidak pernah menyentuh pinned secara sengaja; jumlah dibatasi 100 per perintah.
+- **Tangga hukuman lengkap** — `warn` → `timeout` → `kick` → `softban` → `tempban` → `ban`, semuanya membuat **satu kasus bernomor** yang dipakai bersama `/mod catatan`, `/mod statistik`, & dashboard.
+- **Temp-ban tidak menggantung** — watcher utama (tiap 15 detik) mencabut ban yang jatuh tempo, mencatat kasus `unban` otomatis, dan mengirim laporan ke channel log. Bila server/bot sedang mati saat waktunya habis, temp-ban dicabut pada putaran pertama setelah bot hidup lagi.
+- **Catatan ≠ hukuman** — `/mod note` hanya menulis riwayat untuk staff; member tidak diberi DM dan tidak dikenai aksi apa pun.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
+
+## 1b. 🚨 Jalur member: `/lapor` & `/banding`
+
+Moderasi yang hanya satu arah membuat member merasa tidak didengar. Dua command ini
+membuka jalur resmi **member → staf**, tanpa menambah risiko:
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lapor member:@x alasan:... bukti:...` | Member melaporkan pesan/member. Laporan **masuk antrean staf** (bukan langsung hukuman), dikirim ke channel laporan, dan pelapor dapat DM konfirmasi. |
+| `/banding alasan:... [kasus:12]` | Member mengajukan peninjauan hukuman. Bisa dijalankan dari **DM** (untuk yang sudah diban) — bot mencari kasus terakhir atas nama member itu. |
+| `/mod antrean [status] [jenis]` | *(Staff)* Lihat antrean laporan & banding. |
+| `/mod tindak kode:12 status:diterima catatan:"..." cabut:True` | *(Staff)* Ubah status; `cabut:True` pada banding **langsung mencabut** timeout/ban/temp-ban terkait dan mencatat kasus baru. |
+
+Pengaman:
+- **Tidak ada hukuman otomatis** dari laporan — keputusan tetap di staf.
+- **Anti-spam laporan**: cooldown per pelapor (bawaan **300 detik**), alasan minimal **10 huruf**, dan laporan beruntun tidak menumpuk antrean.
+- **Banding terhubung kasus**: nomor kasus ikut tersimpan, dan hanya kasus atas nama pelapor yang bisa dibanding.
+- Semua antrean tersimpan di `data/reports.json` (maks 300 entri/server) dan bisa dikelola dari halaman **🚨 Moderasi** di dashboard.
+
+## 1c. 🔎 Snipe & EditSnipe (`/snipe`)
+
+Pesan yang dihapus/diubah **sebelum staf sempat melihat** tidak hilang begitu saja.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/snipe hapus [jumlah]` | Tampilkan 1–5 pesan terakhir yang dihapus **di channel itu**. |
+| `/snipe edit [jumlah]` | Tampilkan isi **sebelum → sesudah** pesan yang baru diubah. |
+| `/snipe atur aktif:True hapus:True edit:True` | *(Admin)* Sakelar fitur, per jenis. |
+
+Detail penting:
+- **Khusus staf:** grup `/snipe` memakai izin bawaan *Manage Messages*, jadi member biasa
+  tidak melihatnya sama sekali.
+- **Hanya di memori** — maksimal 5 pesan per channel dan **hilang saat bot restart**.
+  Tidak ada berkas baru, tidak ada riwayat permanen, tidak ada risiko data sensitif tersimpan.
+- Bot, pesan kosong, dan pesan tanpa lampiran tidak dicatat; pesan yang ikut terhapus oleh
+  `purge` juga dicatat (maks 5 terakhir).
+- **Panel dashboard:** halaman **🚨 Moderasi** → *🔎 Snipe & EditSnipe* — sakelar aktif,
+  catat-hapus, catat-edit, plus jumlah entri yang sedang tersimpan di memori.
+  Jalur tulis: `POST /api/moderasi` (`snipe-setelan`).
+- Tombol tes **Snipe & EditSnipe** mencatat pesan contoh di memori, membacanya kembali, lalu
+  membersihkannya — tidak menyentuh pesan asli.
 
 ## 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
 

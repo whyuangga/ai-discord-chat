@@ -204,7 +204,49 @@ STATS_CHANNEL_SPECS: tuple[tuple[str, str, str], ...] = (
     ("bots", "🤖", "Bot"),
     ("online", "🟢", "Online"),
     ("boosts", "💎", "Boost"),
+    ("tickets", "🎫", "Tiket Terbuka"),
+    ("social", "🔔", "Langganan Sosial"),
 )
+
+
+def hitung_statistik(guild, *, presence_count: int | None = None) -> dict[str, int | None]:
+    """Nilai semua channel statistik (dipakai counter & tes) — 0 kuota AI.
+
+    `tickets` = tiket yang belum ditutup, `social` = langganan notifikasi sosial
+    (YouTube/Twitch/TikTok/Reddit/RSS). Keduanya dibaca dari state di memori.
+    """
+    members = list(getattr(guild, "members", []) or [])
+    total_members = int(getattr(guild, "member_count", 0) or 0)
+    bots = sum(1 for m in members if getattr(m, "bot", False))
+    humans = max(0, total_members - bots) if members else None
+    boost_count = int(getattr(guild, "premium_subscription_count", 0) or 0)
+
+    gid = int(getattr(guild, "id", 0) or 0)
+    tiket_terbuka = 0
+    try:
+        import tickets as tickets_mod
+
+        tiket_terbuka = tickets_mod.count_open(gid)
+    except Exception:  # pragma: no cover - jaring aman
+        tiket_terbuka = 0
+
+    langganan = 0
+    try:
+        import social_notify
+
+        langganan = len(social_notify.get_subscriptions(gid))
+    except Exception:  # pragma: no cover - jaring aman
+        langganan = 0
+
+    return {
+        "members": total_members,
+        "humans": humans,
+        "bots": bots,
+        "online": presence_count,
+        "boosts": boost_count,
+        "tickets": tiket_terbuka,
+        "social": langganan,
+    }
 
 STATS_CATEGORY_NAME = "📊 Statistik Server"
 
@@ -471,6 +513,28 @@ def build_serverstats_embed(
         ),
         inline=True,
     )
+    gid = int(getattr(guild, "id", 0) or 0)
+    try:
+        import tickets as tickets_mod
+
+        tiket_terbuka = tickets_mod.count_open(gid)
+    except Exception:  # pragma: no cover - jaring aman
+        tiket_terbuka = 0
+    try:
+        import social_notify
+
+        langganan_sosial = len(social_notify.get_subscriptions(gid))
+    except Exception:  # pragma: no cover - jaring aman
+        langganan_sosial = 0
+
+    embed.add_field(
+        name="📈 Aktivitas Fitur",
+        value=(
+            f"• **Tiket terbuka:** `{format_number(tiket_terbuka)}`\n"
+            f"• **Langganan sosial:** `{format_number(langganan_sosial)}`"
+        ),
+        inline=True,
+    )
     embed.add_field(
         name="📅 Informasi Server",
         value=(
@@ -519,18 +583,15 @@ async def update_serverstats_channels(
         except (discord.HTTPException, AttributeError):
             presence_count = None
 
-    members = list(getattr(guild, "members", []) or [])
-    total_members = int(getattr(guild, "member_count", 0) or 0)
-    bots = sum(1 for m in members if getattr(m, "bot", False))
-    humans = max(0, total_members - bots) if members else None
-    boost_count = int(getattr(guild, "premium_subscription_count", 0) or 0)
-
+    angka = hitung_statistik(guild, presence_count=presence_count)
     values = {
-        "members": format_number(total_members),
-        "humans": format_number(humans),
-        "bots": format_number(bots),
-        "online": format_number(presence_count),
-        "boosts": format_number(boost_count),
+        "members": format_number(angka["members"]),
+        "humans": format_number(angka["humans"]),
+        "bots": format_number(angka["bots"]),
+        "online": format_number(angka["online"]),
+        "boosts": format_number(angka["boosts"]),
+        "tickets": format_number(angka["tickets"]),
+        "social": format_number(angka["social"]),
     }
 
     category = None

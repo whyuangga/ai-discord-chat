@@ -1,5 +1,5 @@
 """Dashboard web ringan: status bot, pemakaian AI, **setelan server**, dan
-pengiriman embed/webhook — 0 kuota AI.
+pengiriman embed/webhook; fitur AI dijalankan hanya atas permintaan operator.
 
 Prinsip desain:
 
@@ -8,9 +8,8 @@ Prinsip desain:
    hemat RAM (±2–4 MB).
 2. **Baca + tulis terkendali** — halaman `GET /` tidak pernah mengubah apa pun
    (tidak ada efek samping saat membaca setelan).
-   Semua perubahan lewat `POST /api/aksi` (setelan), `POST /api/kirim` (pesan/embed),
-   dan `POST /api/konten` (pengumuman/tautan/panel/hapus) yang selalu memeriksa token
-   dan hanya menjalankan aksi dari whitelist `dashboard_admin`.
+   Semua perubahan lewat endpoint `POST` bertoken. Setelan memakai whitelist
+   `dashboard_admin`; aksi AI `/gambar` dan prompt server tidak mencatat isi prompt/gambar.
 3. **Opt-in** — dashboard hanya menyala bila `DASHBOARD_TOKEN` diisi **dan** ada port
    (`DASHBOARD_PORT`, atau `SERVER_PORT`/`PORT` dari panel hosting seperti Wispbyte).
 4. **Tanpa JavaScript wajib** — HTML dirender di server + `meta refresh`, sehingga
@@ -28,8 +27,10 @@ Endpoint:
 | `/api/level?guild=<id>` | JSON papan peringkat level |
 | `/api/kontrol?guild=<id>` | JSON status 5 sakelar cepat (level, ekonomi, tumbuh, antispam, antinuke) |
 | `/api/fitur?guild=<id>` | JSON peta fitur server |
-| `/api/setelan?guild=<id>` | JSON semua setelan (48 fitur) + nilai sekarang |
+| `/api/setelan?guild=<id>` | JSON semua setelan (56 fitur) + nilai sekarang |
 | `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
+| `POST /api/bangun` | Pratinjau tema/AI, terapkan, batal, riwayat & bongkar item `/bangun` tercatat |
+| `POST /api/ai` | Buat gambar di channel pilihan atau simpan prompt kepribadian AI server |
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
 | `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu; ganti/hapus banner panel |
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
@@ -49,14 +50,30 @@ import time
 from urllib.parse import urlencode
 
 import dashboard_admin
+import dashboard_bangun
+import dashboard_ai
+import dashboard_curhat
+import dashboard_giveaway
+import dashboard_keamanan
+import dashboard_highlights
+import dashboard_form_inbox
+import dashboard_stats
+import dashboard_info
+import dashboard_lencana
+import dashboard_moderasi
+import dashboard_tags
 import dashboard_panel
 import dashboard_pesan
+import dashboard_snipe
+import dashboard_sosial
 import dashboard_tema
 import dashboard_tiket
 import dashboard_ui
 import dashboard_unggah
 import dashboard_uji
+import dashboard_voice
 import insights
+import ticket_archive
 from config import (
     AI_DAILY_CAP_PER_GUILD,
     AI_DAILY_CAP_PER_USER,
@@ -109,6 +126,108 @@ def detik_auto(request, bawaan: int = 30) -> int:
     if simpan.isdigit():
         return max(0, min(3600, int(simpan)))
     return max(0, min(3600, int(bawaan or 0)))
+
+
+# Pilihan cepat interval auto-refresh di header (form GET biasa, tanpa JavaScript).
+PILIHAN_AUTO: tuple[tuple[int, str], ...] = (
+    (0, "⏸ Mati"),
+    (60, "1 menit"),
+    (600, "10 menit"),
+    (1800, "30 menit"),
+    (3600, "1 jam"),
+)
+# Nama field angka bebas (menimpa pilihan dropdown bila diisi).
+FIELD_AUTO_MANUAL = "refresh_detik"
+BATAS_AUTO = (0, 3600)
+
+
+def detik_dari_kueri(kueri) -> str:
+    """Nilai mentah auto-refresh dari query: kotak angka dulu, lalu dropdown.
+
+    Hasilnya salah satu dari:
+    - `"auto"` → ikut `DASHBOARD_REFRESH_SEC` (cookie dihapus),
+    - `"manual"` → dropdown memilih “✏️ Isi sendiri…” tapi angkanya belum ada,
+    - atau angka detik sebagai string (di luar 0–3600 dipotong, bukan ditolak,
+      supaya tidak pernah ada form buntu).
+    """
+    bawah, atas = BATAS_AUTO
+    manual = str(kueri.get(FIELD_AUTO_MANUAL) or "").strip()
+    pilihan = str(kueri.get("refresh") or "").strip().lower()
+    if manual.lstrip("+-").isdigit():
+        return str(max(bawah, min(atas, int(manual))))
+    if manual:
+        # Ada isian tapi bukan angka → jangan ubah apa pun, tampilkan kotaknya lagi.
+        return "manual"
+    if pilihan in ("manual", "isi", "custom"):
+        return "manual"
+    if not pilihan or pilihan in ("auto", "bawaan", "env"):
+        return "auto"
+    if pilihan.lstrip("+-").isdigit():
+        return str(max(bawah, min(atas, int(pilihan))))
+    return "0"
+
+
+def _label_auto(detik: int) -> str:
+    """Label manusiawi untuk angka detik (mis. 45 → “45 detik”, 3600 → “1 jam”)."""
+    for nilai, label in PILIHAN_AUTO:
+        if nilai == detik:
+            return label
+    if detik >= 60 and detik % 60 == 0:
+        menit = detik // 60
+        return f"{menit} menit"
+    return f"{detik} detik"
+
+
+def form_auto(aksi: str, token: str = "", guild_id: int = 0,
+              detik: int = 30, dipilih: str = "") -> str:
+    """Pengatur “🔄 Auto-refresh” di header — **satu dropdown**, tanpa `.env`.
+
+    Isi dropdown: `⏸ Mati` · `1 menit` · `10 menit` · `30 menit` · `1 jam` ·
+    `✏️ Isi sendiri…` · `Ikut .env`. Pilih “Isi sendiri” lalu tekan **Set** →
+    halaman dimuat ulang dengan kotak angka detik (0–3600) di dalam form yang
+    sama, jadi header tetap ringkas dan angkanya tetap bebas.
+
+    `dipilih` boleh `"auto"` (ikut `DASHBOARD_REFRESH_SEC`), `"manual"`, atau
+    angka detik; angka di luar daftar otomatis tampil sebagai mode “Isi sendiri”
+    dengan angkanya sudah terisi (pilihan aktif tidak pernah “hilang”).
+    """
+    if not str(aksi or "").strip():
+        return ""
+    angka_daftar = {str(nilai) for nilai, _ in PILIHAN_AUTO}
+    dipilih = str(dipilih if str(dipilih or "").strip() else max(0, int(detik or 0))).lower()
+    manual = ""
+    if dipilih in ("manual", "isi", "custom"):
+        pilih = "manual"
+    elif dipilih.isdigit() and dipilih not in angka_daftar:
+        pilih, manual = "manual", dipilih          # angka bebas → mode isi sendiri
+    else:
+        pilih = dipilih
+    opsi = "".join(
+        f'<option value="{nilai}"{" selected" if str(nilai) == pilih else ""}>{label}</option>'
+        for nilai, label in PILIHAN_AUTO
+    )
+    opsi += f'<option value="manual"{" selected" if pilih == "manual" else ""}>✏️ Isi sendiri…</option>'
+    opsi += f'<option value="auto"{" selected" if pilih == "auto" else ""}>Ikut .env</option>'
+    kotak = ""
+    if pilih == "manual":
+        kotak = (
+            f'<input type="number" name="{FIELD_AUTO_MANUAL}" id="input-auto"'
+            f' min="{BATAS_AUTO[0]}" max="{BATAS_AUTO[1]}" step="5" inputmode="numeric"'
+            f' value="{html.escape(manual, quote=True)}" placeholder="{max(0, int(detik or 0))}"'
+            ' aria-label="Interval auto-refresh dalam detik"'
+            ' title="Isi sendiri: detik, mis. 45" autofocus>'
+            '<span class="muted satuan">detik</span>'
+        )
+    return (
+        f'<form method="get" action="{html.escape(aksi, quote=True)}" class="pemilih-auto">'
+        f'<input type="hidden" name="token" value="{html.escape(token, quote=True)}">'
+        f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
+        '<label for="pilih-auto">🔄 Auto-refresh</label>'
+        '<select name="refresh" id="pilih-auto" aria-label="Interval auto-refresh">'
+        f"{opsi}</select>"
+        f"{kotak}"
+        '<button type="submit">Set</button></form>'
+    )
 
 
 def is_authorized(*, query_token: str = "", header_token: str = "", expected: str = "") -> bool:
@@ -369,7 +488,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       <label class="menu-btn" for="nav-buka">☰ Menu</label>
     </div>
     {menu}
-    <div class="baris" style="margin-top:8px">{guild_picker}</div>
+    <div class="baris" style="margin-top:8px">{guild_picker}{auto_pilih}</div>
   </header>
   {flash}
   <p class="keterangan-halaman">{keterangan}</p>
@@ -446,6 +565,24 @@ def _anchor_konten(aksi: str) -> str:
         return "p-konten"
     if kunci.startswith("unggah."):
         return "p-banner"
+    if kunci.startswith("inbox-"):
+        return "p-form-inbox"
+    if kunci.startswith("info-"):
+        return "p-info"
+    if kunci.startswith("voice-"):
+        return "p-voice"
+    if kunci.startswith("sosial-"):
+        return "p-sosial"
+    if kunci.startswith("curhat-"):
+        return "p-curhat"
+    if kunci.startswith("pantau-"):
+        return "p-pantau"
+    if kunci.startswith("stats-"):
+        return "p-statistik"
+    if kunci.startswith("tag-"):
+        return "p-tag"
+    if kunci.startswith("starboard-"):
+        return "p-konten"
     return "p-buat"
 
 
@@ -482,8 +619,15 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "",
         "menu": "📡 Ringkasan",
         "judul": "📡 Ringkasan",
-        "keterangan": "Status bot, pemakaian AI, tren 7 hari, papan peringkat, & tes koneksi AI.",
-        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level", "p-ai"),
+        "keterangan": "Status bot, pemakaian AI, tren 7 hari, & papan peringkat.",
+        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level"),
+    },
+    {
+        "slug": "ai",
+        "menu": "🤖 AI & Privasi",
+        "judul": "🤖 AI & Privasi",
+        "keterangan": "Buat gambar, atur kepribadian AI server, jalankan tes koneksi, dan ikuti jalur privasi mandiri.",
+        "panel": ("p-gambar", "p-ai-settings", "p-privasi", "p-ai"),
     },
     {
         "slug": "sambutan",
@@ -497,7 +641,7 @@ HALAMAN: tuple[dict, ...] = (
         "menu": "⚙️ Inti & level",
         "judul": "⚙️ Inti, level, & ekonomi",
         "keterangan": "Kontrol cepat + setelan level, ekonomi koin, pelacakan pertumbuhan, & prefix.",
-        "panel": ("p-kontrol", "p-inti"),
+        "panel": ("p-kontrol", "p-inti", "p-rank", "p-lencana"),
     },
     {
         "slug": "keamanan",
@@ -505,6 +649,14 @@ HALAMAN: tuple[dict, ...] = (
         "judul": "🛡️ Keamanan",
         "keterangan": "Anti-spam, anti-nuke, pengaman raid, verifikasi, & proteksi anti-phishing.",
         "panel": ("p-keamanan",),
+    },
+    {
+        "slug": "moderasi",
+        "menu": "🚨 Moderasi",
+        "judul": "🚨 Moderasi",
+        "keterangan": "Kasus moderasi, antrean laporan & banding, temp-ban, pencarian kasus, "
+                      "dan statistik staf.",
+        "panel": ("p-moderasi", "p-snipe"),
     },
     {
         "slug": "tiket",
@@ -517,8 +669,23 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "konten",
         "menu": "🧩 Konten & interaksi",
         "judul": "🧩 Konten & interaksi",
-        "keterangan": "Fitur AI per channel, starboard, kotak saran, fakta harian, koran pagi, & backup.",
-        "panel": ("p-konten",),
+        "keterangan": "Fitur AI per channel, starboard, kotak saran, fakta harian, koran pagi, "
+        "tag siap pakai, highlight kata kunci, & backup.",
+        "panel": ("p-konten", "p-statistik"),
+    },
+    {
+        "slug": "bangun",
+        "menu": "🏗️ Bangun server",
+        "judul": "🏗️ Bangun server",
+        "keterangan": "Pilih tema 0 kuota AI atau rancang struktur dengan AI; tinjau sebelum menerapkan.",
+        "panel": ("p-bangun",),
+    },
+    {
+        "slug": "giveaway",
+        "menu": "🎁 Giveaway",
+        "judul": "🎁 Giveaway",
+        "keterangan": "Buat, hentikan, & undi ulang giveaway; atur syarat berlapis & template.",
+        "panel": ("p-giveaway",),
     },
     {
         "slug": "kirim",
@@ -531,8 +698,9 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "buat",
         "menu": "➕ Buat",
         "judul": "➕ Buat konten",
-        "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan.",
-        "panel": ("p-buat", "p-tersimpan"),
+        "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan "
+        "& kotak masuk formulir.",
+        "panel": ("p-buat", "p-form-inbox", "p-tersimpan"),
     },
     {
         "slug": "panel",
@@ -558,6 +726,17 @@ ANCHOR_HALAMAN: dict[str, str] = {
 ANCHOR_HALAMAN.update({
     "p-kartu": "sambutan",
     "p-uji": "",
+    "p-rank": "inti",
+    "p-aturan": "keamanan",
+    "p-honeypot": "keamanan",
+    "p-tag": "konten",
+    "p-pantau": "konten",
+    "p-curhat": "konten",
+    "p-sosial": "konten",
+    "p-voice": "konten",
+    "p-info": "konten",
+    "p-form-inbox": "buat",
+    "p-statistik": "konten",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -565,7 +744,7 @@ ANCHOR_HALAMAN.update({
     "p-goodbye": "sambutan",
     "p-boost-slot": "sambutan",
 })
-LEGACY_HALAMAN: dict[str, str] = {"uji": "", "setelan": "inti", "perpisahan": "sambutan",
+LEGACY_HALAMAN: dict[str, str] = {"uji": "ai", "setelan": "inti", "perpisahan": "sambutan",
                                   "boost": "sambutan"}
 
 # Setelan sambutan/pamit/boost dipisah per bagian di halamannya masing-masing.
@@ -612,13 +791,26 @@ BAGIAN_SAMBUTAN: tuple[tuple[str, str, str, str], ...] = (
 # Kartu & tes yang menempel di halaman selain halaman bagian sambutan.
 KARTU_HALAMAN: dict[str, tuple[str, ...]] = {"sambutan": ("welcome", "goodbye", "boost")}
 UJI_HALAMAN: dict[str, tuple[str, ...]] = {
-    "": ("ai",),
-    "buat": ("pengumuman",),
+    "": (),
+    "ai": ("ai",),
+    "buat": ("pengumuman", "formulir"),
     "panel": ("panel",),
     "tiket": ("tiket",),
-    "konten": ("digest",),
+    "konten": ("digest", "tag", "pantau", "curhat", "sosial", "statistik", "voice", "info"),
     "ekspor": ("ekspor",),
+    "giveaway": ("giveaway",),
+    "inti": ("kartu", "lencana"),
+    "keamanan": ("honeypot", "verifikasi"),
+    "moderasi": ("moderasi", "snipe"),
 }
+
+
+def _id_aman(nilai: object) -> int:
+    """Angka dari form/URL tanpa pernah melempar `ValueError`."""
+    try:
+        return int(str(nilai).strip())
+    except (TypeError, ValueError):
+        return 0
 
 
 def halaman_dari_path(path: str) -> str:
@@ -767,6 +959,8 @@ def _panel_tiket(d: dict) -> str:
         f'    {d["tiket_block"]}\n'
         '    <div class="subpanel"><h3>⚙️ Setelan tiket &amp; sapaan</h3>'
         f'{d["setelan_block"]}</div>\n'
+        '    <div class="subpanel"><h3>📚 Arsip transkrip (bisa dicari)</h3>'
+        f'{d.get("arsip_block", "")}</div>\n'
         '    <div class="subpanel"><h3>🧪 Tes panel tiket</h3>'
         f'{d["uji_block"]}</div>\n  </div>'
     )
@@ -787,6 +981,29 @@ def _panel_ai(d: dict) -> str:
         '    <p class="muted">Satu panggilan AI kecil untuk memastikan API key, kuota, '
         'dan jaringan sehat. Tidak mengirim pesan ke Discord.</p>\n'
         f'    {d["uji_block"]}\n  </div>'
+    )
+
+
+def _panel_gambar(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-gambar">\n    <h2>🎨 Generator gambar AI</h2>\n'
+        '    <p class="muted">Masukkan prompt, pilih channel dan gaya, lalu kirim hasilnya. '
+        'Form ini tidak berjalan sampai tombol ditekan.</p>\n'
+        f'    {d["gambar_block"]}\n  </div>'
+    )
+
+
+def _panel_ai_settings(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-ai-settings">\n    <h2>🧠 Kepribadian AI server</h2>\n'
+        f'    {d["ai_prompt_block"]}\n  </div>'
+    )
+
+
+def _panel_privasi(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-privasi">\n    <h2>🔐 Privasi data member</h2>\n'
+        f'    {d["ai_privasi_block"]}\n  </div>'
     )
 
 
@@ -836,10 +1053,32 @@ def _panel_grup(anchor: str, judul: str, ket: str, *extra: str) -> object:
     return render
 
 
+def _panel_giveaway(d: dict) -> str:
+    """Halaman giveaway: kendali penuh + tombol tes syarat."""
+    return (
+        '<div class="panel" id="p-giveaway">\n    <h2>🎁 Giveaway</h2>\n'
+        '    <p class="muted">Buat, hentikan, dan undi ulang giveaway langsung dari HP. '
+        'Syarat berlapis — role, level server, umur akun — dan peluang ekstra untuk '
+        'pemilik role bonus diatur di sini, bukan lewat command.</p>\n'
+        f'    {d.get("giveaway_block", "")}\n'
+        '    <div class="subpanel"><h3>🧪 Tes syarat giveaway</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
+    )
+
+
 def _panel_riwayat(d: dict) -> str:
     return (
         '<div class="panel" id="p-riwayat">\n    <h2>🧾 Riwayat perubahan</h2>\n'
         f'    {d["audit_block"]}\n  </div>'
+    )
+
+
+def _panel_bangun(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-bangun">\n    <h2>🏗️ Bangun server</h2>\n'
+        '    <p class="muted">Bangun dari tema atau rancangan AI, tinjau pratinjau, lalu '
+        'terapkan secara eksplisit. Riwayat rollback hanya berisi item yang dibuat fitur ini.</p>\n'
+        f'    {d["bangun_block"]}\n  </div>'
     )
 
 
@@ -858,6 +1097,9 @@ PANEL: dict[str, object] = {
     "p-tiket": _panel_tiket,
     "p-banner": _panel_banner,
     "p-ai": _panel_ai,
+    "p-gambar": _panel_gambar,
+    "p-ai-settings": _panel_ai_settings,
+    "p-privasi": _panel_privasi,
     "p-sambutan": _panel_sambutan,
     "p-inti": _panel_grup(
         "p-inti", "⚙️ Inti, level, &amp; ekonomi",
@@ -867,13 +1109,56 @@ PANEL: dict[str, object] = {
         "p-keamanan", "🛡️ Keamanan",
         "Anti-spam, anti-nuke, pengaman raid, verifikasi, &amp; proteksi anti-phishing. "
         "Mode “Lapor” hanya mencatat — paling aman untuk memulai.",
+        "honeypot",
+        "aturan",
     ),
     "p-konten": _panel_grup(
         "p-konten", "🧩 Konten &amp; interaksi",
         "Fitur AI per channel (boleh lebih dari satu), starboard, kotak saran, fakta harian, "
         "koran pagi, &amp; backup otomatis.",
+        "tag",
+        "pantau",
+        "curhat",
+        "sosial",
+        "voice",
+        "info",
+        "starboard",
         "uji",
     ),
+    "p-rank": lambda d: (
+        '<div class="panel" id="p-rank">\n    <h2>🖼️ Kartu rank (PNG)</h2>\n'
+        '    <p class="muted">Kartu rank yang dikirim <code>/level kartu</code> dirender '
+        'server (Pillow) dengan <b>perender yang sama</b> seperti pratinjau di bawah. '
+        'Latar boleh diunggah sendiri; tanpa latar, bot memakai gradasi warna aksen.</p>\n'
+        f'    {d.get("kartu_rank_block", "")}\n  </div>'
+    ),
+    "p-lencana": lambda d: (
+        '<div class="panel" id="p-lencana">\n    '
+        + (d.get("lencana_block") or '<div class="muted">Panel lencana tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
+    "p-snipe": lambda d: (
+        '<div class="panel" id="p-snipe">\n    '
+        + (d.get("snipe_block") or '<div class="muted">Panel snipe tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
+    "p-moderasi": lambda d: (
+        '<div class="panel" id="p-moderasi">\n    '
+        + (d.get("moderasi_block") or '<div class="muted">Panel moderasi tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
+    "p-statistik": lambda d: (
+        '<div class="panel" id="p-statistik">\n    '
+        + (d.get("stats_block") or '<div class="muted">Panel statistik tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
+    "p-form-inbox": lambda d: (
+        '<div class="panel" id="p-form-inbox">\n    '
+        + (d.get("form_inbox_block") or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
+    "p-giveaway": _panel_giveaway,
+    "p-bangun": _panel_bangun,
     "p-tersimpan": _panel_tersimpan,
     "p-riwayat": _panel_riwayat,
 }
@@ -896,7 +1181,8 @@ def render_dashboard_html(
     usage: dict,
     levels: dict,
     refresh: int = 30,
-    auto_tautan: str = "",
+    auto_aksi: str = "",
+    auto_dipilih: str = "",
     heading: str = "🛰️ Dashboard Bot",
     kontrol_block: str = '<div class="muted">Kontrol tidak tersedia.</div>',
     fitur_block: str = "",
@@ -913,8 +1199,29 @@ def render_dashboard_html(
     ekspor_block: str = "",
     panel_block: str = "",
     tiket_block: str = "",
+    giveaway_block: str = "",
+    arsip_block: str = "",
     tren_block: str = "",
     kartu_block: str = "",
+    kartu_rank_block: str = "",
+    starboard_block: str = "",
+    aturan_block: str = "",
+    honeypot_block: str = "",
+    moderasi_block: str = "",
+    snipe_block: str = "",
+    tag_block: str = "",
+    lencana_block: str = "",
+    pantau_block: str = "",
+    curhat_block: str = "",
+    sosial_block: str = "",
+    voice_block: str = "",
+    info_block: str = "",
+    form_inbox_block: str = "",
+    stats_block: str = "",
+    bangun_block: str = "",
+    gambar_block: str = "",
+    ai_prompt_block: str = "",
+    ai_privasi_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -958,20 +1265,12 @@ def render_dashboard_html(
         if detik > 0
         else ""
     )
-    tautan_auto = (
-        f'<a class="auto" href="{html.escape(auto_tautan, quote=True)}&amp;refresh={{}}">{{}}</a>'
-        if auto_tautan
-        else ""
+    # Angka besar lebih enak dibaca sebagai menit/jam: “600s · 10 menit”.
+    petunjuk = f" · {_label_auto(detik)}" if detik >= 60 else ""
+    refresh_info = (
+        f" (🔄 auto-refresh {detik}s{petunjuk})" if detik > 0 else " (⏸ auto-refresh mati)"
     )
-    if detik > 0:
-        refresh_info = f" (🔄 auto-refresh {detik}s"
-        if tautan_auto:
-            refresh_info += " · " + tautan_auto.format(0, "jeda")
-    else:
-        refresh_info = " (⏸ auto-refresh mati"
-        if tautan_auto:
-            refresh_info += " · " + tautan_auto.format(30, "hidupkan")
-    refresh_info += ")"
+    auto_pilih = form_auto(auto_aksi, token, guild_id, detik, auto_dipilih)
     data = {
         "uptime": html.escape(str(status.get("uptime") or "-")),
         "ram_mb": status.get("ram_mb") or 0,
@@ -1004,6 +1303,32 @@ def render_dashboard_html(
         "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
         "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
+        "honeypot_block": honeypot_block
+        or '<div class="muted">Honeypot tidak tersedia.</div>',
+        "moderasi_block": moderasi_block
+        or '<div class="muted">Panel moderasi tidak tersedia.</div>',
+        "snipe_block": snipe_block or '<div class="muted">Panel snipe tidak tersedia.</div>',
+        "tag_block": tag_block or '<div class="muted">Panel tag tidak tersedia.</div>',
+        "curhat_block": curhat_block or '<div class="muted">Panel curhat tidak tersedia.</div>',
+        "sosial_block": sosial_block or '<div class="muted">Panel notifikasi sosial tidak tersedia.</div>',
+        "voice_block": voice_block or '<div class="muted">Panel voice linking tidak tersedia.</div>',
+        "info_block": info_block or '<div class="muted">Panel channel info tidak tersedia.</div>',
+        "form_inbox_block": form_inbox_block or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
+        "stats_block": stats_block or '<div class="muted">Panel statistik tidak tersedia.</div>',
+        "bangun_block": bangun_block or '<div class="muted">Panel bangun tidak tersedia.</div>',
+        "gambar_block": gambar_block or '<div class="muted">Generator gambar tidak tersedia.</div>',
+        "ai_prompt_block": ai_prompt_block or '<div class="muted">Prompt AI server tidak tersedia.</div>',
+        "ai_privasi_block": ai_privasi_block or '<div class="muted">Informasi privasi tidak tersedia.</div>',
+        "pantau_block": pantau_block
+        or '<div class="muted">Panel highlight tidak tersedia.</div>',
+        "lencana_block": lencana_block
+        or '<div class="muted">Panel lencana tidak tersedia.</div>',
+        "aturan_block": aturan_block
+        or '<div class="muted">Penguji aturan tidak tersedia.</div>',
+        "starboard_block": starboard_block
+        or '<div class="muted">Papan sorotan tidak tersedia.</div>',
+        "kartu_rank_block": kartu_rank_block
+        or '<div class="muted">Kartu rank tidak tersedia.</div>',
         "uji_block": uji_block or '<div class="muted">Tes fitur tidak tersedia.</div>',
         "setelan_welcome": setelan_welcome or '<div class="muted">Setelan tidak tersedia.</div>',
         "setelan_goodbye": setelan_goodbye or '<div class="muted">Setelan tidak tersedia.</div>',
@@ -1017,6 +1342,8 @@ def render_dashboard_html(
         "ekspor_block": ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
         "panel_block": panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
         "tiket_block": tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
+        "giveaway_block": giveaway_block or '<div class="muted">Kendali giveaway tidak tersedia.</div>',
+        "arsip_block": arsip_block or '<div class="muted">Arsip transkrip tidak tersedia.</div>',
         "tren_block": tren_block or '<div class="muted">Belum ada data tren.</div>',
         "tren_hari": int(tren_hari or 7),
     }
@@ -1037,6 +1364,7 @@ def render_dashboard_html(
         font_link=dashboard_tema.FONT_LINK,
         css=dashboard_tema.CSS_HALAMAN,
         refresh_info=refresh_info,
+        auto_pilih=auto_pilih,
         meta_refresh=meta_refresh,
         version=html.escape(str(status.get("version") or "-")),
         bot_name=html.escape(str(status.get("bot_name") or "Bot")),
@@ -1355,18 +1683,22 @@ async def start_dashboard(bot) -> bool:
         flash_pesan = str(request.query.get("pesan") or "")[:300]
         flash_ok = str(request.query.get("ok") or "1") != "0"
 
-        # 🔄 Hidupkan / jeda auto-refresh dari header (tanpa JavaScript, tanpa .env).
-        # `?refresh=30` → simpan di cookie, `?refresh=0` → jeda, `?refresh=auto` → ikut .env.
-        if "refresh" in request.query:
-            nilai = str(request.query.get("refresh") or "").strip().lower()
+        # 🔄 Atur auto-refresh dari header (tanpa JavaScript, tanpa .env).
+        # Dropdown `?refresh=600` atau angka bebas `?refresh_detik=45` → cookie;
+        # `?refresh=auto` (atau kosong) → hapus cookie, ikut DASHBOARD_REFRESH_SEC.
+        if "refresh" in request.query or FIELD_AUTO_MANUAL in request.query:
+            nilai = detik_dari_kueri(request.query)
             balik = url_halaman(halaman_dari_path(request.path), token, gid)
+            if nilai == "manual":
+                # “✏️ Isi sendiri…” dipilih tapi angkanya belum diisi: tampilkan
+                # kotak angka (tanpa mengubah nilai yang sedang berlaku).
+                return web.Response(status=303, headers={"Location": balik + "&isi=1"})
             jawab = web.Response(status=303, headers={"Location": balik})
-            if nilai in ("", "auto", "bawaan", "env"):
+            if nilai == "auto":
                 jawab.del_cookie(COOKIE_AUTO, path="/")
             else:
-                angka = int(nilai) if nilai.isdigit() else 0
                 jawab.set_cookie(
-                    COOKIE_AUTO, str(max(0, min(3600, angka))),
+                    COOKIE_AUTO, nilai,
                     max_age=COOKIE_AUTO_MAKS, path="/", httponly=True, samesite="Lax",
                 )
             return jawab
@@ -1387,6 +1719,14 @@ async def start_dashboard(bot) -> bool:
 
         slug = halaman_dari_path(request.path)
         halaman_meta = HALAMAN_SLUG[slug]
+
+        # Interval yang benar-benar dipakai: cookie (kalau ada) lalu
+        # `DASHBOARD_REFRESH_SEC`. Dropdown di header menampilkan yang aktif.
+        simpan_auto = str(request.cookies.get(COOKIE_AUTO) or "").strip()
+        detik = detik_auto(request, cfg["refresh"])
+        pilih_auto = simpan_auto if simpan_auto.isdigit() else "auto"
+        if str(request.query.get("isi") or "").strip() == "1":
+            pilih_auto = "manual"        # mode “✏️ Isi sendiri…” dibuka
 
         def _blok(pembuat, bawaan: str) -> str:
             """Gambar satu blok; kegagalan satu blok tidak mematikan halaman."""
@@ -1456,6 +1796,96 @@ async def start_dashboard(bot) -> bool:
             ),
             '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
         )
+        arsip_block = _blok(
+            lambda: dashboard_ui.render_arsip_block(
+                gid, token, ticket_archive.statistik(gid), ticket_archive.daftar(gid, limit=5)
+            ),
+            '<div class="muted">Arsip transkrip tidak tersedia.</div>',
+        )
+        kartu_rank_block = _blok(
+            lambda: dashboard_ui.render_kartu_rank_block(bot, gid, token),
+            '<div class="muted">Kartu rank tidak tersedia.</div>',
+        )
+        honeypot_block = _blok(
+            lambda: dashboard_ui.render_honeypot_block(bot, gid, token),
+            '<div class="muted">Honeypot tidak tersedia.</div>',
+        )
+        snipe_block = _blok(
+            lambda: dashboard_snipe.render_snipe_block(bot, gid, token),
+            '<div class="muted">Panel snipe tidak tersedia.</div>',
+        )
+        moderasi_block = _blok(
+            lambda: dashboard_moderasi.render_moderasi_block(bot, gid, token),
+            '<div class="muted">Panel moderasi tidak tersedia.</div>',
+        )
+        tag_block = _blok(
+            lambda: dashboard_tags.render_tags_block(bot, gid, token),
+            '<div class="muted">Panel tag tidak tersedia.</div>',
+        )
+        curhat_block = _blok(
+            lambda: dashboard_curhat.render_curhat_block(bot, gid, token),
+            '<div class="muted">Panel curhat tidak tersedia.</div>',
+        )
+        form_inbox_block = _blok(
+            lambda: dashboard_form_inbox.render_inbox_block(bot, gid, token),
+            '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
+        )
+        stats_block = _blok(
+            lambda: dashboard_stats.render_stats_block(bot, gid, token),
+            '<div class="muted">Panel statistik tidak tersedia.</div>',
+        )
+        bangun_block = _blok(
+            lambda: dashboard_bangun.render_bangun_block(bot, gid, token),
+            '<div class="muted">Panel bangun tidak tersedia.</div>',
+        )
+        gambar_block = _blok(
+            lambda: dashboard_ai.render_gambar_block(bot, gid, token),
+            '<div class="muted">Generator gambar tidak tersedia.</div>',
+        )
+        ai_prompt_block = _blok(
+            lambda: dashboard_ai.render_prompt_server_block(gid, token),
+            '<div class="muted">Prompt AI server tidak tersedia.</div>',
+        )
+        ai_privasi_block = _blok(
+            dashboard_ai.render_privasi_block,
+            '<div class="muted">Informasi privasi tidak tersedia.</div>',
+        )
+        info_block = _blok(
+            lambda: dashboard_info.render_info_block(bot, gid, token),
+            '<div class="muted">Panel channel info tidak tersedia.</div>',
+        )
+        voice_block = _blok(
+            lambda: dashboard_voice.render_voice_block(bot, gid, token),
+            '<div class="muted">Panel voice linking tidak tersedia.</div>',
+        )
+        sosial_block = _blok(
+            lambda: dashboard_sosial.render_sosial_block(bot, gid, token),
+            '<div class="muted">Panel notifikasi sosial tidak tersedia.</div>',
+        )
+        pantau_block = _blok(
+            lambda: dashboard_highlights.render_highlights_block(bot, gid, token),
+            '<div class="muted">Panel highlight tidak tersedia.</div>',
+        )
+        lencana_block = _blok(
+            lambda: dashboard_lencana.render_lencana_block(bot, gid, token),
+            '<div class="muted">Panel lencana tidak tersedia.</div>',
+        )
+        aturan_block = _blok(
+            lambda: dashboard_ui.render_aturan_block(
+                gid, token, dashboard_keamanan.collect(gid)
+            ),
+            '<div class="muted">Penguji aturan tidak tersedia.</div>',
+        )
+        starboard_block = _blok(
+            lambda: dashboard_ui.render_starboard_block(bot, gid, token),
+            '<div class="muted">Papan sorotan tidak tersedia.</div>',
+        )
+        giveaway_block = _blok(
+            lambda: dashboard_ui.render_giveaway_block(
+                gid, dashboard_giveaway.collect(gid), token, bot
+            ),
+            '<div class="muted">Kendali giveaway tidak tersedia.</div>',
+        )
         ekspor_block = _blok(
             lambda: dashboard_ui.render_ekspor_block(gid, token),
             '<div class="muted">Ekspor tidak tersedia.</div>',
@@ -1489,8 +1919,9 @@ async def start_dashboard(bot) -> bool:
             status=collect_status(bot),
             usage=collect_usage(gid),
             levels=collect_levels(gid),
-            refresh=detik_auto(request, cfg["refresh"]),
-            auto_tautan=url_halaman(slug, token, gid),
+            refresh=detik,
+            auto_aksi=f"/{slug}" if slug else "/",
+            auto_dipilih=pilih_auto,
             heading=guild_name or "Bot",
             kontrol_block=render_controls_block(gid, token),
             fitur_block=render_features_block(gid),
@@ -1501,6 +1932,25 @@ async def start_dashboard(bot) -> bool:
             audit_block=audit_block,
             banner_block=banner_block,
             kartu_block=kartu_block,
+            kartu_rank_block=kartu_rank_block,
+            starboard_block=starboard_block,
+            aturan_block=aturan_block,
+            honeypot_block=honeypot_block,
+            moderasi_block=moderasi_block,
+            snipe_block=snipe_block,
+            tag_block=tag_block,
+            lencana_block=lencana_block,
+            pantau_block=pantau_block,
+            curhat_block=curhat_block,
+            sosial_block=sosial_block,
+            voice_block=voice_block,
+            info_block=info_block,
+            form_inbox_block=form_inbox_block,
+            stats_block=stats_block,
+            bangun_block=bangun_block,
+            gambar_block=gambar_block,
+            ai_prompt_block=ai_prompt_block,
+            ai_privasi_block=ai_privasi_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1518,6 +1968,8 @@ async def start_dashboard(bot) -> bool:
             ekspor_block=ekspor_block,
             panel_block=panel_block,
             tiket_block=tiket_block,
+            giveaway_block=giveaway_block,
+            arsip_block=arsip_block,
             tren_block=tren_block,
             tren_hari=tren["hari"],
             halaman=slug,
@@ -1661,6 +2113,68 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi.startswith("stats-"):
+            ok, message = await dashboard_stats.aksi_stats(gid, aksi, payload)
+        elif aksi.startswith("inbox-"):
+            ok, message = await dashboard_form_inbox.aksi_inbox(gid, aksi, payload)
+        elif aksi.startswith("info-"):
+            ok, message = await dashboard_info.aksi_info(bot, gid, aksi, payload)
+        elif aksi.startswith("voice-"):
+            ok, message = await dashboard_voice.aksi_voice(bot, gid, aksi, payload)
+        elif aksi.startswith("sosial-"):
+            ok, message = await dashboard_sosial.aksi_sosial(gid, aksi, payload)
+        elif aksi.startswith("curhat-"):
+            ok, message = await dashboard_curhat.aksi_curhat(gid, aksi, payload)
+        elif aksi.startswith("pantau-"):
+            ok, message = await dashboard_highlights.aksi_highlights(gid, aksi, payload)
+        elif aksi == "tag-simpan":
+            import tags
+
+            ok, message = dashboard_tags.simpan_tag(gid, payload)
+            if ok:
+                await tags.save_tags_to_disk()
+        elif aksi.startswith("tag-hapus:"):
+            import tags
+
+            nama = aksi.split(":", 1)[1]
+            ok = tags.hapus(gid, nama)
+            if ok:
+                await tags.save_tags_to_disk()
+            message = (
+                f"Tag `{tags.normalisasi(nama)}` dihapus." if ok
+                else f"Tidak ada tag bernama `{nama}`."
+            )
+        elif aksi.startswith("tag-aktif:"):
+            import tags
+
+            hidup = aksi.split(":", 1)[1].strip() not in ("0", "false", "off")
+            tags.set_config(gid, enabled=hidup)
+            await tags.save_tags_to_disk()
+            ok, message = True, (
+                f"Fitur tag {'diaktifkan' if hidup else 'dimatikan'} "
+                "(data tag tetap tersimpan)."
+            )
+        elif aksi == "starboard-tambah":
+            import community_tools
+
+            ok, message = community_tools.add_starboard_board(
+                gid,
+                str(payload.get("nama") or ""),
+                emoji=str(payload.get("emoji") or ""),
+                threshold=_id_aman(payload.get("batas")),
+                channel_id=_id_aman(payload.get("channel_id")),
+                warna=str(payload.get("warna") or ""),
+            )
+            if ok:
+                await community_tools.save_community_tools_to_disk()
+        elif aksi.startswith("starboard-hapus:"):
+            import community_tools
+
+            ok, message = community_tools.remove_starboard_board(
+                gid, aksi.split(":", 1)[1]
+            )
+            if ok:
+                await community_tools.save_community_tools_to_disk()
         elif aksi.startswith(("banner.panel:", "hapusbanner.panel:")):
             ref_panel = aksi.split(":", 1)[1]
             if aksi.startswith("hapusbanner."):
@@ -1728,6 +2242,167 @@ async def start_dashboard(bot) -> bool:
         logger.info("Dashboard panel %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-panel", request)
 
+    async def _simpan_tiket() -> None:
+        """Simpan perubahan konfigurasi tiket (topik) ke `data/tickets.json`."""
+        import tickets
+
+        try:
+            await tickets.save_tickets_to_disk()
+        except Exception as exc:  # pragma: no cover - I/O gagal
+            logger.warning("Gagal menyimpan konfigurasi tiket: %s", exc)
+
+    async def handle_keamanan(request):
+        """POST penguji aturan anti-spam (tanpa menindak apa pun)."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+
+        if aksi == "honeypot-simpan":
+            import honeypot
+
+            cid = _id_aman(payload.get("channel_id"))
+            lama = honeypot.status(gid)
+            ids = list(lama["channel_ids"])
+            if cid and cid not in ids:
+                ids.append(cid)
+            ok, message = True, ""
+            honeypot.set_honeypot(
+                gid,
+                channel_ids=ids,
+                aksi=str(payload.get("aksi") or ""),
+                timeout_sec=_id_aman(payload.get("timeout_sec")) or None,
+                log_channel_id=_id_aman(payload.get("log_channel_id")),
+                abaikan_staf=str(payload.get("abaikan_staf") or "1") not in ("0", "false", "off"),
+            )
+            await honeypot.save_honeypot_to_disk()
+            data = honeypot.status(gid)
+            message = (
+                f"Honeypot disimpan: channel {', '.join(f'#{c}' for c in data['channel_ids'])} · "
+                f"tindakan {data['label_aksi']}."
+                if data["channel_ids"]
+                else "Honeypot disimpan, tapi belum ada channel jebakan yang dipilih."
+            )
+        elif aksi == "honeypot-hapus":
+            import honeypot
+
+            ok = honeypot.clear_honeypot(gid)
+            if ok:
+                await honeypot.save_honeypot_to_disk()
+            message = (
+                "Honeypot dimatikan & setelannya dihapus."
+                if ok
+                else "Belum ada setelan honeypot untuk dihapus."
+            )
+        elif aksi == "uji-aturan":
+            ok, message = dashboard_keamanan.uji(
+                gid, str(payload.get("teks") or ""), ulang=_id_aman(payload.get("ulang"))
+            )
+        else:
+            ok, message = False, f"Aksi keamanan `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard keamanan %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, "p-aturan", request)
+
+    async def handle_lencana(request):
+        """Panel lencana: setelan, role hadiah, & hapus hadiah."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+
+        ok, message = await dashboard_lencana.aksi_lencana(gid, aksi, payload)
+        logger.info("Dashboard lencana %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, "p-lencana", request)
+
+    async def handle_moderasi(request):
+        """Panel moderasi: setelan laporan, ubah status antrean, cari kasus, cabut temp-ban."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        import moderation
+        import reports
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        anchor = "p-moderasi"
+
+        if aksi == "laporan-setelan":
+            cid = _id_aman(payload.get("channel_id"))
+            reports.set_config(
+                gid,
+                channel_id=cid or None,
+                cooldown_sec=_id_aman(payload.get("cooldown_sec")),
+                enabled=str(payload.get("enabled") or "1") not in ("0", "false", "off"),
+                dm_pelapor=str(payload.get("dm_pelapor") or "1") not in ("0", "false", "off"),
+            )
+            await reports.save_reports_to_disk()
+            data = reports.status(gid)
+            ok, message = True, (
+                f"Setelan laporan disimpan: {'aktif' if data['aktif'] else 'nonaktif'} · "
+                f"cooldown {data['cooldown_sec']} detik · channel "
+                f"{'#' + str(data['channel_id']) if data['channel_id'] else 'ikut log moderasi'}."
+            )
+        elif aksi == "antrean-status":
+            kode = _id_aman(payload.get("kode"))
+            entri = reports.ubah_status(
+                gid, kode, str(payload.get("status") or ""),
+                catatan=str(payload.get("catatan") or ""),
+            )
+            if entri is None:
+                ok, message = False, f"Antrean `#{kode}` tidak ditemukan atau status tidak valid."
+            else:
+                await reports.save_reports_to_disk()
+                ok, message = True, (
+                    f"Antrean `#{kode}` → {reports.STATUS.get(entri['status'], entri['status'])}."
+                )
+        elif aksi == "tempban-cabut":
+            uid = _id_aman(payload.get("user_id"))
+            dicabut = moderation.drop_tempban(gid, uid)
+            if not dicabut:
+                ok, message = False, f"Tidak ada temp-ban aktif untuk `{uid}`."
+            else:
+                await moderation.save_moderation_to_disk()
+                ok, message = True, (
+                    f"Temp-ban `{uid}` dicabut dari daftar tunggu. Bila ban masih aktif, "
+                    "cabut lewat `/mod unban user_id:" + str(uid) + "`."
+                )
+        elif aksi == "cari-kasus":
+            hasil = dashboard_moderasi.cari_kasus(
+                gid, str(payload.get("q") or ""), str(payload.get("aksi") or "")
+            )
+            ok, message = True, (
+                f"{len(hasil)} kasus ditemukan."
+                if hasil
+                else "Tidak ada kasus yang cocok dengan pencarian itu."
+            )
+        else:
+            ok, message = False, f"Aksi moderasi `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard moderasi %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, anchor, request)
+
     async def handle_tiket(request):
         """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
         if request.method == "GET":
@@ -1755,6 +2430,27 @@ async def start_dashboard(bot) -> bool:
             )
         elif jenis == "tutup":
             ok, message = await dashboard_tiket.tutup(bot, gid, ref)
+        elif jenis == "topik-tambah":
+            ok, message = dashboard_tiket.topik_tambah(
+                gid,
+                str(payload.get("nama") or ""),
+                role_id=_id_aman(payload.get("role_id")),
+                emoji=str(payload.get("emoji") or ""),
+                deskripsi=str(payload.get("deskripsi") or ""),
+            )
+            if ok:
+                await _simpan_tiket()
+        elif jenis == "topik-hapus":
+            ok, message = dashboard_tiket.topik_hapus(gid, str(payload.get("nama") or ""))
+            if ok:
+                await _simpan_tiket()
+        elif jenis == "catat":
+            ok, message = dashboard_tiket.catat(
+                gid, _id_aman(ref), str(payload.get("teks") or "")
+            )
+        elif jenis == "catatan-hapus":
+            tid_str, _, nomor = ref.partition(":")
+            ok, message = dashboard_tiket.hapus_catatan(gid, _id_aman(tid_str), _id_aman(nomor))
         elif jenis == "panel":
             ok, message = await dashboard_tiket.pasang_panel(bot, gid, payload)
         elif jenis == "matikan":
@@ -1763,6 +2459,123 @@ async def start_dashboard(bot) -> bool:
             ok, message = False, f"Aksi tiket `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard tiket %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-tiket", request)
+
+    async def handle_transkrip(request):
+        """Halaman arsip transkrip tiket + pencarian (tanpa JavaScript)."""
+        if not _authorized(request):
+            return web.Response(
+                text="401 Unauthorized — tambahkan ?token=...", status=401
+            )
+        gid, guild_name = _guild_hint(bot, request)
+        kata = str(request.query.get("q") or "").strip()[:80]
+        hasil = (
+            ticket_archive.cari(gid, kata, limit=30)
+            if kata
+            else ticket_archive.daftar(gid, limit=30)
+        )
+        page = dashboard_ui.render_halaman_arsip(
+            gid,
+            cfg["token"],
+            kata=kata,
+            hasil=hasil,
+            stat=ticket_archive.statistik(gid),
+            nama_server=guild_name,
+        )
+        return web.Response(
+            text=page,
+            content_type="text/html",
+            charset="utf-8",
+            headers={"X-Robots-Tag": "noindex"},
+        )
+
+    async def handle_transkrip_berkas(request):
+        """Berkas transkrip HTML satu tiket (GET) atau hapus arsip (POST)."""
+        if request.method == "GET":
+            if not _authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            gid, _name = _guild_hint(bot, request)
+            kode = str(request.query.get("kode") or "").strip()
+            isi = ticket_archive.baca_html(gid, kode)
+            if isi is None:
+                return web.Response(
+                    text="Arsip transkrip tidak ditemukan (mungkin sudah dihapus).",
+                    status=404,
+                    content_type="text/plain",
+                    charset="utf-8",
+                )
+            return web.Response(
+                text=isi,
+                content_type="text/html",
+                charset="utf-8",
+                headers={"X-Robots-Tag": "noindex", "Cache-Control": "no-store"},
+            )
+
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        if aksi == "hapus":
+            ok = ticket_archive.hapus(gid, str(payload.get("kode") or "").strip())
+            pesan = (
+                f"Arsip transkrip #{payload.get('kode')} dihapus."
+                if ok
+                else "Arsip transkrip itu tidak ditemukan."
+            )
+        else:
+            ok, pesan = False, f"Aksi arsip `{aksi or '-'}` tidak dikenal."
+        try:
+            await dashboard_admin.audit_append(
+                gid, f"transkrip.{aksi or '-'}", str(payload.get("kode") or "")[:40],
+                ok=ok, pesan=pesan,
+            )
+        except Exception:  # pragma: no cover - audit opsional
+            pass
+        logger.info("Dashboard transkrip %s (server %s): %s", aksi, gid, pesan)
+        return _jawab(gid, ok, pesan, "p-tiket", request)
+
+    async def handle_giveaway(request):
+        """Kendali giveaway: daftar (GET) atau aksi buat/akhiri/reroll/template (POST)."""
+        if request.method == "GET":
+            if not _authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            gid, _name = _guild_hint(bot, request)
+            return web.json_response(dashboard_giveaway.collect(gid))
+
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        try:
+            ok, pesan = await dashboard_giveaway.aksi(bot, gid, aksi, payload)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Aksi giveaway gagal: %s", exc)
+            ok, pesan = False, "Aksi giveaway gagal dijalankan."
+
+        nama_aksi = aksi.partition(":")[0] or "-"
+        try:
+            await dashboard_admin.audit_append(
+                gid,
+                f"giveaway.{nama_aksi}",
+                str(payload.get("hadiah") or payload.get("nama") or aksi)[:120],
+                ok=ok,
+                pesan=pesan,
+            )
+        except Exception:  # pragma: no cover - audit opsional
+            pass
+        logger.info("Dashboard giveaway %s (server %s): %s", aksi, gid, pesan)
+        return _jawab(gid, ok, pesan, "p-giveaway", request)
 
     async def handle_ekspor(request):
         """Unduh CSV analitik server (level/moderasi/tiket/pemakaian)."""
@@ -1831,6 +2644,90 @@ async def start_dashboard(bot) -> bool:
             }.get(jenis, "p-sambutan")
         return _jawab(gid, ok, message, anchor, request)
 
+    async def handle_bangun(request):
+        """Pratinjau, terapkan, atau bongkar item `/bangun` (token dashboard wajib)."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or payload.get("aksi") or "-").strip().lower()
+        try:
+            ok, message = await dashboard_bangun.proses_aksi(bot, gid, payload)
+        except Exception as exc:  # pragma: no cover - kegagalan Discord/API tak terduga
+            logger.warning("Dashboard bangun %s gagal (server %s): %s", aksi, gid, exc)
+            ok, message = False, f"Aksi gagal ({type(exc).__name__}); pratinjau tetap aman."
+
+        # Catat perubahan tanpa menyimpan deskripsi bebas yang dikirim ke perancang AI.
+        if aksi == "tema":
+            nilai_audit = f"tema:{str(payload.get('tema') or '')[:40]}"
+        elif aksi == "rancang":
+            nilai_audit = f"deskripsi {len(str(payload.get('deskripsi') or ''))} huruf (isi tidak dicatat)"
+        elif aksi == "terapkan":
+            nilai_audit = "rencana pratinjau"
+        elif aksi == "bongkar":
+            nilai_audit = "item tercatat" if str(payload.get("konfirmasi") or "") == "ya" else "konfirmasi belum dicentang"
+        else:
+            nilai_audit = aksi
+        await dashboard_admin.audit_append(
+            gid, f"bangun.{aksi}"[:64], nilai_audit, ok=ok, pesan=message
+        )
+        logger.info("Dashboard bangun aksi %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, "p-bangun", request)
+
+    async def handle_ai(request):
+        """Buat gambar di Discord atau simpan prompt kepribadian AI server."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or payload.get("aksi") or "-").strip().lower()
+        try:
+            ok, message = await dashboard_ai.proses_aksi(bot, gid, payload)
+        except Exception as exc:  # pragma: no cover - kegagalan Discord/API tak terduga
+            logger.warning("Dashboard AI %s gagal (server %s): %s", aksi, gid, type(exc).__name__)
+            ok, message = False, f"Aksi AI gagal ({type(exc).__name__})."
+
+        # Audit hanya metadata; prompt dan isi gambar/lampiran tidak pernah dicatat.
+        if aksi == "gambar":
+            nilai_audit = (
+                f"channel={_id_aman(payload.get('channel_id'))}; "
+                f"gaya={str(payload.get('style') or 'channel')[:32]}; "
+                f"rasio={str(payload.get('ratio') or 'channel')[:32]}; "
+                f"prompt {len(str(payload.get('prompt') or ''))} huruf"
+            )
+            anchor = "p-gambar"
+        elif aksi == "prompt-server":
+            nilai_audit = f"prompt {len(str(payload.get('prompt_server') or ''))} huruf (isi tidak dicatat)"
+            anchor = "p-ai-settings"
+        else:
+            nilai_audit, anchor = aksi[:100], "p-ai"
+        pesan_audit = (
+            ("Gambar dibuat dan dikirim." if ok else "Gambar gagal; detail tidak disimpan di audit.")
+            if aksi == "gambar" else message
+        )
+        await dashboard_admin.audit_append(
+            gid, f"ai.{aksi}"[:64], nilai_audit[:180], ok=ok, pesan=pesan_audit[:180]
+        )
+        logger.info(
+            "Dashboard AI %s (server %s): %s",
+            aksi, gid, ("berhasil" if ok else "gagal") if aksi == "gambar" else message,
+        )
+        return _jawab(gid, ok, message, anchor, request)
+
     async def handle_uji(request):
         """Jalankan satu tes fitur. Subjek tes opsional — default pemilik server."""
         if request.method != "POST":
@@ -1868,6 +2765,59 @@ async def start_dashboard(bot) -> bool:
             content_type=tipe,
             headers={"Cache-Control": "private, max-age=60"},
         )
+
+    async def handle_rank_png(request):
+        """Kartu rank PNG untuk pratinjau dashboard (perender sama dengan /level kartu)."""
+        if not _authorized(request):
+            return web.Response(text="401 Unauthorized", status=401)
+
+        import rank_card
+
+        gid, _nama = _guild_hint(bot, request)
+        member = _id_aman(request.query.get("member"))
+        guild = None
+        getter = getattr(bot, "get_guild", None)
+        if callable(getter):
+            guild = getter(gid)
+        if not member and guild is not None:
+            member = int(getattr(guild, "owner_id", 0) or 0)
+
+        nama = "Member"
+        avatar = None
+        orang = None
+        cari = getattr(guild, "get_member", None) if guild is not None else None
+        if callable(cari) and member:
+            try:
+                orang = cari(member)
+            except Exception:  # pragma: no cover - jaring aman
+                orang = None
+        if orang is not None:
+            nama = getattr(orang, "display_name", "") or getattr(orang, "name", "") or nama
+            avatar = await rank_card.baca_avatar(orang)
+
+        data = rank_card.data_kartu(
+            gid,
+            member,
+            nama=nama,
+            guild_name=str(getattr(guild, "name", "") or ""),
+        )
+        isi = await rank_card.render_kartu(data, avatar_bytes=avatar)
+        if not isi:
+            return web.Response(
+                text="Kartu rank tidak bisa dirender (Pillow tidak tersedia atau dimatikan).",
+                status=503,
+                content_type="text/plain",
+            )
+        unduh = str(request.query.get("unduh") or "") in ("1", "true", "ya")
+        header = {
+            "Cache-Control": "no-store",
+            "Content-Disposition": (
+                f'attachment; filename="kartu-rank-{member or 0}.png"'
+                if unduh
+                else f'inline; filename="kartu-rank-{member or 0}.png"'
+            ),
+        }
+        return web.Response(body=isi, content_type="image/png", headers=header)
 
     async def handle_berkas(request):
         """Sajikan banner tersimpan untuk pratinjau di halaman dashboard."""
@@ -1922,12 +2872,23 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/konten", handle_konten)
     app.router.add_post("/api/unggah", handle_unggah)
     app.router.add_post("/api/uji", handle_uji)
+    app.router.add_post("/api/bangun", handle_bangun)
+    app.router.add_post("/api/ai", handle_ai)
     app.router.add_get("/api/kartu/{jenis}", handle_kartu)
+    app.router.add_get("/api/rank.png", handle_rank_png)
     app.router.add_get("/api/ekspor", handle_ekspor)
     app.router.add_get("/api/panel", handle_panel)
     app.router.add_post("/api/panel", handle_panel)
     app.router.add_get("/api/tiket", handle_tiket)
     app.router.add_post("/api/tiket", handle_tiket)
+    app.router.add_post("/api/keamanan", handle_keamanan)
+    app.router.add_post("/api/moderasi", handle_moderasi)
+    app.router.add_post("/api/lencana", handle_lencana)
+    app.router.add_get("/api/giveaway", handle_giveaway)
+    app.router.add_post("/api/giveaway", handle_giveaway)
+    app.router.add_get("/transkrip", handle_transkrip)
+    app.router.add_get("/api/transkrip", handle_transkrip_berkas)
+    app.router.add_post("/api/transkrip", handle_transkrip_berkas)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
     for _lama in LEGACY_HALAMAN:
@@ -1947,7 +2908,7 @@ async def start_dashboard(bot) -> bool:
         await _site.start()
         logger.info(
             "🛰️ Dashboard web aktif di http://%s:%s/?token=*** "
-            "(%s setelan, kirim embed/webhook, 0 kuota AI)",
+            "(%s setelan, kirim embed/webhook; AI hanya saat diminta)",
             cfg["host"],
             cfg["port"],
             len(dashboard_admin.FITUR),

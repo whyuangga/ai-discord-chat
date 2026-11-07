@@ -58,6 +58,8 @@ import command_policy
 import flow_triggers
 import link_embed
 import modal_forms
+import ai_user_settings
+import server_builder
 import webhook_identity
 from growth_tracker import (
     cleanup_growth_runtime,
@@ -105,6 +107,7 @@ from antispam import (
     load_antispam_from_disk,
     save_antispam_to_disk,
 )
+from honeypot import load_honeypot_from_disk
 from engagement import (
     cleanup_engagement_runtime,
     load_engagement_from_disk,
@@ -148,6 +151,46 @@ from temp_voice import (
 from moderation import (
     cleanup_moderation_runtime,
     load_moderation_from_disk,
+    run_tempban_check,
+    save_moderation_to_disk,
+)
+from reports import (
+    cleanup_reports_runtime,
+    load_reports_from_disk,
+    save_reports_to_disk,
+)
+from achievements import (
+    cleanup_achievements_runtime,
+    load_achievements_from_disk,
+    save_achievements_to_disk,
+)
+from community_tools import cleanup_captcha_runtime
+from modal_forms import cleanup_inbox_runtime as cleanup_form_inbox_runtime
+from info_channel import (
+    cleanup_info_channel_runtime,
+    load_info_channel_from_disk,
+    run_info_channel_check,
+    save_info_channel_to_disk,
+)
+from voice_link import (
+    cleanup_voice_link_runtime,
+    load_voice_link_from_disk,
+    save_voice_link_to_disk,
+)
+from confessions import (
+    cleanup_confessions_runtime,
+    load_confessions_from_disk,
+    save_confessions_to_disk,
+)
+from highlights import (
+    cleanup_highlights_runtime,
+    load_highlights_from_disk,
+    save_highlights_to_disk,
+)
+from tags import (
+    cleanup_tags_runtime,
+    load_tags_from_disk,
+    save_tags_to_disk,
 )
 from social_notify import (
     cleanup_social_runtime,
@@ -291,6 +334,14 @@ class GeminiDiscordBot(commands.Bot):
             load_engagement_from_disk()
         )
         loaded_antispam = load_antispam_from_disk()
+        loaded_honeypot = load_honeypot_from_disk()
+        loaded_report_guilds, loaded_report_entries = load_reports_from_disk()
+        loaded_tag_guilds, loaded_tags = load_tags_from_disk()
+        loaded_ach_guilds, loaded_ach_members = load_achievements_from_disk()
+        loaded_hl_guilds, loaded_hl_members = load_highlights_from_disk()
+        loaded_cf_guilds, loaded_cf_items = load_confessions_from_disk()
+        loaded_vl_guilds, loaded_vl_links = load_voice_link_from_disk()
+        loaded_ic_guilds = load_info_channel_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
@@ -301,6 +352,8 @@ class GeminiDiscordBot(commands.Bot):
         loaded_menus = load_menus_from_disk()
         loaded_webhooks = webhook_identity.load_from_disk()
         loaded_forms = modal_forms.load_from_disk()
+        loaded_bangun = server_builder.load_from_disk()
+        loaded_ai_users, loaded_ai_servers = ai_user_settings.load_from_disk()
         loaded_links = link_embed.load_from_disk()
         loaded_triggers = flow_triggers.load_from_disk()
         loaded_antinuke = load_antinuke_from_disk()
@@ -375,6 +428,25 @@ class GeminiDiscordBot(commands.Bot):
             loaded_announcements,
         )
         logger.info("Anti-Spam & Anti-Raid dimuat: %d server aktif.", loaded_antispam)
+        logger.info("Honeypot dimuat: %d server.", loaded_honeypot)
+        logger.info(
+            "Laporan & banding dimuat: %d server, %d entri antrean.",
+            loaded_report_guilds, loaded_report_entries,
+        )
+        logger.info("Tag dimuat: %d server, %d tag.", loaded_tag_guilds, loaded_tags)
+        logger.info(
+            "Lencana dimuat: %d server, %d member terdata.", loaded_ach_guilds, loaded_ach_members
+        )
+        logger.info(
+            "Highlight dimuat: %d server, %d pelanggan.", loaded_hl_guilds, loaded_hl_members
+        )
+        logger.info(
+            "Curhat dimuat: %d server, %d curhat.", loaded_cf_guilds, loaded_cf_items
+        )
+        logger.info(
+            "Voice linking dimuat: %d server, %d channel.", loaded_vl_guilds, loaded_vl_links
+        )
+        logger.info("Channel info dimuat: %d server.", loaded_ic_guilds)
         logger.info(
             "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
             loaded_levels,
@@ -390,6 +462,10 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Panel menu dimuat: %d panel.", loaded_menus)
         logger.info("Webhook identitas dimuat: %d channel.", loaded_webhooks)
         logger.info("Formulir (modal) dimuat: %d formulir.", loaded_forms)
+        logger.info("Riwayat /bangun dimuat: %d server.", loaded_bangun)
+        logger.info(
+            "Setelan AI dimuat: %d member, %d server.", loaded_ai_users, loaded_ai_servers
+        )
         logger.info("Tautan embed dimuat: %d tautan.", loaded_links)
         logger.info("Pemicu gabung dimuat: %d server.", loaded_triggers)
         logger.info("Anti-Nuke dimuat: %d server.", loaded_antinuke)
@@ -479,6 +555,17 @@ class GeminiDiscordBot(commands.Bot):
         await save_music_settings_to_disk()
         await save_engagement_to_disk()
         await save_antispam_to_disk()
+        await save_moderation_to_disk()
+        await save_reports_to_disk()
+        await modal_forms.save_to_disk()
+        await server_builder.save_to_disk()
+        await ai_user_settings.save_to_disk()
+        await save_tags_to_disk()
+        await save_achievements_to_disk()
+        await save_highlights_to_disk()
+        await save_confessions_to_disk()
+        await save_voice_link_to_disk()
+        await save_info_channel_to_disk()
         reset_voice_sessions()
         await save_levels_to_disk()
         await stop_dashboard()
@@ -526,10 +613,12 @@ async def idle_chat_watcher():
         await raid_tick(bot)         # akhiri mode raid yang sudah kedaluwarsa
         await run_reminder_check(bot)
         await run_ticket_check(bot)  # peringatan SLA & auto-close tiket menganggur
+        await run_tempban_check(bot)  # cabut ban sementara yang sudah habis
         if idle_chat_watcher.current_loop % 4 == 0:
             await run_level_season_check(bot)  # reset musim level otomatis (bila diaktifkan)
         await run_engagement_check(bot)  # giveaway berakhir, ucapan ultah, pengumuman terjadwal
         if idle_chat_watcher.current_loop % 4 == 0:
+            await run_info_channel_check(bot)  # segarkan channel info (atur & info, 0 kuota)
             await run_morning_digest_check(bot, http_session=bot.http_session)
             await run_facts_check(bot, http_session=bot.http_session)
             await run_social_check(bot, http_session=bot.http_session)  # YouTube/Twitch/TikTok (0 kuota AI)
@@ -573,6 +662,15 @@ async def idle_chat_watcher():
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()
+            cleanup_reports_runtime()
+            cleanup_tags_runtime()
+            cleanup_achievements_runtime()
+            cleanup_highlights_runtime()
+            cleanup_confessions_runtime()
+            cleanup_voice_link_runtime()
+            cleanup_info_channel_runtime()
+            cleanup_captcha_runtime()
+            cleanup_form_inbox_runtime()
             cleanup_temp_voice_runtime()
             cleanup_suggestions_runtime()
             cleanup_server_tools_runtime()

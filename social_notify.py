@@ -58,6 +58,18 @@ PLATFORMS: dict[str, dict] = {
         "hint": "URL feed RSS (RSSHub) — TikTok tidak menyediakan API gratis resmi",
         "template": "🎵 **{source}** mengunggah video baru!\n**{title}**\n{url}",
     },
+    "reddit": {
+        "label": "Reddit (postingan baru subreddit)",
+        "emoji": "👽",
+        "hint": "nama subreddit (mis. `indonesia`, `r/indonesia`) atau link subreddit",
+        "template": "👽 **{source}** — postingan baru di Reddit!\n**{title}**\n{url}",
+    },
+    "rss": {
+        "label": "RSS / Atom (situs apa pun)",
+        "emoji": "📰",
+        "hint": "URL feed RSS/Atom (mis. `https://blog.contoh.com/feed.xml`)",
+        "template": "📰 **{source}** — artikel baru!\n**{title}**\n{url}",
+    },
 }
 
 MAX_SEEN = 25
@@ -65,6 +77,8 @@ MAX_SUBS_PER_GUILD = 12
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 TWITCH_HELIX_STREAMS = "https://api.twitch.tv/helix/streams"
 YOUTUBE_FEED_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
+REDDIT_FEED_URL = "https://www.reddit.com/r/{sub}/new/.rss"
+SUBREDDIT_RE = re.compile(r"^[A-Za-z0-9_+]{2,32}$")
 
 # guild_id -> {"subs": [ ... ]}
 social_guilds: dict[int, dict] = {}
@@ -75,6 +89,8 @@ PLATFORM_INTERVAL: dict[str, int] = {
     "youtube": max(300, SOCIAL_CHECK_SEC),
     "twitch": 120,
     "tiktok": max(600, SOCIAL_CHECK_SEC),
+    "reddit": max(600, SOCIAL_CHECK_SEC),
+    "rss": max(600, SOCIAL_CHECK_SEC),
 }
 _last_checked: dict[tuple[int, str], float] = {}
 
@@ -102,6 +118,28 @@ def find_subscription(guild_id: int, sub_id: str) -> dict | None:
     return None
 
 
+def normalize_subreddit(value: str) -> str:
+    """`r/indonesia`, `indonesia`, atau link Reddit → nama subreddit (tanpa `r/`)."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "reddit.com" in text.lower():
+        found = re.search(r"reddit\.com/r/([A-Za-z0-9_+]{2,32})", text, re.I)
+        text = found.group(1) if found else ""
+    text = text.lstrip("/")
+    if text.lower().startswith("r/"):
+        text = text[2:]
+    text = text.strip("/")
+    return text if SUBREDDIT_RE.match(text) else ""
+
+
+def feed_url(platform: str, target: str) -> str:
+    """URL feed yang benar-benar diambil untuk satu langganan."""
+    if platform == "reddit":
+        return REDDIT_FEED_URL.format(sub=normalize_subreddit(target))
+    return str(target or "").strip()
+
+
 def add_subscription(
     guild_id: int,
     platform: str,
@@ -123,11 +161,17 @@ def add_subscription(
         cleaned = normalize_twitch_login(cleaned)
         if not cleaned:
             raise ValueError("Login Twitch tidak valid (huruf, angka, dan garis bawah).")
+    if key == "reddit":
+        cleaned = normalize_subreddit(cleaned)
+        if not cleaned:
+            raise ValueError("Nama subreddit tidak valid (huruf, angka, `_`, maks 32 huruf).")
     if key == "tiktok" and not cleaned.lower().startswith(("http://", "https://")):
         raise ValueError(
             "Untuk TikTok/RSS, tempelkan **URL feed** (mis. dari RSSHub). "
             "TikTok tidak menyediakan API feed gratis resmi."
         )
+    if key == "rss" and not cleaned.lower().startswith(("http://", "https://")):
+        raise ValueError("Untuk RSS/Atom, tempelkan **URL feed** lengkap (diawali `http`).")
 
     subs = social_guilds.setdefault(int(guild_id), {"subs": []})["subs"]
     if len(subs) >= MAX_SUBS_PER_GUILD:
@@ -326,6 +370,48 @@ def parse_rss_items(xml_bytes: bytes) -> list[dict]:
     return items
 
 
+def parse_reddit_feed(xml_bytes: bytes) -> list[dict]:
+    """Membaca feed `.rss` Reddit (format Atom) → postingan terbaru.
+
+    Reddit memakai Atom, bukan RSS 2.0, jadi `parse_rss_items` tidak cukup.
+    """
+    try:
+        root = ElementTree.fromstring(xml_bytes)
+    except ElementTree.ParseError:
+        return []
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    source = ""
+    node = root.find("atom:title", ns)
+    if node is not None and node.text:
+        source = node.text.strip()
+
+    items: list[dict] = []
+    for entry in root.findall("atom:entry", ns):
+        title = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
+        link_node = entry.find("atom:link", ns)
+        link = (link_node.get("href") if link_node is not None else "") or ""
+        entry_id = (entry.findtext("atom:id", default="", namespaces=ns) or "").strip()
+        published = (
+            entry.findtext("atom:updated", default="", namespaces=ns)
+            or entry.findtext("atom:published", default="", namespaces=ns)
+            or ""
+        ).strip()
+        if not (entry_id or link):
+            continue
+        items.append(
+            {
+                "id": hashlib.sha1((entry_id or link).encode("utf-8")).hexdigest()[:16],
+                "title": title or "Postingan baru",
+                "url": link,
+                "published": published,
+                "source": source,
+                "thumbnail": "",
+            }
+        )
+    return items
+
+
 def parse_twitch_streams(payload: dict) -> list[dict]:
     """Membaca respons Helix `/streams` → daftar stream yang sedang live."""
     streams: list[dict] = []
@@ -489,9 +575,19 @@ async def fetch_feed_items(session: aiohttp.ClientSession, sub: dict) -> list[di
         )
         return parse_atom_entries(body) if body else []
 
+    if platform == "reddit":
+        body = await fetch_text(
+            session,
+            feed_url("reddit", str(sub.get("target") or "")),
+            headers={"User-Agent": "Mozilla/5.0 (compatible; DiscordBot/1.0)"},
+        )
+        if not body:
+            return []
+        return parse_reddit_feed(body) or parse_rss_items(body)
+
     body = await fetch_text(
         session,
-        str(sub.get("target") or ""),
+        feed_url(str(platform or ""), str(sub.get("target") or "")),
         headers={"User-Agent": "Mozilla/5.0 (compatible; DiscordBot/1.0)"},
     )
     return parse_rss_items(body) if body else []
