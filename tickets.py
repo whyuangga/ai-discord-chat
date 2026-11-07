@@ -37,6 +37,10 @@ _lock = asyncio.Lock()
 TICKET_NOTE_MAX = 25
 TICKET_NOTE_LEN = 500
 
+# Topik tiket: panel bisa menawarkan beberapa topik, masing-masing dengan role staf sendiri.
+TICKET_TOPIC_MAX = 8
+TICKET_TOPIC_LEN = 40
+
 TICKET_STATUS: dict[str, str] = {
     "terbuka": "🟢 Terbuka",
     "diklaim": "🙋 Sedang ditangani",
@@ -72,6 +76,8 @@ def default_config() -> dict:
         "rating_count": 0,
         "auto_closed": 0,
         "sla_alerted": 0,
+        # v1.40: multi-topik (kosong = satu topik umum seperti sebelumnya)
+        "topics": [],
     }
 
 
@@ -125,6 +131,7 @@ def load_tickets_from_disk() -> int:
                 "rating_count": max(0, _to_int(data.get("rating_count"))),
                 "auto_closed": max(0, _to_int(data.get("auto_closed"))),
                 "sla_alerted": max(0, _to_int(data.get("sla_alerted"))),
+                "topics": normalize_topics(data.get("topics")),
             }
         )
         ticket_guilds[gid] = base
@@ -161,6 +168,7 @@ def load_tickets_from_disk() -> int:
             "rating": max(0, min(5, _to_int(data.get("rating")))),
             "rated_at": float(data.get("rated_at") or 0),
             "closed_reason": str(data.get("closed_reason") or "")[:100],
+            "topik": str(data.get("topik") or "")[:TICKET_TOPIC_LEN],
             "notes": [
                 {
                     "teks": str(item.get("teks") or "")[:TICKET_NOTE_LEN],
@@ -304,6 +312,7 @@ def register_ticket(
     user_id: int,
     *,
     topic: str = "",
+    topik: str = "",
     now: float | None = None,
 ) -> dict:
     """Mencatat tiket baru setelah thread berhasil dibuat."""
@@ -328,6 +337,7 @@ def register_ticket(
         "rating": 0,
         "rated_at": 0.0,
         "closed_reason": "",
+        "topik": str(topik or "")[:TICKET_TOPIC_LEN],
         "notes": [],
     }
     tickets[int(thread_id)] = data
@@ -385,6 +395,105 @@ def add_user_to_ticket(thread_id: int, user_id: int) -> bool:
         return False
     added.append(int(user_id))
     return True
+
+
+def normalize_topics(topics) -> list[dict]:
+    """Rapikan daftar topik tiket: nama unik, role/emoji opsional, dibatasi jumlahnya."""
+    hasil: list[dict] = []
+    for item in topics or []:
+        if not isinstance(item, dict):
+            continue
+        nama = str(item.get("nama") or "").strip()[:TICKET_TOPIC_LEN]
+        if not nama or any(t["nama"].lower() == nama.lower() for t in hasil):
+            continue
+        hasil.append(
+            {
+                "nama": nama,
+                "emoji": str(item.get("emoji") or "").strip()[:32],
+                "staff_role_id": _to_int(item.get("staff_role_id")) or 0,
+                "deskripsi": str(item.get("deskripsi") or "").strip()[:100],
+            }
+        )
+        if len(hasil) >= TICKET_TOPIC_MAX:
+            break
+    return hasil
+
+
+def list_ticket_topics(guild_id: int) -> list[dict]:
+    """Semua topik tiket server (kosong = satu topik umum)."""
+    cfg = ticket_guilds.get(int(guild_id)) or {}
+    return list(cfg.get("topics") or [])
+
+
+def set_ticket_topics(guild_id: int, topics) -> list[dict]:
+    """Ganti seluruh daftar topik satu server."""
+    cfg = get_ticket_config(int(guild_id))
+    cfg["topics"] = normalize_topics(topics)
+    return list(cfg["topics"])
+
+
+def find_topic(guild_id: int, nama: str) -> dict | None:
+    """Cari topik berdasarkan nama (tidak peka huruf besar/kecil)."""
+    kunci = str(nama or "").strip().lower()
+    if not kunci:
+        return None
+    for item in list_ticket_topics(guild_id):
+        if str(item.get("nama") or "").lower() == kunci:
+            return item
+    return None
+
+
+def add_ticket_topic(
+    guild_id: int,
+    nama: str,
+    *,
+    emoji: str = "",
+    staff_role_id: int = 0,
+    deskripsi: str = "",
+) -> tuple[bool, str]:
+    """Tambah (atau perbarui) satu topik. `(berhasil, pesan)`."""
+    gid = int(guild_id)
+    label = str(nama or "").strip()[:TICKET_TOPIC_LEN]
+    if not label:
+        return False, "Nama topik tidak boleh kosong."
+    daftar = list_ticket_topics(gid)
+    baru = {
+        "nama": label,
+        "emoji": str(emoji or "").strip()[:32],
+        "staff_role_id": _to_int(staff_role_id),
+        "deskripsi": str(deskripsi or "").strip()[:100],
+    }
+    posisi = next(
+        (i for i, item in enumerate(daftar) if item["nama"].lower() == label.lower()), None
+    )
+    if posisi is None:
+        if len(daftar) >= TICKET_TOPIC_MAX:
+            return False, f"Topik sudah penuh (maksimal {TICKET_TOPIC_MAX}). Hapus satu dulu."
+        daftar.append(baru)
+        pesan = f"Topik **{label}** ditambahkan."
+    else:
+        daftar[posisi] = baru
+        pesan = f"Topik **{label}** diperbarui."
+    set_ticket_topics(gid, daftar)
+    return True, pesan
+
+
+def remove_ticket_topic(guild_id: int, nama: str) -> tuple[bool, str]:
+    """Hapus satu topik berdasarkan nama."""
+    gid = int(guild_id)
+    kunci = str(nama or "").strip().lower()
+    daftar = list_ticket_topics(gid)
+    sisa = [item for item in daftar if str(item.get("nama") or "").lower() != kunci]
+    if len(sisa) == len(daftar):
+        return False, f"Topik `{nama}` tidak ditemukan."
+    set_ticket_topics(gid, sisa)
+    return True, f"Topik `{nama}` dihapus."
+
+
+def topic_staff_role(guild_id: int, topik: str) -> int:
+    """Role staf khusus satu topik (0 = pakai role staf umum)."""
+    data = find_topic(guild_id, topik)
+    return _to_int((data or {}).get("staff_role_id"))
 
 
 def add_note(thread_id: int, author_id: int, teks: str, *, now: float | None = None) -> tuple[str, dict | None]:
@@ -679,11 +788,11 @@ def build_ticket_embed(data: dict, *, staff_role_id: int | None = None) -> disco
         color=discord.Color.green() if data.get("status") != "selesai" else discord.Color.dark_gray(),
     )
     embed.add_field(name="📌 Status", value=status, inline=True)
-    embed.add_field(
-        name="🗂️ Topik",
-        value=str(data.get("topic") or "_(tidak diisi)_")[:200],
-        inline=True,
-    )
+    topik = str(data.get("topik") or "").strip()
+    nilai_topik = str(data.get("topic") or "_(tidak diisi)_")[:200]
+    if topik:
+        nilai_topik = f"**{topik}** · {nilai_topik}"[:200]
+    embed.add_field(name="🗂️ Topik", value=nilai_topik, inline=True)
     claimed = data.get("claimed_by")
     embed.add_field(name="🙋 Ditangani", value=f"<@{claimed}>" if claimed else "_belum ada_", inline=True)
     if staff_role_id:

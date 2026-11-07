@@ -62,10 +62,16 @@ toc: true
 | **`/tiket rating`** | Rata-rata rating bintang, sebaran bintang, & statistik SLA server. |
 | **`/tiket catat teks:...`** *(Staf)* | Catatan internal — **tidak dikirim ke thread**, hanya tersimpan & tampil di dashboard. |
 | **`/tiket catatan [hapus:<nomor>]`** *(Staf)* | Lihat/hapus catatan internal tiket ini (1 = paling lama). |
+| **`/tiket topik [tambah:<nama>] [hapus:<nama>] [role:@Staf] [emoji:🛒] [deskripsi:...]`** *(Admin)* | Atur **beberapa topik** pada satu panel. Tanpa argumen = daftar topik. |
 | **`/tiket matikan`** *(Admin)* | Matikan sistem tiket (thread lama tetap bisa dibaca). |
 
 **Cara kerja:**
 1. Member klik **🎟️ Buat Tiket** → bot membuat **private thread** `tiket-<nama>` (bukan channel baru → tidak memakan slot 500 channel/server).
+   Bila panel sudah punya **topik** (mis. *Pembelian*, *Lapor Bug*), tombol tunggal berganti menjadi
+   **dropdown topik**; thread-nya bernama `tiket-<topik>-<nama>`, judul tiket menyebut topiknya, dan
+   yang diundang adalah **role staf topik itu** (kalau belum diatur, ikut role staf umum). Tombol
+   **Topik lain** tetap tersedia untuk keluhan yang tidak masuk daftar. Maksimal
+   `TICKET_TOPIC_MAX` (default **8**) topik per server, nama maks `TICKET_TOPIC_LEN` (40) karakter.
 2. Pembuat tiket otomatis ditambahkan, lalu **maksimal 15 staf** dari role petugas ikut ditambahkan; sisanya bisa lewat `/tiket tambah`.
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.

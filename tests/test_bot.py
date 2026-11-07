@@ -4716,6 +4716,8 @@ async def test_growth_commands_views_and_help():
         "atur", "rating",
         # v1.40: catatan internal staf (tidak dikirim ke member)
         "catat", "catatan",
+        # v1.40: beberapa topik per panel
+        "topik",
     }
     for group in (level_group, tiket_group):
         assert len(group.description) <= 100

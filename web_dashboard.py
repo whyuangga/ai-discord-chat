@@ -1889,6 +1889,15 @@ async def start_dashboard(bot) -> bool:
         logger.info("Dashboard panel %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-panel", request)
 
+    async def _simpan_tiket() -> None:
+        """Simpan perubahan konfigurasi tiket (topik) ke `data/tickets.json`."""
+        import tickets
+
+        try:
+            await tickets.save_tickets_to_disk()
+        except Exception as exc:  # pragma: no cover - I/O gagal
+            logger.warning("Gagal menyimpan konfigurasi tiket: %s", exc)
+
     async def handle_tiket(request):
         """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
         if request.method == "GET":
@@ -1916,6 +1925,20 @@ async def start_dashboard(bot) -> bool:
             )
         elif jenis == "tutup":
             ok, message = await dashboard_tiket.tutup(bot, gid, ref)
+        elif jenis == "topik-tambah":
+            ok, message = dashboard_tiket.topik_tambah(
+                gid,
+                str(payload.get("nama") or ""),
+                role_id=_id_aman(payload.get("role_id")),
+                emoji=str(payload.get("emoji") or ""),
+                deskripsi=str(payload.get("deskripsi") or ""),
+            )
+            if ok:
+                await _simpan_tiket()
+        elif jenis == "topik-hapus":
+            ok, message = dashboard_tiket.topik_hapus(gid, str(payload.get("nama") or ""))
+            if ok:
+                await _simpan_tiket()
         elif jenis == "catat":
             ok, message = dashboard_tiket.catat(
                 gid, _id_aman(ref), str(payload.get("teks") or "")

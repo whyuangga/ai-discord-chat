@@ -88,10 +88,11 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
    halaman dashboard `/giveaway` (buat, hentikan, undi ulang, tes syarat).
 2. **Tiket lebih dalam** — transkrip **HTML** yang bisa dibuka & dicari dari dashboard,
    catatan internal staf, lebih dari satu topik per panel.
-   ◐ **Sebagian jalan** (v1.40): transkrip HTML + `.txt` diarsipkan otomatis tiap tiket
+   ✅ **Sudah jalan** (v1.40): transkrip HTML + `.txt` diarsipkan otomatis tiap tiket
    ditutup (command, dashboard, atau auto-close) dan bisa **dicari dari dashboard**
-   (`/transkrip`, dicari di isi percakapan) + **catatan internal staf** (command & dashboard).
-   Sisa: lebih dari satu topik per panel.
+   (`/transkrip`, dicari di isi percakapan), **catatan internal staf** (command & dashboard),
+   serta **beberapa topik per panel** (`/tiket topik` + pengelola di halaman `/tiket`):
+   dropdown topik, role staf per topik, thread `tiket-<topik>-<nama>`, maks 8 topik/server.
 3. **Kartu rank PNG** — dirender server (Pillow) dari data level yang sudah ada, dengan
    **pratinjau di dashboard yang memakai perender yang sama**.
 4. **Starboard varian** — board kedua/ketiga dengan emoji & ambang sendiri.

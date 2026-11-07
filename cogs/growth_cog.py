@@ -1089,6 +1089,93 @@ async def tiket_matikan_cmd(interaction: discord.Interaction):
     )
 
 
+@tiket_group.command(
+    name="topik",
+    description="Atur beberapa topik tiket; tiap topik bisa punya role staf sendiri",
+)
+@app_commands.describe(
+    tambah="Nama topik baru (atau yang diperbarui). Kosongkan untuk melihat daftar.",
+    hapus="Nama topik yang ingin dihapus",
+    role="Role staf khusus untuk topik ini (opsional)",
+    emoji="Emoji topik, mis. 🛒 (opsional)",
+    deskripsi="Keterangan singkat yang tampil di dropdown (opsional)",
+)
+async def tiket_topik_cmd(
+    interaction: discord.Interaction,
+    tambah: str = "",
+    hapus: str = "",
+    role: discord.Role | None = None,
+    emoji: str = "",
+    deskripsi: str = "",
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    gid = interaction.guild.id
+    if hapus:
+        ok, pesan = tickets.remove_ticket_topic(gid, hapus)
+        if ok:
+            await tickets.save_tickets_to_disk()
+        await interaction.response.send_message(
+            ("🗑️ " if ok else "⚠️ ") + pesan, ephemeral=True
+        )
+        return
+
+    if tambah:
+        ok, pesan = tickets.add_ticket_topic(
+            gid,
+            tambah,
+            emoji=emoji,
+            staff_role_id=role.id if role else 0,
+            deskripsi=deskripsi,
+        )
+        if ok:
+            await tickets.save_tickets_to_disk()
+            pesan += (
+                f"\n• Role staf: {role.mention if role else '_ikut role staf umum_'}\n"
+                f"• Total topik: `{len(tickets.list_ticket_topics(gid))}/"
+                f"{tickets.TICKET_TOPIC_MAX}`\n"
+                "Pasang ulang panel dengan `/tiket panel` agar dropdown topik muncul."
+            )
+        await interaction.response.send_message(
+            ("✅ " if ok else "⚠️ ") + pesan[:1500], ephemeral=True
+        )
+        return
+
+    daftar = tickets.list_ticket_topics(gid)
+    if not daftar:
+        await interaction.response.send_message(
+            "ℹ️ Belum ada topik. Panel tiket memakai satu tombol **Buat Tiket** biasa.\n"
+            "Tambah topik dengan `/tiket topik tambah:Pembelian role:@Kasir emoji:🛒`.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🧩 Topik panel tiket",
+        color=discord.Color.blurple(),
+        description=(
+            f"`{len(daftar)}/{tickets.TICKET_TOPIC_MAX}` topik · member memilih topik dari "
+            "dropdown di panel, lalu role staf topik itu yang diberi tahu."
+        ),
+    )
+    for nomor, item in enumerate(daftar, start=1):
+        role_id = int(item.get("staff_role_id") or 0)
+        embed.add_field(
+            name=f"{nomor}. {item.get('emoji') or '🎟️'} {item.get('nama')}",
+            value=(
+                (f"{item.get('deskripsi')}\n" if item.get("deskripsi") else "")
+                + f"Staf: {f'<@&{role_id}>' if role_id else '_role staf umum'}"
+            )[:1024],
+            inline=False,
+        )
+    embed.set_footer(text="Hapus: /tiket topik hapus:<nama> · pasang ulang panel setelah berubah")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 def register_growth_cog(bot: commands.Bot) -> None:
     """Mendaftarkan command /level & /tiket ke bot."""
     bot.tree.add_command(level_group)

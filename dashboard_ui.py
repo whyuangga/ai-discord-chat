@@ -11,6 +11,7 @@ import dashboard_admin
 import channel_targets
 import dashboard_tema
 import dashboard_unggah
+import tickets
 
 # Kunci yang butuh daftar channel kategori (bukan channel teks biasa).
 KUNCI_KATEGORI = {"tiket.kategori"}
@@ -1155,12 +1156,57 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
         + "</p>"
     )
     pasang = _form_panel_tiket(bot, guild_id, token) if bot is not None else ""
+
+    topik = paket.get("topik") or []
+    role_opsi = (
+        _opsi_html(pilihan_role(bot, guild_id)) if bot is not None else '<option value="0">—</option>'
+    )
+
+    def _baris_topik(item: dict) -> str:
+        role_id = int(item.get("staff_role_id") or 0)
+        staf = f"role `{role_id}`" if role_id else "role staf umum"
+        return (
+            '<div class="tiket-baris"><div>'
+            f'<b>{_esc(str(item.get("emoji") or "🎟️") + " " + str(item.get("nama") or "-"))}</b>'
+            f'<div class="muted">{_esc(item.get("deskripsi") or "tanpa keterangan")} · staf: {_esc(staf)}</div>'
+            "</div>"
+            '<form method="post" action="/api/tiket">'
+            + _hidden(guild_id, token, "topik-hapus")
+            + f'<input type="hidden" name="nama" value="{_esc(item.get("nama"))}">'
+            '<button type="submit" class="danger">Hapus</button></form></div>'
+        )
+
+    # Saat sistem tiket dimatikan, jangan tampilkan jalur tulis apa pun.
+    blok_topik = "" if not stat.get("aktifkan", True) else (
+        '<details><summary class="muted">🧩 Topik panel tiket '
+        f"({len(topik)}/{tickets.TICKET_TOPIC_MAX})"
+        "</summary>"
+        '<p class="muted">Tanpa topik, panel memakai satu tombol <b>Buat Tiket</b>. Dengan topik, '
+        "member memilih dari dropdown dan role staf topik itu yang diberi tahu. Pasang ulang panel "
+        "setelah mengubah daftar.</p>"
+        + (
+            f'<div class="daftar-tiket">{"".join(_baris_topik(t) for t in topik)}</div>'
+            if topik
+            else '<div class="muted">Belum ada topik.</div>'
+        )
+        + '<form method="post" action="/api/tiket" class="formgrid">'
+        + _hidden(guild_id, token, "topik-tambah")
+        + '<div class="medan"><label>Nama topik</label>'
+        '<input type="text" name="nama" maxlength="40" placeholder="Pembelian" required></div>'
+        '<div class="medan"><label>Emoji</label>'
+        '<input type="text" name="emoji" maxlength="8" placeholder="🛒"></div>'
+        f'<div class="medan"><label>Role staf topik</label><select name="role_id">{role_opsi}</select></div>'
+        '<div class="medan"><label>Keterangan (tampil di dropdown)</label>'
+        '<input type="text" name="deskripsi" maxlength="100" placeholder="Beli / kirim barang"></div>'
+        '<button type="submit">Simpan topik</button></form></details>'
+    )
     if not items:
         return (
             ringkas
             + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
             "member menekan tombol <b>Buat Tiket</b> di panel.</div>"
             + pasang
+            + blok_topik
         )
 
     baris = ""
@@ -1212,7 +1258,7 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
             + blok_catatan
             + "</div>"
         )
-    return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang
+    return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang + blok_topik
 
 
 def _opsi_dari(opsi: list[tuple[str, str]], terpilih: str = "") -> str:

@@ -109,7 +109,11 @@ def collect_tiket(guild_id: int, *, limit: int = 20) -> dict:
         statistik["sla_jam"] = int(cfg.get("sla_jam") or 0)
     except Exception:  # pragma: no cover - jaring aman
         pass
-    return {"guild": gid, "items": aktif, "statistik": statistik}
+    try:
+        topik = tickets.list_ticket_topics(gid)
+    except Exception:  # pragma: no cover - jaring aman
+        topik = []
+    return {"guild": gid, "items": aktif, "statistik": statistik, "topik": topik}
 
 
 async def _thread(bot, guild_id: int, thread_id: int):
@@ -279,6 +283,36 @@ def hapus_catatan(guild_id: int, thread_id: int, nomor: int) -> tuple[bool, str]
     if status != "ok":
         return False, f"Catatan nomor `{nomor}` tidak ada."
     return True, f"Catatan nomor `{nomor}` dihapus."
+
+
+def topik_tambah(
+    guild_id: int,
+    nama: str,
+    *,
+    role_id: int = 0,
+    emoji: str = "",
+    deskripsi: str = "",
+) -> tuple[bool, str]:
+    """Tambah/perbarui satu topik tiket dari dashboard."""
+    import tickets
+
+    ok, pesan = tickets.add_ticket_topic(
+        _to_int(guild_id),
+        nama,
+        emoji=emoji,
+        staff_role_id=_to_int(role_id),
+        deskripsi=deskripsi,
+    )
+    if ok:
+        pesan += " Pasang ulang panel tiket agar dropdown-nya ikut berubah."
+    return ok, pesan
+
+
+def topik_hapus(guild_id: int, nama: str) -> tuple[bool, str]:
+    """Hapus satu topik tiket dari dashboard."""
+    import tickets
+
+    return tickets.remove_ticket_topic(_to_int(guild_id), nama)
 
 
 def _waktu_singkat(nilai: object) -> str:
