@@ -1188,6 +1188,216 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
     return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang
 
 
+def _opsi_dari(opsi: list[tuple[str, str]], terpilih: str = "") -> str:
+    return "".join(
+        f'<option value="{_esc(str(nilai))}"{" selected" if str(nilai) == str(terpilih) else ""}>'
+        f"{_esc(str(teks))}</option>"
+        for nilai, teks in opsi
+    )
+
+
+def render_giveaway_block(
+    guild_id: int, data: dict, token: str, bot=None
+) -> str:
+    """Halaman giveaway: buat, hentikan, reroll, template, & setelan bawaan.
+
+    Semua tombol memakai form biasa (tanpa JavaScript) dan hanya memanggil aksi
+    yang ada di whitelist `dashboard_giveaway.AKSI_DIKENAL`.
+    """
+    paket = data or {}
+    aktif = paket.get("aktif") or []
+    selesai = paket.get("selesai") or []
+    template = paket.get("template") or []
+    bawaan = paket.get("bawaan") or {}
+    gid = int(guild_id or 0)
+
+    ringkas = (
+        f'<p class="muted">🎁 Berjalan: <b>{len(aktif)}</b> · '
+        f"selesai: {int(paket.get('total_selesai') or 0)} · "
+        f"template: {len(template)}</p>"
+    )
+
+    channel_opsi = _opsi_dari(pilihan_channel(bot, gid)) if bot is not None else '<option value="0">—</option>'
+    role_opsi = _opsi_dari(pilihan_role(bot, gid)) if bot is not None else '<option value="0">—</option>'
+    role_opsi_bonus = _opsi_dari(
+        pilihan_role(bot, gid), str(int(bawaan.get("bonus_role_id") or 0))
+    ) if bot is not None else '<option value="0">—</option>'
+
+    form_buat = (
+        '<details><summary class="muted">➕ Buat giveaway dari sini (setara /giveaway mulai)</summary>'
+        '<form method="post" action="/api/giveaway" class="formgrid">'
+        + _hidden(gid, token, "buat")
+        + '<div class="medan"><label>Hadiah</label>'
+        '<input type="text" name="hadiah" maxlength="200" placeholder="Nitro 1 Bulan" required></div>'
+        f'<div class="medan"><label>Channel</label><select name="channel">{channel_opsi}</select></div>'
+        '<div class="medan"><label>Durasi (menit)</label>'
+        f'<input type="number" name="menit" min="1" max="43200" value="{int(bawaan.get("seconds") or 3600) // 60}"></div>'
+        '<div class="medan"><label>Jumlah pemenang</label>'
+        f'<input type="number" name="pemenang" min="1" max="20" value="{int(bawaan.get("winner_count") or 1)}"></div>'
+        '<div class="medan"><label>Syarat level minimal (0 = tanpa)</label>'
+        f'<input type="number" name="level" min="0" max="500" value="{int(bawaan.get("level") or 0)}"></div>'
+        '<div class="medan"><label>Syarat umur akun (hari, 0 = tanpa)</label>'
+        f'<input type="number" name="umur" min="0" max="3650" value="{int(bawaan.get("account_age_days") or 0)}"></div>'
+        f'<div class="medan"><label>Role bonus (peluang ekstra)</label>'
+        f'<select name="role_bonus">{role_opsi_bonus}</select></div>'
+        '<div class="medan"><label>Tambahan peluang (1–5)</label>'
+        f'<input type="number" name="bobot" min="1" max="5" value="{int(bawaan.get("bonus_weight") or 1)}"></div>'
+        '<button type="submit">Pasang giveaway</button></form></details>'
+    )
+
+    if aktif:
+        baris = ""
+        for item in aktif:
+            baris += (
+                '<div class="tiket-baris"><div>'
+                f'<b>{_esc(item.get("hadiah"))}</b> · {int(item.get("peserta") or 0)} peserta'
+                f'<div class="muted">{_esc(item.get("syarat"))} · berakhir '
+                f'{_esc(_waktu_relatif(item.get("berakhir")))}</div></div>'
+                '<form method="post" action="/api/giveaway">'
+                + _hidden(gid, token, f"akhiri:{int(item.get('message_id') or 0)}")
+                + '<button type="submit" class="danger">Hentikan</button></form></div>'
+            )
+        daftar_aktif = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar_aktif = (
+            '<div class="muted">Belum ada giveaway berjalan. Buat dari formulir di atas '
+            "atau lewat <code>/giveaway mulai</code>.</div>"
+        )
+
+    if selesai:
+        baris = ""
+        for item in selesai:
+            pemenang = ", ".join(f"<@{uid}>" for uid in (item.get("pemenang") or [])) or "_tanpa pemenang_"
+            sisa = int(item.get("sisa_undi") or 0)
+            tombol = (
+                '<form method="post" action="/api/giveaway">'
+                + _hidden(gid, token, f"reroll:{int(item.get('message_id') or 0)}")
+                + f'<button type="submit" class="ghost">Reroll ({sisa})</button></form>'
+                if sisa
+                else '<span class="muted">semua peserta sudah menang</span>'
+            )
+            baris += (
+                '<div class="tiket-baris"><div>'
+                f'<b>{_esc(item.get("hadiah"))}</b> · {pemenang}'
+                f'<div class="muted">{_esc(item.get("syarat"))} · {int(item.get("peserta") or 0)} peserta</div>'
+                f"</div>{tombol}</div>"
+            )
+        daftar_selesai = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar_selesai = '<div class="muted">Belum ada giveaway yang selesai.</div>'
+
+    if template:
+        baris = "".join(
+            '<div class="tiket-baris"><div>'
+            f'<b>{_esc(tpl.get("nama"))}</b>'
+            f'<div class="muted">{int(tpl.get("winner_count") or 1)} pemenang · '
+            f'{int(tpl.get("seconds") or 0) // 60} menit · '
+            f'{_esc(_ringkas_syarat(tpl))}</div></div>'
+            '<form method="post" action="/api/giveaway">'
+            + _hidden(gid, token, "template-hapus")
+            + f'<input type="hidden" name="nama" value="{_esc(tpl.get("nama"))}">'
+            '<button type="submit" class="danger">Hapus</button></form></div>'
+            for tpl in template[:20]
+        )
+        daftar_template = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar_template = (
+            '<div class="muted">Belum ada template. Template berguna untuk giveaway rutin '
+            "(mis. “Nitro bulanan” dengan syarat level 5).</div>"
+        )
+
+    form_template = (
+        '<details><summary class="muted">🗂️ Simpan template baru</summary>'
+        '<form method="post" action="/api/giveaway" class="formgrid">'
+        + _hidden(gid, token, "template-simpan")
+        + '<div class="medan"><label>Nama template</label>'
+        '<input type="text" name="nama" maxlength="40" placeholder="Nitro bulanan"></div>'
+        '<div class="medan"><label>Durasi (menit)</label>'
+        '<input type="number" name="menit" min="1" max="43200" value="60"></div>'
+        '<div class="medan"><label>Jumlah pemenang</label>'
+        '<input type="number" name="pemenang" min="1" max="20" value="1"></div>'
+        '<div class="medan"><label>Level minimal (0 = tanpa)</label>'
+        '<input type="number" name="level" min="0" max="500" value="0"></div>'
+        '<div class="medan"><label>Umur akun (hari, 0 = tanpa)</label>'
+        '<input type="number" name="umur" min="0" max="3650" value="0"></div>'
+        f'<div class="medan"><label>Role bonus</label><select name="role_bonus">{role_opsi}</select></div>'
+        '<div class="medan"><label>Tambahan peluang (1–5)</label>'
+        '<input type="number" name="bobot" min="1" max="5" value="1"></div>'
+        '<button type="submit">Simpan template</button></form></details>'
+    )
+
+    ping_opsi = _opsi_dari(
+        (("off", "Tidak ping"), ("on", "Ping @everyone")),
+        "on" if bawaan.get("ping_everyone") else "off",
+    )
+    form_bawaan = (
+        '<details open><summary class="muted">⚙️ Setelan bawaan giveaway baru</summary>'
+        '<p class="muted">Dipakai saat <code>/giveaway mulai</code> tanpa argumen, dan '
+        "sebagai nilai awal formulir di atas.</p>"
+        '<form method="post" action="/api/giveaway" class="formgrid">'
+        + _hidden(gid, token, "simpan-bawaan")
+        + '<div class="medan"><label>Durasi bawaan (menit)</label>'
+        f'<input type="number" name="menit" min="1" max="43200" value="{int(bawaan.get("seconds") or 3600) // 60}"></div>'
+        '<div class="medan"><label>Jumlah pemenang bawaan</label>'
+        f'<input type="number" name="pemenang" min="1" max="20" value="{int(bawaan.get("winner_count") or 1)}"></div>'
+        '<div class="medan"><label>Level minimal bawaan</label>'
+        f'<input type="number" name="level" min="0" max="500" value="{int(bawaan.get("level") or 0)}"></div>'
+        '<div class="medan"><label>Umur akun bawaan (hari)</label>'
+        f'<input type="number" name="umur" min="0" max="3650" value="{int(bawaan.get("account_age_days") or 0)}"></div>'
+        f'<div class="medan"><label>Role bonus bawaan</label><select name="role_bonus">{role_opsi_bonus}</select></div>'
+        '<div class="medan"><label>Tambahan peluang bawaan</label>'
+        f'<input type="number" name="bobot" min="1" max="5" value="{int(bawaan.get("bonus_weight") or 1)}"></div>'
+        f'<div class="medan"><label>Saat giveaway dipasang</label><select name="ping">{ping_opsi}</select></div>'
+        '<button type="submit">Simpan setelan bawaan</button></form></details>'
+    )
+
+    return (
+        ringkas
+        + form_buat
+        + '<div class="subpanel"><h3>🎉 Giveaway berjalan</h3>' + daftar_aktif + "</div>"
+        + '<div class="subpanel"><h3>✅ Selesai (terbaru)</h3>' + daftar_selesai + "</div>"
+        + '<div class="subpanel"><h3>🗂️ Template</h3>' + daftar_template + form_template + "</div>"
+        + '<div class="subpanel"><h3>⚙️ Setelan</h3>' + form_bawaan + "</div>"
+    )
+
+
+def _ringkas_syarat(tpl: dict) -> str:
+    """Ringkasan syarat satu template tanpa memerlukan modul engagement."""
+    bagian: list[str] = []
+    level = int(tpl.get("requirements", {}).get("level") or 0) if isinstance(tpl.get("requirements"), dict) else 0
+    if level:
+        bagian.append(f"level ≥ {level}")
+    hari = int(tpl.get("requirements", {}).get("account_age_days") or 0) if isinstance(tpl.get("requirements"), dict) else 0
+    if hari:
+        bagian.append(f"akun ≥ {hari} hari")
+    roles = tpl.get("requirements", {}).get("roles") if isinstance(tpl.get("requirements"), dict) else None
+    if roles:
+        bagian.append(f"{len(roles)} role wajib")
+    bonus = tpl.get("bonus_roles") or {}
+    if bonus:
+        bagian.append(f"{len(bonus)} role bonus")
+    return " · ".join(bagian) if bagian else "tanpa syarat"
+
+
+def _waktu_relatif(epoch: object) -> str:
+    """Teks sisa waktu sederhana tanpa JavaScript (`2j 15m`)."""
+    import time as _time
+
+    try:
+        sisa = int(float(epoch or 0) - _time.time())
+    except (TypeError, ValueError):
+        return "-"
+    if sisa <= 0:
+        return "segera ditutup"
+    jam, sisa = divmod(sisa, 3600)
+    menit = sisa // 60
+    if jam >= 24:
+        return f"{jam // 24} hari {jam % 24} jam lagi"
+    if jam:
+        return f"{jam} jam {menit} menit lagi"
+    return f"{menit} menit lagi"
+
+
 __all__ = [
     "daftar_server",
     "render_panel_block",
@@ -1200,6 +1410,7 @@ __all__ = [
     "render_banner_block",
     "render_buat_block",
     "render_ekspor_block",
+    "render_giveaway_block",
     "render_guild_picker",
     "render_konten_block",
     "render_kirim_block",

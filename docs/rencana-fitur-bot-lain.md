@@ -83,6 +83,9 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 
 1. **Giveaway berlapis** — syarat level / umur akun / role, extra entry booster, log reroll
    (siapa dapat lebih dulu), simpan sebagai **template** dan bisa dijadwalkan.
+   ✅ **Sudah jalan** (v1.40): syarat berlapis + alasan penolakan spesifik, bobot peluang
+   role bonus, log peserta & riwayat undian, template per server, setelan bawaan, dan
+   halaman dashboard `/giveaway` (buat, hentikan, undi ulang, tes syarat).
 2. **Tiket lebih dalam** — transkrip **HTML** yang bisa dibuka & dicari dari dashboard,
    catatan internal staf, lebih dari satu topik per panel.
 3. **Kartu rank PNG** — dirender server (Pillow) dari data level yang sudah ada, dengan
@@ -145,7 +148,8 @@ Mulai dari **Paket A** (memaksimalkan yang sudah ada) karena:
 - Tidak menambah permukaan fitur baru → risiko bug kecil, dokumentasi tidak meledak.
 - Langsung terasa di server nyata: giveaway yang benar-benar menggating peserta, transkrip
   tiket yang bisa dicari, kartu rank yang bisa dipamerkan.
-- Semuanya bisa masuk ke dashboard yang sudah ada (5 grup, 10 halaman) tanpa menambah menu.
+- Semuanya bisa masuk ke dashboard yang sudah ada (5 grup setelan) dengan menambah satu
+  halaman fitur per kebutuhan (giveaway sudah dapat halaman `/giveaway`).
 
 **Paket B** menyusul karena menyentuh keamanan — perlu tes paling hati-hati.
 **Paket C** paling menyenangkan untuk engagement harian, dan bisa dicicil satu fitur per PR.

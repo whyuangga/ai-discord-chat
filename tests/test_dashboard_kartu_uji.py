@@ -211,7 +211,7 @@ def test_panel_uji_punya_tombol_dan_tautan_setelan():
     community_agent.set_welcome_config(GID, 505, enabled=True)
     html = dashboard_ui.render_uji_block(_Bot(), GID, TOKEN)
     # Semua fitur yang punya tes tampil, dikelompokkan per grup
-    assert html.count('class="uji-baris"') == len(dashboard_uji.UJI) == 9
+    assert html.count('class="uji-baris"') == len(dashboard_uji.UJI) == 10
     assert html.count("<h3>") == len({item["grup"] for item in dashboard_uji.UJI})
     assert 'action="/api/uji"' in html and "uji.welcome" in html
     assert "👑 Pemilik server" in html                 # subjek default tanpa ID
@@ -390,7 +390,7 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
 def test_registry_uji_lengkap_dan_berkelompok():
     kunci = [item["kunci"] for item in dashboard_uji.UJI]
     assert kunci == ["welcome", "goodbye", "boost", "pengumuman", "panel",
-                     "digest", "tiket", "ai", "ekspor"]
+                     "digest", "tiket", "giveaway", "ai", "ekspor"]
     for item in dashboard_uji.UJI:
         for wajib in ("kunci", "label", "emoji", "grup", "contoh"):
             assert item.get(wajib), (item["kunci"], wajib)

@@ -6706,9 +6706,9 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     finally:
         await web_dashboard.stop_dashboard()
 
-    # 6. Jalur tulis dibatasi 7 endpoint POST (tanpa PUT/DELETE/PATCH)
+    # 6. Jalur tulis dibatasi 8 endpoint POST (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    assert src.count("add_post(") == 7
+    assert src.count("add_post(") == 8
     for jalur in (
         'add_post("/api/aksi"',
         'add_post("/api/kirim"',
@@ -6717,6 +6717,7 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
         'add_post("/api/tiket"',
         'add_post("/api/panel"',
         'add_post("/api/uji"',
+        'add_post("/api/giveaway"',
     ):
         assert jalur in src, f"endpoint tulis {jalur} hilang"
     for needle in ("add_put(", "add_delete(", "add_patch("):

@@ -11,6 +11,7 @@ mention `<@123>`, ID mentah, atau nama tampilan. Akun bot sendiri **tidak** pern
 karena pemicu sambutan/perpisahan mengabaikan member bot. Kuota AI tetap 1 panggilan per tes.
 """
 
+import datetime
 import logging
 import re
 
@@ -81,6 +82,18 @@ UJI: tuple[dict, ...] = (
         "contoh": "Pasang ulang panel Buka Tiket di channel yang dipilih.",
     },
     {
+        "kunci": "giveaway",
+        "label": "Syarat giveaway",
+        "emoji": "🎁",
+        "grup": "Giveaway",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": (
+            "Simulasi: cek apakah seorang member lolos syarat giveaway berjalan "
+            "(role/level/umur akun) — tanpa mengirim pesan apa pun."
+        ),
+    },
+    {
         "kunci": "ai",
         "label": "Koneksi AI (Gemini)",
         "emoji": "🤖",
@@ -111,6 +124,7 @@ ANCHOR_UJI: dict[str, str] = {
     "panel": "p-panel",
     "digest": "p-konten",
     "tiket": "p-tiket",
+    "giveaway": "p-giveaway",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -130,6 +144,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-panel": "**Editor panel**",
     "p-ai": "**Ringkasan**",
     "p-ekspor": "**Ekspor**",
+    "p-giveaway": "**Giveaway**",
 }
 
 
@@ -290,6 +305,58 @@ async def _uji_tiket(bot, gid: int, nilai: str) -> tuple[bool, str]:
     return await dashboard_tiket.pasang_panel(bot, gid, {"channel": cid})
 
 
+def _uji_giveaway(guild, member) -> tuple[bool, str]:
+    """Simulasi cek syarat giveaway berlapis untuk satu member (tanpa kirim pesan)."""
+    import engagement
+
+    gid = _to_int(getattr(guild, "id", 0))
+    role_ids = {getattr(role, "id", 0) for role in (getattr(member, "roles", None) or [])}
+    level = 0
+    try:
+        import levels
+
+        level = int(levels.get_member_level(gid, int(member.id)).get("level") or 0)
+    except Exception:  # pragma: no cover - modul level opsional
+        level = 0
+    umur = 0
+    dibuat = getattr(member, "created_at", None)
+    if dibuat is not None:
+        try:
+            umur = max(0, (datetime.datetime.now(datetime.timezone.utc) - dibuat).days)
+        except (TypeError, AttributeError):  # pragma: no cover - jaring aman
+            umur = 0
+
+    cfg = {
+        "requirements": engagement.default_requirements(gid),
+        "bonus_roles": engagement.default_bonus_roles(gid),
+    }
+    syarat = engagement.requirement_summary(cfg)
+    kode = engagement.check_requirements(
+        cfg, role_ids=role_ids, level=level, account_age_days=umur
+    )
+    bobot, _bonus = engagement.entry_weight(cfg, role_ids)
+    nama = _nama_member(member)
+    dasar = f"**{nama}** — level `{level}`, umur akun `{umur}` hari, peluang `{bobot}×`."
+
+    if kode:
+        alasan = {
+            "syarat_role": "role wajib belum dimiliki",
+            "syarat_level": f"level minimum `{cfg['requirements']['level']}` belum tercapai",
+            "syarat_umur": (
+                f"umur akun minimum `{cfg['requirements']['account_age_days']}` hari belum tercapai"
+            ),
+        }.get(kode, "syarat belum terpenuhi")
+        hasil = f"Hasil: **belum lolos** ({alasan})."
+    else:
+        hasil = "Hasil: **lolos** ✓"
+
+    aktif = [g for g in engagement.guild_giveaways(gid) if not g.get("ended")]
+    tambahan = (
+        f" Giveaway berjalan: {len(aktif)}." if aktif else " Belum ada giveaway berjalan."
+    )
+    return True, f"{dasar} {hasil} Syarat bawaan: {syarat}.{tambahan}"
+
+
 async def _uji_ai(gid: int) -> tuple[bool, str]:
     import community_agent
 
@@ -427,6 +494,16 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
             return await _uji_digest(bot, gid)
         if kunci == "tiket":
             return await _uji_tiket(bot, gid, opsi)
+        if kunci == "giveaway":
+            if member is None:
+                member, sumber = await ambil_subjek(guild, opsi)
+                if member is None:
+                    return False, (
+                        "Belum ada member yang bisa diuji: pemilik server tidak ada di daftar "
+                        "member dan server ini belum punya member manusia."
+                    )
+                return _uji_giveaway(guild, member)
+            return _uji_giveaway(guild, member)
         if kunci == "ai":
             return await _uji_ai(gid)
         if kunci == "ekspor":

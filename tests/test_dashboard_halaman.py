@@ -31,7 +31,7 @@ def test_halaman_sesuai_kelompok_fitur():
     # Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
     # Satu halaman per grup setelan — sambutan/pamit/boost digabung.
     assert slug == ["", "sambutan", "inti", "keamanan", "tiket", "konten",
-                    "kirim", "buat", "panel", "ekspor"]
+                    "giveaway", "kirim", "buat", "panel", "ekspor"]
     assert "uji" not in slug and "setelan" not in slug
 
     # Semua panel lama tetap punya halaman — tidak ada yang hilang

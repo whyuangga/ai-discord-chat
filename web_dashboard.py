@@ -49,6 +49,7 @@ import time
 from urllib.parse import urlencode
 
 import dashboard_admin
+import dashboard_giveaway
 import dashboard_panel
 import dashboard_pesan
 import dashboard_tema
@@ -623,6 +624,13 @@ HALAMAN: tuple[dict, ...] = (
         "panel": ("p-konten",),
     },
     {
+        "slug": "giveaway",
+        "menu": "🎁 Giveaway",
+        "judul": "🎁 Giveaway",
+        "keterangan": "Buat, hentikan, & undi ulang giveaway; atur syarat berlapis & template.",
+        "panel": ("p-giveaway",),
+    },
+    {
         "slug": "kirim",
         "menu": "✉️ Kirim",
         "judul": "✉️ Kirim pesan & banner",
@@ -720,6 +728,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "tiket": ("tiket",),
     "konten": ("digest",),
     "ekspor": ("ekspor",),
+    "giveaway": ("giveaway",),
 }
 
 
@@ -938,6 +947,19 @@ def _panel_grup(anchor: str, judul: str, ket: str, *extra: str) -> object:
     return render
 
 
+def _panel_giveaway(d: dict) -> str:
+    """Halaman giveaway: kendali penuh + tombol tes syarat."""
+    return (
+        '<div class="panel" id="p-giveaway">\n    <h2>🎁 Giveaway</h2>\n'
+        '    <p class="muted">Buat, hentikan, dan undi ulang giveaway langsung dari HP. '
+        'Syarat berlapis — role, level server, umur akun — dan peluang ekstra untuk '
+        'pemilik role bonus diatur di sini, bukan lewat command.</p>\n'
+        f'    {d.get("giveaway_block", "")}\n'
+        '    <div class="subpanel"><h3>🧪 Tes syarat giveaway</h3>'
+        f'{d["uji_block"]}</div>\n  </div>'
+    )
+
+
 def _panel_riwayat(d: dict) -> str:
     return (
         '<div class="panel" id="p-riwayat">\n    <h2>🧾 Riwayat perubahan</h2>\n'
@@ -976,6 +998,7 @@ PANEL: dict[str, object] = {
         "koran pagi, &amp; backup otomatis.",
         "uji",
     ),
+    "p-giveaway": _panel_giveaway,
     "p-tersimpan": _panel_tersimpan,
     "p-riwayat": _panel_riwayat,
 }
@@ -1016,6 +1039,7 @@ def render_dashboard_html(
     ekspor_block: str = "",
     panel_block: str = "",
     tiket_block: str = "",
+    giveaway_block: str = "",
     tren_block: str = "",
     kartu_block: str = "",
     uji_block: str = "",
@@ -1112,6 +1136,7 @@ def render_dashboard_html(
         "ekspor_block": ekspor_block or '<div class="muted">Ekspor tidak tersedia.</div>',
         "panel_block": panel_block or '<div class="muted">Editor panel tidak tersedia.</div>',
         "tiket_block": tiket_block or '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
+        "giveaway_block": giveaway_block or '<div class="muted">Kendali giveaway tidak tersedia.</div>',
         "tren_block": tren_block or '<div class="muted">Belum ada data tren.</div>',
         "tren_hari": int(tren_hari or 7),
     }
@@ -1564,6 +1589,12 @@ async def start_dashboard(bot) -> bool:
             ),
             '<div class="muted">Kotak masuk tiket tidak tersedia.</div>',
         )
+        giveaway_block = _blok(
+            lambda: dashboard_ui.render_giveaway_block(
+                gid, dashboard_giveaway.collect(gid), token, bot
+            ),
+            '<div class="muted">Kendali giveaway tidak tersedia.</div>',
+        )
         ekspor_block = _blok(
             lambda: dashboard_ui.render_ekspor_block(gid, token),
             '<div class="muted">Ekspor tidak tersedia.</div>',
@@ -1627,6 +1658,7 @@ async def start_dashboard(bot) -> bool:
             ekspor_block=ekspor_block,
             panel_block=panel_block,
             tiket_block=tiket_block,
+            giveaway_block=giveaway_block,
             tren_block=tren_block,
             tren_hari=tren["hari"],
             halaman=slug,
@@ -1873,6 +1905,44 @@ async def start_dashboard(bot) -> bool:
         logger.info("Dashboard tiket %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-tiket", request)
 
+    async def handle_giveaway(request):
+        """Kendali giveaway: daftar (GET) atau aksi buat/akhiri/reroll/template (POST)."""
+        if request.method == "GET":
+            if not _authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            gid, _name = _guild_hint(bot, request)
+            return web.json_response(dashboard_giveaway.collect(gid))
+
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        try:
+            ok, pesan = await dashboard_giveaway.aksi(bot, gid, aksi, payload)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Aksi giveaway gagal: %s", exc)
+            ok, pesan = False, "Aksi giveaway gagal dijalankan."
+
+        nama_aksi = aksi.partition(":")[0] or "-"
+        try:
+            await dashboard_admin.audit_append(
+                gid,
+                f"giveaway.{nama_aksi}",
+                str(payload.get("hadiah") or payload.get("nama") or aksi)[:120],
+                ok=ok,
+                pesan=pesan,
+            )
+        except Exception:  # pragma: no cover - audit opsional
+            pass
+        logger.info("Dashboard giveaway %s (server %s): %s", aksi, gid, pesan)
+        return _jawab(gid, ok, pesan, "p-giveaway", request)
+
     async def handle_ekspor(request):
         """Unduh CSV analitik server (level/moderasi/tiket/pemakaian)."""
         if not _authorized(request):
@@ -2037,6 +2107,8 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/panel", handle_panel)
     app.router.add_get("/api/tiket", handle_tiket)
     app.router.add_post("/api/tiket", handle_tiket)
+    app.router.add_get("/api/giveaway", handle_giveaway)
+    app.router.add_post("/api/giveaway", handle_giveaway)
     app.router.add_get("/api/unggahan/{nama}", handle_berkas)
     app.router.add_get("/", handle_index)
     for _lama in LEGACY_HALAMAN:
