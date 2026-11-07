@@ -206,34 +206,17 @@ async def ringkas_chat_cmd(
     await interaction.followup.send(embed=embed, ephemeral=not publik)
 
 
-@ringkas_group.command(
-    name="channel",
-    description="Rekap obrolan channel per periode (ber-cache, mengulang = 0 kuota AI)",
-)
-@app_commands.describe(
-    periode="Rentang waktu obrolan yang direkap",
-    paksa="True = abaikan cache dan buat rekap baru (memakai kuota AI)",
-    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
-)
-@app_commands.choices(
-    periode=[
-        app_commands.Choice(name=f"{insights.period_label(hours)}", value=key)
-        for key, hours in insights.REKAP_PERIODS.items()
-    ]
-)
-async def ringkas_channel_cmd(
-    interaction: discord.Interaction,
-    periode: app_commands.Choice[str] | None = None,
-    paksa: bool = False,
-    publik: bool = False,
-):
-    target = interaction.channel
+async def _ringkas_cek_izin(interaction: discord.Interaction, target) -> bool:
+    """Pastikan channel valid dan bot/member punya izin baca riwayat.
+
+    Mengembalikan `False` bila pesan penolakan sudah dikirim.
+    """
     if not isinstance(target, (discord.TextChannel, discord.Thread, discord.VoiceChannel)) or interaction.guild is None:
         await interaction.response.send_message(
             "⚠️ Command `/ringkas channel` hanya dapat digunakan di Text Channel, Voice Channel, atau Thread server.",
             ephemeral=True,
         )
-        return
+        return False
 
     if isinstance(interaction.user, discord.Member):
         user_perms = target.permissions_for(interaction.user)
@@ -242,7 +225,7 @@ async def ringkas_channel_cmd(
                 f"⚠️ Anda tidak memiliki izin membaca riwayat pesan di {target.mention}.",
                 ephemeral=True,
             )
-            return
+            return False
 
     if interaction.guild.me is not None:
         bot_perms = target.permissions_for(interaction.guild.me)
@@ -251,14 +234,16 @@ async def ringkas_channel_cmd(
                 f"⚠️ Bot belum memiliki izin `Read Message History` di {target.mention}.",
                 ephemeral=True,
             )
-            return
+            return False
+    return True
 
-    hours = insights.REKAP_PERIODS.get(periode.value, 24) if periode else 24
-    label = insights.period_label(hours)
 
-    if not paksa:
-        cached = insights.get_cached_rekap(target.id, hours)
-        if cached:
+async def _ringkas_dari_cache(
+    interaction: discord.Interaction, target, hours: int, publik: bool
+) -> bool:
+    """Kirim rekap dari cache bila tersedia; `True` bila sudah dikirim."""
+    cached = insights.get_cached_rekap(target.id, hours)
+    if cached:
             insights.record_ai_usage(
                 "rekap",
                 user_id=getattr(getattr(interaction, "user", None), "id", 0) or 0,
@@ -283,19 +268,14 @@ async def ringkas_channel_cmd(
                 )
             )
             await interaction.response.send_message(embed=embed, ephemeral=not publik)
-            return
+            return True
+    return False
 
-    if not await enforce_member_cooldown(interaction, "rekap"):
-        return
 
-    await interaction.response.defer(ephemeral=not publik)
-
-    g_cfg = get_guild_settings(interaction.guild.id)
-    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
-    http_session = get_interaction_http_session(interaction)
-
-    cutoff = time.time() - hours * 3600
-    limit_count = insights.rekap_message_limit()
+async def _ringkas_kumpulkan_pesan(
+    interaction: discord.Interaction, target, *, cutoff: float, limit_count: int, label: str
+) -> list[str] | None:
+    """Ambil riwayat sejak `cutoff`; `None` bila gagal atau kosong (sudah diberi tahu)."""
     collected_lines: list[str] = []
     try:
         async for msg in target.history(limit=limit_count * 3):
@@ -334,6 +314,56 @@ async def ringkas_channel_cmd(
             f"Coba periode yang lebih panjang.",
             ephemeral=True,
         )
+        return
+    return collected_lines
+
+
+@ringkas_group.command(
+    name="channel",
+    description="Rekap obrolan channel per periode (ber-cache, mengulang = 0 kuota AI)",
+)
+@app_commands.describe(
+    periode="Rentang waktu obrolan yang direkap",
+    paksa="True = abaikan cache dan buat rekap baru (memakai kuota AI)",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+@app_commands.choices(
+    periode=[
+        app_commands.Choice(name=f"{insights.period_label(hours)}", value=key)
+        for key, hours in insights.REKAP_PERIODS.items()
+    ]
+)
+async def ringkas_channel_cmd(
+    interaction: discord.Interaction,
+    periode: app_commands.Choice[str] | None = None,
+    paksa: bool = False,
+    publik: bool = False,
+):
+    """Rekap percakapan channel dengan AI (atau dari cache 0 kuota)."""
+    target = interaction.channel
+    if not await _ringkas_cek_izin(interaction, target):
+        return
+
+    hours = insights.REKAP_PERIODS.get(periode.value, 24) if periode else 24
+    label = insights.period_label(hours)
+    if not paksa and await _ringkas_dari_cache(interaction, target, hours, publik):
+        return
+
+    if not await enforce_member_cooldown(interaction, "rekap"):
+        return
+
+    await interaction.response.defer(ephemeral=not publik)
+
+    g_cfg = get_guild_settings(interaction.guild.id)
+    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
+    http_session = get_interaction_http_session(interaction)
+
+    cutoff = time.time() - hours * 3600
+    limit_count = insights.rekap_message_limit()
+    collected_lines = await _ringkas_kumpulkan_pesan(
+        interaction, target, cutoff=cutoff, limit_count=limit_count, label=label
+    )
+    if collected_lines is None:
         return
 
     collected_lines.reverse()
