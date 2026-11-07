@@ -1792,48 +1792,49 @@ async def _call_gemini_agent(
     return None
 
 
-async def generate_community_chat_reply(
-    message: discord.Message,
-    bot_user: discord.ClientUser | discord.User,
-    *,
-    http_session: aiohttp.ClientSession | None = None,
-) -> str | None:
-    """Menghasilkan balasan chat komunitas natural (mendukung teks, stiker, custom emoji, & foto)."""
-    guild_id = message.guild.id if message.guild else 0
-    guild_cfg = get_guild_settings(guild_id)
-    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
-
+def _bersihkan_teks_chat(message: discord.Message, bot_user, guild_cfg: dict) -> str:
+    """Teks pesan tanpa mention mentah, diganti nama panggilan bot."""
     # Bersihkan mention ID mentah (<@12345>) agar dibaca natural sebagai nama
     clean_text = (message.content or "").strip()
     if bot_user.mention in clean_text:
         clean_text = clean_text.replace(bot_user.mention, guild_cfg.get("nickname") or bot_user.display_name)
     clean_text = re.sub(r"<@!?\d+>", "", clean_text).strip()
+    return clean_text
 
-    media_parts, media_descs, _ = await extract_social_media_and_stickers(
-        message,
-        http_session,
-        include_video=False,
-        include_audio=True,
-        include_text_files=True,
-    )
 
-    is_direct_mention, replied_to_bot, _ = _is_direct_bot_call(message, bot_user, guild_cfg)
-    is_direct_call = is_direct_mention or replied_to_bot
-
-    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
-    effective_cfg_cid = cfg_cid if cfg_cid is not None else message.channel.id
-    post_title, post_tags, is_starter_post = _extract_forum_post_context(message)
-
+def _catatan_forum(is_post_thread: bool, post_title: str, post_tags: list, is_starter_post: bool) -> str:
+    """Penanda konteks postingan forum untuk prompt (kosong bila bukan postingan)."""
     forum_ctx_note = ""
     if is_post_thread and post_title:
         tag_str = f" | Tag: {', '.join(post_tags)}" if post_tags else ""
         starter_label = "Postingan Forum Baru" if is_starter_post else "Diskusi di Postingan Forum"
         forum_ctx_note = f'[{starter_label} — Judul: "{post_title}"{tag_str}]'
+    return forum_ctx_note
 
+
+async def _lampiran_link_publik(
+    message: discord.Message,
+    media_parts: list,
+    media_descs: list,
+    web_snippets: list,
+    *,
+    effective_cfg_cid: int,
+    is_direct_call: bool,
+    clean_text: str,
+    post_title: str,
+    is_starter_post: bool,
+    http_session,
+) -> tuple[list[str], list[str]]:
+    """Baca link YouTube/Web dari pesan bila fitur YouTube aktif di channel ini.
+
+    Mengembalikan `(daftar_url_youtube, daftar_snipet_web)`; `media_parts` &
+    `media_descs` ikut ditambah bila ada video tertaut.
+    """
     yt_urls: list[str] = []
     web_snippets: list[str] = []
-    # Baca link YouTube/Web hanya jika fitur YouTube AKTIF pada channel/forum ini DAN
-    # (member memanggil nama/mention/reply bot secara langsung ATAU mode auto_di_channel dinyalakan di channel/forum ini)
+
+    # Link dibaca bila fitur YouTube aktif di channel ini DAN (member memanggil bot
+    # secara langsung ATAU mode auto_di_channel dinyalakan di channel/forum ini).
     allow_public_link_reader = is_youtube_enabled_in_channel(effective_cfg_cid) and (
         is_direct_call or is_youtube_enabled_in_channel(effective_cfg_cid, require_auto_in_chat=True)
     )
@@ -1858,7 +1859,19 @@ async def generate_community_chat_reply(
                     label = f"{w_title} ({web_u})" if w_title else web_u
                     web_snippets.append(f"[Isi ringkas link {label}: {w_body[:2500]}]")
 
-    search_text_candidate = f"{post_title} {clean_text}".strip() if (is_starter_post and post_title) else clean_text
+    return yt_urls, web_snippets
+
+
+async def _pakai_pencarian_gratis(
+    effective_cfg_cid: int,
+    media_parts: list,
+    web_snippets: list,
+    search_text_candidate: str,
+    guild_cfg: dict,
+    bot_user,
+    http_session,
+) -> bool:
+    """Jalankan pencarian web gratis bila perlu; `True` artinya konteks web dipakai."""
     use_search = (
         is_search_enabled_in_channel(effective_cfg_cid, for_auto_chat=True)
         and not media_parts
@@ -1871,6 +1884,66 @@ async def generate_community_chat_reply(
         free_ctx, _ = await free_live_web_search(search_q, max_results=4, http_session=http_session)
         if free_ctx:
             web_snippets.append(f"[Info Berita/Web Terkini Hari Ini:\n{free_ctx[:2200]}]")
+
+    return use_search
+
+
+async def generate_community_chat_reply(
+    message: discord.Message,
+    bot_user: discord.ClientUser | discord.User,
+    *,
+    http_session: aiohttp.ClientSession | None = None,
+) -> str | None:
+    """Menghasilkan balasan chat komunitas natural (mendukung teks, stiker, custom emoji, & foto)."""
+    guild_id = message.guild.id if message.guild else 0
+    guild_cfg = get_guild_settings(guild_id)
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+
+    clean_text = _bersihkan_teks_chat(message, bot_user, guild_cfg)
+
+    media_parts, media_descs, _ = await extract_social_media_and_stickers(
+        message,
+        http_session,
+        include_video=False,
+        include_audio=True,
+        include_text_files=True,
+    )
+
+    is_direct_mention, replied_to_bot, _ = _is_direct_bot_call(message, bot_user, guild_cfg)
+    is_direct_call = is_direct_mention or replied_to_bot
+
+    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
+    effective_cfg_cid = cfg_cid if cfg_cid is not None else message.channel.id
+    post_title, post_tags, is_starter_post = _extract_forum_post_context(message)
+
+    forum_ctx_note = _catatan_forum(is_post_thread, post_title, post_tags, is_starter_post)
+
+    # Baca link YouTube/Web hanya jika fitur YouTube AKTIF pada channel/forum ini DAN
+    # (member memanggil nama/mention/reply bot secara langsung ATAU mode auto_di_channel dinyalakan di channel/forum ini)
+    web_snippets: list[str] = []
+    yt_urls, web_snippets = await _lampiran_link_publik(
+        message,
+        media_parts,
+        media_descs,
+        web_snippets,
+        effective_cfg_cid=effective_cfg_cid,
+        is_direct_call=is_direct_call,
+        clean_text=clean_text,
+        post_title=post_title,
+        is_starter_post=is_starter_post,
+        http_session=http_session,
+    )
+
+    search_text_candidate = f"{post_title} {clean_text}".strip() if (is_starter_post and post_title) else clean_text
+    use_search = await _pakai_pencarian_gratis(
+        effective_cfg_cid,
+        media_parts,
+        web_snippets,
+        search_text_candidate,
+        guild_cfg,
+        bot_user,
+        http_session,
+    )
 
     author_name = message.author.display_name
     desc_items = [x for x in (forum_ctx_note, *media_descs, *web_snippets) if x]
@@ -1912,20 +1985,7 @@ async def generate_community_chat_reply(
         await _maybe_alert_guild_cap(message, guild_id, cap_used, cap_limit)
         return ai_guard.cap_message(guild_id, cap_used, cap_limit) if is_direct_call else None
 
-    # Bangun contents dari riwayat singkat channel publik / per-Postingan Forum
-    contents: list[dict] = []
-    for item in channel_histories.get(conv_id, []):
-        role = "user" if item["role"] == "user" else "model"
-        if contents and contents[-1]["role"] == role:
-            contents[-1]["parts"].append({"text": item["content"]})
-        else:
-            contents.append({"role": role, "parts": [{"text": item["content"]}]})
-
-    current_parts: list[dict] = [*media_parts, {"text": user_turn_text}]
-    if contents and contents[-1]["role"] == "user":
-        contents[-1]["parts"].extend(current_parts)
-    else:
-        contents.append({"role": "user", "parts": current_parts})
+    contents = _susun_konten_chat(conv_id, media_parts, user_turn_text)
 
     bot_display = (
         message.guild.me.display_name
@@ -1973,22 +2033,60 @@ async def generate_community_chat_reply(
         reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip()
         if can_use_local_answer and clean_text:
             ai_guard.store_cached_reply(conv_id, clean_text, reply)
-        _append_channel_history(conv_id, "user", user_turn_text)
-        _append_channel_history(conv_id, "model", reply)
-        now = time.time()
-        _standalone_last_reply_at[conv_id] = now
-        if is_post_thread:
-            p_state = _post_runtime_state.setdefault(conv_id, {})
-            p_state["last_bot_reply_at"] = now
-            p_state["last_activity_at"] = now
-        ch_cfg = chat_agent_channels.get(effective_cfg_cid)
-        if ch_cfg:
-            if not is_post_thread:
-                ch_cfg["last_bot_reply_at"] = now
-            ch_cfg["last_activity_at"] = now
+        _catat_balasan_chat(
+            conv_id,
+            user_turn_text,
+            reply,
+            is_post_thread=is_post_thread,
+            effective_cfg_cid=effective_cfg_cid,
+        )
         await save_agent_config_to_disk()
 
     return reply
+
+
+def _susun_konten_chat(conv_id: int, media_parts: list, user_turn_text: str) -> list[dict]:
+    """Gabungkan riwayat singkat channel dengan giliran pengguna saat ini."""
+    contents: list[dict] = []
+    for item in channel_histories.get(conv_id, []):
+        role = "user" if item["role"] == "user" else "model"
+        if contents and contents[-1]["role"] == role:
+            contents[-1]["parts"].append({"text": item["content"]})
+        else:
+            contents.append({"role": role, "parts": [{"text": item["content"]}]})
+
+    current_parts: list[dict] = [*media_parts, {"text": user_turn_text}]
+    if contents and contents[-1]["role"] == "user":
+        contents[-1]["parts"].extend(current_parts)
+    else:
+        contents.append({"role": "user", "parts": current_parts})
+    return contents
+
+
+def _catat_balasan_chat(
+    conv_id: int,
+    user_turn_text: str,
+    reply: str,
+    *,
+    is_post_thread: bool,
+    effective_cfg_cid: int,
+) -> None:
+    """Simpan riwayat + tanda waktu balasan bot ke memori runtime."""
+    _append_channel_history(conv_id, "user", user_turn_text)
+    _append_channel_history(conv_id, "model", reply)
+    now = time.time()
+    _standalone_last_reply_at[conv_id] = now
+    if is_post_thread:
+        p_state = _post_runtime_state.setdefault(conv_id, {})
+        p_state["last_bot_reply_at"] = now
+        p_state["last_activity_at"] = now
+    ch_cfg = chat_agent_channels.get(effective_cfg_cid)
+    if ch_cfg:
+        if not is_post_thread:
+            ch_cfg["last_bot_reply_at"] = now
+        ch_cfg["last_activity_at"] = now
+
+
 
 
 _ICEBREAKER_ANGLES: tuple[str, ...] = (
