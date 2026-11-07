@@ -69,7 +69,22 @@ Pengaman:
 
 ## 🖼️ `/meme` — meme lokal, 0 kuota AI, tanpa aset gambar
 
-`/meme teks_atas:"…" teks_bawah:"…" template:neon` menggambar meme sendiri dengan **Pillow**
+## 🎨 `/gambar` — buat & edit gambar dari slash command
+
+Dari purpleGPT (`/draw` & `/edit`). `/gambar buat prompt:… rasio:… gaya:…` membuat gambar baru
+(**5 rasio aspek**, belasan gaya), `/gambar edit prompt:…` mengubah lampiran gambar **atau
+otomatis memakai gambar terakhir** di channel itu (tanpa unggah ulang), dan `/gambar pilihan`
+menampilkan semua rasio & gaya. Kuota AI tetap dihitung seperti chat, dengan jeda 20 detik per
+pengguna agar tidak membanjiri API. Gaya/rasio per panggilan **tidak mengubah setelan channel**.
+
+## 📦 `/dataku` & `/hapusdataku` — privasi mandiri
+
+Dari janji purpleGPT *"export or delete your data anytime"*. `/dataku` mengirim lampiran **JSON**
+berisi level/XP, koin, lencana, kata kunci pantau, ulang tahun, skor game, dan kiriman formulir
+milikmu. `/hapusdataku` menampilkan tombol konfirmasi lalu menghapus permanen data itu dari
+`data/*.json` (hanya milikmu — data member lain tidak tersentuh) dan langsung menyimpannya ke disk.
+
+## 🖼️ `/meme teks_atas:"…" teks_bawah:"…" template:neon` menggambar meme sendiri dengan **Pillow**
 (tidak ada API gambar & tidak ada berkas aset): 6 gaya — `klasik`, `impact`, `drake` (dua panel
 ditolak/diterima), `neon`, `kertas`, `terminal`. Teks otomatis dibungkus (maks 6 baris × 120 huruf)
 dan hasilnya dikirim sebagai PNG 800×800.

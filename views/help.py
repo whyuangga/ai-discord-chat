@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 63
+TOP_LEVEL_COUNT = 66
 import ui_kit
 
 
@@ -642,20 +642,22 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
             value=(
                 "**🏷️ Tag, Lencana & Pantau**\n"
-                "• **`/lencana`** — lencana + role hadiah.\n"
+                "• **`/lencana`** — lencana + role.\n"
                 "• **`/pantau`** — kata kunci → DM.\n"
-                "• **`/bangun`** — 15 tema server / deskripsi AI.\n"
-                "• **`/meme`** — meme lokal, 0 kuota AI.\n"
+                "• **`/bangun`** — 15 tema / AI.\n"
+                "• **`/meme`** — meme lokal gratis.\n"
+                "• **`/gambar`** — gambar AI, 5 rasio.\n"
+                "• **`/dataku`** — ekspor/hapus data.\n"
                 "• **`/snipe`** — pesan terhapus terakhir.\n"
                 "• **`/curhat`** — anonim, satu channel.\n"
-                "• **`/kanal-info`** — aturan & info otomatis.\n"
+                "• **`/kanal-info`** — info otomatis.\n"
                 "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`).\n"
                 "**🛡️ Moderasi**\n"
-                "• **`/lapor`** & **`/banding`** — lapor & minta peninjauan.\n"
-                "• **`/mod`** — tempban, softban, note, statistik.\n"
+                "• **`/lapor`** & **`/banding`** — lapor & peninjauan.\n"
+                "• **`/mod`** — tempban, softban, statistik.\n"
                 "**🛡️ Keamanan**\n"
-                "• **`/raid`** — darurat: tahan Auto Role & verifikasi.\n"
-                "• **`/nuke`** — anti-nuke, keluarkan bot asing, beku.\n"
+                "• **`/raid`** — darurat Auto Role.\n"
+                "• **`/nuke`** — anti-nuke & beku.\n"
                 "• **`/backup pulihkan`** — susun ulang struktur server.\n"
                 "**📈 Retensi & Pelayanan**\n"
                 "• **`/level musim`** & **`/level prestise`** — trofi.\n"

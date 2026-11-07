@@ -91,6 +91,11 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/bangun terapkan` | — | *(Admin)* Terapkan rencana terakhir yang menunggu konfirmasi. |
 | `/bangun riwayat` | — | Lihat pembangunan terakhir di server ini. |
 | `/bangun bongkar` | — | *(Admin)* Hapus hanya item yang tercatat dibuat `/bangun`. |
+| `/gambar buat` | `prompt`, `rasio`, `gaya`, `acuan` | Buat gambar AI (5 rasio, belasan gaya); opsional gambar acuan. |
+| `/gambar edit` | `prompt`, `acuan` | Ubah gambar lampiran **atau** gambar terakhir di channel itu. |
+| `/gambar pilihan` | — | Daftar rasio & gaya yang tersedia. |
+| `/dataku` | — | Ekspor data pribadimu sebagai lampiran JSON. |
+| `/hapusdataku` | — | Hapus permanen data pribadimu (dengan tombol konfirmasi). |
 | `/meme` | `teks_atas`, `teks_bawah`, `template` | Buat meme lokal (6 gaya), 0 kuota AI. |
 | `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
 | `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |

@@ -28,6 +28,7 @@ from config import (
     GEMINI_TEXT_FALLBACK_CHAIN,
     MAX_CONCURRENT_MEDIA_TASKS,
     RATIO_OPTIONS,
+    STYLE_OPTIONS,
     STYLE_PROMPTS,
     parse_gemini_keys,
     resolve_model_key,
@@ -640,6 +641,8 @@ async def generate_image(
     *,
     reference_images: list[dict] | None = None,
     http_session: aiohttp.ClientSession | None = None,
+    style: str | None = None,
+    ratio: str | None = None,
 ) -> tuple[str | None, discord.File | None, str | None]:
     """Menghasilkan (atau mengedit) gambar.
     - Jika `GEMINI_PAID_IMAGE_ENABLED=true` (atau pengguna mengedit lampiran gambar), memakai Gemini Nano Banana.
@@ -649,8 +652,9 @@ async def generate_image(
         (engine_label, discord_file, error_message)
     """
     settings = get_image_settings(thread_id)
-    style_name = settings["style"]
-    ratio_name = settings["ratio"]
+    # Gaya & rasio bisa ditimpa per panggilan (dipakai `/gambar`), tanpa mengubah setelan channel.
+    style_name = style if style in STYLE_OPTIONS else settings["style"]
+    ratio_name = ratio if ratio in RATIO_OPTIONS else settings["ratio"]
 
     style_suffix = STYLE_PROMPTS.get(style_name, "")
     ratio_meta = RATIO_OPTIONS.get(ratio_name, RATIO_OPTIONS["1:1 (Persegi)"])

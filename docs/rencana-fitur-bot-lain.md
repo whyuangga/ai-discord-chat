@@ -248,8 +248,9 @@ dashboard:
    eksekusi lewat mesin `backup_restore`, rollback berbasis nama tercatat, riwayat di
    `data/server_builder.json`). Panel dashboard menyusul di E#1b.
 2. **`/gambar` (`/draw`) & `/gambar edit`** — generasi gambar dari prompt + **5 rasio aspek** dan
-   **referensi gambar** (pakai `ai_handler.generate_image` yang sudah ada). `/edit` memakai gambar
-   terakhir otomatis, tanpa perlu unggah ulang. Tanpa dependency baru.
+   **referensi gambar**. ✅ **Sudah jalan** (v1.40): `cogs/gambar_cog.py` — `/gambar
+   buat|edit|pilihan`, `generate_image(style=…, ratio=…)` per panggilan (tanpa mengubah setelan
+   channel), jeda 20 detik/member, dan `/gambar edit` memakai gambar terakhir otomatis.
 3. **Setelan AI per member (`/setelan-ai`)** — temperature, format gambar, bahasa balasan, dan
    **prompt pribadi** (maks 300 huruf), tersimpan per user; dashboard menampilkan ringkasannya.
    Menghemat kuota karena member mengatur sendiri panjang/jenis jawaban.
@@ -258,7 +259,9 @@ dashboard:
    drake dua panel, neon, kertas, terminal), teks dibungkus otomatis, hasil PNG 800×800.
 5. **Privasi mandiri (`/dataku` & `/hapusdataku`)** — ekspor seluruh data pribadi sebagai JSON
    (level, ekonomi, lencana, kata kunci pantau, dsb.) dan hapus permanen dengan konfirmasi.
-   Mengikuti janji "export or delete your data anytime" milik purpleGPT, tanpa proses baru.
+   ✅ **Sudah jalan** (v1.40): `user_data.py` + `cogs/dataku_cog.py` — 7 sumber data (level,
+   ekonomi, lencana, highlight, ultah, skor game, kiriman formulir), hapus hanya milik user itu,
+   lalu langsung disimpan ke disk.
 
 Yang **tidak** diambil: `/compose` (Lyria berbayar), pembayaran Stripe/multi-tier, `/vote` top.gg,
 dan server publik per-bot — di luar batas "1 token, 1 operator".
