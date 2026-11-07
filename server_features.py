@@ -596,6 +596,139 @@ def _stats_channel_name(emoji: str, label: str, value: str) -> str:
     return f"{prefix}{label}: {value}"[:100]
 
 
+async def _ambil_presence_count(guild: discord.Guild, bot, presence_count):
+    """Jumlah member online; ambil ulang lewat API bila belum tersedia."""
+    if bot is not None and presence_count is None:
+        try:
+            fresh = await bot.fetch_guild(guild.id, with_counts=True)
+            presence_count = getattr(fresh, "approximate_presence_count", None)
+        except (discord.HTTPException, AttributeError):
+            presence_count = None
+
+    return presence_count
+
+
+def _nilai_statistik(angka: dict) -> dict:
+    """Ubah angka statistik jadi label siap tampil di nama channel."""
+    return {
+        "members": format_number(angka["members"]),
+        "humans": format_number(angka["humans"]),
+        "bots": format_number(angka["bots"]),
+        "online": format_number(angka["online"]),
+        "boosts": format_number(angka["boosts"]),
+        "tickets": format_number(angka["tickets"]),
+        "social": format_number(angka["social"]),
+    }
+
+
+async def _pastikan_kategori_stats(
+    guild: discord.Guild, cfg: dict
+) -> tuple[discord.CategoryChannel | None, int, bool]:
+    """Pastikan kategori Server Stats ada dan namanya sesuai konfigurasi.
+
+    Mengembalikan `(kategori, jumlah perubahan, boleh lanjut)`.
+    """
+    category = None
+
+    cat_id = cfg.get("category_id")
+
+    if cat_id:
+        found = guild.get_channel(int(cat_id))
+        if isinstance(found, discord.CategoryChannel):
+            category = found
+
+
+    changed = 0
+
+    desired_category = str(cfg.get("category_name") or STATS_CATEGORY_NAME)[:100]
+
+    if category is None:
+        try:
+            category = await guild.create_category(desired_category, reason="Server Stats otomatis")
+            cfg["category_id"] = category.id
+        except (discord.Forbidden, discord.HTTPException, AttributeError) as exc:
+            logger.warning("Gagal membuat kategori Server Stats: %s", sanitize_error_message(exc))
+            return None, 0, False
+    elif str(getattr(category, "name", "")) != desired_category:
+        try:
+            await category.edit(name=desired_category, reason="Ganti nama kategori Server Stats")
+            changed += 1
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+
+    return category, changed, True
+
+
+async def _sinkron_satu_channel(
+    guild: discord.Guild,
+    key: str,
+    label: str,
+    desired: str,
+    kind: int,
+    category,
+    overwrites: dict,
+    channels_cfg: dict,
+) -> tuple[int, bool]:
+    """Selaraskan satu channel penghitung; `(jumlah perubahan, boleh lanjut)`."""
+    changed = 0
+    existing = guild.get_channel(int(channels_cfg[key])) if channels_cfg.get(key) else None
+
+    if not _stats_channel_is_type(existing, kind):
+        # Tipe channel berubah (mis. voice → text): hapus counter lama milik bot,
+        # lalu cari channel sejenis yang sudah ada agar tidak duplikat saat restart.
+        if existing is not None:
+            try:
+                await existing.delete(reason="Server Stats: ganti jenis channel")
+                changed += 1
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        existing = None
+        for ch in getattr(guild, "channels", []) or []:
+            # Cocokkan lewat label ("Total Member:") + tipe yang sama
+            if f"{label}:" in str(getattr(ch, "name", "")) and _stats_channel_is_type(ch, kind):
+                existing = ch
+                break
+
+
+    try:
+        if existing is None:
+            created = await _create_stats_channel(guild, kind, desired, category, overwrites)
+            channels_cfg[key] = created.id
+            changed += 1
+            return changed, True
+
+        if existing.name != desired:
+            await existing.edit(name=desired, reason="Perbarui Server Stats")
+            changed += 1
+        channels_cfg[key] = existing.id
+    except discord.HTTPException as exc:
+        logger.warning("Gagal memperbarui channel statistik %s: %s", key, sanitize_error_message(exc))
+    except AttributeError:
+        return changed, False
+
+    return changed, True
+
+
+async def _sinkron_semua_channel(
+    guild: discord.Guild, cfg: dict, values: dict, kind: int, overwrites: dict, category
+) -> tuple[int, bool]:
+    """Selaraskan semua channel statistik; `(jumlah perubahan, boleh lanjut)`."""
+    channels_cfg: dict = cfg.setdefault("channels", {})
+    emojis = stats_emojis(guild.id)
+    total = 0
+    for key, _default_emoji, label in STATS_CHANNEL_SPECS:
+        emoji = emojis.get(key, _default_emoji)
+        desired = _stats_channel_name(emoji, label, values[key])
+        tambahan, lanjut = await _sinkron_satu_channel(
+            guild, key, label, desired, kind, category, overwrites, channels_cfg
+        )
+        total += tambahan
+        if not lanjut:
+            return total, False
+    return total, True
+
+
 async def update_serverstats_channels(
     guild: discord.Guild,
     *,
@@ -608,99 +741,45 @@ async def update_serverstats_channels(
     hanya dijalankan setiap `SERVERSTATS_UPDATE_SEC` (10 menit) agar 100% aman.
     """
     cfg = serverstats_guilds.get(getattr(guild, "id", 0))
+
     if not cfg or not cfg.get("enabled"):
         return 0
 
+
     now = time.time()
+
     if not force and now - float(cfg.get("last_update_at") or 0.0) < SERVERSTATS_UPDATE_SEC:
         return 0
 
-    presence_count = getattr(guild, "approximate_presence_count", None)
-    if bot is not None and presence_count is None:
-        try:
-            fresh = await bot.fetch_guild(guild.id, with_counts=True)
-            presence_count = getattr(fresh, "approximate_presence_count", None)
-        except (discord.HTTPException, AttributeError):
-            presence_count = None
+
+    presence_count = await _ambil_presence_count(
+        guild, bot, getattr(guild, "approximate_presence_count", None)
+    )
 
     angka = hitung_statistik(guild, presence_count=presence_count)
-    values = {
-        "members": format_number(angka["members"]),
-        "humans": format_number(angka["humans"]),
-        "bots": format_number(angka["bots"]),
-        "online": format_number(angka["online"]),
-        "boosts": format_number(angka["boosts"]),
-        "tickets": format_number(angka["tickets"]),
-        "social": format_number(angka["social"]),
-    }
 
-    category = None
-    cat_id = cfg.get("category_id")
-    if cat_id:
-        found = guild.get_channel(int(cat_id))
-        if isinstance(found, discord.CategoryChannel):
-            category = found
+    values = _nilai_statistik(angka)
 
-    changed = 0
-    desired_category = str(cfg.get("category_name") or STATS_CATEGORY_NAME)[:100]
-    if category is None:
-        try:
-            category = await guild.create_category(desired_category, reason="Server Stats otomatis")
-            cfg["category_id"] = category.id
-        except (discord.Forbidden, discord.HTTPException, AttributeError) as exc:
-            logger.warning("Gagal membuat kategori Server Stats: %s", sanitize_error_message(exc))
-            return 0
-    elif str(getattr(category, "name", "")) != desired_category:
-        try:
-            await category.edit(name=desired_category, reason="Ganti nama kategori Server Stats")
-            changed += 1
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+    category, changed, lanjut = await _pastikan_kategori_stats(guild, cfg)
+    if not lanjut:
+        return 0
 
     kind = stats_channel_type(guild.id)
+
     overwrites = _stats_overwrites(guild, kind)
 
-    channels_cfg: dict = cfg.setdefault("channels", {})
-    emojis = stats_emojis(guild.id)
-    for key, _default_emoji, label in STATS_CHANNEL_SPECS:
-        emoji = emojis.get(key, _default_emoji)
-        desired = _stats_channel_name(emoji, label, values[key])
-        existing = guild.get_channel(int(channels_cfg[key])) if channels_cfg.get(key) else None
 
-        if not _stats_channel_is_type(existing, kind):
-            # Tipe channel berubah (mis. voice → text): hapus counter lama milik bot,
-            # lalu cari channel sejenis yang sudah ada agar tidak duplikat saat restart.
-            if existing is not None:
-                try:
-                    await existing.delete(reason="Server Stats: ganti jenis channel")
-                    changed += 1
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-            existing = None
-            for ch in getattr(guild, "channels", []) or []:
-                # Cocokkan lewat label ("Total Member:") + tipe yang sama
-                if f"{label}:" in str(getattr(ch, "name", "")) and _stats_channel_is_type(ch, kind):
-                    existing = ch
-                    break
-
-        try:
-            if existing is None:
-                created = await _create_stats_channel(guild, kind, desired, category, overwrites)
-                channels_cfg[key] = created.id
-                changed += 1
-                continue
-
-            if existing.name != desired:
-                await existing.edit(name=desired, reason="Perbarui Server Stats")
-                changed += 1
-            channels_cfg[key] = existing.id
-        except discord.HTTPException as exc:
-            logger.warning("Gagal memperbarui channel statistik %s: %s", key, sanitize_error_message(exc))
-        except AttributeError:
-            return 0
+    tambahan, lanjut = await _sinkron_semua_channel(
+        guild, cfg, values, kind, overwrites, category
+    )
+    if not lanjut:
+        return 0
+    changed += tambahan
 
     cfg["last_update_at"] = now
+
     await save_server_features_to_disk()
+
     return changed
 
 
