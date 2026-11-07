@@ -426,9 +426,12 @@ dipakai untuk **membangun ulang** role, kategori, dan channel — lengkap dengan
 Pengaman:
 - **Hanya menambah.** Bot tidak pernah menghapus, memindahkan, atau menimpa channel/role yang sudah ada.
 - Item dicocokkan dari **nama & tipe**; yang sudah ada otomatis dilewati (tidak dobel).
+- Kategori dan channel baru diproses sesuai urutan posisi di snapshot, tanpa menggeser item yang sudah ada.
 - **Maksimal 30 item per pemulihan** (agar aman dari rate limit Discord) — jalankan ulang untuk sisanya.
 - **Overwrite per-member dilewati** (ID member berbeda di server lain); izin **per-role** tetap diterapkan berdasarkan nama role.
-- Tipe yang belum didukung (`forum`, `media`) dilaporkan sebagai "dilewati", bukan error.
+- Channel **forum** dipulihkan beserta setelan dasar dan tag; channel **media** didukung dengan Discord.py ≥2.6. Jika versi/API tidak mendukung tipe media, pratinjau menandainya sebagai dilewati.
+- Backup forum/media berisi konfigurasi channel, bukan post/thread; emoji tag custom tidak dibawa lintas server (tag dan emoji Unicode tetap dicatat).
+- Posisi absolut mungkin berbeda jika server tujuan sudah berisi item; bot tidak memindahkan channel lama demi menjaga mode hanya-menambah.
 - Setiap pemulihan tercatat di **Audit Log** (`/log`) dan bisa dibatalkan manual bila hasilnya tidak sesuai.
 - Berkas divalidasi: harus JSON hasil `/backup struktur`, versi ≤ 1, maksimal 4 MB.
 

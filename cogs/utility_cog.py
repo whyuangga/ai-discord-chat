@@ -307,6 +307,43 @@ def _overwrite_payload(channel: discord.abc.GuildChannel) -> list[dict]:
     return payload
 
 
+def _backup_unicode_emoji(emoji) -> str | None:
+    """Emoji Unicode bisa dipindah; ID emoji custom tidak berlaku lintas server."""
+    if emoji is None or getattr(emoji, "id", None):
+        return None
+    value = str(getattr(emoji, "name", None) or emoji).strip()
+    return value[:100] or None
+
+
+def _forum_payload(channel) -> dict:
+    tags = []
+    for tag in getattr(channel, "available_tags", []) or []:
+        name = str(getattr(tag, "name", "") or "").strip()[:20]
+        if not name:
+            continue
+        tags.append(
+            {
+                "name": name,
+                "emoji": _backup_unicode_emoji(getattr(tag, "emoji", None)),
+                "moderated": bool(getattr(tag, "moderated", False)),
+            }
+        )
+    return {
+        "default_auto_archive_duration": getattr(channel, "default_auto_archive_duration", None),
+        "default_thread_slowmode_delay": getattr(channel, "default_thread_slowmode_delay", 0),
+        "default_sort_order": getattr(getattr(channel, "default_sort_order", None), "value", None),
+        "default_layout": getattr(getattr(channel, "default_layout", None), "value", None),
+        "default_reaction_emoji": _backup_unicode_emoji(
+            getattr(channel, "default_reaction_emoji", None)
+        ),
+        "available_tags": tags[:20],
+    }
+
+
+def _by_position(items: list[dict]) -> list[dict]:
+    return sorted(items, key=lambda item: int(item.get("position") or 0))
+
+
 def build_server_backup(guild: discord.Guild) -> dict:
     """Menyusun snapshot struktur server (tanpa pesan) — siap disimpan sebagai JSON."""
     categories = []
@@ -340,8 +377,11 @@ def build_server_backup(guild: discord.Guild) -> dict:
         if hasattr(channel, "bitrate"):
             entry["bitrate"] = getattr(channel, "bitrate", None)
             entry["user_limit"] = getattr(channel, "user_limit", 0)
+        if str(getattr(channel, "type", "")) in ("forum", "media"):
+            entry["forum"] = _forum_payload(channel)
         channels.append(entry)
 
+    roles = [_role_payload(role) for role in guild.roles if not role.is_default()]
     return {
         "meta": {
             "generated_at": discord.utils.utcnow().isoformat(),
@@ -350,9 +390,9 @@ def build_server_backup(guild: discord.Guild) -> dict:
             "guild_name": guild.name,
             "member_count": getattr(guild, "member_count", 0),
         },
-        "roles": [_role_payload(role) for role in guild.roles if not role.is_default()],
-        "categories": categories,
-        "channels": sorted(channels, key=lambda item: item.get("position", 0)),
+        "roles": _by_position(roles),
+        "categories": _by_position(categories),
+        "channels": _by_position(channels),
     }
 
 

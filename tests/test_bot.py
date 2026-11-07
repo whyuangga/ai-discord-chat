@@ -6191,19 +6191,66 @@ async def test_server_tools_afk_threads_lockdown_backup():
         nsfw = False
         slowmode_delay = 0
 
+    class _Emoji:
+        def __init__(self, name, emoji_id=None):
+            self.name = name
+            self.id = emoji_id
+
+    class _ForumTag:
+        name = "Bantuan"
+        emoji = _Emoji("❓")
+        moderated = True
+
+    class _CustomForumTag:
+        name = "Custom"
+        emoji = _Emoji("custom", 123456)
+        moderated = False
+
+    class _ForumChannel:
+        id = 11
+        name = "forum-bantuan"
+        type = discord.ChannelType.forum
+        position = 2
+        category = _Category()
+        overwrites = {}
+        topic = "Tanya jawab"
+        nsfw = False
+        slowmode_delay = 3
+        default_auto_archive_duration = 1440
+        default_thread_slowmode_delay = 15
+        default_sort_order = discord.ForumOrderType.latest_activity
+        default_layout = discord.ForumLayoutType.gallery_view
+        default_reaction_emoji = _Emoji("💬")
+        available_tags = [_ForumTag(), _CustomForumTag()]
+
+    class _MediaChannel(_ForumChannel):
+        id = 12
+        name = "media-karya"
+        type = discord.ChannelType.media
+        position = 3
+
     class _Guild:
         id = gid
         name = "Server Uji"
         member_count = 42
         roles = [type("R", (), {"is_default": lambda self: True})()] + [_Role(2, "Staff")]
         categories = [_Category()]
-        channels = [_TextChannel()]
+        channels = [_MediaChannel(), _TextChannel(), _ForumChannel()]
 
     snapshot = build_server_backup(_Guild())
     assert snapshot["meta"]["guild_id"] == gid
     assert len(snapshot["roles"]) == 1                      # role @everyone tidak ikut
     assert snapshot["channels"][0]["topic"] == "ngobrol"
     assert snapshot["channels"][0]["category_id"] == 1
+    forum_backup = next(item for item in snapshot["channels"] if item["type"] == "forum")
+    media_backup = next(item for item in snapshot["channels"] if item["type"] == "media")
+    assert forum_backup["forum"]["default_auto_archive_duration"] == 1440
+    assert forum_backup["forum"]["default_thread_slowmode_delay"] == 15
+    assert forum_backup["forum"]["available_tags"] == [
+        {"name": "Bantuan", "emoji": "❓", "moderated": True},
+        {"name": "Custom", "emoji": None, "moderated": False},
+    ]
+    assert media_backup["type"] == "media"
     assert "messages" not in snapshot                       # baca-saja, tanpa isi pesan
 
     # 7. Command terdaftar
@@ -8127,6 +8174,7 @@ class _BRGuild:
         self.categories = [_BRCategory(10, "INFO")]
         self.channels = [_BRChannel("umum"), _BRChannel("voice-lounge", "voice")]
         self.created = {"roles": [], "categories": [], "channels": []}
+        self.category_create_kwargs = []
 
     async def create_role(self, name, permissions=None, colour=None, hoist=False, mentionable=False, reason=None):
         role = _BRRole(900 + len(self.created["roles"]), name)
@@ -8134,7 +8182,8 @@ class _BRGuild:
         self.roles.append(role)
         return role
 
-    async def create_category(self, name, reason=None):
+    async def create_category(self, name, **kwargs):
+        self.category_create_kwargs.append(kwargs)
         cat = _BRCategory(800 + len(self.created["categories"]), name)
         self.created["categories"].append(name)
         self.categories.append(cat)
@@ -8147,6 +8196,13 @@ class _BRGuild:
     async def create_voice_channel(self, name, **kwargs):
         self.created["channels"].append(("voice", name, kwargs))
         return _BRChannel(name, "voice")
+
+    async def create_forum(self, name, *, media=False, **kwargs):
+        kind = "media" if media else "forum"
+        call_kwargs = dict(kwargs)
+        call_kwargs["media"] = media
+        self.created["channels"].append((kind, name, call_kwargs))
+        return _BRChannel(name, kind)
 
 
 def _sample_backup() -> dict:
@@ -8162,13 +8218,22 @@ def _sample_backup() -> dict:
             {"id": 11, "name": "EVENT", "position": 1, "overwrites": []},
         ],
         "channels": [
-            {"id": 100, "name": "umum", "type": "text", "category_id": 10},
-            {"id": 101, "name": "pengumuman", "type": "news", "category_id": 10,
+            {"id": 100, "name": "umum", "type": "text", "category_id": 10, "position": 0},
+            {"id": 101, "name": "pengumuman", "type": "news", "category_id": 10, "position": 4,
              "overwrites": [{"target_type": "role", "target_name": "Moderator", "allow": 2048, "deny": 0},
                             {"target_type": "member", "target_name": "Budi", "allow": 1, "deny": 0}]},
-            {"id": 102, "name": "voice-lounge", "type": "voice", "category_id": 11},
-            {"id": 103, "name": "lounge-2", "type": "voice", "category_id": 11, "bitrate": 64000, "user_limit": 5},
-            {"id": 104, "name": "forum-diskusi", "type": "forum", "category_id": 11},
+            {"id": 102, "name": "voice-lounge", "type": "voice", "category_id": 11, "position": 2},
+            {"id": 103, "name": "lounge-2", "type": "voice", "category_id": 11, "position": 3,
+             "bitrate": 64000, "user_limit": 5},
+            {"id": 104, "name": "forum-diskusi", "type": "forum", "category_id": 11, "position": 1,
+             "topic": "Diskusi komunitas", "slowmode": 5,
+             "forum": {"default_auto_archive_duration": 1440,
+                       "default_thread_slowmode_delay": 12,
+                       "default_sort_order": 0, "default_layout": 2,
+                       "default_reaction_emoji": "💬",
+                       "available_tags": [{"name": "Tanya", "emoji": "❓", "moderated": True}]}},
+            {"id": 105, "name": "media-galeri", "type": "media", "category_id": 11, "position": 5,
+             "forum": {"available_tags": [{"name": "Foto", "emoji": "📷", "moderated": False}]}},
         ],
     }
 
@@ -8195,20 +8260,26 @@ async def test_backup_restore_parse_plan_and_apply(monkeypatch):
 
     info = br.summarize(snapshot)
     assert info["guild_name"] == "Server Lama"
-    assert info["roles"] == 2 and info["categories"] == 2 and info["channels"] == 5
+    assert info["roles"] == 2 and info["categories"] == 2 and info["channels"] == 6
 
     # 2. Rencana (dry-run) tidak mengubah server sama sekali
     guild = _BRGuild()
     plan = br.build_plan(guild, snapshot)
     assert guild.created == {"roles": [], "categories": [], "channels": []}
+    assert guild.category_create_kwargs == []
     assert [r["name"] for r in plan["roles"]] == ["Event"]           # Moderator sudah ada
     assert [c["name"] for c in plan["categories"]] == ["EVENT"]      # INFO sudah ada
     names = [c["name"] for c in plan["channels"]]
-    assert "pengumuman" in names and "lounge-2" in names
+    assert names == ["forum-diskusi", "lounge-2", "pengumuman", "media-galeri"]
     assert "umum" not in names and "voice-lounge" not in names       # sudah ada
-    assert any("forum" in item and "belum didukung" in item for item in plan["skipped"])
+    assert not any("forum-diskusi" in item or "media-galeri" in item for item in plan["skipped"])
     assert plan["already"] == {"roles": 1, "categories": 1, "channels": 2}
-    assert "Event" in br.describe_plan(plan) and "Dilewati" in br.describe_plan(plan)
+    ringkasan_plan = br.describe_plan(plan)
+    assert "Event" in ringkasan_plan and "Sudah ada" in ringkasan_plan
+    assert "• **Role baru (1):**" in ringkasan_plan
+    assert "• **Channel baru (4):**" in ringkasan_plan
+    assert "`forum-diskusi` (forum → `EVENT`)" in ringkasan_plan
+    assert "`media-galeri` (media → `EVENT`)" in ringkasan_plan
 
     # 3. Opsi nonaktif → tidak ada yang dibuat untuk jenis itu
     plan_no_role = br.build_plan(guild, snapshot, buat_role=False)
@@ -8218,8 +8289,12 @@ async def test_backup_restore_parse_plan_and_apply(monkeypatch):
     result = await br.apply_plan(guild, plan, actor_id=42)
     assert result["roles"] == 1 and guild.created["roles"] == ["Event"]
     assert result["categories"] == 1 and guild.created["categories"] == ["EVENT"]
-    assert {c[1] for c in guild.created["channels"]} == {"pengumuman", "lounge-2"}
-    assert result["channels"] == 2
+    assert [c[1] for c in guild.created["channels"]] == [
+        "forum-diskusi", "lounge-2", "pengumuman", "media-galeri"
+    ]
+    assert result["channels"] == 4
+    assert all("position" not in kwargs for kwargs in guild.category_create_kwargs)
+    assert all("position" not in channel[2] for channel in guild.created["channels"])
     assert result["overwrites"] >= 1          # izin role Moderator diterapkan
     assert result["errors"] == []
 
@@ -8229,6 +8304,19 @@ async def test_backup_restore_parse_plan_and_apply(monkeypatch):
     assert kinds["lounge-2"][0] == "voice"
     assert kinds["lounge-2"][2].get("user_limit") == 5
     assert kinds["pengumuman"][2].get("category").name == "INFO"
+    forum_kwargs = kinds["forum-diskusi"][2]
+    assert kinds["forum-diskusi"][0] == "forum"
+    assert forum_kwargs["category"].name == "EVENT"
+    assert forum_kwargs["default_auto_archive_duration"] == 1440
+    assert forum_kwargs["default_thread_slowmode_delay"] == 12
+    assert forum_kwargs["default_sort_order"].value == 0
+    assert forum_kwargs["default_layout"].value == 2
+    assert forum_kwargs["available_tags"][0].name == "Tanya"
+    assert forum_kwargs["available_tags"][0].emoji.name == "❓"
+    media_kwargs = kinds["media-galeri"][2]
+    assert kinds["media-galeri"][0] == "media" and media_kwargs["media"] is True
+    assert media_kwargs["category"].name == "EVENT"
+    assert "default_layout" not in media_kwargs
     # Overwrite per-member dilewati (ID member beda di server lain)
     applied = [p[0] for p in kinds["pengumuman"][2].get("category").perms]
     assert isinstance(applied, list)
@@ -8256,9 +8344,58 @@ async def test_backup_restore_parse_plan_and_apply(monkeypatch):
     forbidden_guild.create_role = _deny
     result2 = await br.apply_plan(forbidden_guild, br.build_plan(forbidden_guild, snapshot))
     assert result2["roles"] == 0 and result2["errors"]
-    assert result2["channels"] == 2            # channel tetap dibuat
+    assert result2["channels"] == 4            # channel tetap dibuat
 
     assert "Role dibuat" in br.describe_result(result)
+
+
+@pytest.mark.asyncio
+async def test_backup_restore_orders_new_categories_and_detects_old_media_api(monkeypatch):
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+    order_guild = _BRGuild()
+    order_plan = br.build_plan(
+        order_guild,
+        {
+            "roles": [],
+            "categories": [
+                {"name": "Z-akhir", "position": 20},
+                {"name": "A-awal", "position": 1},
+            ],
+            "channels": [],
+        },
+    )
+    assert [item["name"] for item in order_plan["categories"]] == ["A-awal", "Z-akhir"]
+    await br.apply_plan(order_guild, order_plan)
+    assert order_guild.created["categories"] == ["A-awal", "Z-akhir"]
+    assert all("position" not in kwargs for kwargs in order_guild.category_create_kwargs)
+
+    class _Discord25Guild(_BRGuild):
+        async def create_forum(
+            self,
+            name,
+            *,
+            topic=None,
+            category=None,
+            slowmode_delay=None,
+            nsfw=None,
+            reason=None,
+            default_auto_archive_duration=None,
+            default_thread_slowmode_delay=None,
+            default_sort_order=None,
+            default_layout=None,
+            default_reaction_emoji=None,
+            available_tags=None,
+        ):
+            self.created["channels"].append(("forum", name, {}))
+            return _BRChannel(name, "forum")
+
+    old_plan = br.build_plan(_Discord25Guild(), _sample_backup())
+    names = [item["name"] for item in old_plan["channels"]]
+    assert "forum-diskusi" in names
+    assert "media-galeri" not in names
+    assert any("media-galeri" in item and "Discord.py 2.6" in item for item in old_plan["skipped"])
 
 
 # ==============================================================================

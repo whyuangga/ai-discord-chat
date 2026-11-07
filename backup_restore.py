@@ -19,6 +19,7 @@ Pengaman
 """
 
 import asyncio
+import inspect
 import json
 import logging
 
@@ -37,8 +38,10 @@ CHANNEL_CREATORS = {
     "stage": "create_stage_channel",
     "news": "create_text_channel",      # announcement → text bila tidak didukung
     "announcement": "create_text_channel",
+    "forum": "create_forum",
+    "media": "create_forum",            # media channel adalah varian forum di Discord.py
 }
-SKIP_TYPES = {"forum", "media", "thread", "category"}
+SKIP_TYPES = {"thread", "category"}
 
 
 # ==============================================================================
@@ -97,6 +100,98 @@ def _channel_type(entry: dict) -> str:
     return "text"
 
 
+def _ordered_entries(entries) -> list[dict]:
+    """Urutkan snapshot secara stabil; item tanpa posisi mempertahankan urutan file."""
+    indexed = [(index, item) for index, item in enumerate(entries or []) if isinstance(item, dict)]
+
+    def key(pair):
+        index, item = pair
+        try:
+            position = int(item.get("position", index))
+        except (TypeError, ValueError):
+            position = index
+        return position, index
+
+    return [item for _index, item in sorted(indexed, key=key)]
+
+
+def _supports_keyword(function, keyword: str) -> bool:
+    """Periksa kemampuan versi discord.py tanpa memanggil API saat dry-run."""
+    try:
+        parameters = inspect.signature(function).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == keyword or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _forum_tags(raw_tags) -> list:
+    """Bangun tag forum yang aman dipindah; emoji custom server lama sengaja diabaikan."""
+    tags = []
+    for raw in (raw_tags or [])[:20]:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()[:20]
+        if not name:
+            continue
+        emoji = str(raw.get("emoji") or "").strip()
+        if emoji.startswith("<") and emoji.endswith(">"):
+            emoji = ""  # ID emoji custom biasanya tidak tersedia di server tujuan.
+        try:
+            tags.append(
+                discord.ForumTag(
+                    name=name,
+                    emoji=emoji or None,
+                    moderated=bool(raw.get("moderated", False)),
+                )
+            )
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return tags
+
+
+def _forum_enum(enum_type, raw):
+    try:
+        return enum_type(int(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _forum_settings(raw) -> dict:
+    """Ambil setelan forum yang diketahui dan batasi data dari berkas backup."""
+    if not isinstance(raw, dict):
+        return {}
+    settings = {}
+    for key in (
+        "default_auto_archive_duration",
+        "default_thread_slowmode_delay",
+        "default_sort_order",
+        "default_layout",
+    ):
+        try:
+            if raw.get(key) is not None:
+                settings[key] = int(raw[key])
+        except (TypeError, ValueError):
+            continue
+    emoji = str(raw.get("default_reaction_emoji") or "").strip()
+    if emoji and not (emoji.startswith("<") and emoji.endswith(">")):
+        settings["default_reaction_emoji"] = emoji[:100]
+    tags = raw.get("available_tags") or []
+    if isinstance(tags, list):
+        settings["available_tags"] = [
+            {
+                "name": str(tag.get("name") or "").strip()[:20],
+                "emoji": str(tag.get("emoji") or "").strip()[:100],
+                "moderated": bool(tag.get("moderated", False)),
+            }
+            for tag in tags[:20]
+            if isinstance(tag, dict) and str(tag.get("name") or "").strip()
+        ]
+    return settings
+
+
 def _role_overwrites(entry: dict) -> list[dict]:
     return [
         item
@@ -137,7 +232,7 @@ def build_plan(
     }
 
     # 1. Role
-    for role in snapshot.get("roles") or []:
+    for role in _ordered_entries(snapshot.get("roles") or []):
         if not isinstance(role, dict):
             continue
         name = str(role.get("name") or "").strip()
@@ -159,8 +254,8 @@ def build_plan(
             }
         )
 
-    # 2. Kategori
-    for category in snapshot.get("categories") or []:
+    # 2. Kategori; proses sesuai posisi sumber agar item baru berurutan.
+    for category in _ordered_entries(snapshot.get("categories") or []):
         if not isinstance(category, dict):
             continue
         name = str(category.get("name") or "").strip()
@@ -187,10 +282,8 @@ def build_plan(
         if category_id:
             category_by_id[category_id] = str(cat.get("name") or "").strip()
 
-    # 3. Channel
-    for entry in snapshot.get("channels") or []:
-        if not isinstance(entry, dict):
-            continue
+    # 3. Channel; proses sesuai posisi sumber agar urutan item baru tetap terjaga.
+    for entry in _ordered_entries(snapshot.get("channels") or []):
         name = str(entry.get("name") or "").strip()
         if not name:
             continue
@@ -203,6 +296,16 @@ def build_plan(
             continue
         if not buat_channel:
             plan["skipped"].append(f"channel `{name}` (dinonaktifkan)")
+            continue
+        creator_name = CHANNEL_CREATORS.get(kind)
+        creator = getattr(guild, creator_name, None) if creator_name else None
+        if not callable(creator):
+            plan["skipped"].append(f"channel `{name}` (tipe `{kind}` tidak tersedia di versi Discord.py ini)")
+            continue
+        if kind == "media" and not _supports_keyword(creator, "media"):
+            plan["skipped"].append(
+                f"channel `{name}` (media channel membutuhkan Discord.py 2.6 atau lebih baru)"
+            )
             continue
 
         try:
@@ -220,6 +323,7 @@ def build_plan(
                 "slowmode": max(0, int(entry.get("slowmode") or 0)),
                 "bitrate": entry.get("bitrate"),
                 "user_limit": max(0, int(entry.get("user_limit") or 0)),
+                "forum": _forum_settings(entry.get("forum")),
                 "overwrites": _role_overwrites(entry),
             }
         )
@@ -248,7 +352,17 @@ def describe_plan(plan: dict, limit: int = 8) -> str:
         items = plan.get(key) or []
         if not items:
             continue
-        names = ", ".join(f"`{item['name']}`" for item in items[:limit])
+
+        def format_item(item):
+            name = f"`{item['name']}`"
+            if key != "channels":
+                return name
+            kind = str(item.get("type") or "text")
+            category = str(item.get("category") or "").strip()
+            target = f" → `{category}`" if category else ""
+            return f"{name} ({kind}{target})"
+
+        names = ", ".join(format_item(item) for item in items[:limit])
         extra = f" … (+{len(items) - limit} lagi)" if len(items) > limit else ""
         lines.append(f"• **{label} baru ({len(items)}):** {names}{extra}")
     skipped = plan.get("skipped") or []
@@ -328,10 +442,15 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
     # 3. Channel
     for item in plan.get("channels") or []:
         kind = str(item.get("type") or "text")
-        creator_name = CHANNEL_CREATORS.get(kind, "create_text_channel")
-        creator = getattr(guild, creator_name, None)
+        creator_name = CHANNEL_CREATORS.get(kind)
+        creator = getattr(guild, creator_name, None) if creator_name else None
         if not callable(creator):
             result["errors"].append(f"channel `{item['name']}`: tipe `{kind}` tidak didukung")
+            continue
+        if kind == "media" and not _supports_keyword(creator, "media"):
+            result["errors"].append(
+                f"channel `{item['name']}`: media channel membutuhkan Discord.py 2.6 atau lebih baru"
+            )
             continue
 
         kwargs: dict = {"name": item["name"], "reason": reason_text}
@@ -345,13 +464,36 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
         if category is not None:
             kwargs["category"] = category
 
-        if creator_name == "create_text_channel":
+        if creator_name in ("create_text_channel", "create_forum"):
             if item.get("topic"):
                 kwargs["topic"] = item["topic"]
             if item.get("nsfw"):
                 kwargs["nsfw"] = True
             if int(item.get("slowmode") or 0) > 0:
                 kwargs["slowmode_delay"] = min(int(item["slowmode"]), 21600)
+        if creator_name == "create_forum":
+            forum = _forum_settings(item.get("forum"))
+            if kind == "media":
+                kwargs["media"] = True
+            archive_duration = forum.get("default_auto_archive_duration")
+            if archive_duration in {60, 1440, 4320, 10080}:
+                kwargs["default_auto_archive_duration"] = archive_duration
+            thread_slowmode = forum.get("default_thread_slowmode_delay")
+            if thread_slowmode is not None:
+                kwargs["default_thread_slowmode_delay"] = max(0, min(thread_slowmode, 21600))
+            sort_order = _forum_enum(discord.ForumOrderType, forum.get("default_sort_order"))
+            if sort_order is not None:
+                kwargs["default_sort_order"] = sort_order
+            if kind != "media":
+                layout = _forum_enum(discord.ForumLayoutType, forum.get("default_layout"))
+                if layout is not None:
+                    kwargs["default_layout"] = layout
+            reaction_emoji = forum.get("default_reaction_emoji")
+            if reaction_emoji:
+                kwargs["default_reaction_emoji"] = reaction_emoji
+            tags = _forum_tags(forum.get("available_tags"))
+            if tags:
+                kwargs["available_tags"] = tags
         elif creator_name in ("create_voice_channel", "create_stage_channel"):
             if item.get("bitrate"):
                 kwargs["bitrate"] = int(item["bitrate"])
