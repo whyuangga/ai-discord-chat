@@ -447,8 +447,8 @@ async def ganti_banner_panel(bot, guild_id: int, ref: str, banner=None) -> tuple
             menu_builder.build_view(menu, guild=guild),
             message_id=_to_int(menu.get("message_id")),
         )
-    except Exception:  # pragma: no cover - depends on client state
-        pass
+    except Exception as exc:  # pragma: no cover - depends on client state
+        logger.debug("Efek samping opsional gagal: %s", exc)
     await menu_builder.save_menus_to_disk()
     if banner is None:
         return True, f"Banner panel **{menu.get('title') or ref}** dihapus."
@@ -570,8 +570,8 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "channel": str(item.get("channel_id") or ""),
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     try:
         import link_embed
@@ -585,8 +585,8 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "url": str(item.get("url") or ""),
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     try:
         import menu_builder
@@ -600,8 +600,8 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "terkirim": bool(item.get("message_id")),
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     try:
         import modal_forms
@@ -614,8 +614,8 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "ringkas": f"{len(item.get('fields') or [])} kolom",
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     try:
         import webhook_identity
@@ -637,8 +637,8 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "channel": channel_id,
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     try:
         import flow_triggers
@@ -653,8 +653,8 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                                f"umur akun ≥ {int(alur.get('min_age_days') or 0)} hari",
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     return hasil
 

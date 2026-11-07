@@ -1,4 +1,4 @@
-"""Alur aksi tombol (*flows*) — satu tombol bisa menjalankan beberapa aksi berurutan.
+r"""Alur aksi tombol (*flows*) — satu tombol bisa menjalankan beberapa aksi berurutan.
 
 Ide ini dipinjam dari **Discohook** (`flows`): tombol tidak hanya memberi role, tapi juga
 bisa mengirim pesan, membuat thread, menunggu, dan berhenti bila syarat tidak terpenuhi —

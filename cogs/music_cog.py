@@ -1158,5 +1158,5 @@ def register_music_cog(bot: commands.Bot) -> None:
             await close_panel(bot, guild.id)
         try:
             await player.disconnect()
-        except Exception:  # pragma: no cover - sudah terputus
-            pass
+        except Exception as exc:  # pragma: no cover - sudah terputus
+            logger.debug("Efek samping opsional gagal: %s", exc)

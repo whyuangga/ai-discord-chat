@@ -98,8 +98,8 @@ async def save_to_disk() -> None:
             serialized = json.dumps(_cache, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp, WEBHOOK_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan webhooks.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan webhooks.json")
 
 
 def load_from_disk() -> int:

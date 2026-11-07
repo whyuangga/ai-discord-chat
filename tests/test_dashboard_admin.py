@@ -236,7 +236,7 @@ def test_pilihan_channel_dan_role_dari_cache_bot():
 def test_kontrol_channel_menandai_id_di_luar_server():
     # tiket.log kini multi-channel (checkbox), tapi channel di luar server tetap ditandai
     html = dashboard_ui.kontrol_html("tiket.log", "999999", _Bot(), 1234)
-    assert "di luar server ini" in html and f'value="999999" checked' in html
+    assert "di luar server ini" in html and 'value="999999" checked' in html
     # Setelan single-channel tetap memakai <select> + opsi "selected"
     tunggal = dashboard_ui.kontrol_html("digest.channel", "999999", _Bot(), 1234)
     assert "di luar server ini" in tunggal and "selected" in tunggal
@@ -306,7 +306,7 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
     assert await web_dashboard.start_dashboard(bot) is True
     base = f"http://127.0.0.1:{port}"
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             # Halaman grup memuat form setelan (dashboard kini satu halaman per grup)
             async with session.get(f"{base}/inti?token=token-uji&guild=1234") as resp:
                 body = await resp.text()
@@ -325,8 +325,12 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
                 assert resp.status == 200
                 assert data["ringkasan"]["fitur"] == len(dashboard_admin.FITUR)
                 assert data["nilai"]["level.aktif"] == "on"
+            # Tanpa token di query pun tetap boleh: sesi sudah di cookie.
             async with session.get(f"{base}/api/setelan?guild=1234") as resp:
-                assert resp.status == 401
+                assert resp.status == 200
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+                async with anon.get(f"{base}/api/setelan?guild=1234") as resp:
+                    assert resp.status == 401
 
             # Token lewat field form (bukan query/header) → harus diterima
             async with session.post(
@@ -338,13 +342,15 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
                 assert resp.status == 200 and "nonaktif" in body
             assert levels.is_leveling_active(1234) is False
 
-            # Token salah di field form → 401
-            async with session.post(
-                f"{base}/api/aksi",
-                data={"token": "salah", "guild": "1234",
-                      "action": "set.level.aktif", "value": "on"},
-            ) as resp:
-                assert resp.status == 401
+            # Token salah di field form → 401 (diuji dari klien tanpa sesi,
+            # karena klien ini sudah punya cookie dari submit sebelumnya)
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+                async with anon.post(
+                    f"{base}/api/aksi",
+                    data={"token": "salah", "guild": "1234",
+                          "action": "set.level.aktif", "value": "on"},
+                ) as resp:
+                    assert resp.status == 401
 
             # JSON + header tetap jalan untuk otomasi
             async with session.post(
@@ -355,13 +361,21 @@ async def test_endpoint_baru_dengan_token(tmp_path, monkeypatch):
                 data = await resp.json()
                 assert resp.status == 200 and data["ok"] is True
 
-            # Kirim embed ke channel uji
+            # Kirim embed ke channel uji — tanpa token tapi dengan sesi: boleh.
             async with session.post(
                 f"{base}/api/kirim",
                 data={"guild": "1234", "action": "kirim", "channel": "11",
                       "judul": "Halo", "isi": "Isi uji", "warna": "#5865F2"},
             ) as resp:
-                assert resp.status == 401   # tanpa token tetap ditolak
+                assert resp.status == 200
+            # Tanpa sesi & tanpa token: tetap 401
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+                async with anon.post(
+                    f"{base}/api/kirim",
+                    data={"guild": "1234", "action": "kirim", "channel": "11",
+                          "judul": "Halo", "isi": "Isi uji", "warna": "#5865F2"},
+                ) as resp:
+                    assert resp.status == 401
             async with session.post(
                 f"{base}/api/kirim",
                 data={"token": "token-uji", "guild": "1234", "action": "kirim",
@@ -566,8 +580,13 @@ def test_http_dropdown_auto_refresh_lewat_header(monkeypatch):
                     allow_redirects=False,
                 ) as resp:
                     assert resp.status == 303
-                    assert resp.headers["Location"] == "/?token=token-uji&guild=1234"
-                    assert resp.cookies[web_dashboard.COOKIE_AUTO].value == "600"
+                    # Redirect tidak lagi membawa token (sesi lewat cookie)
+                    # Parameter refresh sudah menjadi cookie → alamat bersih
+                    assert resp.headers["Location"] == "/?guild=1234"
+                    assert "token=" not in resp.headers["Location"]
+                    # Dua cookie dalam satu respons: sesi + interval auto-refresh
+                    set_cookie = " | ".join(resp.headers.getall("Set-Cookie"))
+                    assert "dash_auto=600" in set_cookie and "dash_sesi=" in set_cookie
 
                 async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
                     body = await resp.text()

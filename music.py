@@ -152,8 +152,8 @@ async def save_music_settings_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, MUSIC_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan music_settings.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan music_settings.json")
 
 
 def get_music_settings(guild_id: int) -> dict:
@@ -439,8 +439,8 @@ async def ensure_nodes_alive(client: discord.Client | None = None, *, force: boo
             continue
         try:
             await node.close()
-        except Exception:  # pragma: no cover - sudah tertutup
-            pass
+        except Exception as exc:  # pragma: no cover - sudah tertutup
+            logger.debug("Efek samping opsional gagal: %s", exc)
     try:
         await wavelink.Pool.reconnect()
     except Exception as exc:  # pragma: no cover - node mati
@@ -506,8 +506,8 @@ def mark_requester(track, user: discord.abc.User) -> None:
     try:
         extras["requester"] = getattr(user, "display_name", "Member")
         extras["requester_id"] = int(getattr(user, "id", 0))
-    except (TypeError, AttributeError):  # pragma: no cover - extras tidak mendukung dict
-        pass
+    except (TypeError, AttributeError) as exc:  # pragma: no cover - extras tidak mendukung dict
+        logger.debug("extras tidak mendukung dict: %s", exc)
 
 
 def build_now_playing_embed(
@@ -696,8 +696,8 @@ async def ensure_player(interaction: discord.Interaction):
     settings = get_music_settings(guild.id)
     try:
         await player.set_volume(int(settings.get("volume") or MUSIC_DEFAULT_VOLUME))
-    except Exception:  # pragma: no cover - node belum siap
-        pass
+    except Exception as exc:  # pragma: no cover - node belum siap
+        logger.debug("Efek samping opsional gagal: %s", exc)
     # Terapkan kembali filter audio & autoplay yang tersimpan untuk server ini
     saved_filter = settings.get("filter", "off")
     if saved_filter and saved_filter != "off":
@@ -1155,8 +1155,8 @@ async def skip_previous(player) -> bool:
             history.delete(-1)       # wavelink.Queue
         else:
             history.pop(-1)          # list biasa (unit test)
-    except Exception:  # pragma: no cover - history kosong
-        pass
+    except Exception as exc:  # pragma: no cover - history kosong
+        logger.debug("Efek samping opsional gagal: %s", exc)
     await player.play(previous, add_history=False)
     return True
 

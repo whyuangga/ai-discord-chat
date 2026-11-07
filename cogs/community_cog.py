@@ -286,8 +286,8 @@ async def _panelrole_v2(
             "Panel self role dipasang",
             f"{len(usable)} role • gaya {gaya} • channel {channel.mention}",
         )
-    except Exception:  # pragma: no cover - audit opsional
-        pass
+    except Exception as exc:  # pragma: no cover - audit opsional
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
 
 @panelrole_group.command(
@@ -494,7 +494,7 @@ async def panelrole_hapus_cmd(interaction: discord.Interaction, pesan: str, emoj
             message = await channel.fetch_message(message_id)
             await message.remove_reaction(emoji, interaction.guild.me)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-            pass
+            pass  # diabaikan (opsional)
 
     if not panel["options"]:
         delete_reaction_role_panel(message_id)
@@ -1013,7 +1013,7 @@ async def sticky_lepas_cmd(
         try:
             await target.get_partial_message(old_id).delete()
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-            pass
+            pass  # diabaikan (opsional)
 
     await interaction.response.send_message(
         f"✅ Sticky message di {target.mention} dilepas.", ephemeral=True

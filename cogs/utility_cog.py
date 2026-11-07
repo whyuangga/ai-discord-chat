@@ -579,8 +579,8 @@ async def backup_pulihkan_cmd(
                 f"Role `{result['roles']}` • Kategori `{result['categories']}` • "
                 f"Channel `{result['channels']}` • Gagal `{len(result['errors'])}`",
             )
-        except Exception:  # pragma: no cover - audit opsional
-            pass
+        except Exception as exc:  # pragma: no cover - audit opsional
+            logger.debug("Efek samping opsional gagal: %s", exc)
         await confirm_interaction.edit_original_response(
             embed=ui_theme.status_embed(
                 interaction.guild.id,
@@ -637,7 +637,7 @@ async def handle_message_tools(message: discord.Message) -> None:
                 delete_after=8,
             )
         except (discord.Forbidden, discord.HTTPException):
-            pass
+            pass  # diabaikan (opsional)
 
     # 2. Ada member AFK yang disebut → beri tahu alasannya
     mentions = st.afk_mentions(guild_id, message.content)
@@ -649,7 +649,7 @@ async def handle_message_tools(message: discord.Message) -> None:
         try:
             await message.reply("\n".join(lines)[:1900], mention_author=False, delete_after=90)
         except (discord.Forbidden, discord.HTTPException):
-            pass
+            pass  # diabaikan (opsional)
 
     # 3. Auto-thread untuk channel yang diatur Admin
     config = st.auto_thread_config(guild_id, message.channel.id)

@@ -201,8 +201,8 @@ async def save_tickets_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, TICKETS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan tickets.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan tickets.json")
 
 
 # ==============================================================================
@@ -1064,7 +1064,7 @@ async def run_ticket_check(bot) -> dict:
                         )
                         result["sla"] += len(overdue)
                     except (discord.Forbidden, discord.HTTPException):
-                        pass
+                        pass  # diabaikan (opsional)
 
         # 2. Auto-close tiket yang menganggur
         for tid in stale_tickets(guild_id=gid):
@@ -1084,8 +1084,8 @@ async def run_ticket_check(bot) -> dict:
                     ticket_archive.simpan(
                         closed, pesan_arsip, guild_name=str(getattr(guild, "name", "") or "")
                     )
-                except Exception:  # pragma: no cover - arsip opsional
-                    pass
+                except Exception as exc:  # pragma: no cover - arsip opsional
+                    logger.debug("Efek samping opsional gagal: %s", exc)
                 try:
                     await thread.send(
                         f"⏰ Tiket ditutup **otomatis** karena tidak ada aktivitas selama "
@@ -1093,7 +1093,7 @@ async def run_ticket_check(bot) -> dict:
                         "Buka tiket baru kapan saja bila masih butuh bantuan."
                     )
                 except (discord.Forbidden, discord.HTTPException, AttributeError):
-                    pass
+                    pass  # diabaikan (opsional)
                 try:
                     await thread.edit(
                         name=f"tiket-{_to_int(closed.get('number')):04d}-otomatis"[:100],
@@ -1102,7 +1102,7 @@ async def run_ticket_check(bot) -> dict:
                         reason="Auto-close tiket menganggur",
                     )
                 except (discord.Forbidden, discord.HTTPException, AttributeError):
-                    pass
+                    pass  # diabaikan (opsional)
 
     if result["sla"] or result["closed"]:
         await save_tickets_to_disk()

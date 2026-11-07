@@ -10,8 +10,13 @@ from cogs import (
     register_all_cogs,
     ringkas_chat_cmd,
     ringkas_link_cmd,
-    slash_cari,
 )
+# `slash_cari` tidak dipakai langsung di berkas ini, tetapi tes & modul lain
+# mengaksesnya lewat `main.slash_cari`. Didaftarkan di `__all__` supaya terbaca
+# sebagai re-export oleh pyflakes/ruff (bukan import mati).
+from cogs import slash_cari
+
+__all__ = ["slash_cari"]
 from cogs.growth_cog import run_voice_xp_check
 from voice_activity import reset_voice_sessions
 from tickets import run_ticket_check
@@ -320,9 +325,89 @@ class GeminiDiscordBot(commands.Bot):
             await report_error(self, context=f"event:{event_method}", exc=exc)
 
     async def setup_hook(self) -> None:
+        """Siapkan bot: koneksi HTTP, muat data, pasang view, sinkron command.
+
+        Bagian "muat data" dan "sinkronisasi" dipisah ke method sendiri karena
+        keduanya panjang dan sering disentuh saat menambah fitur baru.
+        """
         # 1. Buat koneksi HTTP bersama agar cepat & hemat RAM
         self.http_session = aiohttp.ClientSession()
 
+        # 2. Muat seluruh data dari disk (lihat `_muat_semua_data`)
+        await self._muat_semua_data()
+        await self._pasang_view_dan_layanan()
+        await self._sinkron_command()
+
+    async def _pasang_view_dan_layanan(self) -> None:
+        """Daftarkan View persisten, node musik, dan hook galat slash command.
+
+        View persisten cukup dipasang sekali saat startup; tanpa ini tombol
+        (panel, giveaway, tiket) mati setelah bot restart.
+        """
+        # 3. Daftarkan seluruh View persisten (sekali saja saat startup)
+        self.add_view(MainPanelControlView())
+        self.add_view(EndSessionView())
+        self.add_view(ChatPersonaSwitchView())
+        self.add_view(ImageSettingsView())
+        self.add_view(ForumPostSolvedView())
+        self.add_view(VerificationGateView())
+        self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
+        self.add_view(GiveawayJoinView())  # tombol 🎉 giveaway tetap aktif setelah restart
+        self.add_view(SuggestionVoteView())  # tombol 👍/👎 kotak saran
+        self.add_view(TicketPanelView())   # panel "Buat Tiket"
+        self.add_view(TicketActionsView())  # tombol klaim/tutup di dalam thread tiket
+
+        # 3B. Hubungkan node musik Lavalink (dilewati otomatis bila belum dikonfigurasi)
+        if WAVELINK_AVAILABLE:
+            await connect_nodes(self)
+
+        # 3C. Laporkan error Slash Command ke channel log (bila Admin mengaturnya)
+        self.tree.on_error = self._handle_app_command_error
+
+        # 3D. Nyalakan dashboard web read-only (hanya bila DASHBOARD_TOKEN & port tersedia)
+        await start_dashboard(self)
+
+        # 4. Jalankan background watcher untuk Pemecah Sepi, Morning Digest, & Pembersih RAM
+        if not idle_chat_watcher.is_running():
+            idle_chat_watcher.start()
+        if WAVELINK_AVAILABLE and not music_panel_watcher.is_running():
+            music_panel_watcher.start()
+
+    async def _sinkron_command(self) -> None:
+        """Sinkronkan slash command: instan ke satu guild bila diatur, atau global."""
+        # 5. Sinkronisasi Slash Commands (tanpa duplikasi Guild vs Global)
+        try:
+            if DISCORD_GUILD_ID:
+                guild_obj = discord.Object(id=DISCORD_GUILD_ID)
+                self.tree.copy_global_to(guild=guild_obj)
+                synced_guild = await self.tree.sync(guild=guild_obj)
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()
+                logger.info(
+                    "Slash commands tersinkron instan ke Guild %s (%d command utama, bebas duplikat).",
+                    DISCORD_GUILD_ID,
+                    len(synced_guild),
+                )
+            else:
+                synced_global = await self.tree.sync()
+                logger.info("Global Slash commands tersinkron (%d command utama).", len(synced_global))
+        except Exception as exc:
+            logger.warning("Gagal sinkronisasi Slash Commands: %s", sanitize_error_message(exc))
+
+
+    async def _muat_semua_data(self) -> None:
+        """Muat semua berkas data + log ringkas isinya.
+
+        Dikelompokkan supaya mudah dicari saat menambah fitur: inti percakapan &
+        keamanan, operasional harian, lalu media. Setiap pemuat menangani
+        berkasnya sendiri, jadi satu berkas rusak tidak menghentikan yang lain.
+        """
+        await self._muat_data_inti()
+        await self._muat_data_operasional()
+        await self._muat_media_dan_ringkasan()
+
+    async def _muat_data_inti(self) -> None:
+        """Sesi AI, game, fitur server, perkakas komunitas, dan pelanggaran."""
         # 2. Muat kembali sesi privat, konfigurasi AI Agent, & papan skor game dari disk
         loaded_chats, loaded_imgs = load_sessions_from_disk()
         loaded_agent_chats, loaded_galleries = load_agent_config_from_disk()
@@ -356,60 +441,7 @@ class GeminiDiscordBot(commands.Bot):
             )
         except Exception as exc:  # Arsip bukan alasan untuk menggagalkan startup bot.
             logger.warning("Pembersihan retensi arsip tiket gagal: %s", exc)
-        loaded_usage_days = load_ai_usage_from_disk()
-        loaded_translate_guilds = load_translate_from_disk()
-        loaded_audit_guilds = load_audit_from_disk()
-        loaded_econ_guilds, loaded_econ_balances = load_economy_from_disk()
-        loaded_growth_guilds = load_growth_from_disk()
-        loaded_menus = load_menus_from_disk()
-        loaded_webhooks = webhook_identity.load_from_disk()
-        loaded_forms = modal_forms.load_from_disk()
-        loaded_bangun = server_builder.load_from_disk()
-        loaded_ai_users, loaded_ai_servers = ai_user_settings.load_from_disk()
-        loaded_links = link_embed.load_from_disk()
-        loaded_triggers = flow_triggers.load_from_disk()
-        loaded_antinuke = load_antinuke_from_disk()
-        loaded_raid = load_raid_from_disk()
-        loaded_playlists = load_playlists_from_disk()
-        loaded_langs = load_lang_from_disk()
-        loaded_prefixes = load_prefixes_from_disk()
-        loaded_analytics = load_analytics_from_disk()
-        loaded_themes = load_ui_themes_from_disk()
-        loaded_afk, loaded_threads = load_server_tools_from_disk()
-        logger.info(
-            "Perkakas server dimuat: %d status AFK, %d channel auto-thread.", loaded_afk, loaded_threads
-        )
-        loaded_saran_guilds, loaded_saran_items = load_suggestions_from_disk()
-        logger.info(
-            "Kotak saran dimuat: %d saran di %d server.", loaded_saran_items, loaded_saran_guilds
-        )
-        loaded_hub_guilds, loaded_rooms = load_temp_voice_from_disk()
-        logger.info(
-            "Temp Voice dimuat: %d server, %d room tersimpan.", loaded_hub_guilds, loaded_rooms
-        )
-        loaded_mod_guilds, loaded_mod_cases = load_moderation_from_disk()
-        logger.info(
-            "Moderasi dimuat: %d server, %d kasus tercatat.", loaded_mod_guilds, loaded_mod_cases
-        )
-        loaded_social_guilds = load_social_from_disk()
-        logger.info(
-            "Notifikasi sosial dimuat: %d server | Twitch: %s.",
-            loaded_social_guilds,
-            "siap (kredensial terisi)" if twitch_configured() else "belum dikonfigurasi (YouTube/RSS tetap jalan)",
-        )
-        if not twitch_configured():
-            twitch_subs = sum(
-                1
-                for gid_data in social_guilds.values()
-                for sub in (gid_data.get("subs") or [])
-                if sub.get("platform") == "twitch"
-            )
-            if twitch_subs:
-                logger.warning(
-                    "⚠️ Ada %d langganan Twitch, tetapi TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET kosong. "
-                    "Isi di tab Variables Wispbyte lalu restart, atau uji dengan /sosial status.",
-                    twitch_subs,
-                )
+
         logger.info(
             "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
             loaded_chats,
@@ -464,6 +496,72 @@ class GeminiDiscordBot(commands.Bot):
             loaded_levels,
             loaded_tickets,
         )
+        # Ringkasan komunitas sengaja di akhir: butuh nilai dari blok di atas.
+        logger.info(
+            "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
+            loaded_panels,
+            loaded_reminders_count,
+            loaded_starboard,
+            loaded_sticky,
+            loaded_verify,
+        )
+
+    async def _muat_data_operasional(self) -> None:
+        """Pemakaian AI, moderasi, ekonomi, tema, dan perkakas server harian."""
+        loaded_usage_days = load_ai_usage_from_disk()
+        loaded_translate_guilds = load_translate_from_disk()
+        loaded_audit_guilds = load_audit_from_disk()
+        loaded_econ_guilds, loaded_econ_balances = load_economy_from_disk()
+        loaded_growth_guilds = load_growth_from_disk()
+        loaded_menus = load_menus_from_disk()
+        loaded_webhooks = webhook_identity.load_from_disk()
+        loaded_forms = modal_forms.load_from_disk()
+        loaded_bangun = server_builder.load_from_disk()
+        loaded_ai_users, loaded_ai_servers = ai_user_settings.load_from_disk()
+        loaded_links = link_embed.load_from_disk()
+        loaded_triggers = flow_triggers.load_from_disk()
+        loaded_antinuke = load_antinuke_from_disk()
+        loaded_raid = load_raid_from_disk()
+        loaded_playlists = load_playlists_from_disk()
+        loaded_langs = load_lang_from_disk()
+        loaded_prefixes = load_prefixes_from_disk()
+        loaded_analytics = load_analytics_from_disk()
+        loaded_themes = load_ui_themes_from_disk()
+        loaded_afk, loaded_threads = load_server_tools_from_disk()
+        logger.info(
+            "Perkakas server dimuat: %d status AFK, %d channel auto-thread.", loaded_afk, loaded_threads
+        )
+        loaded_saran_guilds, loaded_saran_items = load_suggestions_from_disk()
+        logger.info(
+            "Kotak saran dimuat: %d saran di %d server.", loaded_saran_items, loaded_saran_guilds
+        )
+        loaded_hub_guilds, loaded_rooms = load_temp_voice_from_disk()
+        logger.info(
+            "Temp Voice dimuat: %d server, %d room tersimpan.", loaded_hub_guilds, loaded_rooms
+        )
+        loaded_mod_guilds, loaded_mod_cases = load_moderation_from_disk()
+        logger.info(
+            "Moderasi dimuat: %d server, %d kasus tercatat.", loaded_mod_guilds, loaded_mod_cases
+        )
+        loaded_social_guilds = load_social_from_disk()
+        logger.info(
+            "Notifikasi sosial dimuat: %d server | Twitch: %s.",
+            loaded_social_guilds,
+            "siap (kredensial terisi)" if twitch_configured() else "belum dikonfigurasi (YouTube/RSS tetap jalan)",
+        )
+        if not twitch_configured():
+            twitch_subs = sum(
+                1
+                for gid_data in social_guilds.values()
+                for sub in (gid_data.get("subs") or [])
+                if sub.get("platform") == "twitch"
+            )
+            if twitch_subs:
+                logger.warning(
+                    "⚠️ Ada %d langganan Twitch, tetapi TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET kosong. "
+                    "Isi di tab Variables Wispbyte lalu restart, atau uji dengan /sosial status.",
+                    twitch_subs,
+                )
         logger.info("Catatan pemakaian AI dimuat: %d hari terakhir.", loaded_usage_days)
         logger.info("Penerjemah dimuat: %d server dengan channel terpilih.", loaded_translate_guilds)
         logger.info("Audit log dimuat: %d server dengan channel log.", loaded_audit_guilds)
@@ -487,6 +585,9 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Prefix khusus dimuat: %d server.", loaded_prefixes)
         logger.info("Ekspor analitik dimuat: %d server.", loaded_analytics)
         logger.info("Tema tampilan UI dimuat: %d server dengan kustomisasi.", loaded_themes)
+
+    async def _muat_media_dan_ringkasan(self) -> None:
+        """Ukuran folder media kustom (banner sambutan/boost)."""
         try:
             import welcome_media
 
@@ -497,62 +598,7 @@ class GeminiDiscordBot(commands.Bot):
             )
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Gagal membaca folder media: %s", exc)
-        logger.info(
-            "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
-            loaded_panels,
-            loaded_reminders_count,
-            loaded_starboard,
-            loaded_sticky,
-            loaded_verify,
-        )
 
-        # 3. Daftarkan seluruh View persisten (sekali saja saat startup)
-        self.add_view(MainPanelControlView())
-        self.add_view(EndSessionView())
-        self.add_view(ChatPersonaSwitchView())
-        self.add_view(ImageSettingsView())
-        self.add_view(ForumPostSolvedView())
-        self.add_view(VerificationGateView())
-        self.add_view(MusicPlayerView())  # panel pemutar musik persisten (ala Rythm)
-        self.add_view(GiveawayJoinView())  # tombol 🎉 giveaway tetap aktif setelah restart
-        self.add_view(SuggestionVoteView())  # tombol 👍/👎 kotak saran
-        self.add_view(TicketPanelView())   # panel "Buat Tiket"
-        self.add_view(TicketActionsView())  # tombol klaim/tutup di dalam thread tiket
-
-        # 3B. Hubungkan node musik Lavalink (dilewati otomatis bila belum dikonfigurasi)
-        if WAVELINK_AVAILABLE:
-            await connect_nodes(self)
-
-        # 3C. Laporkan error Slash Command ke channel log (bila Admin mengaturnya)
-        self.tree.on_error = self._handle_app_command_error
-
-        # 3D. Nyalakan dashboard web read-only (hanya bila DASHBOARD_TOKEN & port tersedia)
-        await start_dashboard(self)
-
-        # 4. Jalankan background watcher untuk Pemecah Sepi, Morning Digest, & Pembersih RAM
-        if not idle_chat_watcher.is_running():
-            idle_chat_watcher.start()
-        if WAVELINK_AVAILABLE and not music_panel_watcher.is_running():
-            music_panel_watcher.start()
-
-        # 5. Sinkronisasi Slash Commands (tanpa duplikasi Guild vs Global)
-        try:
-            if DISCORD_GUILD_ID:
-                guild_obj = discord.Object(id=DISCORD_GUILD_ID)
-                self.tree.copy_global_to(guild=guild_obj)
-                synced_guild = await self.tree.sync(guild=guild_obj)
-                self.tree.clear_commands(guild=None)
-                await self.tree.sync()
-                logger.info(
-                    "Slash commands tersinkron instan ke Guild %s (%d command utama, bebas duplikat).",
-                    DISCORD_GUILD_ID,
-                    len(synced_guild),
-                )
-            else:
-                synced_global = await self.tree.sync()
-                logger.info("Global Slash commands tersinkron (%d command utama).", len(synced_global))
-        except Exception as exc:
-            logger.warning("Gagal sinkronisasi Slash Commands: %s", sanitize_error_message(exc))
 
     async def close(self) -> None:
         if idle_chat_watcher.is_running():

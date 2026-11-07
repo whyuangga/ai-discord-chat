@@ -272,5 +272,5 @@ async def save_tags_to_disk() -> None:
                 "utf-8",
             )
             await asyncio.to_thread(os.replace, sementara, TAGS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan tags.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan tags.json")

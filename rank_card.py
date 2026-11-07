@@ -294,8 +294,8 @@ def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
                 font=font_inisial,
                 fill=_TEKS + (255,),
             )
-        except Exception:  # pragma: no cover - font bitmap
-            pass
+        except Exception as exc:  # pragma: no cover - font bitmap
+            logger.debug("Efek samping opsional gagal: %s", exc)
         kanvas.alpha_composite(lingkaran, (posisi_x, avatar_y))
 
     draw = ImageDraw.Draw(kanvas)

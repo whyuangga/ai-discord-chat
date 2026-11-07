@@ -124,8 +124,8 @@ def rss_mb() -> float:
             for line in handle:
                 if line.startswith("VmRSS:"):
                     return round(int(line.split()[1]) / 1024, 1)
-    except Exception:  # pragma: no cover - non-Linux
-        pass
+    except Exception as exc:  # pragma: no cover - non-Linux
+        logger.debug("Efek samping opsional gagal: %s", exc)
     try:  # pragma: no cover - fallback macOS/BSD
         import resource
 

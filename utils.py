@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import html
 import io
 import ipaddress
+import logging
 import re
 import time
 from pathlib import Path
@@ -28,6 +29,8 @@ from config import (
     parse_gemini_keys,
 )
 from storage import is_bot_ui_message
+
+logger = logging.getLogger("gemini_bot.utils")
 
 IMAGE_MIME_BY_EXT: dict[str, str] = {
     ".png": "image/png",
@@ -88,8 +91,8 @@ def is_discord_voice_attachment(att) -> bool:
         try:
             if checker():
                 return True
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - atribut discord.py berubah
+            logger.debug("is_voice_message() gagal: %s", exc)
     fname = str(getattr(att, "filename", "") or "").lower()
     has_waveform = bool(getattr(att, "waveform", None))
     return has_waveform or fname.startswith("voice-message.")
@@ -431,8 +434,8 @@ async def extract_message_attachments(
                     image_parts.append({"inlineData": {"mimeType": s_mime, "data": base64.b64encode(raw_s).decode("ascii")}})
                     image_filenames.append(f"stiker:{s_name}")
                     continue
-            except Exception:
-                pass
+            except Exception as exc:  # pragma: no cover - media tak terbaca
+                logger.debug("Media opsional tidak terbaca: %s", exc)
         text_blocks.append(f'[Pengguna mengirim Stiker Discord bernama "{s_name}"]')
 
     return image_parts, image_filenames, text_blocks, warnings
@@ -561,8 +564,8 @@ async def extract_social_media_and_stickers(
                         descriptions.append(
                             f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
                         )
-                except Exception:
-                    pass
+                except Exception as exc:  # pragma: no cover - media tak terbaca
+                    logger.debug("Media opsional tidak terbaca: %s", exc)
 
     # 2. Stiker Discord (PNG / APNG / GIF dapat dilihat langsung visualnya oleh Gemini Vision!)
     for sticker in getattr(message, "stickers", []) or []:
@@ -579,8 +582,8 @@ async def extract_social_media_and_stickers(
                     media_parts.append({"inlineData": {"mimeType": s_mime, "data": b64}})
                     descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}" — lihat gambar stikernya]')
                     continue
-            except Exception:
-                pass
+            except Exception as exc:  # pragma: no cover - media tak terbaca
+                logger.debug("Media opsional tidak terbaca: %s", exc)
 
         descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}"]')
 
@@ -601,8 +604,8 @@ async def extract_social_media_and_stickers(
                 media_parts.append({"inlineData": {"mimeType": e_mime, "data": b64}})
                 descriptions.append(f"[Menggunakan custom emoji :{emoji_name}: — lihat ekspresi gambar emojinya]")
                 continue
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - atribut discord.py berubah
+            logger.debug("is_voice_message() gagal: %s", exc)
         descriptions.append(f"[Menggunakan custom emoji :{emoji_name}:]")
 
     return media_parts, descriptions, warnings

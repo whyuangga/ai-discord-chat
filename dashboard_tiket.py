@@ -107,8 +107,8 @@ def collect_tiket(guild_id: int, *, limit: int = 20) -> dict:
         statistik["aktifkan"] = bool(cfg.get("enabled"))
         statistik["maks"] = int(cfg.get("max_open") or 0)
         statistik["sla_jam"] = int(cfg.get("sla_jam") or 0)
-    except Exception:  # pragma: no cover - jaring aman
-        pass
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Efek samping opsional gagal: %s", exc)
     try:
         topik = tickets.list_ticket_topics(gid)
     except Exception:  # pragma: no cover - jaring aman
@@ -184,8 +184,8 @@ async def balas(
     tickets.record_activity(_to_int(thread_id))
     try:
         tickets.record_first_response(_to_int(thread_id), 0)
-    except Exception:  # pragma: no cover - jaring aman
-        pass
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Efek samping opsional gagal: %s", exc)
     await tickets.save_tickets_to_disk()
     return True, f"Balasan terkirim ke tiket {nomor}."
 
@@ -228,8 +228,8 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
             ticket_archive.simpan(
                 closed, pesan, guild_name=str(getattr(guild, "name", "") or ""), teks=teks
             )
-        except Exception:  # pragma: no cover - arsip opsional
-            pass
+        except Exception as exc:  # pragma: no cover - arsip opsional
+            logger.debug("Efek samping opsional gagal: %s", exc)
         dikirim = await tickets.send_transcript(bot, closed, teks, nama_berkas)
     except Exception as exc:  # pragma: no cover - transkrip opsional
         logger.warning("Transkrip tiket dari dashboard gagal: %s", exc)
@@ -242,7 +242,7 @@ async def tutup(bot, guild_id: int, thread_id: int) -> tuple[bool, str]:
             reason="Tiket ditutup lewat dashboard web",
         )
     except (discord.Forbidden, discord.HTTPException):
-        pass
+        pass  # diabaikan (opsional)
 
     return True, (
         f"Tiket {nomor} ditutup"

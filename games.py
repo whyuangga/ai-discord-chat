@@ -209,8 +209,8 @@ async def save_game_scores_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, GAME_SCORES_FILE)
-        except Exception as exc:
-            logger.error("Gagal menyimpan %s: %s", GAME_SCORES_FILE, exc)
+        except Exception:
+            logger.exception("Gagal menyimpan %s", GAME_SCORES_FILE)
 
 
 def award_game_points(

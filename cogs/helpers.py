@@ -1,9 +1,12 @@
+import logging
 import sys
 
 import discord
 
 import insights
 from utils import check_user_cooldown
+
+logger = logging.getLogger("gemini_bot.helpers")
 
 
 def get_memory_usage_mb() -> float:
@@ -14,8 +17,8 @@ def get_memory_usage_mb() -> float:
                 if line.startswith("VmRSS:"):
                     kb = int(line.split()[1])
                     return round(kb / 1024, 1)
-    except Exception:
-        pass
+    except Exception as exc:  # pragma: no cover - non-Linux / /proc tidak ada
+        logger.debug("/proc/self/status tidak terbaca: %s", exc)
     try:
         import resource
 

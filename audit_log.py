@@ -419,8 +419,8 @@ async def log_member_remove(bot, member) -> bool:
         try:
             days = max(0, int((discord.utils.utcnow() - joined).total_seconds() // 86400))
             fields.append(("Lama di server", f"`{days}` hari"))
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Efek samping opsional gagal: %s", exc)
     roles = [r for r in (getattr(member, "roles", None) or []) if getattr(r, "name", None)]
     if roles:
         fields.append(("Role", f"`{max(0, len(roles) - 1)}` role"))
@@ -574,8 +574,8 @@ async def save_audit_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, AUDIT_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan audit.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan audit.json")
 
 
 def cleanup_audit_runtime(max_guilds: int = 200) -> int:

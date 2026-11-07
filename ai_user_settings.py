@@ -282,5 +282,5 @@ async def save_to_disk() -> None:
         sementara = Path(str(path) + ".tmp")
         sementara.write_text(json.dumps(isi, ensure_ascii=False, indent=1), encoding="utf-8")
         sementara.replace(path)
-    except OSError as exc:
-        logger.warning("Gagal menyimpan %s: %s", path, exc)
+    except OSError:
+        logger.exception("Gagal menyimpan %s")

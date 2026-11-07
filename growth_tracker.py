@@ -195,8 +195,8 @@ async def detect_inviter(guild, member) -> tuple[int | None, str | None]:
             if str(getattr(invite, "code", "")) == best_code:
                 inviter = getattr(invite, "inviter", None)
                 return _to_int(getattr(inviter, "id", 0)) or None, best_code
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
     return None, best_code
 
 
@@ -474,8 +474,8 @@ async def save_growth_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, GROWTH_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan growth.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan growth.json")
 
 
 def cleanup_growth_runtime() -> int:

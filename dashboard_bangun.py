@@ -8,9 +8,12 @@ hanya memanggil `server_builder.bongkar`, yang menghapus ID item tercatat `/bang
 from __future__ import annotations
 
 import html
+import logging
 import time
 
 import server_builder as sb
+
+logger = logging.getLogger("gemini_bot.dashboard_bangun")
 
 
 
@@ -191,8 +194,8 @@ async def _rancang_ai(guild_id: int, prompt: str) -> str:
         ai_handler.thread_chats.pop(thread_id, None)
         try:
             await ai_handler.save_sessions_to_disk()
-        except Exception:
-            pass
+        except Exception:  # pragma: no cover - disk penuh/di luar kendali
+            logger.exception("Gagal menyimpan sesi setelah pratinjau /bangun")
 
 
 async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:

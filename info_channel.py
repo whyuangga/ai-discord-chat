@@ -297,8 +297,8 @@ async def save_info_channel_to_disk() -> None:
             sementara = INFO_CHANNEL_FILE.with_suffix(".tmp")
             sementara.write_text(teks, encoding="utf-8")
             os.replace(sementara, INFO_CHANNEL_FILE)
-        except OSError as exc:  # pragma: no cover - disk penuh/izin
-            logger.warning("Gagal menyimpan channel info: %s", exc)
+        except OSError:  # pragma: no cover - disk penuh/izin
+            logger.exception("Gagal menyimpan channel info")
 
     await asyncio.to_thread(_tulis)
 

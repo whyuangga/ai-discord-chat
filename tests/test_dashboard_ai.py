@@ -298,7 +298,7 @@ async def test_endpoint_ai_memerlukan_token_dan_audit_tidak_menyimpan_prompt(mon
 
     assert await web_dashboard.start_dashboard(bot) is True
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             payload = {
                 "guild": GID, "action": "prompt-server",
                 "prompt_server": "TEKS-RAHASIA-UNTUK-TES",

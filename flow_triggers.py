@@ -259,5 +259,5 @@ async def save_to_disk() -> None:
             sementara = Path(str(FLOW_FILE) + ".tmp")
             sementara.write_text(json.dumps(isi, ensure_ascii=False, indent=2), encoding="utf-8")
             sementara.replace(Path(FLOW_FILE))
-        except Exception as exc:  # pragma: no cover
-            logger.warning("Gagal menyimpan %s: %s", FLOW_FILE, exc)
+        except Exception:  # pragma: no cover
+            logger.exception("Gagal menyimpan %s")

@@ -14,7 +14,10 @@ Prinsip:
 
 from __future__ import annotations
 
+import logging
 import time
+
+logger = logging.getLogger("gemini_bot.user_data")
 
 MAKS_BARIS = 500
 
@@ -191,8 +194,8 @@ def hapus(user_id: int) -> dict:
         for kunci in [k for k in levels.levels if _to_int(k.partition(":")[2]) == uid]:
             levels.levels.pop(kunci, None)
             _hitung("level", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data level gagal: %s", exc)
 
     # 2. Ekonomi
     try:
@@ -202,8 +205,8 @@ def hapus(user_id: int) -> dict:
             economy.balances.pop(kunci, None)
             economy.meta.pop(kunci, None)
             _hitung("ekonomi", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data ekonomi gagal: %s", exc)
 
     # 3. Lencana
     try:
@@ -212,8 +215,8 @@ def hapus(user_id: int) -> dict:
         for gid, anggota in list(achievements.ach_members.items()):
             if isinstance(anggota, dict) and anggota.pop(uid, None) is not None:
                 _hitung("lencana", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data lencana gagal: %s", exc)
 
     # 4. Highlight
     try:
@@ -223,8 +226,8 @@ def hapus(user_id: int) -> dict:
             if isinstance(anggota, dict) and anggota.pop(uid, None) is not None:
                 highlights._index.pop(gid, None)  # paksa indeks dibangun ulang
                 _hitung("highlight", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data highlight gagal: %s", exc)
 
     # 5. Ulang tahun
     try:
@@ -233,8 +236,8 @@ def hapus(user_id: int) -> dict:
         for kunci in [k for k in engagement.birthdays if _to_int(k.partition(":")[2]) == uid]:
             engagement.birthdays.pop(kunci, None)
             _hitung("ultah", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data ulang tahun gagal: %s", exc)
 
     # 6. Skor game
     try:
@@ -244,8 +247,8 @@ def hapus(user_id: int) -> dict:
             for nama_game, isi in list((papan or {}).items()):
                 if isinstance(isi, dict) and isi.pop(uid, None) is not None:
                     _hitung("game", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data game gagal: %s", exc)
 
     # 7. Formulir (antrean dashboard)
     try:
@@ -256,8 +259,8 @@ def hapus(user_id: int) -> dict:
                 if _to_int(entri.get("user_id")) == uid:
                     isi.pop(nomor, None)
                     _hitung("formulir", 1)
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
+        logger.warning("Hapus data formulir gagal: %s", exc)
 
     return dihapus
 

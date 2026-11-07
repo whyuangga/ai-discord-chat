@@ -511,8 +511,8 @@ async def save_moderation_to_disk() -> None:
             import os
 
             await asyncio.to_thread(os.replace, tmp, MODERATION_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan moderation.json: %s", exc)
+        except Exception:
+            logger.exception("Gagal menyimpan moderation.json")
 
 
 def summarize_case(case: dict, guild=None) -> str:

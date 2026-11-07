@@ -184,8 +184,8 @@ async def save_server_features_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, SERVER_FEATURES_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan server_features.json: %s", sanitize_error_message(exc))
+        except Exception:
+            logger.exception("Gagal menyimpan server_features.json")
 
 
 def format_number(value: int | None) -> str:

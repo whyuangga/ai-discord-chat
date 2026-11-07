@@ -388,8 +388,8 @@ async def save_reports_to_disk() -> None:
                 "utf-8",
             )
             await asyncio.to_thread(os.replace, sementara, REPORTS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan reports.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan reports.json")
 
 
 # ==============================================================================

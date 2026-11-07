@@ -1,5 +1,6 @@
 import base64
 import json
+import pathlib
 import time
 
 import pytest
@@ -5331,7 +5332,6 @@ async def test_components_v2_panels_agent_ticket_queue_and_confirm():
             self.author = "Artis"
             self.uri = ""
 
-    import music
     tracks = [_T(f"Lagu {i}") for i in range(25)]
     queue_view = views.QueuePaginationView(tracks, requester_id=9, page=0, guild_id=guild.id)
     q_buttons = [i for i in queue_view.walk_children() if isinstance(i, discord.ui.Button)]
@@ -5587,7 +5587,7 @@ async def test_greeting_payload_modes_boost_and_commands():
 
     import community_agent as ca
     import welcome_media as wm
-    from cogs.agent_cog import agent_group, build_greeting_payload, trigger_member_boost
+    from cogs.agent_cog import agent_group, build_greeting_payload
 
     gid = 828282
     wm.delete_banner(gid)
@@ -6656,6 +6656,7 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
 
     import aiohttp
 
+    import dashboard_security
     import web_dashboard
 
     # 1. Nonaktif tanpa token / tanpa port
@@ -6730,12 +6731,38 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
     assert await web_dashboard.start_dashboard(_Bot()) is True
     try:
         base = f"http://127.0.0.1:{free_port}"
+
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{base}/") as resp:
                 assert resp.status == 401
-            async with session.get(f"{base}/?token=rahasia-uji&guild=1234") as resp:
-                body = await resp.text()
-                assert resp.status == 200 and config.BOT_VERSION in body
+            # Token di URL ditukar menjadi cookie sesi (HttpOnly) lalu dibuang
+            # dari alamat — token tidak tertinggal di riwayat/log proxy.
+            async with session.get(
+                f"{base}/?token=rahasia-uji&guild=1234", allow_redirects=False
+            ) as resp:
+                assert resp.status == 303
+                lokasi = resp.headers["Location"]
+                assert "token=" not in lokasi and "guild=1234" in lokasi
+                assert "no-store" in resp.headers["Cache-Control"]
+                assert resp.headers["X-Frame-Options"] == "DENY"
+                assert resp.headers["Referrer-Policy"] == "no-referrer"
+                assert resp.headers["X-Content-Type-Options"] == "nosniff"
+                set_cookie = resp.headers["Set-Cookie"]
+                assert "HttpOnly" in set_cookie and "SameSite=Strict" in set_cookie
+                assert "Secure" not in set_cookie        # HTTP polos tetap bisa login
+                sesi_nilai = resp.cookies[dashboard_security.NAMA_COOKIE_SESI].value
+                assert len(sesi_nilai) >= 32
+            # Kunjungan berikutnya cukup bermodal cookie — halaman memakai sesi,
+            # bukan token di setiap tautan/form.
+            kuki = {dashboard_security.NAMA_COOKIE_SESI: sesi_nilai}
+            async with aiohttp.ClientSession(cookies=kuki) as sesi_saja:
+                async with sesi_saja.get(f"{base}{lokasi}") as resp:
+                    body = await resp.text()
+                    assert resp.status == 200 and config.BOT_VERSION in body
+                    assert "token=rahasia-uji" not in body
+                    assert "default-src 'none'" in resp.headers["Content-Security-Policy"]
+                async with sesi_saja.get(f"{base}/ai") as resp:
+                    assert resp.status == 200 and "<html" in (await resp.text()).lower()
             async with session.get(f"{base}/api/pemakaian", headers={"X-Dashboard-Token": "rahasia-uji"}) as resp:
                 data = await resp.json()
                 assert resp.status == 200 and "total" in data
@@ -6771,32 +6798,47 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
                 headers={"X-Dashboard-Token": "rahasia-uji"},
             ) as resp:
                 assert resp.status == 400
+        # 6a. Sesi bisa dipakai berkali-kali, logout mencabutnya, cookie turut hilang
+        async with aiohttp.ClientSession() as sesi_cookie:
+            async with sesi_cookie.get(
+                f"{base}/?token=rahasia-uji&guild=1234", allow_redirects=False
+            ) as resp:
+                assert resp.status == 303
+                nilai = resp.cookies[dashboard_security.NAMA_COOKIE_SESI].value
+            kuki2 = {dashboard_security.NAMA_COOKIE_SESI: nilai}
+            async with aiohttp.ClientSession(cookies=kuki2) as pakai:
+                async with pakai.get(f"{base}/?guild=1234") as resp:
+                    assert resp.status == 200
+                async with pakai.get(f"{base}/keluar", allow_redirects=False) as resp:
+                    assert resp.status == 303 and resp.headers["Location"] == "/"
+                    assert "Max-Age=0" in resp.headers["Set-Cookie"]
+                async with pakai.get(f"{base}/?guild=1234") as resp:
+                    assert resp.status == 401
+            # Sesi yang logout benar-benar dicabut dari penyimpanan
+            assert dashboard_security.baca_sesi(nilai) is None
+
     finally:
         await web_dashboard.stop_dashboard()
 
-    # 6. Jalur tulis dibatasi 14 endpoint POST (tanpa PUT/DELETE/PATCH)
-    src = open("web_dashboard.py", encoding="utf-8").read()
-    assert src.count("add_post(") == 14
-    for jalur in (
-        'add_post("/api/aksi"',
-        'add_post("/api/kirim"',
-        'add_post("/api/konten"',
-        'add_post("/api/unggah"',
-        'add_post("/api/tiket"',
-        'add_post("/api/panel"',
-        'add_post("/api/uji"',
-        'add_post("/api/bangun"',
-        'add_post("/api/ai"',
-        'add_post("/api/giveaway"',
-        'add_post("/api/transkrip"',
-        'add_post("/api/keamanan"',
-        'add_post("/api/moderasi"',
-        'add_post("/api/lencana"',
-    ):
-        assert jalur in src, f"endpoint tulis {jalur} hilang"
-    for needle in ("add_put(", "add_delete(", "add_patch("):
-        assert needle not in src, f"dashboard tidak boleh punya {needle}"
-    assert "start_dashboard(self)" in open("main.py", encoding="utf-8").read()
+    # 6. Jalur tulis dibatasi: 14 endpoint POST + 1 POST logout (tanpa PUT/DELETE/PATCH).
+    #    Sejak P3 daftar rute bukan lagi 40 baris `add_post(...)` di satu berkas,
+    #    melainkan data di `web_dashboard.tabel_rute` — jadi yang diperiksa tabelnya.
+    from web_dashboard.tabel_rute import RUTE_API
+
+    post = {path for metode, path, _nama in RUTE_API if metode == "POST"}
+    assert post == {
+        "/api/aksi", "/api/kirim", "/api/konten", "/api/unggah", "/api/tiket",
+        "/api/panel", "/api/uji", "/api/bangun", "/api/ai", "/api/giveaway",
+        "/api/transkrip", "/api/keamanan", "/api/moderasi", "/api/lencana",
+        "/keluar",
+    }, post
+    assert {metode for metode, _p, _n in RUTE_API} == {"GET", "POST"}
+    # Tidak ada satu pun berkas dashboard yang memakai verba tulis lain.
+    for berkas in pathlib.Path("web_dashboard").glob("*.py"):
+        isi = berkas.read_text(encoding="utf-8")
+        for needle in ("add_put(", "add_delete(", "add_patch("):
+            assert needle not in isi, f"{berkas} tidak boleh punya {needle}"
+    assert "start_dashboard(self)" in pathlib.Path("main.py").read_text(encoding="utf-8")
 
     # 7. Kegagalan/aksi tak dikenal tidak pernah melempar exception
     import levels as _levels
@@ -7326,11 +7368,16 @@ async def test_new_guild_gets_instant_commands_and_checklist():
             self.handlers[coro.__name__] = coro
             return coro
 
+        # P3: event kini didaftarkan lewat `add_listener` (fungsi modul-level),
+        # bukan dekorator `@bot.event` di dalam satu fungsi raksasa.
+        def add_listener(self, func, name=None):
+            self.handlers[name or func.__name__] = func
+
     bot = _FakeBot()
     register_events_cog(bot)
 
     assert "on_guild_join" in bot.handlers
-    await bot.handlers["on_guild_join"](_Guild())
+    await bot.handlers["on_guild_join"](bot, _Guild())   # handler menerima bot sebagai arg pertama
 
     # Command langsung disinkronkan ke server baru itu saja
     assert bot.tree.synced_guilds == [987]
@@ -8659,7 +8706,7 @@ async def test_ticket_rating_sla_and_auto_close(monkeypatch):
     assert data["first_response_by"] == 55 and data["status"] == "diklaim"
 
     # 2. SLA dihitung dari tiket yang belum direspons
-    other = tickets.register_ticket(9002, gid, 778, now=now)
+    tickets.register_ticket(9002, gid, 778, now=now)
     assert tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3600) == []
     assert 9002 in tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3 * 3600)
     assert 9001 not in tickets.sla_overdue(hours=2, guild_id=gid, now=now + 3 * 3600)
@@ -8686,7 +8733,7 @@ async def test_ticket_rating_sla_and_auto_close(monkeypatch):
     assert sla["responded"] == 1 and sla["pending"] == 0 and sla["avg_minutes"] == 5
 
     # 4. Auto-close memakai aktivitas terakhir
-    idle = tickets.register_ticket(9003, gid, 779, now=now)
+    tickets.register_ticket(9003, gid, 779, now=now)
     assert tickets.stale_tickets(guild_id=gid, now=now + 3600) == []
     assert tickets.record_activity(9003, now=now + 7200) is True
     stale_now = tickets.stale_tickets(guild_id=gid, now=now + 50 * 3600)

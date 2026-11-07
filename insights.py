@@ -32,7 +32,6 @@ from config import (
     REKAP_CACHE_TTL_SEC,
     REKAP_MAX_MESSAGES,
 )
-from utils import sanitize_error_message
 
 logger = logging.getLogger("gemini_bot.insights")
 
@@ -151,14 +150,14 @@ async def save_ai_usage_to_disk() -> None:
                 import ai_guard
 
                 payload["guild_days"] = ai_guard.guild_usage_payload()
-            except Exception:  # pragma: no cover - jaring aman
-                pass
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Efek samping opsional gagal: %s", exc)
             tmp_file = Path(str(AI_USAGE_FILE) + ".tmp")
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, AI_USAGE_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan ai_usage.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan ai_usage.json")
 
 
 def _prune_days() -> None:
@@ -207,8 +206,8 @@ def record_ai_usage(
             import ai_guard
 
             ai_guard.record_guild_usage(int(guild_id))
-        except Exception:  # pragma: no cover - jaring aman
-            pass
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Efek samping opsional gagal: %s", exc)
     return bucket
 
 
@@ -391,8 +390,8 @@ def build_usage_embed(
                 )[:1024],
                 inline=False,
             )
-        except Exception:  # pragma: no cover - laporan tidak boleh gagal
-            pass
+        except Exception as exc:  # pragma: no cover - laporan tidak boleh gagal
+            logger.debug("Efek samping opsional gagal: %s", exc)
 
     kinds = _top_items(bucket.get("kinds") or {}, limit=8)
     if kinds:

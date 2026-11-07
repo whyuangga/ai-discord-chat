@@ -76,26 +76,8 @@ def _to_int(value: object, default: int = 0) -> int:
 # ==============================================================================
 # PERSISTENSI
 # ==============================================================================
-def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
-    """Memuat seluruh konfigurasi fitur komunitas. Mengembalikan jumlah tiap fitur."""
-    global _reminder_seq
-    reaction_role_panels.clear()
-    reminders.clear()
-    starboard_guilds.clear()
-    sticky_channels.clear()
-    verification_guilds.clear()
-    maintenance_guilds.clear()
-    _reminder_seq = 0
-
-    if not COMMUNITY_TOOLS_FILE.exists():
-        return 0, 0, 0, 0, 0
-
-    try:
-        raw = json.loads(COMMUNITY_TOOLS_FILE.read_text(encoding="utf-8"))
-    except Exception as exc:  # pragma: no cover - berkas rusak
-        logger.warning("Gagal memuat %s: %s", COMMUNITY_TOOLS_FILE, exc)
-        return 0, 0, 0, 0, 0
-
+def _muat_reaction_roles(raw: dict) -> None:
+    """Panel reaction role (pesan → pilihan emoji/role)."""
     for mid_str, data in (raw.get("reaction_roles") or {}).items():
         try:
             options = []
@@ -123,6 +105,11 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_reminders(raw: dict) -> None:
+    """Pengingat terjadwal per pengguna."""
+    global _reminder_seq
     for rid_str, data in (raw.get("reminders") or {}).items():
         try:
             rid = int(rid_str)
@@ -141,6 +128,10 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
         }
         _reminder_seq = max(_reminder_seq, rid)
 
+
+
+def _muat_starboard(raw: dict) -> None:
+    """Papan sorotan: konfigurasi server + daftar board."""
     for gid_str, data in (raw.get("starboard") or {}).items():
         try:
             entries = {
@@ -188,6 +179,10 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_sticky_dan_lainnya(raw: dict) -> None:
+    """Sticky, verifikasi, dan mode maintenance."""
     for cid_str, data in (raw.get("sticky") or {}).items():
         try:
             content = str(data.get("content") or "").strip()
@@ -237,6 +232,52 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
     )
 
 
+
+def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
+    """Memuat seluruh konfigurasi fitur komunitas. Mengembalikan jumlah tiap fitur.
+
+    Pembacaan dipecah per kelompok (reaction role, pengingat, starboard, sticky &
+    lain-lain) supaya tiap bagian bisa dibaca dan diuji sendiri. Satu kelompok
+    yang rusak dilewati tanpa menghentikan kelompok lain.
+    """
+    global _reminder_seq
+    reaction_role_panels.clear()
+    reminders.clear()
+    starboard_guilds.clear()
+    sticky_channels.clear()
+    verification_guilds.clear()
+    maintenance_guilds.clear()
+    _reminder_seq = 0
+
+    if not COMMUNITY_TOOLS_FILE.exists():
+        return 0, 0, 0, 0, 0
+
+    try:
+        raw = json.loads(COMMUNITY_TOOLS_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - berkas rusak
+        logger.warning("Gagal memuat %s: %s", COMMUNITY_TOOLS_FILE, exc)
+        return 0, 0, 0, 0, 0
+
+    _muat_reaction_roles(raw)
+    _muat_reminders(raw)
+    _muat_starboard(raw)
+    _muat_sticky_dan_lainnya(raw)
+
+    return (
+        len(reaction_role_panels),
+        len(reminders),
+        len(starboard_guilds),
+        len(sticky_channels),
+        len(verification_guilds),
+    )
+
+
+def _pesan_galat(exc: Exception) -> str:
+    """Pesan galat yang aman dicatat (token/URL sudah disaring)."""
+    from utils import sanitize_error_message
+
+    return sanitize_error_message(exc)
+
 async def save_community_tools_to_disk() -> None:
     """Menyimpan seluruh konfigurasi fitur komunitas secara atomik."""
     async with _tools_lock:
@@ -255,7 +296,7 @@ async def save_community_tools_to_disk() -> None:
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, COMMUNITY_TOOLS_FILE)
         except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan community_tools.json: %s", sanitize_error_message(exc))
+            logger.exception("Gagal menyimpan community_tools.json: %s", _pesan_galat(exc))
 
 
 # ==============================================================================

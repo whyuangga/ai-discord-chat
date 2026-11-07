@@ -19,8 +19,8 @@ def _record_ai_usage_safe(
         insights.record_ai_usage(
             kind, user_id=user_id, channel_id=channel_id, guild_id=guild_id
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
 
 async def _maybe_alert_guild_cap(
@@ -1083,17 +1083,8 @@ def _parse_greeting_guild_config(
     }
 
 
-def load_agent_config_from_disk() -> tuple[int, int]:
-    """Memuat konfigurasi AI Agent Komunitas dari data/agent_config.json."""
-    if not AGENT_CONFIG_FILE.exists():
-        return 0, 0
-
-    try:
-        raw = json.loads(AGENT_CONFIG_FILE.read_text(encoding="utf-8"))
-    except Exception as exc:
-        logger.warning("Gagal memuat %s: %s", AGENT_CONFIG_FILE, exc)
-        return 0, 0
-
+def _muat_setelan_server(raw: dict) -> None:
+    """Preferensi agent per server (gaya bahasa, nickname, pengetahuan)."""
     for gid_str, gdata in (raw.get("guild_settings") or {}).items():
         try:
             gid = int(gid_str)
@@ -1118,6 +1109,10 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (ValueError, TypeError):
             continue
 
+
+
+def _muat_chat_channels(raw: dict) -> None:
+    """Channel chat yang mengizinkan agent ikut mengobrol."""
     now = time.time()
     for cid_str, cdata in (raw.get("chat_channels") or {}).items():
         try:
@@ -1140,6 +1135,10 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+
+
+def _muat_gallery_channels(raw: dict) -> None:
+    """Channel galeri yang mendapat reaksi otomatis."""
     for cid_str, gdata in (raw.get("gallery_channels") or {}).items():
         try:
             cid = int(cid_str)
@@ -1153,6 +1152,10 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (KeyError, ValueError, TypeError):
             continue
 
+
+
+def _muat_kanal_lain_dan_riwayat(raw: dict) -> None:
+    """YouTube, pencarian, welcome/boost/goodbye, digest, dan riwayat."""
     for cid_str, ydata in (raw.get("youtube_channels") or {}).items():
         try:
             cid = int(cid_str)
@@ -1247,6 +1250,29 @@ def load_agent_config_from_disk() -> tuple[int, int]:
         except (ValueError, TypeError, KeyError):
             continue
 
+
+
+
+def load_agent_config_from_disk() -> tuple[int, int]:
+    """Memuat konfigurasi AI Agent Komunitas dari data/agent_config.json.
+
+    Pemuatan dipecah per kelompok kanal supaya tiap bagian terbaca utuh; satu
+    entri rusak dilewati tanpa menghentikan kelompok lain.
+    """
+    if not AGENT_CONFIG_FILE.exists():
+        return 0, 0
+
+    try:
+        raw = json.loads(AGENT_CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Gagal memuat %s: %s", AGENT_CONFIG_FILE, exc)
+        return 0, 0
+
+    _muat_setelan_server(raw)
+    _muat_chat_channels(raw)
+    _muat_gallery_channels(raw)
+    _muat_kanal_lain_dan_riwayat(raw)
+
     return len(chat_agent_channels), len(gallery_agent_channels)
 
 
@@ -1272,8 +1298,8 @@ async def save_agent_config_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, AGENT_CONFIG_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan agent_config.json: %s", exc)
+        except Exception:
+            logger.exception("Gagal menyimpan agent_config.json")
 
 
 def _append_channel_history(channel_id: int, role: str, text: str) -> None:

@@ -123,28 +123,8 @@ _WEEKDAYS = ("senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu")
 # ==============================================================================
 # PERSISTENSI
 # ==============================================================================
-def load_engagement_from_disk() -> tuple[int, int, int, int]:
-    """Memuat giveaway, ulang tahun, auto-responder, & pengumuman terjadwal."""
-    global _giveaway_seq, _announcement_seq
-    giveaways.clear()
-    giveaway_templates.clear()
-    giveaway_defaults.clear()
-    birthday_guilds.clear()
-    birthdays.clear()
-    auto_reply_channels.clear()
-    announcements.clear()
-    _giveaway_seq = 0
-    _announcement_seq = 0
-
-    if not ENGAGEMENT_FILE.exists():
-        return 0, 0, 0, 0
-
-    try:
-        raw = json.loads(ENGAGEMENT_FILE.read_text(encoding="utf-8"))
-    except Exception as exc:  # pragma: no cover - berkas rusak
-        logger.warning("Gagal memuat %s: %s", ENGAGEMENT_FILE, exc)
-        return 0, 0, 0, 0
-
+def _muat_giveaway(raw: dict) -> None:
+    """Giveaway aktif beserta riwayat & bobot bonus role."""
     for mid_str, data in (raw.get("giveaways") or {}).items():
         try:
             mid = int(mid_str)
@@ -193,6 +173,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_giveaway_template(raw: dict) -> None:
+    """Template giveaway per server."""
     for gid_str, data in (raw.get("giveaway_templates") or {}).items():
         try:
             gid = int(gid_str)
@@ -221,6 +205,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_giveaway_default(raw: dict) -> None:
+    """Nilai bawaan giveaway per server (durasi, syarat, pemenang)."""
     for gid_str, data in (raw.get("giveaway_defaults") or {}).items():
         try:
             gid = int(gid_str)
@@ -238,6 +226,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_channel_ultah(raw: dict) -> None:
+    """Channel pengumuman ulang tahun per server."""
     for gid_str, data in (raw.get("birthday_channels") or {}).items():
         try:
             birthday_guilds[int(gid_str)] = {
@@ -249,6 +241,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_ultah(raw: dict) -> None:
+    """Data ulang tahun member."""
     for key, data in (raw.get("birthdays") or {}).items():
         try:
             day = _to_int(data.get("day"))
@@ -267,6 +263,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_auto_reply(raw: dict) -> None:
+    """Auto-responder per channel."""
     for cid_str, data in (raw.get("auto_replies") or {}).items():
         try:
             rules = []
@@ -294,6 +294,11 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_pengumuman(raw: dict) -> None:
+    """Pengumuman terjadwal (harian & interval)."""
+    global _giveaway_seq, _announcement_seq
     for aid_str, data in (raw.get("announcements") or {}).items():
         try:
             aid = int(aid_str)
@@ -329,6 +334,43 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+
+def load_engagement_from_disk() -> tuple[int, int, int, int]:
+    """Memuat giveaway, ulang tahun, auto-responder, & pengumuman terjadwal.
+
+    Tiap kelompok dimuat oleh helper sendiri (`_muat_*`) agar satu data rusak
+    hanya melewati bagiannya, bukan seluruh berkas.
+    """
+    global _giveaway_seq, _announcement_seq
+    giveaways.clear()
+    giveaway_templates.clear()
+    giveaway_defaults.clear()
+    birthday_guilds.clear()
+    birthdays.clear()
+    auto_reply_channels.clear()
+    announcements.clear()
+    _giveaway_seq = 0
+    _announcement_seq = 0
+
+    if not ENGAGEMENT_FILE.exists():
+        return 0, 0, 0, 0
+
+    try:
+        raw = json.loads(ENGAGEMENT_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - berkas rusak
+        logger.warning("Gagal memuat %s: %s", ENGAGEMENT_FILE, exc)
+        return 0, 0, 0, 0
+
+    _muat_giveaway(raw)
+    _muat_giveaway_template(raw)
+    _muat_giveaway_default(raw)
+    _muat_channel_ultah(raw)
+    _muat_ultah(raw)
+    _muat_auto_reply(raw)
+    _muat_pengumuman(raw)
+
     return (
         len(giveaways),
         len(birthdays),
@@ -336,6 +378,12 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         len(announcements),
     )
 
+
+def _pesan_galat(exc: Exception) -> str:
+    """Pesan galat yang aman dicatat (token/URL sudah disaring)."""
+    from utils import sanitize_error_message
+
+    return sanitize_error_message(exc)
 
 async def save_engagement_to_disk() -> None:
     """Menyimpan seluruh data fitur engagement secara atomik."""
@@ -367,7 +415,7 @@ async def save_engagement_to_disk() -> None:
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, ENGAGEMENT_FILE)
         except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan engagement.json: %s", sanitize_error_message(exc))
+            logger.exception("Gagal menyimpan engagement.json: %s", _pesan_galat(exc))
 
 
 # ==============================================================================

@@ -835,7 +835,7 @@ async def toggle_role(
                 await member.remove_roles(*removable, reason="Self role eksklusif (menu)")
                 released = [r.mention for r in removable]
             except (discord.Forbidden, discord.HTTPException):
-                pass
+                pass  # diabaikan (opsional)
 
     try:
         import audit_log
@@ -847,8 +847,8 @@ async def toggle_role(
             "🎭 Self role dilepas" if has_role else "🎭 Self role diberikan",
             f"{getattr(member, 'mention', member)} — **{role.name}**",
         )
-    except Exception:  # pragma: no cover - audit opsional
-        pass
+    except Exception as exc:  # pragma: no cover - audit opsional
+        logger.debug("Efek samping opsional gagal: %s", exc)
 
     extra = f"\nRole lain dilepas: {', '.join(released)}" if released else ""
     await _reply(
@@ -1224,8 +1224,8 @@ async def send_panel(
     if banner_file is not None and attachments:
         try:
             menu["banner_url"] = str(attachments[0].url)[:400]
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Efek samping opsional gagal: %s", exc)
 
     try:
         bot.add_view(view, message_id=menu["message_id"])
@@ -1269,8 +1269,8 @@ async def refresh_panel(bot, menu: dict) -> bool:
             return False
     try:
         bot.add_view(view, message_id=int(menu["message_id"]))
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
     return True
 
 
@@ -1387,8 +1387,8 @@ async def save_menus_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, MENU_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan menus.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan menus.json")
 
 
 def cleanup_menu_runtime() -> int:

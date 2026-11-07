@@ -252,8 +252,8 @@ def _record_token_usage(data: dict) -> tuple[int, int]:
             import insights
 
             insights.add_token_usage(prompt_tokens, output_tokens)
-        except Exception:  # pragma: no cover - jaring aman
-            pass
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Efek samping opsional gagal: %s", exc)
     return prompt_tokens, output_tokens
 
 
@@ -320,9 +320,104 @@ async def get_ai_response(
     user_id: int | None = None,
     guild_id: int | None = None,
 ) -> str:
-    """Mendapatkan balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search) dari Google Gemini API."""
+    """Balasan percakapan (Teks + Vision + Audio + PDF + YouTube/Web + Live Search).
 
-    # Setelan AI per member & kepribadian server (tanpa menambah kuota: hanya teks tambahan).
+    Alurnya dipecah menjadi tahap-tahap yang bisa dibaca sendiri:
+
+    1. `_terapkan_setelan_member` — instruksi gaya member (tanpa menambah kuota);
+    2. `_sesi_untuk`              — sesi percakapan atau pulihkan dari thread;
+    3. `_siapkan_prompt`          — URL YouTube/web, lampiran, catatan riwayat;
+    4. `_susun_system_prompt`     — kepribadian + waktu + pengetahuan server;
+    5. `_panggil_jalur_berbayar`  — Google Search Grounding / URL context (opsional);
+    6. `_perkaya_pencarian_gratis`— hasil pencarian web gratis;
+    7. `_panggil_jalur_utama`     — rantai model percakapan standar.
+
+    Fungsi ini hanya merangkai hasil tiap tahap dan menyimpan riwayat.
+    """
+    global _paid_google_search_available
+
+    prompt, temperature_override = _terapkan_setelan_member(prompt, user_id, guild_id)
+    if not is_gemini_key_configured():
+        return (
+            "⚠️ **`GEMINI_API_KEY` belum dikonfigurasi!**\n"
+            "Pastikan admin sudah mengisi `GEMINI_API_KEY` pada file `.env` atau tab Variables di Wispbyte."
+        )
+
+    session_data = await _sesi_untuk(thread_id, thread, bot_user_id)
+    model_key = resolve_model_key(session_data.get("model_key"))
+    model_info = AI_MODELS[model_key]
+
+    url_reader_on = ENABLE_URL_READER if allow_url_reader is None else bool(allow_url_reader)
+    web_search_on = ENABLE_GOOGLE_SEARCH if allow_web_search is None else bool(allow_web_search)
+
+    bahan = await _siapkan_prompt(
+        prompt,
+        image_parts=image_parts,
+        image_filenames=image_filenames,
+        text_blocks=text_blocks,
+        url_reader_on=url_reader_on,
+        http_session=http_session,
+        riwayat=session_data.get("history", []),
+    )
+    system_text = _susun_system_prompt(model_info, server_knowledge, session_data)
+
+    desired_thinking = model_info.get("thinking_level", "low")
+    wants_live_search = (
+        web_search_on
+        and not bahan["parts"]
+        and not bahan["fetched_web"]
+        and needs_live_web_search(bahan["stripped"])
+    )
+    use_paid_search_tool = (
+        wants_live_search and GEMINI_PAID_SEARCH_ENABLED and _paid_google_search_available
+    )
+    use_url_context_tool = (
+        bool(bahan["unfetched_web"]) and not bahan["parts"] and GEMINI_PAID_SEARCH_ENABLED
+    )
+
+    konteks = {
+        "thread_id": thread_id,
+        "contents": bahan["contents"],
+        "effective_prompt": bahan["effective_prompt"],
+        "system_text": system_text,
+        "model_info": model_info,
+        "image_parts": image_parts,
+        "history_entry": bahan["history_entry"],
+        "history": session_data.get("history", []),
+        "temperature": temperature_override,
+        "safety_level": safety_level,
+        "desired_thinking": desired_thinking,
+        "wants_live_search": wants_live_search,
+        "use_paid": use_paid_search_tool,
+        "use_url_context": use_url_context_tool,
+        "yt_urls": bahan["yt_urls"],
+        "stripped": bahan["stripped"],
+        "media_parts": bahan["parts"],
+        "timeout": _pilih_timeout(
+            bool(bahan["yt_urls"]),
+            bool(bahan["parts"]),
+            wants_live_search,
+            use_url_context_tool,
+        ),
+        "last_error": "Tidak dapat terhubung ke layanan Google Gemini.",
+        "free_sources": [],
+    }
+    active_keys = get_gemini_keys_rotated()
+
+    async with _borrow_session(http_session, konteks["timeout"]) as session:
+        if use_paid_search_tool or use_url_context_tool:
+            jawab = await _panggil_jalur_berbayar(session, konteks, active_keys)
+            if jawab:
+                return jawab
+
+        if wants_live_search:
+            konteks = await _perkaya_pencarian_gratis(session, konteks)
+
+        return await _panggil_jalur_utama(session, konteks, active_keys)
+
+
+def _terapkan_setelan_member(prompt: str, user_id, guild_id) -> tuple[str, float | None]:
+    """Tempel instruksi gaya member & ambil override temperature (tanpa kuota)."""
     temperature_override: float | None = None
     try:
         import ai_user_settings
@@ -330,29 +425,40 @@ async def get_ai_response(
         instruksi = ai_user_settings.gabung_instruksi(user_id, guild_id)
         temperature_override = ai_user_settings.get_temperature(user_id)
         if instruksi:
-            prompt = f"{prompt}\n\n[Instruksi gaya — patuhi bila tidak bertentangan dengan aturan: {instruksi}]"
-    except Exception:  # pragma: no cover - jaring aman
-        pass
-    global _paid_google_search_available
-    if not is_gemini_key_configured():
-        return (
-            "⚠️ **`GEMINI_API_KEY` belum dikonfigurasi!**\n"
-            "Pastikan admin sudah mengisi `GEMINI_API_KEY` pada file `.env` atau tab Variables di Wispbyte."
-        )
+            prompt = (
+                f"{prompt}\n\n[Instruksi gaya — patuhi bila tidak bertentangan dengan aturan: {instruksi}]"
+            )
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Efek samping opsional gagal: %s", exc)
+    return prompt, temperature_override
 
+
+async def _sesi_untuk(thread_id: int, thread, bot_user_id):
+    """Ambil sesi percakapan; bila belum ada, pulihkan dari thread atau buat baru."""
     session_data = thread_chats.get(thread_id)
     if session_data is None:
         if thread is not None and bot_user_id is not None:
             session_data = await recover_session_from_thread(thread, bot_user_id)
         else:
             session_data = init_thread_session(thread_id, "gemini_flash")
+    return session_data
 
-    model_key = resolve_model_key(session_data.get("model_key"))
-    model_info = AI_MODELS[model_key]
 
-    url_reader_on = ENABLE_URL_READER if allow_url_reader is None else bool(allow_url_reader)
-    web_search_on = ENABLE_GOOGLE_SEARCH if allow_web_search is None else bool(allow_web_search)
+async def _siapkan_prompt(
+    prompt: str,
+    *,
+    image_parts,
+    image_filenames,
+    text_blocks,
+    url_reader_on: bool,
+    http_session,
+    riwayat: list,
+) -> dict:
+    """Susun prompt efektif: URL YouTube/web, lampiran, dan catatan riwayat.
 
+    Bila pengguna hanya menempelkan tautan (tanpa instruksi tambahan), prompt
+    otomatis meminta rangkuman supaya jawabannya tetap berguna.
+    """
     combined_media_parts: list[dict] = list(image_parts or [])
     yt_urls: list[str] = []
     web_urls: list[str] = []
@@ -360,7 +466,6 @@ async def get_ai_response(
 
     if url_reader_on and prompt.strip():
         yt_urls, web_urls = extract_urls_from_text(prompt)
-
     for yt_url in yt_urls:
         combined_media_parts.append({"fileData": {"fileUri": yt_url}})
 
@@ -373,12 +478,12 @@ async def get_ai_response(
         else:
             unfetched_web_urls.append(w_url)
 
-    prompt_sections: list[str] = []
     stripped_prompt = prompt.strip()
-    # Jika pengguna hanya menempelkan link YouTube tanpa instruksi tambahan, beri instruksi rangkuman otomatis
-    only_yt_link = bool(yt_urls) and not re.sub(r"https?://\S+", "", stripped_prompt).strip()
-    only_web_link = bool(web_urls) and not yt_urls and not re.sub(r"https?://\S+", "", stripped_prompt).strip()
+    tanpa_url = re.sub(r"https?://\S+", "", stripped_prompt).strip()
+    only_yt_link = bool(yt_urls) and not tanpa_url
+    only_web_link = bool(web_urls) and not yt_urls and not tanpa_url
 
+    prompt_sections: list[str] = []
     if only_yt_link:
         prompt_sections.append(
             f"{stripped_prompt}\nTolong tonton/pahami isi video YouTube di atas lalu buat rangkuman lengkap "
@@ -386,22 +491,19 @@ async def get_ai_response(
         )
     elif only_web_link:
         prompt_sections.append(
-            f"{stripped_prompt}\nTolong baca dan rangkumkan inti pembahasan dari halaman web di atas dalam bahasa Indonesia."
+            f"{stripped_prompt}\nTolong baca dan rangkumkan inti pembahasan dari halaman web di atas "
+            "dalam bahasa Indonesia."
         )
     elif stripped_prompt:
         prompt_sections.append(stripped_prompt)
 
-    if text_blocks:
-        prompt_sections.extend(text_blocks)
-    if fetched_web_blocks:
-        prompt_sections.extend(fetched_web_blocks)
+    prompt_sections.extend(text_blocks or [])
+    prompt_sections.extend(fetched_web_blocks)
 
     has_audio_only = bool(image_filenames) and all(
         fn.startswith(("voice_note:", "audio:")) for fn in image_filenames
     )
-    has_pdf_only = bool(image_filenames) and all(
-        fn.startswith("pdf:") for fn in image_filenames
-    )
+    has_pdf_only = bool(image_filenames) and all(fn.startswith("pdf:") for fn in image_filenames)
     if not prompt_sections and combined_media_parts:
         if has_audio_only:
             prompt_sections.append(
@@ -410,11 +512,13 @@ async def get_ai_response(
             )
         elif has_pdf_only:
             prompt_sections.append(
-                "Baca dokumen PDF yang saya lampirkan ini dengan saksama, lalu berikan ringkasan terstruktur "
-                "poin-poin utamanya dalam bahasa Indonesia yang jelas."
+                "Baca dokumen PDF yang saya lampirkan ini dengan saksama, lalu berikan ringkasan "
+                "terstruktur poin-poin utamanya dalam bahasa Indonesia yang jelas."
             )
         else:
-            prompt_sections.append("Tolong jelaskan dan analisis lampiran media/gambar yang saya kirim ini.")
+            prompt_sections.append(
+                "Tolong jelaskan dan analisis lampiran media/gambar yang saya kirim ini."
+            )
 
     effective_prompt = "\n\n".join(prompt_sections).strip()
 
@@ -434,215 +538,258 @@ async def get_ai_response(
         history_note_parts.append(stripped_prompt)
     elif effective_prompt and not fetched_web_blocks:
         history_note_parts.append(effective_prompt)
-    history_user_entry = "\n".join(history_note_parts).strip()
 
-    contents = _build_gemini_contents(
-        session_data.get("history", []),
-        effective_prompt,
-        image_parts=combined_media_parts or None,
-    )
+    return {
+        "parts": combined_media_parts,
+        "yt_urls": yt_urls,
+        "web_urls": web_urls,
+        "unfetched_web": unfetched_web_urls,
+        "fetched_web": fetched_web_blocks,
+        "stripped": stripped_prompt,
+        "effective_prompt": effective_prompt,
+        "contents": _build_gemini_contents(
+            riwayat, effective_prompt, image_parts=combined_media_parts or None
+        ),
+        "history_entry": "\n".join(history_note_parts).strip(),
+    }
 
-    time_ctx = get_realtime_time_context()
-    knowledge_section = f"\n\n{server_knowledge.strip()}" if server_knowledge and server_knowledge.strip() else ""
+
+def _susun_system_prompt(model_info: dict, server_knowledge: str, session_data: dict) -> str:
+    """System instruction: kepribadian model + waktu + pengetahuan server + ringkasan."""
     import ai_guard
 
+    time_ctx = get_realtime_time_context()
+    knowledge_section = (
+        f"\n\n{server_knowledge.strip()}"
+        if server_knowledge and server_knowledge.strip()
+        else ""
+    )
     history_summary = str(session_data.get("history_summary") or "").strip()
     summary_section = (
         f"\n[Ringkasan percakapan sebelumnya (konteks lama yang sudah dipangkas):\n"
         f"{history_summary[:1200]}]"
-        if history_summary
-        else ""
-    )
+    ) if history_summary else ""
 
-    system_text = ai_guard.with_accuracy_rules(
+    return ai_guard.with_accuracy_rules(
         f"{model_info['system_prompt']}\n"
         f"[Informasi Waktu Saat Ini: {time_ctx['summary']}]"
         f"{knowledge_section}"
         f"{summary_section}"
     )
 
-    desired_thinking = model_info.get("thinking_level", "low")
-    wants_live_search = (
-        web_search_on
-        and not combined_media_parts
-        and not fetched_web_blocks
-        and needs_live_web_search(stripped_prompt)
+
+def _pilih_timeout(ada_yt: bool, ada_media: bool, live_search: bool, url_ctx: bool) -> float:
+    """Batas waktu menunggu: video paling lama, teks murni paling cepat."""
+    if ada_yt:
+        return VIDEO_LINK_TIMEOUT
+    if ada_media or live_search or url_ctx:
+        return CHAT_TIMEOUT
+    return FAST_TEXT_TIMEOUT
+
+
+async def _panggil_jalur_berbayar(session, konteks: dict, active_keys: list[str]) -> str | None:
+    """Google Search Grounding & URL context (hanya bila GEMINI_PAID_SEARCH_ENABLED)."""
+    global _paid_google_search_available
+
+    grounded_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
+    tools_list: list[dict] = []
+    if konteks["use_url_context"]:
+        tools_list.append({"url_context": {}})
+    if konteks["use_paid"]:
+        tools_list.append({"google_search": {}})
+
+    for s_idx, s_model in enumerate(grounded_models):
+        s_gen_cfg: dict = {
+            "temperature": (
+                konteks["temperature"] if konteks["temperature"] is not None else 0.5
+            ),
+            "maxOutputTokens": 4096,
+        }
+        s_think = build_thinking_config(s_model, "low")
+        if s_think:
+            s_gen_cfg["thinkingConfig"] = s_think
+
+        s_payload = {
+            "systemInstruction": {"parts": [{"text": konteks["system_text"]}]},
+            "contents": konteks["contents"],
+            "tools": tools_list,
+            "generationConfig": s_gen_cfg,
+        }
+        s_key = active_keys[s_idx % len(active_keys)]
+        s_headers = {"x-goog-api-key": s_key, "Content-Type": "application/json"}
+        s_url = f"{GEMINI_API_BASE}/{s_model}:generateContent"
+
+        try:
+            async with session.post(
+                s_url, headers=s_headers, json=s_payload, timeout=CHAT_TIMEOUT
+            ) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status == 200 and isinstance(data, dict):
+                    _record_token_usage(data)
+                    reply_text, _, _ = _extract_text_from_gemini_response(data)
+                    if reply_text:
+                        sources = _extract_grounding_sources(data)
+                        final_reply = f"{reply_text}{_format_grounding_footer(sources)}"
+                        append_conversation_turn(
+                            konteks["thread_id"], konteks["history_entry"], final_reply
+                        )
+                        await save_sessions_to_disk()
+                        return final_reply
+                elif resp.status == 429 and isinstance(data, dict):
+                    raw_err = str((data.get("error") or {}).get("message") or "").lower()
+                    if "exceeded your current quota" in raw_err or "billing" in raw_err:
+                        _paid_google_search_available = False
+                        break
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            continue
+        except Exception:  # pragma: no cover - jaring aman per percobaan
+            continue
+
+    return None
+
+
+async def _perkaya_pencarian_gratis(session, konteks: dict) -> dict:
+    """Tambahkan hasil pencarian web gratis ke prompt (tanpa tool berbayar)."""
+    free_ctx, free_search_sources = await free_live_web_search(
+        build_clean_search_query(konteks["stripped"]),
+        http_session=session,
     )
-    use_paid_search_tool = wants_live_search and GEMINI_PAID_SEARCH_ENABLED and _paid_google_search_available
-    use_url_context_tool = bool(unfetched_web_urls) and not combined_media_parts and GEMINI_PAID_SEARCH_ENABLED
-
-    req_timeout = (
-        VIDEO_LINK_TIMEOUT
-        if yt_urls
-        else (CHAT_TIMEOUT if (combined_media_parts or wants_live_search or use_url_context_tool) else FAST_TEXT_TIMEOUT)
+    if not free_ctx:
+        return konteks
+    enriched_prompt = (
+        f"{konteks['effective_prompt']}\n\n"
+        f"[DATA PENCARIAN WEB & BERITA REAL-TIME HARI INI]:\n{free_ctx}\n\n"
+        "Gunakan data pencarian terbaru di atas untuk menjawab secara akurat dan sebutkan fakta terbarunya."
     )
-    active_keys = get_gemini_keys_rotated()
-    last_error_msg = "Tidak dapat terhubung ke layanan Google Gemini."
-    free_search_sources: list[dict] = []
+    diperkaya = dict(konteks)
+    diperkaya["contents"] = _build_gemini_contents(
+        konteks["history"],
+        enriched_prompt,
+        image_parts=konteks["media_parts"] or None,
+    )
+    diperkaya["free_sources"] = free_search_sources
+    return diperkaya
 
-    async with _borrow_session(http_session, req_timeout) as session:
-        # JALUR OPSIONAL PAID TIER: Native Google Search Grounding (hanya jika GEMINI_PAID_SEARCH_ENABLED=true)
-        if use_paid_search_tool or use_url_context_tool:
-            grounded_models = _build_model_chain(GEMINI_SEARCH_MODEL, GEMINI_SEARCH_FALLBACK_CHAIN)
-            tools_list: list[dict] = []
-            if use_url_context_tool:
-                tools_list.append({"url_context": {}})
-            if use_paid_search_tool:
-                tools_list.append({"google_search": {}})
 
-            for s_idx, s_model in enumerate(grounded_models):
-                s_gen_cfg: dict = {
-                    "temperature": temperature_override if temperature_override is not None else 0.5,
-                    "maxOutputTokens": 4096,
-                }
-                s_think = build_thinking_config(s_model, "low")
-                if s_think:
-                    s_gen_cfg["thinkingConfig"] = s_think
+async def _panggil_jalur_utama(session, konteks: dict, active_keys: list[str]) -> str:
+    """Rantai model standar: coba tiap kandidat sampai ada yang menjawab."""
+    import ai_guard
 
-                s_payload = {
-                    "systemInstruction": {"parts": [{"text": system_text}]},
-                    "contents": contents,
-                    "tools": tools_list,
-                    "generationConfig": s_gen_cfg,
-                }
-                s_key = active_keys[s_idx % len(active_keys)]
-                s_headers = {"x-goog-api-key": s_key, "Content-Type": "application/json"}
-                s_url = f"{GEMINI_API_BASE}/{s_model}:generateContent"
+    model_info = konteks["model_info"]
+    contents = konteks["contents"]
+    models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
+    last_error_msg = konteks["last_error"]
 
-                try:
-                    async with session.post(s_url, headers=s_headers, json=s_payload, timeout=CHAT_TIMEOUT) as resp:
-                        data = await resp.json(content_type=None)
-                        if resp.status == 200 and isinstance(data, dict):
-                            _record_token_usage(data)
-                            reply_text, _, _ = _extract_text_from_gemini_response(data)
-                            if reply_text:
-                                sources = _extract_grounding_sources(data)
-                                final_reply = f"{reply_text}{_format_grounding_footer(sources)}"
-                                append_conversation_turn(thread_id, history_user_entry, final_reply)
-                                await save_sessions_to_disk()
-                                return final_reply
-                        elif resp.status == 429 and isinstance(data, dict):
-                            raw_err = str((data.get("error") or {}).get("message") or "").lower()
-                            if "exceeded your current quota" in raw_err or "billing" in raw_err:
-                                _paid_google_search_available = False
-                                break
-                except (asyncio.TimeoutError, aiohttp.ClientError):
+    for attempt_idx, candidate_model in enumerate(models_to_try):
+        gen_config: dict = {
+            "temperature": (
+                konteks["temperature"]
+                if konteks["temperature"] is not None
+                else model_info.get("temperature", 0.7)
+            ),
+            "maxOutputTokens": 8192,
+        }
+        thinking_cfg = build_thinking_config(candidate_model, konteks["desired_thinking"])
+        if thinking_cfg:
+            gen_config["thinkingConfig"] = thinking_cfg
+
+        payload = {
+            "systemInstruction": {"parts": [{"text": konteks["system_text"]}]},
+            "contents": contents,
+            "generationConfig": gen_config,
+        }
+        ai_guard.apply_safety(payload, konteks["safety_level"])
+
+        api_key_for_attempt = active_keys[attempt_idx % len(active_keys)]
+        headers = {
+            "x-goog-api-key": api_key_for_attempt,
+            "Content-Type": "application/json",
+        }
+        url = f"{GEMINI_API_BASE}/{candidate_model}:generateContent"
+
+        try:
+            async with session.post(
+                url, headers=headers, json=payload, timeout=konteks["timeout"]
+            ) as resp:
+                data = await resp.json(content_type=None)
+
+                if resp.status == 200 and isinstance(data, dict):
+                    _record_token_usage(data)
+                    reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                    if reply_text:
+                        if konteks["free_sources"]:
+                            reply_text = (
+                                f"{reply_text}{_format_grounding_footer(konteks['free_sources'])}"
+                            )
+                        append_conversation_turn(
+                            konteks["thread_id"], konteks["history_entry"], reply_text
+                        )
+                        await save_sessions_to_disk()
+                        return reply_text
+                    if block_msg and not should_retry:
+                        return block_msg
+                    last_error_msg = block_msg or "Respons kosong dari model."
                     continue
-                except Exception:
-                    continue
 
-        # JALUR FREE TIER MANDIRI: Ambil hasil pencarian web & berita terkini secara gratis tanpa tool berbayar
-        if wants_live_search:
-            free_ctx, free_search_sources = await free_live_web_search(
-                build_clean_search_query(stripped_prompt),
-                http_session=session,
-            )
-            if free_ctx:
-                enriched_prompt = (
-                    f"{effective_prompt}\n\n"
-                    f"[DATA PENCARIAN WEB & BERITA REAL-TIME HARI INI]:\n{free_ctx}\n\n"
-                    "Gunakan data pencarian terbaru di atas untuk menjawab secara akurat dan sebutkan fakta terbarunya."
+                err_detail = ""
+                if isinstance(data, dict) and isinstance(data.get("error"), dict):
+                    err_detail = data["error"].get("message") or str(data["error"].get("status") or "")
+                else:
+                    err_detail = str(data)[:200]
+                err_detail = sanitize_error_message(err_detail)
+
+                if (
+                    resp.status in (400, 401, 403)
+                    and "api key" in err_detail.lower()
+                    and len(active_keys) == 1
+                ):
+                    return (
+                        f"⚠️ **API Key Gemini tidak valid ({resp.status}):** {err_detail}\n"
+                        "Periksa kembali `GEMINI_API_KEY` Anda di Google AI Studio."
+                    )
+
+                # Video privat/tidak bisa diakses lewat fileData → lepaskan fileData.
+                if resp.status in (400, 403) and konteks["yt_urls"]:
+                    contents = _build_gemini_contents(
+                        konteks["history"],
+                        konteks["effective_prompt"],
+                        image_parts=konteks["image_parts"],
+                    )
+
+                if resp.status in (429, 500, 502, 503, 504, 404):
+                    mark_model_unhealthy(candidate_model)
+                if resp.status == 429:
+                    wait_s = parse_retry_after(resp.headers)
+                    mark_key_unhealthy(api_key_for_attempt, wait_s)
+                    logger.info(
+                        "API key Gemini kena batas kuota (429) — cooldown %.0f detik, "
+                        "lanjut key/model lain.",
+                        wait_s,
+                    )
+
+                last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
+                logger.warning(
+                    "Gemini model %s gagal (%s). Pindah instan ke cadangan...",
+                    candidate_model,
+                    last_error_msg,
                 )
-                contents = _build_gemini_contents(
-                    session_data.get("history", []),
-                    enriched_prompt,
-                    image_parts=combined_media_parts or None,
-                )
 
-        # JALUR UTAMA: Model Percakapan Standar (+ Vision / Audio / YouTube / Konteks Web Gratis)
-        models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
-        for attempt_idx, candidate_model in enumerate(models_to_try):
-            gen_config: dict = {
-                "temperature": (
-                    temperature_override
-                    if temperature_override is not None
-                    else model_info.get("temperature", 0.7)
-                ),
-                "maxOutputTokens": 8192,
-            }
-            thinking_cfg = build_thinking_config(candidate_model, desired_thinking)
-            if thinking_cfg:
-                gen_config["thinkingConfig"] = thinking_cfg
+        except asyncio.TimeoutError:
+            mark_model_unhealthy(candidate_model)
+            last_error_msg = f"Waktu tunggu habis pada `{candidate_model}`."
+            logger.warning("%s Pindah instan ke cadangan...", last_error_msg)
+        except Exception as exc:
+            last_error_msg = f"Gangguan jaringan: {sanitize_error_message(exc)}"
+            logger.warning("Exception pada Gemini (%s): %s", candidate_model, last_error_msg)
 
-            payload = {
-                "systemInstruction": {"parts": [{"text": system_text}]},
-                "contents": contents,
-                "generationConfig": gen_config,
-            }
-            ai_guard.apply_safety(payload, safety_level)
+    return _pesan_padat(last_error_msg)
 
-            api_key_for_attempt = active_keys[attempt_idx % len(active_keys)]
-            headers = {
-                "x-goog-api-key": api_key_for_attempt,
-                "Content-Type": "application/json",
-            }
-            url = f"{GEMINI_API_BASE}/{candidate_model}:generateContent"
 
-            try:
-                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
-                    data = await resp.json(content_type=None)
-
-                    if resp.status == 200 and isinstance(data, dict):
-                        _record_token_usage(data)
-                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                        if reply_text:
-                            if free_search_sources:
-                                reply_text = f"{reply_text}{_format_grounding_footer(free_search_sources)}"
-                            append_conversation_turn(thread_id, history_user_entry, reply_text)
-                            await save_sessions_to_disk()
-                            return reply_text
-                        if block_msg and not should_retry:
-                            return block_msg
-                        last_error_msg = block_msg or "Respons kosong dari model."
-                        continue
-
-                    err_detail = ""
-                    if isinstance(data, dict) and isinstance(data.get("error"), dict):
-                        err_detail = data["error"].get("message") or str(data["error"].get("status") or "")
-                    else:
-                        err_detail = str(data)[:200]
-
-                    err_detail = sanitize_error_message(err_detail)
-
-                    if resp.status in (400, 401, 403) and "api key" in err_detail.lower() and len(active_keys) == 1:
-                        return (
-                            f"⚠️ **API Key Gemini tidak valid ({resp.status}):** {err_detail}\n"
-                            "Periksa kembali `GEMINI_API_KEY` Anda di Google AI Studio."
-                        )
-
-                    # Jika gagal karena video YouTube privat / tidak bisa diakses oleh fileData, lepaskan fileData di percobaan berikutnya
-                    if resp.status in (400, 403) and yt_urls:
-                        contents = _build_gemini_contents(
-                            session_data.get("history", []),
-                            effective_prompt,
-                            image_parts=image_parts,
-                        )
-
-                    if resp.status in (429, 500, 502, 503, 504, 404):
-                        mark_model_unhealthy(candidate_model)
-                    if resp.status == 429:
-                        # Hormati header Retry-After: cooldown per KEY, bukan hanya per model
-                        wait_s = parse_retry_after(resp.headers)
-                        mark_key_unhealthy(api_key_for_attempt, wait_s)
-                        logger.info(
-                            "API key Gemini kena batas kuota (429) — cooldown %.0f detik, lanjut key/model lain.",
-                            wait_s,
-                        )
-
-                    last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
-                    logger.warning("Gemini model %s gagal (%s). Pindah instan ke cadangan...", candidate_model, last_error_msg)
-
-            except asyncio.TimeoutError:
-                mark_model_unhealthy(candidate_model)
-                last_error_msg = f"Waktu tunggu habis pada `{candidate_model}`."
-                logger.warning("%s Pindah instan ke cadangan...", last_error_msg)
-            except Exception as exc:
-                last_error_msg = f"Gangguan jaringan: {sanitize_error_message(exc)}"
-                logger.warning("Exception pada Gemini (%s): %s", candidate_model, last_error_msg)
-
+def _pesan_padat(detail: str) -> str:
+    """Pesan akhir ketika semua model/kunci gagal — ramah, tetap menyebut sebab."""
     return (
         "⚠️ **Maaf, server Google Gemini sedang sangat padat saat ini.**\n"
-        f"Detail: `{last_error_msg}`\n"
+        f"Detail: `{detail}`\n"
         "*Silakan tunggu beberapa detik lalu kirim ulang pesan Anda.*"
     )
 

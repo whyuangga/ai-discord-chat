@@ -123,6 +123,12 @@ def load_honeypot_from_disk() -> int:
     return len(honeypot_guilds)
 
 
+def _pesan_galat(exc: Exception) -> str:
+    """Pesan galat yang aman dicatat (token/URL sudah disaring)."""
+    from utils import sanitize_error_message
+
+    return sanitize_error_message(exc)
+
 async def save_honeypot_to_disk() -> None:
     """Menyimpan konfigurasi honeypot secara atomik."""
     async with _lock:
@@ -135,7 +141,7 @@ async def save_honeypot_to_disk() -> None:
             )
             await asyncio.to_thread(os.replace, sementara, HONEYPOT_FILE)
         except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan honeypot.json: %s", sanitize_error_message(exc))
+            logger.exception("Gagal menyimpan honeypot.json: %s", _pesan_galat(exc))
 
 
 def get_config(guild_id: int) -> dict:
