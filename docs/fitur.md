@@ -775,7 +775,17 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 | 🔠 **Huruf kapital** | ≥70% kapital & ≥20 karakter | **Default NONAKTIF** (sering salah tuduh). |
 | 🚨 **Raid (join)** | 8 join / 60 detik | **Hanya peringatan** ke channel log + saran tindakan. |
 
-### 3. Pengamanan bawaan
+### 3. Penguji aturan & statistik per aturan (dashboard)
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Penguji aturan** | Halaman **🛡️ Keamanan** → panel *Penguji aturan & statistik*. Tempel contoh pesan (+ "dibayangkan dikirim berapa kali"), lalu lihat **aturan mana yang kena** beserta angkanya. |
+| **Tanpa tindakan** | Penguji **tidak** menghapus pesan, **tidak** me-time-out siapa pun, dan **tidak** mengubah riwayat anti-spam — murni simulasi, jadi aman dipakai saat jam sibuk. |
+| **Hasil bertahan** | Hasil uji terakhir disimpan per server (di memori) sehingga tetap terlihat setelah form dikirim — tanpa JavaScript. |
+| **Statistik per aturan** | Tabel **hari ini / total** untuk tiap aturan (`antispam.py` mencatatnya setiap kali aturan benar-benar menangkap pesan), plus mode tindakan, status aktif, dan total tertangkap. Statistik ikut tersimpan di `data/antispam.json`. |
+| **Jalur tulis** | `POST /api/keamanan` (`action=uji-aturan`) — wajib token, tanpa efek samping. |
+
+### 4. Pengamanan bawaan
 
 - **Staf aman:** pemilik `Administrator`, `Manage Messages`, atau `Manage Guild` **tidak pernah** diperiksa.
 - **Bot aman:** seluruh pesan bot lain diabaikan.
@@ -900,9 +910,10 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Sembilan jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
+| **Endpoint tulis** | Sepuluh jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
 `/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan),
-`/api/transkrip` (hapus arsip transkrip tiket). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
+`/api/transkrip` (hapus arsip transkrip tiket),
+`/api/keamanan` (penguji aturan anti-spam). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
 | **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
 | **Setelan** | **55 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |

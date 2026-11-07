@@ -601,6 +601,94 @@ def render_kartu_block(
     return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}{catatan_ukuran}'
 
 
+def render_aturan_block(guild_id: int, token: str, data: dict) -> str:
+    """Penguji aturan + statistik per aturan di halaman Keamanan."""
+    import antispam
+
+    gid = int(guild_id or 0)
+    stat = data.get("statistik") or {}
+    uji = data.get("uji") or None
+    mode = str(stat.get("mode") or "lapor")
+    label_mode = {
+        "lapor": "👀 lapor saja",
+        "hapus": "🧹 hapus pesan",
+        "timeout": "⏳ hapus + time-out",
+    }.get(mode, antispam.SPAM_MODES.get(mode, mode))
+
+    baris_stat = ""
+    for item in stat.get("aturan") or []:
+        baris_stat += (
+            f'<tr><td>{_esc(item.get("label"))}</td>'
+            f'<td class="angka">{int(item.get("hari_ini") or 0)}</td>'
+            f'<td class="angka">{int(item.get("total") or 0)}</td></tr>'
+        )
+    tabel_stat = (
+        '<table><thead><tr><th>Aturan</th><th class="angka">Hari ini</th>'
+        f'<th class="angka">Total</th></tr></thead><tbody>{baris_stat}</tbody></table>'
+        if baris_stat
+        else '<div class="muted">Belum ada statistik.</div>'
+    )
+
+    hasil = ""
+    if uji:
+        baris_uji = ""
+        kena = set(uji.get("kena") or [])
+        for item in uji.get("aturan") or []:
+            tanda = "⚠️" if item.get("kena") else ("✅" if item.get("aktif") else "⏸️")
+            status = (
+                "<b>kena</b>"
+                if item.get("kena")
+                else ("aman" if item.get("aktif") else "nonaktif")
+            )
+            baris_uji += (
+                f'<tr><td>{tanda} {_esc(item.get("label"))}</td>'
+                f'<td>{status}</td>'
+                f'<td class="muted">{_esc(item.get("detail"))}</td></tr>'
+            )
+        ringkas = (
+            f"⚠️ <b>{len(kena)} aturan kena</b>: "
+            + ", ".join(sorted(kena))
+            if kena
+            else "✅ <b>Tidak ada aturan yang kena</b> untuk teks ini."
+        )
+        contoh = _esc(str(uji.get("teks") or ""))[:400]
+        hasil = (
+            '<div class="subpanel"><h3>Hasil uji terakhir</h3>'
+            f'<p>{ringkas} · simulasi dikirim <b>{int(uji.get("ulang") or 1)}×</b> · '
+            f'mode tindakan sekarang: <b>{_esc(label_mode)}</b></p>'
+            f'<p class="muted">Teks: <code>{contoh}</code></p>'
+            '<table><thead><tr><th>Aturan</th><th>Status</th><th>Detail</th></tr></thead>'
+            f"<tbody>{baris_uji}</tbody></table>"
+            '<p class="muted">Penguji tidak menghapus pesan, tidak me-time-out siapa pun, '
+            "dan tidak mengubah riwayat anti-spam.</p></div>"
+        )
+
+    form = (
+        '<form method="post" action="/api/keamanan" class="formgrid">'
+        + _hidden(gid, token, "uji-aturan")
+        + '<div class="medan lebar"><label>Contoh pesan untuk diuji</label>'
+        '<textarea name="teks" rows="4" maxlength="2000" required '
+        'placeholder="Tempel isi pesan di sini (boleh berisi mention, link, CAPS, dsb.)">'
+        "</textarea></div>"
+        '<div class="medan"><label>Dibayangkan dikirim berapa kali</label>'
+        '<input type="number" name="ulang" min="1" max="50" value="1"></div>'
+        '<button type="submit">Uji sekarang (tanpa tindakan)</button></form>'
+    )
+    return (
+        '<div class="subpanel" id="p-aturan"><h3>🧪 Penguji aturan &amp; statistik</h3>'
+        '<p class="muted">Tempel teks, lihat aturan mana yang kena — <b>tanpa</b> '
+        "menghapus pesan atau menghukum siapa pun. Angka “hari ini” menunjukkan aturan "
+        "yang paling sering menangkap spam di server ini.</p>"
+        f'<p class="muted">Status penjaga spam: '
+        f'<b>{"aktif" if stat.get("aktif") else "nonaktif"}</b> · mode tindakan '
+        f"<b>{_esc(label_mode)}</b> · total tertangkap <b>{int(stat.get('blocked') or 0)}</b> "
+        f"· tanggal <code>{_esc(stat.get('hari') or '-')}</code></p>"
+        f"{form}{hasil}"
+        f'<div class="subpanel"><h3>Statistik per aturan</h3>{tabel_stat}</div>'
+        "</div>"
+    )
+
+
 def render_starboard_block(bot, guild_id: int, token: str) -> str:
     """Pengelola papan sorotan (utama + varian) di halaman Konten & interaksi."""
     import community_tools

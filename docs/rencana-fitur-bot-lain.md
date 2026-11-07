@@ -110,9 +110,13 @@ Berkas: `engagement.py` · `tickets.py` · `levels.py` · `community_tools.py` �
 
 1. **Penguji aturan** di halaman Keamanan: tempel teks → lihat aturan mana yang kena, tanpa
    menghapus apa pun dan tanpa menghukum siapa pun.
+   ✅ **Sudah jalan** (v1.40): panel *Penguji aturan & statistik* (`antispam.uji_aturan` +
+   `dashboard_keamanan.py`), 5 aturan disimulasikan, hasil terakhir tersimpan per server.
 2. **Honeypot**: channel yang tidak boleh diposting siapa pun; siapa pun yang memposting
    langsung ditindak (self-bot & skrip raid tidak membaca aturan).
 3. **Statistik per aturan** ("kena hari ini / total") di halaman Keamanan.
+   ✅ **Sudah jalan** (v1.40): penghitung `stats` per aturan di `data/antispam.json`,
+   reset harian otomatis, ditampilkan di panel yang sama dengan penguji aturan.
 4. **`/report` + antrean banding** di dashboard.
 5. **tempban / softban / note** + **statistik staf** (siapa menindak berapa banyak).
 6. **Halaman Moderasi** di dashboard (kasus terakhir, cari nomor kasus, statistik staf).

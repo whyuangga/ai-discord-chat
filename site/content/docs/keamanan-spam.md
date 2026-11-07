@@ -35,7 +35,17 @@ toc: true
 | 🔠 **Huruf kapital** | ≥70% kapital & ≥20 karakter | **Default NONAKTIF** (sering salah tuduh). |
 | 🚨 **Raid (join)** | 8 join / 60 detik | **Hanya peringatan** ke channel log + saran tindakan. |
 
-## 3. Pengamanan bawaan
+## 3. Penguji aturan & statistik per aturan (dashboard)
+
+| Aspek | Detail |
+| :--- | :--- |
+| **Penguji aturan** | Halaman **🛡️ Keamanan** → panel *Penguji aturan & statistik*. Tempel contoh pesan (+ "dibayangkan dikirim berapa kali"), lalu lihat **aturan mana yang kena** beserta angkanya. |
+| **Tanpa tindakan** | Penguji **tidak** menghapus pesan, **tidak** me-time-out siapa pun, dan **tidak** mengubah riwayat anti-spam — murni simulasi, jadi aman dipakai saat jam sibuk. |
+| **Hasil bertahan** | Hasil uji terakhir disimpan per server (di memori) sehingga tetap terlihat setelah form dikirim — tanpa JavaScript. |
+| **Statistik per aturan** | Tabel **hari ini / total** untuk tiap aturan (`antispam.py` mencatatnya setiap kali aturan benar-benar menangkap pesan), plus mode tindakan, status aktif, dan total tertangkap. Statistik ikut tersimpan di `data/antispam.json`. |
+| **Jalur tulis** | `POST /api/keamanan` (`action=uji-aturan`) — wajib token, tanpa efek samping. |
+
+## 4. Pengamanan bawaan
 
 - **Staf aman:** pemilik `Administrator`, `Manage Messages`, atau `Manage Guild` **tidak pernah** diperiksa.
 - **Bot aman:** seluruh pesan bot lain diabaikan.

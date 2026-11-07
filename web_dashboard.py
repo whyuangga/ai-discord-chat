@@ -50,6 +50,7 @@ from urllib.parse import urlencode
 
 import dashboard_admin
 import dashboard_giveaway
+import dashboard_keamanan
 import dashboard_panel
 import dashboard_pesan
 import dashboard_tema
@@ -670,6 +671,7 @@ ANCHOR_HALAMAN.update({
     "p-kartu": "sambutan",
     "p-uji": "",
     "p-rank": "inti",
+    "p-aturan": "keamanan",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -1004,6 +1006,7 @@ PANEL: dict[str, object] = {
         "p-keamanan", "🛡️ Keamanan",
         "Anti-spam, anti-nuke, pengaman raid, verifikasi, &amp; proteksi anti-phishing. "
         "Mode “Lapor” hanya mencatat — paling aman untuk memulai.",
+        "aturan",
     ),
     "p-konten": _panel_grup(
         "p-konten", "🧩 Konten &amp; interaksi",
@@ -1066,6 +1069,7 @@ def render_dashboard_html(
     kartu_block: str = "",
     kartu_rank_block: str = "",
     starboard_block: str = "",
+    aturan_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1147,6 +1151,8 @@ def render_dashboard_html(
         "audit_block": audit_block or '<div class="muted">Belum ada perubahan.</div>',
         "banner_block": banner_block or '<div class="muted">Unggahan tidak tersedia.</div>',
         "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
+        "aturan_block": aturan_block
+        or '<div class="muted">Penguji aturan tidak tersedia.</div>',
         "starboard_block": starboard_block
         or '<div class="muted">Papan sorotan tidak tersedia.</div>',
         "kartu_rank_block": kartu_rank_block
@@ -1628,6 +1634,12 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_ui.render_kartu_rank_block(bot, gid, token),
             '<div class="muted">Kartu rank tidak tersedia.</div>',
         )
+        aturan_block = _blok(
+            lambda: dashboard_ui.render_aturan_block(
+                gid, token, dashboard_keamanan.collect(gid)
+            ),
+            '<div class="muted">Penguji aturan tidak tersedia.</div>',
+        )
         starboard_block = _blok(
             lambda: dashboard_ui.render_starboard_block(bot, gid, token),
             '<div class="muted">Papan sorotan tidak tersedia.</div>',
@@ -1686,6 +1698,7 @@ async def start_dashboard(bot) -> bool:
             kartu_block=kartu_block,
             kartu_rank_block=kartu_rank_block,
             starboard_block=starboard_block,
+            aturan_block=aturan_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1944,6 +1957,30 @@ async def start_dashboard(bot) -> bool:
             await tickets.save_tickets_to_disk()
         except Exception as exc:  # pragma: no cover - I/O gagal
             logger.warning("Gagal menyimpan konfigurasi tiket: %s", exc)
+
+    async def handle_keamanan(request):
+        """POST penguji aturan anti-spam (tanpa menindak apa pun)."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+
+        if aksi == "uji-aturan":
+            ok, message = dashboard_keamanan.uji(
+                gid, str(payload.get("teks") or ""), ulang=_id_aman(payload.get("ulang"))
+            )
+        else:
+            ok, message = False, f"Aksi keamanan `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard keamanan %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, "p-aturan", request)
 
     async def handle_tiket(request):
         """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
@@ -2337,6 +2374,7 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/panel", handle_panel)
     app.router.add_get("/api/tiket", handle_tiket)
     app.router.add_post("/api/tiket", handle_tiket)
+    app.router.add_post("/api/keamanan", handle_keamanan)
     app.router.add_get("/api/giveaway", handle_giveaway)
     app.router.add_post("/api/giveaway", handle_giveaway)
     app.router.add_get("/transkrip", handle_transkrip)
