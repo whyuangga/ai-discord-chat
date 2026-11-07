@@ -437,12 +437,8 @@ def _count_channel_types(guild: discord.Guild) -> dict[str, int]:
     return counts
 
 
-def build_serverstats_embed(
-    guild: discord.Guild,
-    *,
-    presence_count: int | None = None,
-) -> discord.Embed:
-    """Menyusun kartu statistik server yang cantik & informatif (tanpa API berbayar)."""
+def _hitung_statistik_server(guild, presence_count: int | None) -> dict:
+    """Kumpulkan semua angka statistik yang dipakai kartu server."""
     members = list(getattr(guild, "members", []) or [])
     total_members = int(getattr(guild, "member_count", 0) or len(members) or 0)
     bots = sum(1 for m in members if getattr(m, "bot", False)) if members else 0
@@ -466,6 +462,61 @@ def build_serverstats_embed(
     owner_txt = str(owner) if owner else "Tidak diketahui"
     verify_raw = getattr(guild, "verification_level", None)
     verify_level = str(getattr(verify_raw, "name", None) or verify_raw or "Tidak diketahui").replace("_", " ").title()
+    return {
+        "members": members,
+        "total_members": total_members,
+        "bots": bots,
+        "humans": humans,
+        "presence_count": presence_count,
+        "counts": counts,
+        "roles": roles,
+        "emojis": emojis,
+        "stickers": stickers,
+        "boost_count": boost_count,
+        "boost_tier": boost_tier,
+        "created_txt": created_txt,
+        "owner_txt": owner_txt,
+        "verify_level": verify_level,
+    }
+
+
+def _hitung_aktivitas_fitur(gid: int) -> tuple[int, int]:
+    """Tiket terbuka & jumlah langganan sosial; `0` bila modulnya gagal."""
+    try:
+        import tickets as tickets_mod
+
+        tiket_terbuka = tickets_mod.count_open(gid)
+    except Exception:  # pragma: no cover - jaring aman
+        tiket_terbuka = 0
+    try:
+        import social_notify
+
+        langganan_sosial = len(social_notify.get_subscriptions(gid))
+    except Exception:  # pragma: no cover - jaring aman
+        langganan_sosial = 0
+    return tiket_terbuka, langganan_sosial
+
+
+def build_serverstats_embed(
+    guild: discord.Guild,
+    *,
+    presence_count: int | None = None,
+) -> discord.Embed:
+    """Menyusun kartu statistik server yang cantik & informatif (tanpa API berbayar)."""
+    stat = _hitung_statistik_server(guild, presence_count)
+    total_members = stat["total_members"]
+    humans = stat["humans"]
+    bots = stat["bots"]
+    presence_count = stat["presence_count"]
+    counts = stat["counts"]
+    roles = stat["roles"]
+    emojis = stat["emojis"]
+    stickers = stat["stickers"]
+    boost_count = stat["boost_count"]
+    boost_tier = stat["boost_tier"]
+    created_txt = stat["created_txt"]
+    owner_txt = stat["owner_txt"]
+    verify_level = stat["verify_level"]
 
     embed = discord.Embed(
         title=f"📊 Statistik Server — {getattr(guild, 'name', 'Server')}",
@@ -514,18 +565,7 @@ def build_serverstats_embed(
         inline=True,
     )
     gid = int(getattr(guild, "id", 0) or 0)
-    try:
-        import tickets as tickets_mod
-
-        tiket_terbuka = tickets_mod.count_open(gid)
-    except Exception:  # pragma: no cover - jaring aman
-        tiket_terbuka = 0
-    try:
-        import social_notify
-
-        langganan_sosial = len(social_notify.get_subscriptions(gid))
-    except Exception:  # pragma: no cover - jaring aman
-        langganan_sosial = 0
+    tiket_terbuka, langganan_sosial = _hitung_aktivitas_fitur(gid)
 
     embed.add_field(
         name="📈 Aktivitas Fitur",
