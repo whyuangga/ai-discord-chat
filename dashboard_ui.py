@@ -888,6 +888,81 @@ def render_kartu_rank_block(bot, guild_id: int, token: str) -> str:
     )
 
 
+def _opsi_channel_uji(guild) -> str:
+    """Daftar `<option>` channel teks untuk kolom tes."""
+    channel_opsi = ""
+    for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
+        channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
+    if not channel_opsi:
+        channel_opsi = '<option value="0">(belum ada channel)</option>'
+    return channel_opsi
+
+
+def _opsi_orang_uji(dashboard_uji, guild) -> str:
+    """Daftar `<option>` subjek tes, diawali pilihan "pemilik server".
+
+    Tanpa ID apa pun, bot memakai pemilik server.
+    """
+    # Opsi default selalu ada: tanpa ID apa pun, bot memakai pemilik server.
+    nama_pemilik = dashboard_uji.nama_pemilik(guild)
+    label_pemilik = "👑 Pemilik server (otomatis)"
+    if nama_pemilik:
+        label_pemilik += f" · {nama_pemilik}"
+    orang_opsi = f'<option value="">{_esc(label_pemilik)}</option>' + "".join(
+        f'<option value="{_esc(uid)}">{_esc(nama)}</option>'
+        for uid, nama in dashboard_uji.pilihan_subjek(guild, sertakan_pemilik=False)
+    )
+    return orang_opsi
+
+
+def _masukan_uji(keadaan: dict, orang_opsi: str, channel_opsi: str) -> str:
+    """Kolom masukan sesuai jenis tes (`member`, `id`/`ref`, atau `channel`)."""
+    kolom = keadaan.get("kolom") or ""
+    masukan = ""
+    if kolom == "member":
+        masukan = (
+            f'<select name="opsi" aria-label="Contoh atas nama">{orang_opsi}</select>'
+            '<input type="text" name="opsi_manual" placeholder="atau tempel @nama /'
+            ' &lt;@id&gt; (opsional)">'
+        )
+    elif kolom in ("id", "ref"):
+        pilihan = keadaan.get("pilihan") or []
+        if pilihan:
+            masukan = '<select name="opsi">' + "".join(
+                f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
+            ) + "</select>"
+        else:
+            masukan = (
+                '<input type="text" name="opsi_manual" '
+                'placeholder="Kosongkan = pilih otomatis">'
+            )
+    elif kolom == "channel":
+        masukan = f'<select name="opsi">{channel_opsi}</select>'
+    return masukan
+
+
+def _tombol_kirim_uji(guild_id: int, token: str, item: dict, masukan: str) -> str:
+    """Form tombol "Kirim tes" (hanya untuk fitur yang sudah aktif)."""
+    tombol = (
+        '<form method="post" action="/api/uji">'
+        f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
+        f'{masukan}<button type="submit">Kirim tes</button></form>'
+    )
+    return tombol
+
+
+def _tombol_atur_uji(dashboard_uji, guild_id: int, token: str, item: dict) -> str:
+    """Tautan "Atur dulu" ke halaman pengaturan fitur."""
+    jalur = _JALUR_FITUR.get(item["kunci"], "/")
+    anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-kontrol")
+    tombol = (
+        '<a class="tombol-unduh" href="'
+        f'{_esc(jalur)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}'
+        f'#{_esc(anchor)}">Atur dulu</a>'
+    )
+    return tombol
+
+
 def render_uji_block(
     bot,
     guild_id: int,
@@ -899,21 +974,8 @@ def render_uji_block(
 
     status = dashboard_uji.status_uji(guild_id)
     guild = bot.get_guild(int(guild_id or 0)) if callable(getattr(bot, "get_guild", None)) else None
-    channel_opsi = ""
-    for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
-        channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
-    if not channel_opsi:
-        channel_opsi = '<option value="0">(belum ada channel)</option>'
-
-    # Opsi default selalu ada: tanpa ID apa pun, bot memakai pemilik server.
-    nama_pemilik = dashboard_uji.nama_pemilik(guild)
-    label_pemilik = "👑 Pemilik server (otomatis)"
-    if nama_pemilik:
-        label_pemilik += f" · {nama_pemilik}"
-    orang_opsi = f'<option value="">{_esc(label_pemilik)}</option>' + "".join(
-        f'<option value="{_esc(uid)}">{_esc(nama)}</option>'
-        for uid, nama in dashboard_uji.pilihan_subjek(guild, sertakan_pemilik=False)
-    )
+    channel_opsi = _opsi_channel_uji(guild)
+    orang_opsi = _opsi_orang_uji(dashboard_uji, guild)
 
     dipakai = tuple(
         item for item in dashboard_uji.UJI
@@ -933,7 +995,9 @@ def render_uji_block(
             getter = getattr(bot, "get_channel", None)
             ch = getter(channel_id) if callable(getter) else None
             nama_channel = (
-                f"<code>#{_esc(getattr(ch, 'name', ''))}</code>" if ch else f"<code>#{channel_id}</code>"
+                f"<code>#{_esc(getattr(ch, 'name', ''))}</code>"
+                if ch
+                else f"<code>#{channel_id}</code>"
             )
             lencana = f"✅ aktif → {nama_channel}"
         elif aktif:
@@ -941,41 +1005,12 @@ def render_uji_block(
         else:
             lencana = "⬜ belum aktif"
 
-        kolom = keadaan.get("kolom") or ""
         if aktif:
-            masukan = ""
-            if kolom == "member":
-                masukan = (
-                    f'<select name="opsi" aria-label="Contoh atas nama">{orang_opsi}</select>'
-                    '<input type="text" name="opsi_manual" placeholder="atau tempel @nama /'
-                    ' &lt;@id&gt; (opsional)">'
-                )
-            elif kolom in ("id", "ref"):
-                pilihan = keadaan.get("pilihan") or []
-                if pilihan:
-                    masukan = '<select name="opsi">' + "".join(
-                        f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
-                    ) + "</select>"
-                else:
-                    masukan = (
-                        '<input type="text" name="opsi_manual" '
-                        'placeholder="Kosongkan = pilih otomatis">'
-                    )
-            elif kolom == "channel":
-                masukan = f'<select name="opsi">{channel_opsi}</select>'
-            tombol = (
-                '<form method="post" action="/api/uji">'
-                f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
-                f'{masukan}<button type="submit">Kirim tes</button></form>'
+            tombol = _tombol_kirim_uji(
+                guild_id, token, item, _masukan_uji(keadaan, orang_opsi, channel_opsi)
             )
         else:
-            jalur = _JALUR_FITUR.get(item["kunci"], "/")
-            anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-kontrol")
-            tombol = (
-                '<a class="tombol-unduh" href="'
-                f'{_esc(jalur)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}'
-                f'#{_esc(anchor)}">Atur dulu</a>'
-            )
+            tombol = _tombol_atur_uji(dashboard_uji, guild_id, token, item)
 
         if grup not in baris_per_grup:
             baris_per_grup[grup] = ""
