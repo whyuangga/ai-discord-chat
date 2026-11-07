@@ -550,18 +550,14 @@ async def hapus_pemicu(guild_id: int) -> tuple[bool, str]:
 # ==============================================================================
 # DAFTAR & HAPUS KONTEN
 # ==============================================================================
-def daftar_konten(guild_id: int, bot=None) -> dict:
-    """Ringkasan konten server untuk ditampilkan di dashboard."""
-    gid = _to_int(guild_id)
-    hasil: dict = {
-        "pengumuman": [], "tautan": [], "panel": [], "formulir": [], "webhook": [], "pemicu": []
-    }
-
+def _daftar_pengumuman(gid: int) -> list:
+    """Kumpulkan pengumuman milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import engagement
 
         for item in engagement.list_announcements(gid):
-            hasil["pengumuman"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Pengumuman")[:60],
@@ -571,13 +567,19 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                 }
             )
     except Exception as exc:  # pragma: no cover
-        logger.debug("Efek samping opsional gagal: %s", exc)
+        logger.debug("Daftar pengumuman gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_tautan(gid: int) -> list:
+    """Kumpulkan tautan milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import link_embed
 
         for item in link_embed.list_links(gid):
-            hasil["tautan"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Tautan")[:60],
@@ -586,13 +588,19 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                 }
             )
     except Exception as exc:  # pragma: no cover
-        logger.debug("Efek samping opsional gagal: %s", exc)
+        logger.debug("Daftar tautan gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_panel(gid: int) -> list:
+    """Kumpulkan panel menu milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import menu_builder
 
         for item in menu_builder.list_menus(gid):
-            hasil["panel"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Panel")[:60],
@@ -601,13 +609,19 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                 }
             )
     except Exception as exc:  # pragma: no cover
-        logger.debug("Efek samping opsional gagal: %s", exc)
+        logger.debug("Daftar panel menu gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_formulir(gid: int) -> list:
+    """Kumpulkan formulir milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import modal_forms
 
         for item in modal_forms.list_forms(gid):
-            hasil["formulir"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Formulir")[:60],
@@ -615,8 +629,14 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                 }
             )
     except Exception as exc:  # pragma: no cover
-        logger.debug("Efek samping opsional gagal: %s", exc)
+        logger.debug("Daftar formulir gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_webhook(gid: int, bot=None) -> list:
+    """Kumpulkan webhook milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import webhook_identity
 
@@ -629,7 +649,7 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
             if bot is not None:
                 channel = getattr(bot, "get_channel", lambda _id: None)(_to_int(channel_id))
                 nama = str(getattr(channel, "name", "") or "")
-            hasil["webhook"].append(
+            hasil.append(
                 {
                     "id": channel_id,
                     "judul": f"#{nama}" if nama else f"channel {channel_id}",
@@ -638,14 +658,20 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                 }
             )
     except Exception as exc:  # pragma: no cover
-        logger.debug("Efek samping opsional gagal: %s", exc)
+        logger.debug("Daftar webhook gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_pemicu(gid: int) -> list:
+    """Kumpulkan pemicu alur milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import flow_triggers
 
         alur = flow_triggers.get_trigger(gid)
         if alur:
-            hasil["pemicu"].append(
+            hasil.append(
                 {
                     "id": "aktif",
                     "judul": "Alur saat member bergabung",
@@ -654,9 +680,22 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                 }
             )
     except Exception as exc:  # pragma: no cover
-        logger.debug("Efek samping opsional gagal: %s", exc)
+        logger.debug("Daftar pemicu alur gagal dimuat: %s", exc)
 
     return hasil
+
+
+def daftar_konten(guild_id: int, bot=None) -> dict:
+    """Ringkasan konten server untuk ditampilkan di dashboard."""
+    gid = _to_int(guild_id)
+    return {
+        "pengumuman": _daftar_pengumuman(gid),
+        "tautan": _daftar_tautan(gid),
+        "panel": _daftar_panel(gid),
+        "formulir": _daftar_formulir(gid),
+        "webhook": _daftar_webhook(gid, bot),
+        "pemicu": _daftar_pemicu(gid),
+    }
 
 
 async def hapus(bot, guild_id: int, jenis: str, ref: str) -> tuple[bool, str]:
