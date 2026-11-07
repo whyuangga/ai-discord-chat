@@ -187,8 +187,11 @@ _TEMA_BAKU: dict[str, dict] = {
     },
 }
 
-#: Riwayat pembangunan per server (untuk `/bangun riwayat` & bongkar).
+#: Build terbaru per server, dipertahankan sebagai alias kompatibel untuk UI lama.
 riwayat: dict[int, dict] = {}
+
+#: Stack semua build per server; rollback selalu berjalan dari build terbaru ke sebelumnya.
+riwayat_build: dict[int, list[dict]] = {}
 
 #: Rencana yang sudah disiapkan tapi belum diterapkan (menunggu konfirmasi Admin).
 siap: dict[int, dict] = {}
@@ -394,23 +397,46 @@ def _ambil_json(teks: str) -> str:
 
 
 async def terapkan(guild, snapshot: dict, *, actor_id: int = 0, alasan: str = "Bangun server") -> tuple[dict, str]:
-    """Buat role/kategori/channel sesuai rencana (memakai mesin `backup_restore`)."""
+    """Buat rencana, terapkan, lalu arsipkan hanya objek yang benar-benar berhasil dibuat."""
     import backup_restore
 
     plan = backup_restore.build_plan(guild, snapshot)
     hasil = await backup_restore.apply_plan(guild, plan, actor_id=actor_id, reason=alasan)
     gid = int(getattr(guild, "id", 0) or 0)
-    riwayat[gid] = {
-        "pada": time.time(),
-        "label": (snapshot.get("meta") or {}).get("label") or "Rancangan",
-        "oleh": int(actor_id or 0),
-        "dibuat": {
-            "roles": [item["name"] for item in (plan.get("roles") or [])],
-            "categories": [item["name"] for item in (plan.get("categories") or [])],
-            "channels": [item["name"] for item in (plan.get("channels") or [])],
-        },
-        "hasil": {k: int(v) for k, v in hasil.items() if isinstance(v, int)},
-    }
+    dibuat: dict[str, list[str]] = {}
+    ids: dict[str, list[int | None]] = {}
+    tercipta = hasil.get("created") or {}
+    for jenis in ("roles", "categories", "channels"):
+        dibuat[jenis] = []
+        ids[jenis] = []
+        item_list = (tercipta.get(jenis) or []) if isinstance(tercipta, dict) else []
+        for item in item_list:
+            if not isinstance(item, dict):
+                continue
+            nama = str(item.get("name") or "").strip()
+            if not nama:
+                continue
+            raw_id = item.get("id")
+            try:
+                item_id = int(raw_id) if raw_id is not None else None
+            except (TypeError, ValueError):
+                item_id = None
+            dibuat[jenis].append(nama[:MAKS_HURUF_NAMA])
+            ids[jenis].append(item_id)
+
+    # Rencana yang seluruh itemnya gagal/tidak membuat apa pun tidak menjadi entri rollback.
+    if any(dibuat.values()):
+        entri = {
+            "pada": time.time(),
+            "label": (snapshot.get("meta") or {}).get("label") or "Rancangan",
+            "oleh": int(actor_id or 0),
+            "dibuat": dibuat,
+            # ID Discord menghindari penghapusan item lain yang kebetulan bernama sama.
+            "ids": ids,
+            "hasil": {k: int(v) for k, v in hasil.items() if isinstance(v, int)},
+        }
+        riwayat_build.setdefault(gid, []).append(entri)
+        riwayat[gid] = entri
     return hasil, ringkas_hasil(hasil)
 
 
@@ -425,40 +451,110 @@ def ringkas_hasil(hasil: dict) -> str:
     return pesan
 
 
+def daftar_riwayat(gid: int) -> list[dict]:
+    """Ambil semua build tersimpan untuk server, berurutan dari yang paling lama."""
+    gid = int(gid or 0)
+    stack = riwayat_build.get(gid)
+    if stack:
+        return list(stack)
+    terbaru = riwayat.get(gid)
+    return [terbaru] if terbaru else []
+
+
+def _cari_id(items, wanted_id):
+    try:
+        wanted = int(wanted_id)
+    except (TypeError, ValueError):
+        return None
+    for item in items or []:
+        try:
+            if int(getattr(item, "id", 0) or 0) == wanted:
+                return item
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 async def bongkar(guild, *, gid: int | None = None) -> tuple[bool, str]:
-    """Hapus item yang **dicatat** sebagai buatan `/bangun` (rollback aman)."""
+    """Rollback build terbaru saja; setelah selesai, build sebelumnya bisa dibongkar."""
     gid = int(gid if gid is not None else getattr(guild, "id", 0) or 0)
-    data = riwayat.get(gid)
+    stack = riwayat_build.get(gid)
+    data = stack[-1] if stack else riwayat.get(gid)
     if not data:
         return False, "Belum ada catatan pembangunan di server ini."
+
     dibuat = data.get("dibuat") or {}
+    ids = data.get("ids")
+    id_map = ids if isinstance(ids, dict) else None
+    koleksi = {
+        "channels": getattr(guild, "channels", []) or [],
+        "categories": getattr(guild, "categories", []) or [],
+        "roles": getattr(guild, "roles", []) or [],
+    }
+    sisa_nama = {jenis: [] for jenis in koleksi}
+    sisa_id = {jenis: [] for jenis in koleksi}
     hapus = 0
-    for nama in dibuat.get("channels") or []:
-        channel = discord.utils.get(getattr(guild, "channels", []) or [], name=nama)
-        if channel is not None:
+    gagal = 0
+
+    # Hapus channel sebelum kategori/role supaya tidak meninggalkan channel terlepas.
+    for jenis in ("channels", "categories", "roles"):
+        names = list(dibuat.get(jenis) or [])
+        punya_id = id_map is not None and jenis in id_map
+        item_ids = list(id_map.get(jenis) or []) if punya_id else []
+        for index, nama in enumerate(names):
+            nama = str(nama)
+            if punya_id:
+                # Entri baru selalu memakai ID. Bila ID hilang/rusak, jangan menebak
+                # berdasarkan nama dan berisiko menghapus objek milik admin.
+                item_id = item_ids[index] if index < len(item_ids) else None
+                if item_id is None:
+                    sisa_nama[jenis].append(nama)
+                    sisa_id[jenis].append(None)
+                    gagal += 1
+                    continue
+                item = _cari_id(koleksi[jenis], item_id)
+            else:
+                # Kompatibilitas dengan catatan v1 yang hanya menyimpan nama.
+                item = discord.utils.get(koleksi[jenis], name=nama)
+
+            if item is None:
+                continue  # Sudah dihapus manual / tidak lagi ada di server.
+            if jenis == "roles" and getattr(item, "is_default", lambda: False)():
+                continue
             try:
-                await channel.delete(reason="Batal /bangun")
+                await item.delete(reason="Batal /bangun")
                 hapus += 1
             except (discord.Forbidden, discord.HTTPException):
-                pass
-    for nama in dibuat.get("categories") or []:
-        kategori = discord.utils.get(getattr(guild, "categories", []) or [], name=nama)
-        if kategori is not None:
-            try:
-                await kategori.delete(reason="Batal /bangun")
-                hapus += 1
-            except (discord.Forbidden, discord.HTTPException):
-                pass
-    for nama in dibuat.get("roles") or []:
-        role = discord.utils.get(getattr(guild, "roles", []) or [], name=nama)
-        if role is not None and not getattr(role, "is_default", lambda: False)():
-            try:
-                await role.delete(reason="Batal /bangun")
-                hapus += 1
-            except (discord.Forbidden, discord.HTTPException):
-                pass
-    riwayat.pop(gid, None)
-    return True, f"🧹 {hapus} item buatan `/bangun` dihapus."
+                sisa_nama[jenis].append(nama)
+                if punya_id:
+                    sisa_id[jenis].append(item_ids[index] if index < len(item_ids) else None)
+                gagal += 1
+
+    if gagal:
+        # Build tetap di puncak stack agar admin bisa mencoba lagi sebelum build sebelumnya.
+        data["dibuat"] = sisa_nama
+        if id_map is not None:
+            data["ids"] = {
+                jenis: sisa_id[jenis] for jenis in koleksi if jenis in id_map
+            }
+        return True, f"🧹 {hapus} item dihapus; {gagal} gagal dan masih tercatat untuk dicoba lagi."
+
+    if stack:
+        stack.pop()
+        if stack:
+            riwayat[gid] = stack[-1]
+        else:
+            riwayat_build.pop(gid, None)
+            riwayat.pop(gid, None)
+    else:
+        riwayat.pop(gid, None)
+
+    sebelumnya = len(riwayat_build.get(gid) or [])
+    lanjut = (
+        f" {sebelumnya} build sebelumnya masih tersimpan; rollback bisa diulang."
+        if sebelumnya else " Tidak ada build sebelumnya."
+    )
+    return True, f"🧹 {hapus} item build terbaru dihapus.{lanjut}"
 
 
 # ==============================================================================
@@ -487,12 +583,53 @@ def lupakan_siap(gid: int) -> None:
 
 def reset_state() -> None:
     riwayat.clear()
+    riwayat_build.clear()
     siap.clear()
 
 
+def _normalisasi_entri_riwayat(data) -> dict | None:
+    if not isinstance(data, dict):
+        return None
+    dibuat_raw = data.get("dibuat") or {}
+    if not isinstance(dibuat_raw, dict):
+        dibuat_raw = {}
+    dibuat = {}
+    for jenis in ("roles", "categories", "channels"):
+        items = dibuat_raw.get(jenis) or []
+        if not isinstance(items, list):
+            items = []
+        dibuat[jenis] = [str(item)[:MAKS_HURUF_NAMA] for item in items]
+    entri = {
+        "pada": float(data.get("pada") or 0.0),
+        "label": str(data.get("label") or "Rancangan")[:60],
+        "oleh": int(data.get("oleh") or 0),
+        "dibuat": dibuat,
+        "hasil": dict(data.get("hasil") or {}) if isinstance(data.get("hasil") or {}, dict) else {},
+    }
+    ids_raw = data.get("ids")
+    if isinstance(ids_raw, dict):
+        ids: dict[str, list[int | None]] = {}
+        for jenis in ("roles", "categories", "channels"):
+            if jenis not in ids_raw:
+                continue
+            values = ids_raw.get(jenis)
+            values = values if isinstance(values, list) else []
+            ids[jenis] = []
+            for index in range(len(dibuat[jenis])):
+                raw_id = values[index] if index < len(values) else None
+                try:
+                    item_id = int(raw_id) if raw_id is not None and not isinstance(raw_id, bool) else None
+                except (TypeError, ValueError):
+                    item_id = None
+                ids[jenis].append(item_id if item_id and item_id > 0 else None)
+        entri["ids"] = ids
+    return entri
+
+
 def load_from_disk() -> int:
-    """Muat riwayat pembangunan. Berkas rusak diabaikan."""
+    """Muat stack build versi 2 atau migrasikan format lama satu entri/guild."""
     riwayat.clear()
+    riwayat_build.clear()
     path = Path(BUILDER_FILE)
     if not path.exists():
         return 0
@@ -500,33 +637,51 @@ def load_from_disk() -> int:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return 0
-    for gid_str, data in (raw.get("guilds") or {}).items():
+    if not isinstance(raw, dict):
+        return 0
+
+    guilds = raw.get("guilds") or {}
+    if not isinstance(guilds, dict):
+        return 0
+    for gid_str, data in guilds.items():
         try:
-            riwayat[int(gid_str)] = {
-                "pada": float(data.get("pada") or 0.0),
-                "label": str(data.get("label") or "Rancangan")[:60],
-                "oleh": int(data.get("oleh") or 0),
-                "dibuat": {
-                    "roles": [str(x)[:100] for x in (data.get("dibuat") or {}).get("roles") or []],
-                    "categories": [str(x)[:100] for x in (data.get("dibuat") or {}).get("categories") or []],
-                    "channels": [str(x)[:100] for x in (data.get("dibuat") or {}).get("channels") or []],
-                },
-                "hasil": dict((data.get("hasil") or {})),
-            }
+            gid = int(gid_str)
+            raw_entries = data if isinstance(data, list) else [data]
+            stack = []
+            for item in raw_entries:
+                try:
+                    entri = _normalisasi_entri_riwayat(item)
+                except (TypeError, ValueError):
+                    continue
+                if entri is not None:
+                    stack.append(entri)
+            if not stack:
+                continue
+            riwayat_build[gid] = stack
+            riwayat[gid] = stack[-1]
         except (TypeError, ValueError):
             continue
     return len(riwayat)
 
 
 async def save_to_disk() -> None:
-    """Tulis riwayat pembangunan secara atomik."""
+    """Tulis semua riwayat pembangunan secara atomik."""
     path = Path(BUILDER_FILE)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        isi = {
-            "versi": 1,
-            "guilds": {str(gid): data for gid, data in riwayat.items()},
+        guilds = {
+            str(gid): stack
+            for gid, stack in riwayat_build.items()
+            if stack
         }
+        # Jaga kompatibilitas untuk pemanggil lama yang hanya mengisi `riwayat`.
+        for gid, latest in riwayat.items():
+            key = str(gid)
+            if key not in guilds:
+                guilds[key] = [latest]
+            elif guilds[key][-1] != latest:
+                guilds[key].append(latest)
+        isi = {"versi": 2, "guilds": guilds}
         sementara = Path(str(path) + ".tmp")
         sementara.write_text(json.dumps(isi, ensure_ascii=False, indent=1), encoding="utf-8")
         sementara.replace(path)

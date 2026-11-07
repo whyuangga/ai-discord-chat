@@ -89,8 +89,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/bangun tema` | `tema` | *(Admin)* Pratinjau struktur server dari salah satu **15 tema** (0 kuota AI) + tombol Terapkan/Batal. |
 | `/bangun rancang` | `deskripsi` | *(Admin)* AI menyusun kategori/channel/role dari deskripsi bebas, lalu pratinjau. |
 | `/bangun terapkan` | — | *(Admin)* Terapkan rencana terakhir yang menunggu konfirmasi. |
-| `/bangun riwayat` | — | Lihat pembangunan terakhir di server ini. |
-| `/bangun bongkar` | — | *(Admin)* Hapus hanya item yang tercatat dibuat `/bangun`. |
+| `/bangun riwayat` | — | Lihat build terbaru dan jumlah build sebelumnya yang masih tersimpan. |
+| `/bangun bongkar` | — | *(Admin)* Bongkar build terbaru; ulangi untuk rollback build sebelumnya. |
 | `/setelan-ai lihat` | — | Lihat setelan AI-mu (panjang, temperature, bahasa, prompt pribadi, rasio, kepribadian server). |
 | `/setelan-ai atur` | `panjang`, `prompt`, `rasio`, `temperatur`, `bahasa` | Atur gaya jawaban, temperature, bahasa balasan, prompt pribadi & rasio gambar bawaanmu. |
 | `/setelan-ai prompt-server` | `teks` | *(Admin)* Kepribadian AI untuk seluruh server (kosongkan untuk menghapus). |

@@ -20,8 +20,10 @@ def _bersih(monkeypatch, tmp_path):
 
 
 class _Role:
-    def __init__(self, nama):
+    def __init__(self, nama, item_id=None):
+        self.id = item_id
         self.name = nama
+        self.deleted = False
 
     def is_default(self):
         return self.name == "@everyone"
@@ -31,9 +33,11 @@ class _Role:
 
 
 class _Channel:
-    def __init__(self, nama, jenis="text"):
+    def __init__(self, nama, jenis="text", item_id=None, category=None):
+        self.id = item_id
         self.name = nama
         self.type = jenis
+        self.category = category
         self.deleted = False
 
     async def delete(self, reason=""):
@@ -41,8 +45,8 @@ class _Channel:
 
 
 class _Kategori(_Channel):
-    def __init__(self, nama):
-        super().__init__(nama, "category")
+    def __init__(self, nama, item_id=None):
+        super().__init__(nama, "category", item_id=item_id)
 
 
 class _Guild:
@@ -51,30 +55,36 @@ class _Guild:
     def __init__(self, nama="Server Uji"):
         self.id = GID
         self.name = nama
-        self.roles = [_Role("@everyone")]
+        self.roles = [_Role("@everyone", 1)]
         self.categories: list[_Kategori] = []
         self.channels: list[_Channel] = []
         self.created = {"roles": [], "categories": [], "channels": []}
+        self._next_id = 2
+
+    def _id(self):
+        item_id = self._next_id
+        self._next_id += 1
+        return item_id
 
     async def create_role(self, name, **kwargs):
-        self.roles.append(_Role(name))
+        self.roles.append(_Role(name, self._id()))
         self.created["roles"].append(name)
         return self.roles[-1]
 
     async def create_category(self, name, **kwargs):
-        item = _Kategori(name)
+        item = _Kategori(name, self._id())
         self.categories.append(item)
         self.created["categories"].append(name)
         return item
 
     async def create_text_channel(self, name, **kwargs):
-        item = _Channel(name)
+        item = _Channel(name, item_id=self._id(), category=kwargs.get("category"))
         self.channels.append(item)
         self.created["channels"].append(name)
         return item
 
     async def create_voice_channel(self, name, **kwargs):
-        item = _Channel(name, "voice")
+        item = _Channel(name, "voice", item_id=self._id(), category=kwargs.get("category"))
         self.channels.append(item)
         self.created["channels"].append(name)
         return item
@@ -240,6 +250,111 @@ async def test_terapkan_dan_bongkar(monkeypatch):
     assert not ok2 and "Belum ada" in pesan2
 
 
+@pytest.mark.asyncio
+async def test_channel_template_masuk_ke_kategori_yang_direncanakan(monkeypatch):
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+    guild = _Guild()
+    snap = sb.tema_ke_snapshot("study")
+    expected = {item["name"]: item["category"] for item in snap["channels"]}
+
+    plan = br.build_plan(guild, snap)
+    assert {item["name"]: item["category"] for item in plan["channels"]} == expected
+
+    hasil, _pesan = await sb.terapkan(guild, snap, actor_id=7)
+    assert hasil["channels"] == len(expected)
+    actual = {channel.name: channel.category.name for channel in guild.channels}
+    assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_channel_tidak_dibuat_tanpa_kategori_yang_diminta(monkeypatch):
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+    guild = _Guild()
+    snap = sb.tema_ke_snapshot("study")
+
+    async def _gagal_buat_kategori(name, **kwargs):
+        raise TypeError("simulasi kategori gagal")
+
+    guild.create_category = _gagal_buat_kategori
+    result = await br.apply_plan(guild, br.build_plan(guild, snap))
+    assert result["categories"] == 0
+    assert result["channels"] == 0
+    assert any("kategori" in error and "tidak tersedia" in error for error in result["errors"])
+
+
+@pytest.mark.asyncio
+async def test_riwayat_multi_build_dan_rollback_berulang(monkeypatch):
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+    guild = _Guild()
+    pertama = sb.tema_ke_snapshot("study")
+    pertama["meta"]["label"] = "Belajar"
+    kedua = sb.tema_ke_snapshot("gaming")
+    kedua["meta"]["label"] = "Gaming"
+
+    await sb.terapkan(guild, pertama, actor_id=7)
+    build_pertama = sb.riwayat[GID]
+    await sb.terapkan(guild, kedua, actor_id=8)
+    build_kedua = sb.riwayat[GID]
+
+    assert [item["label"] for item in sb.daftar_riwayat(GID)] == ["Belajar", "Gaming"]
+    id_pertama = {jenis: set(values) for jenis, values in build_pertama["ids"].items()}
+    id_kedua = {jenis: set(values) for jenis, values in build_kedua["ids"].items()}
+    assert any(id_kedua.values())
+    for jenis in id_pertama:
+        assert id_pertama[jenis].isdisjoint(id_kedua[jenis])
+
+    ok, pesan = await sb.bongkar(guild)
+    assert ok and "1 build sebelumnya" in pesan
+    assert sb.riwayat[GID] is build_pertama
+    assert len(sb.daftar_riwayat(GID)) == 1
+    for jenis, koleksi in (("channels", guild.channels), ("categories", guild.categories), ("roles", guild.roles)):
+        assert all(item.deleted for item in koleksi if getattr(item, "id", None) in id_kedua[jenis])
+        assert all(not item.deleted for item in koleksi if getattr(item, "id", None) in id_pertama[jenis])
+
+    ok, pesan = await sb.bongkar(guild)
+    assert ok and "Tidak ada build sebelumnya" in pesan
+    assert GID not in sb.riwayat and GID not in sb.riwayat_build
+    assert all(item.deleted for item in guild.channels)
+
+    ok, pesan = await sb.bongkar(guild)
+    assert not ok and "Belum ada" in pesan
+
+
+@pytest.mark.asyncio
+async def test_rollback_gagal_sementara_tetap_menyimpan_item_untuk_dicoba_lagi(monkeypatch):
+    import discord
+    import backup_restore as br
+
+    monkeypatch.setattr(br, "CREATE_DELAY_SEC", 0)
+    guild = _Guild()
+    await sb.terapkan(guild, sb.tema_ke_snapshot("study"), actor_id=7)
+    data = sb.riwayat[GID]
+    target_id = data["ids"]["channels"][0]
+    target = next(channel for channel in guild.channels if channel.id == target_id)
+    delete_awal = target.delete
+
+    async def _forbidden(reason=""):
+        response = type("Response", (), {"status": 403, "reason": "denied"})()
+        raise discord.Forbidden(response, "denied")
+
+    target.delete = _forbidden
+    ok, pesan = await sb.bongkar(guild)
+    assert ok and "masih tercatat" in pesan
+    assert sb.riwayat[GID]["dibuat"]["channels"] == [target.name]
+    assert sb.riwayat[GID]["ids"]["channels"] == [target_id]
+
+    target.delete = delete_awal
+    ok, pesan = await sb.bongkar(guild)
+    assert ok and "build terbaru dihapus" in pesan
+    assert target.deleted and GID not in sb.riwayat
+
+
 def test_ringkas_hasil_dengan_galat():
     pesan = sb.ringkas_hasil(
         {"roles": 1, "categories": 1, "channels": 2,
@@ -266,6 +381,34 @@ async def test_simpan_dan_muat_riwayat():
     assert sb.load_from_disk() == 1
     assert sb.riwayat[GID]["dibuat"]["channels"] == ["umum"]
     assert sb.riwayat[GID]["oleh"] == 3
+
+
+@pytest.mark.asyncio
+async def test_simpan_muat_stack_beberapa_build_dengan_id():
+    build_pertama = {
+        "pada": 100.0,
+        "label": "Belajar",
+        "oleh": 3,
+        "dibuat": {"roles": ["Pelajar"], "categories": ["KELAS"], "channels": ["catatan"]},
+        "ids": {"roles": [101], "categories": [102], "channels": [103]},
+        "hasil": {"roles": 1, "categories": 1, "channels": 1},
+    }
+    build_kedua = {
+        "pada": 200.0,
+        "label": "Gaming",
+        "oleh": 4,
+        "dibuat": {"roles": ["Player"], "categories": ["TURNAMEN"], "channels": ["scrim"]},
+        "ids": {"roles": [201], "categories": [202], "channels": [203]},
+        "hasil": {"roles": 1, "categories": 1, "channels": 1},
+    }
+    sb.riwayat_build[GID] = [build_pertama, build_kedua]
+    sb.riwayat[GID] = build_kedua
+
+    await sb.save_to_disk()
+    sb.reset_state()
+    assert sb.load_from_disk() == 1
+    assert [item["label"] for item in sb.daftar_riwayat(GID)] == ["Belajar", "Gaming"]
+    assert sb.riwayat[GID]["ids"]["channels"] == [203]
 
 
 def test_muat_berkas_rusak_diabaikan():

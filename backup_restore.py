@@ -174,12 +174,18 @@ def build_plan(
             continue
         plan["categories"].append({"name": name[:100], "overwrites": _role_overwrites(category)})
 
-    # Peta kategori untuk channel (nama → nama kategori di backup)
-    category_by_id = {
-        int(cat.get("id") or 0): str(cat.get("name") or "")
-        for cat in (snapshot.get("categories") or [])
-        if isinstance(cat, dict)
-    }
+    # Peta kategori untuk channel. Snapshot hasil backup biasanya memakai `category_id`,
+    # sedangkan rancangan `/bangun` memakai nama kategori langsung di `category`.
+    category_by_id: dict[int, str] = {}
+    for cat in snapshot.get("categories") or []:
+        if not isinstance(cat, dict):
+            continue
+        try:
+            category_id = int(cat.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if category_id:
+            category_by_id[category_id] = str(cat.get("name") or "").strip()
 
     # 3. Channel
     for entry in snapshot.get("channels") or []:
@@ -199,7 +205,11 @@ def build_plan(
             plan["skipped"].append(f"channel `{name}` (dinonaktifkan)")
             continue
 
-        category_name = category_by_id.get(int(entry.get("category_id") or 0), "")
+        try:
+            category_id = int(entry.get("category_id") or 0)
+        except (TypeError, ValueError):
+            category_id = 0
+        category_name = category_by_id.get(category_id, "") or str(entry.get("category") or "").strip()
         plan["channels"].append(
             {
                 "name": name[:100],
@@ -258,9 +268,28 @@ def describe_plan(plan: dict, limit: int = 8) -> str:
 # ==============================================================================
 async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pemulihan backup") -> dict:
     """Menjalankan rencana. Tidak pernah menghapus apa pun."""
-    result = {"roles": 0, "categories": 0, "channels": 0, "errors": [], "overwrites": 0}
+    result = {
+        "roles": 0,
+        "categories": 0,
+        "channels": 0,
+        "errors": [],
+        "overwrites": 0,
+        # Objek sukses yang dikembalikan API, untuk rollback berbasis ID yang presisi.
+        "created": {"roles": [], "categories": [], "channels": []},
+    }
     if not plan:
         return result
+
+    def created_item(obj, fallback_name: str) -> dict:
+        raw_id = getattr(obj, "id", None)
+        try:
+            item_id = int(raw_id) if raw_id is not None else None
+        except (TypeError, ValueError):
+            item_id = None
+        return {
+            "id": item_id,
+            "name": str(getattr(obj, "name", fallback_name) or fallback_name)[:100],
+        }
 
     reason_text = f"{reason} (oleh {actor_id})"[:400] if actor_id else reason[:400]
 
@@ -278,6 +307,7 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
             )
             role_map[_norm(item["name"])] = role
             result["roles"] += 1
+            result["created"]["roles"].append(created_item(role, item["name"]))
         except (discord.Forbidden, discord.HTTPException, TypeError) as exc:
             result["errors"].append(f"role `{item['name']}`: {type(exc).__name__}")
         await asyncio.sleep(CREATE_DELAY_SEC)
@@ -289,6 +319,7 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
             category = await guild.create_category(name=item["name"], reason=reason_text)
             category_map[_norm(item["name"])] = category
             result["categories"] += 1
+            result["created"]["categories"].append(created_item(category, item["name"]))
             result["overwrites"] += await _apply_overwrites(category, item.get("overwrites"), role_map)
         except (discord.Forbidden, discord.HTTPException, TypeError) as exc:
             result["errors"].append(f"kategori `{item['name']}`: {type(exc).__name__}")
@@ -304,7 +335,13 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
             continue
 
         kwargs: dict = {"name": item["name"], "reason": reason_text}
-        category = category_map.get(_norm(item.get("category")))
+        category_name = str(item.get("category") or "").strip()
+        category = category_map.get(_norm(category_name)) if category_name else None
+        if category_name and category is None:
+            result["errors"].append(
+                f"channel `{item['name']}`: kategori `{category_name}` tidak tersedia"
+            )
+            continue
         if category is not None:
             kwargs["category"] = category
 
@@ -324,6 +361,7 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
         try:
             channel = await creator(**kwargs)
             result["channels"] += 1
+            result["created"]["channels"].append(created_item(channel, item["name"]))
             result["overwrites"] += await _apply_overwrites(channel, item.get("overwrites"), role_map)
         except (discord.Forbidden, discord.HTTPException, TypeError) as exc:
             result["errors"].append(f"channel `{item['name']}`: {type(exc).__name__}")
