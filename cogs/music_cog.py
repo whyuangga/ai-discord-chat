@@ -1055,6 +1055,104 @@ async def playlist_hapus_cmd(interaction: discord.Interaction, nama: str):
         except discord.HTTPException:  # pragma: no cover
             pass
 
+async def _on_wavelink_node_ready(bot, payload) -> None:
+    node = getattr(payload, "node", None)
+    logger.info(
+        "✅ Node Lavalink siap: %s (%s) | sesi %s | %s player",
+        getattr(node, "identifier", "?"),
+        getattr(node, "uri", "?"),
+        getattr(payload, "session_id", "?"),
+        len(getattr(node, "players", {}) or {}),
+    )
+
+
+async def _on_wavelink_node_closed(bot, node, players) -> None:
+    """Node terputus: beri peringatan di log + jadwalkan reconnect (tanpa loop baru)."""
+    logger.warning(
+        "⚠️ Node Lavalink terputus: %s (%s) | %s player terputus. "
+        "Mencoba menyambung ulang otomatis…",
+        getattr(node, "identifier", "?"),
+        getattr(node, "uri", "?"),
+        len(players or []),
+    )
+    try:
+        await asyncio.sleep(3)
+        await ensure_nodes_alive(bot, force=True)
+    except Exception as exc:  # pragma: no cover - reconnect gagal
+        logger.warning("Reconnect Lavalink gagal: %s", exc)
+
+
+async def _on_wavelink_track_start(bot, payload) -> None:
+    player = getattr(payload, "player", None)
+    track = getattr(payload, "track", None)
+    if player is None or track is None:
+        return
+    guild = getattr(player, "guild", None)
+    if guild is None:
+        return
+
+    cfg = get_music_settings(guild.id)
+    if not cfg.get("announce", True):
+        return
+
+    # Rythm-style: satu panel per server yang di-EDIT setiap ganti lagu.
+    channel_id = announce_channels.get(guild.id) or (music_panels.get(guild.id) or {}).get("channel_id")
+    channel = bot.get_channel(channel_id) if channel_id else None
+    if channel is None and guild.id not in music_panels:
+        return
+    try:
+        await send_or_update_panel(
+            bot,
+            guild.id,
+            channel=channel,
+            view=MusicPlayerView(),
+        )
+    except discord.HTTPException:
+        pass
+
+
+async def _on_wavelink_track_exception(bot, payload) -> None:
+    player = getattr(payload, "player", None)
+    track = getattr(payload, "track", None)
+    logger.warning(
+        "Lagu gagal diputar (%s): %s",
+        track_title(track) if track else "?",
+        getattr(payload, "exception", "unknown"),
+    )
+    guild = getattr(player, "guild", None)
+    channel_id = announce_channels.get(guild.id) if guild else None
+    channel = bot.get_channel(channel_id) if channel_id else None
+    if channel is not None:
+        try:
+            await channel.send(
+                f"⚠️ Gagal memutar **{track_title(track)}** (sumber menolak/musik tidak tersedia). "
+                "Lagu dilewati otomatis.",
+            )
+        except discord.HTTPException:
+            pass
+
+
+async def _on_wavelink_inactive_player(bot, player) -> None:
+    guild = getattr(player, "guild", None)
+    channel_id = announce_channels.get(getattr(guild, "id", 0))
+    channel = bot.get_channel(channel_id) if channel_id else None
+    if channel is not None:
+        try:
+            await channel.send(
+                "👋 Tidak ada lagu & tidak ada aktivitas, bot keluar dari voice channel. "
+                "Panggil lagi dengan `/musik putar`."
+            )
+        except discord.HTTPException:
+            pass
+    if guild is not None:
+        music.forget_announce_channel(guild.id)
+        await close_panel(bot, guild.id)
+    try:
+        await player.disconnect()
+    except Exception as exc:  # pragma: no cover - sudah terputus
+        logger.debug("Efek samping opsional gagal: %s", exc)
+
+
 def register_music_cog(bot: commands.Bot) -> None:
     """Mendaftarkan `/musik` beserta listener event Lavalink (bila library tersedia)."""
     bot.tree.add_command(musik_group)
@@ -1063,100 +1161,12 @@ def register_music_cog(bot: commands.Bot) -> None:
         logger.warning("wavelink belum terpasang — command /musik hanya menampilkan panduan setup.")
         return
 
-    @bot.event
-    async def on_wavelink_node_ready(payload) -> None:
-        node = getattr(payload, "node", None)
-        logger.info(
-            "✅ Node Lavalink siap: %s (%s) | sesi %s | %s player",
-            getattr(node, "identifier", "?"),
-            getattr(node, "uri", "?"),
-            getattr(payload, "session_id", "?"),
-            len(getattr(node, "players", {}) or {}),
-        )
 
-    @bot.event
-    async def on_wavelink_node_closed(node, players) -> None:
-        """Node terputus: beri peringatan di log + jadwalkan reconnect (tanpa loop baru)."""
-        logger.warning(
-            "⚠️ Node Lavalink terputus: %s (%s) | %s player terputus. "
-            "Mencoba menyambung ulang otomatis…",
-            getattr(node, "identifier", "?"),
-            getattr(node, "uri", "?"),
-            len(players or []),
-        )
-        try:
-            await asyncio.sleep(3)
-            await ensure_nodes_alive(bot, force=True)
-        except Exception as exc:  # pragma: no cover - reconnect gagal
-            logger.warning("Reconnect Lavalink gagal: %s", exc)
-
-    @bot.event
-    async def on_wavelink_track_start(payload) -> None:
-        player = getattr(payload, "player", None)
-        track = getattr(payload, "track", None)
-        if player is None or track is None:
-            return
-        guild = getattr(player, "guild", None)
-        if guild is None:
-            return
-
-        cfg = get_music_settings(guild.id)
-        if not cfg.get("announce", True):
-            return
-
-        # Rythm-style: satu panel per server yang di-EDIT setiap ganti lagu.
-        channel_id = announce_channels.get(guild.id) or (music_panels.get(guild.id) or {}).get("channel_id")
-        channel = bot.get_channel(channel_id) if channel_id else None
-        if channel is None and guild.id not in music_panels:
-            return
-        try:
-            await send_or_update_panel(
-                bot,
-                guild.id,
-                channel=channel,
-                view=MusicPlayerView(),
-            )
-        except discord.HTTPException:
-            pass
-
-    @bot.event
-    async def on_wavelink_track_exception(payload) -> None:
-        player = getattr(payload, "player", None)
-        track = getattr(payload, "track", None)
-        logger.warning(
-            "Lagu gagal diputar (%s): %s",
-            track_title(track) if track else "?",
-            getattr(payload, "exception", "unknown"),
-        )
-        guild = getattr(player, "guild", None)
-        channel_id = announce_channels.get(guild.id) if guild else None
-        channel = bot.get_channel(channel_id) if channel_id else None
-        if channel is not None:
-            try:
-                await channel.send(
-                    f"⚠️ Gagal memutar **{track_title(track)}** (sumber menolak/musik tidak tersedia). "
-                    "Lagu dilewati otomatis.",
-                )
-            except discord.HTTPException:
-                pass
-
-    @bot.event
-    async def on_wavelink_inactive_player(player) -> None:
-        guild = getattr(player, "guild", None)
-        channel_id = announce_channels.get(getattr(guild, "id", 0))
-        channel = bot.get_channel(channel_id) if channel_id else None
-        if channel is not None:
-            try:
-                await channel.send(
-                    "👋 Tidak ada lagu & tidak ada aktivitas, bot keluar dari voice channel. "
-                    "Panggil lagi dengan `/musik putar`."
-                )
-            except discord.HTTPException:
-                pass
-        if guild is not None:
-            music.forget_announce_channel(guild.id)
-            await close_panel(bot, guild.id)
-        try:
-            await player.disconnect()
-        except Exception as exc:  # pragma: no cover - sudah terputus
-            logger.debug("Efek samping opsional gagal: %s", exc)
+    for handler in (
+        _on_wavelink_node_ready,
+        _on_wavelink_node_closed,
+        _on_wavelink_track_start,
+        _on_wavelink_track_exception,
+        _on_wavelink_inactive_player,
+    ):
+        bot.event(handler)
