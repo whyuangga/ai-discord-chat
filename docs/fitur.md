@@ -727,6 +727,30 @@ Detail penting:
 - Tombol tes **Highlight kata kunci** hanya menyimulasikan pencocokan kalimat contoh —
   tidak ada DM yang dikirim.
 
+### 14. 💌 Curhat Anonim (`/curhat`)
+
+Satu channel khusus untuk **curhat tanpa nama** ala bot besar. Pesan diposting bot dengan
+nomor urut dan tanpa penulis; bot **tidak menyimpan isi curhat**. 0 kuota AI.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/curhat kirim teks:…` | Kirim curhat anonim ke channel yang sudah diatur. |
+| `/curhat atur channel:… aktif:… izinkan_link:… jeda_menit:…` | *(Admin)* Pilih channel, sakelar, izin tautan, jeda per orang. |
+| `/curhat hapus nomor:…` | *(staf)* Hapus curhat yang melanggar + catatannya. |
+
+Detail penting:
+- **Batas:** 10–900 huruf, maksimal **3 curhat/jam** per penanda penulis, jeda bawaan **5 menit**.
+- **Tautan** diblokir kecuali Admin mengizinkan (`izinkan_link`).
+- Identitas penulis hanya disimpan sebagai **hash 12 huruf** (`sha256`) — cukup untuk
+  menegakkan jeda, tapi tidak membocorkan siapa penulisnya.
+- `data/confessions.json` hanya berisi setelan, **nomor**, `pesan_id`, `channel_id`, waktu,
+  dan hash — **tanpa teks curhat**.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *💌 Curhat anonim* — channel,
+  sakelar, izin tautan, jeda, daftar curhat terakhir (nomor + penanda hash) + tombol hapus
+  catatan. Jalur tulis: `POST /api/konten` (`curhat-setelan`, `curhat-hapus:<nomor>`).
+- Tombol tes **Curhat anonim** menjalankan validasi aturan pada kalimat contoh — tidak ada
+  pesan yang diposting dan nomor tidak terpakai.
+
 ## F. Streaming Musik 24/7 (`/musik` + Lavalink)
 
 > ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.

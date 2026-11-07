@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "curhat",
+        "label": "Curhat anonim",
+        "emoji": "💌",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Uji aturan curhat (panjang, tautan, jeda) tanpa memposting apa pun.",
+    },
+    {
         "kunci": "snipe",
         "label": "Snipe & EditSnipe",
         "emoji": "🔎",
@@ -196,6 +205,7 @@ ANCHOR_UJI: dict[str, str] = {
     "lencana": "p-lencana",
     "pantau": "p-pantau",
     "snipe": "p-snipe",
+    "curhat": "p-curhat",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -577,6 +587,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "curhat":
+            return _uji_curhat(gid)
         if kunci == "snipe":
             return _uji_snipe(gid)
         if kunci == "pantau":
@@ -599,6 +611,31 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_curhat(guild_id: int) -> tuple[bool, str]:
+    """Simulasi curhat: cek aturan panjang/link/jeda, tanpa memposting."""
+    import confessions
+
+    data = confessions.statistik(guild_id)
+    if not data["dinyalakan"]:
+        return False, (
+            "Curhat anonim belum dinyalakan. Atur di halaman **Konten & interaksi** → "
+            "panel *💌 Curhat anonim*."
+        )
+    if not data["channel_id"]:
+        return False, "Channel curhat belum dipilih, jadi fitur belum bisa dipakai."
+
+    contoh = "Ini contoh curhat untuk simulasi: aku capek banget minggu ini."
+    boleh, pesan = confessions.validasi(guild_id, 1, contoh)
+    if not boleh:
+        return False, f"Aturan curhat menolak contoh: {pesan}"
+    pendek, alasan = confessions.validasi(guild_id, 1, "halo")
+    return True, (
+        f"Aturan curhat berjalan: contoh kalimat **diterima** (nomor berikutnya "
+        f"#{data['nomor_terakhir'] + 1}), kalimat terlalu pendek ditolak dengan pesan "
+        f"“{alasan}”. Simulasi saja — tidak ada yang diposting dan tidak ada nomor terpakai."
+    )
 
 
 def _uji_snipe(guild_id: int) -> tuple[bool, str]:

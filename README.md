@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **59 command utama** (272 subcommand) · **835 tes otomatis**
+> **Versi `v1.40.0-beta`** · **60 command utama** (275 subcommand) · **860 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -559,6 +559,7 @@ ai-discord-chat/
 │   ├── lencana_cog.py     # /lencana — lencana bertingkat + pemberian otomatis saat naik
 │   ├── tags_cog.py        # /tag — tag jawaban siap pakai (lihat/daftar/cari/buat/ubah/hapus)
 │   ├── highlights_cog.py  # /pantau — kata kunci → DM (0 kuota AI)
+│   ├── confessions_cog.py # /curhat — curhat anonim ke satu channel (0 kuota AI)
 │   ├── snipe_cog.py       # /snipe — pesan terakhir yang dihapus/diubah (staf)
 │   ├── translate_cog.py   # /terjemah — terjemahan ter-cache
 │   ├── language_cog.py    # /bahasa — antarmuka ID/EN per server
@@ -593,6 +594,8 @@ ai-discord-chat/
 │   ├── tags.py             # Tag jawaban siap pakai (`/tag`) — 0 kuota AI
 │   ├── highlights.py       # Highlight kata kunci → DM (`/pantau`), tanpa simpan isi pesan
 │   ├── dashboard_highlights.py # Panel highlight di halaman Konten & interaksi
+│   ├── confessions.py      # Curhat anonim (`/curhat`) — tanpa menyimpan isi curhat
+│   ├── dashboard_curhat.py # Panel curhat di halaman Konten & interaksi
 │   ├── snipe.py            # Snipe & EditSnipe — memori saja, maks 5 pesan/channel
 │   ├── dashboard_snipe.py  # Panel snipe di halaman Moderasi
 │   ├── dashboard_tags.py   # Panel tag di halaman Konten & interaksi
@@ -663,7 +666,7 @@ ai-discord-chat/
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md          # Referensi 59 command utama, 272 subcommand, & tombol panel
+│   ├── command.md          # Referensi 60 command utama, 275 subcommand, & tombol panel
 │   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
 │   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
@@ -676,7 +679,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 46 berkas pytest → 840 tes (835 lulus, 5 dilewati)
+├── tests/                  # 47 berkas pytest → 860 tes (855 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

@@ -53,12 +53,12 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 | **Tags** (`/tag buat/lihat/hapus`) | Arclo | Jawaban server disimpan sekali, dipanggil kapan saja — pengganti FAQ manual, sangat sering dipakai | S | ★★★ | **C** ✅ v1.40 |
 | **Achievements** (badge bertingkat + role reward + papan sendiri) | Arclo | Memberi alasan **kembali** selain level; bisa memakai data yang sudah kita catat | M | ★★★ | **C** ✅ v1.40 |
 | **Highlights** (kata kunci → DM) | wisp | Sangat murah, langsung terasa: orang tidak perlu membaca seluruh channel | S | ★★★ | **C** ✅ v1.40 |
-| **Confessions** (anonim + moderasi) | wisp | Kanal engagement klasik; moderasi tetap jalan lewat antispam | S | ★★ | **C** |
+| **Confessions** (anonim + moderasi) | wisp | Kanal engagement klasik; moderasi tetap jalan lewat antispam | S | ★★ | **C** ✅ v1.40 |
 | **Snipe / EditSnipe** | wisp | Kecil, lucu, berguna untuk staf | S | ★★ | **C** ✅ v1.40 |
-| **Honeypot + penguji aturan** | Arclo | Menangkap self-bot yang lolos dari filter kata; penguji membuat staf berani mengubah aturan | M | ★★★ | **B** |
-| **`/report` + antrean banding** | Arclo, wisp | Tanpa ini, moderasi kita satu arah: member tidak punya jalur resmi | M | ★★★ | **B** |
-| **tempban / softban / note** | wisp | Melengkapi tangga hukuman yang sudah ada | S | ★★ | **B** |
-| **Kartu rank PNG** | Arclo, AdmiBot | Kartu level yang bisa dibanggakan; Pillow sudah dipakai untuk kartu sambutan | M | ★★★ | **A** |
+| **Honeypot + penguji aturan** | Arclo | Menangkap self-bot yang lolos dari filter kata; penguji membuat staf berani mengubah aturan | M | ★★★ | **B** ✅ v1.40 |
+| **`/report` + antrean banding** | Arclo, wisp | Tanpa ini, moderasi kita satu arah: member tidak punya jalur resmi | M | ★★★ | **B** ✅ v1.40 |
+| **tempban / softban / note** | wisp | Melengkapi tangga hukuman yang sudah ada | S | ★★ | **B** ✅ v1.40 |
+| **Kartu rank PNG** | Arclo, AdmiBot | Kartu level yang bisa dibanggakan; Pillow sudah dipakai untuk kartu sambutan | M | ★★★ | **A** ✅ v1.40 |
 | **Voice linking** | Arclo | Role + chat privat otomatis selama di voice | S | ★★ | **D** |
 | **Information channel** | Arclo | Channel baca-saja berisi aturan & info, disegarkan sendiri | S | ★★ | **D** |
 | **Reddit / RSS generik** | Axis | Sumber konten baru tanpa API key | S | ★★ | **D** |
@@ -151,6 +151,10 @@ Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·
    batas kata, jeda 5 menit per kata, batas DM/menit, tanpa menyimpan isi pesan) + panel
    *🔔 Highlight kata kunci* di halaman Konten & interaksi + tombol uji simulasi.
 4. **Confessions** (channel anonim, moderasi lewat antispam).
+   ✅ **Sudah jalan** (v1.40): modul `confessions.py` (maks 300 curhat/server, 10–900 huruf,
+   3/jam per hash penulis, jeda bawaan 5 menit, **tanpa menyimpan isi curhat**) +
+   `/curhat kirim|atur|hapus` + panel *💌 Curhat anonim* di halaman Konten & interaksi +
+   tombol uji simulasi; blokir tautan opsional, identitas penulis hanya hash 12 huruf.
 5. **Snipe / EditSnipe**.
    ✅ **Sudah jalan** (v1.40): modul `snipe.py` (memori saja, maks 5 pesan/channel, 300 channel)
    + `/snipe hapus|edit|atur` (izin *Manage Messages*) + panel *🔎 Snipe & EditSnipe* di halaman
@@ -159,7 +163,10 @@ Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·
 Berkas: modul baru (`tags.py`, `achievements.py`, `highlights.py`, `confessions.py`) +
 cog baru + entri dashboard + docs + tes.
 Sudah ada: `tags.py` + `cogs/tags_cog.py` + `dashboard_tags.py` (C#1),
-`achievements.py` + `cogs/lencana_cog.py` + `dashboard_lencana.py` (C#2).
+`achievements.py` + `cogs/lencana_cog.py` + `dashboard_lencana.py` (C#2),
+`highlights.py` + `cogs/highlights_cog.py` + `dashboard_highlights.py` (C#3),
+`confessions.py` + `cogs/confessions_cog.py` + `dashboard_curhat.py` (C#4),
+`snipe.py` + `cogs/snipe_cog.py` + `dashboard_snipe.py` (C#5).
 
 ### Paket D — Integrasi & pelengkap
 

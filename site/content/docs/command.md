@@ -83,6 +83,9 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/pantau abaikan` | `channel`, `kata` | Abaikan channel atau kata tertentu. |
 | `/pantau bersihkan` | — | Hapus semua setelan highlight milikmu. |
 | `/pantau atur` | `aktif`, `abaikan_channel` | *(Admin)* Sakelar server & channel yang selalu diabaikan. |
+| `/curhat kirim` | `teks` | Kirim curhat anonim ke satu channel (10–900 huruf, maks 3/jam). |
+| `/curhat atur` | `channel`, `aktif`, `izinkan_link`, `jeda_menit` | *(Admin)* Setelan channel, sakelar, izin tautan, & jeda per orang. |
+| `/curhat hapus` | `nomor` | *(Staf)* Hapus satu curhat yang melanggar. |
 | `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
 | `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |
 | `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |
