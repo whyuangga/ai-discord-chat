@@ -106,7 +106,7 @@ def test_dokumen_menyebut_jumlah_yang_benar():
     assert int(jumlah.group(1)) == len(list((ROOT / "tests").glob("test_*.py")))
 
     fitur = (ROOT / "docs" / "fitur.md").read_text(encoding="utf-8")
-    assert "**55 setelan" in fitur or "55 fitur" in fitur
+    assert "**56 setelan" in fitur or "56 fitur" in fitur
 
 
 def test_env_example_mencakup_variabel_penting():

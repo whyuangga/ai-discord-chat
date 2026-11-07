@@ -341,9 +341,9 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
             assert "Tes fitur" in body and "uji.welcome" in body
             assert "👣 Pesan perpisahan" in body and "💎 Ucapan boost" in body
             assert 'aria-current="page"' in body
-        # Bookmark lama /uji dialihkan ke Ringkasan
+        # Bookmark lama /uji dialihkan ke halaman AI setelah diagnostik dipindahkan
         async with session.get(f"{base}/uji?{halaman}", allow_redirects=False) as resp:
-            assert resp.status == 303 and resp.headers["Location"].startswith("/?")
+            assert resp.status == 303 and resp.headers["Location"].startswith("/ai?")
 
         # Tombol tes → 303 kembali ke halaman fiturnya + pesan
         async with session.post(

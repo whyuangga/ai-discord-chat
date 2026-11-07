@@ -42,7 +42,7 @@ Kolom **Paket** menunjuk ke roadmap di bagian 5.
 | **Statistik channel** | Member, boost, dll. | Member, role, boost, **tiket**, **pengikut sosial** | Tambah sumber angka tiket & sosial | **D** |
 | **Notifikasi sosial** | YouTube, Twitch, TikTok/RSS | **14 platform** satu mesin | Tambah Reddit & RSS generik (tanpa API key) | **D** |
 | **Formulir (modal)** | Buat & kirim formulir | **Antrean submission** yang direview | Daftar kiriman + status di dashboard | **D** |
-| **Dashboard** | 13 halaman, 55 setelan, 13 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
+| **Dashboard** | 14 halaman, 56 setelan, 24 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
 
 ## 3. Fitur BARU yang layak diambil
 

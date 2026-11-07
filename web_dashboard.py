@@ -1,5 +1,5 @@
 """Dashboard web ringan: status bot, pemakaian AI, **setelan server**, dan
-pengiriman embed/webhook — 0 kuota AI.
+pengiriman embed/webhook; fitur AI dijalankan hanya atas permintaan operator.
 
 Prinsip desain:
 
@@ -8,9 +8,8 @@ Prinsip desain:
    hemat RAM (±2–4 MB).
 2. **Baca + tulis terkendali** — halaman `GET /` tidak pernah mengubah apa pun
    (tidak ada efek samping saat membaca setelan).
-   Semua perubahan lewat `POST /api/aksi` (setelan), `POST /api/kirim` (pesan/embed),
-   dan `POST /api/konten` (pengumuman/tautan/panel/hapus) yang selalu memeriksa token
-   dan hanya menjalankan aksi dari whitelist `dashboard_admin`.
+   Semua perubahan lewat endpoint `POST` bertoken. Setelan memakai whitelist
+   `dashboard_admin`; aksi AI `/gambar` dan prompt server tidak mencatat isi prompt/gambar.
 3. **Opt-in** — dashboard hanya menyala bila `DASHBOARD_TOKEN` diisi **dan** ada port
    (`DASHBOARD_PORT`, atau `SERVER_PORT`/`PORT` dari panel hosting seperti Wispbyte).
 4. **Tanpa JavaScript wajib** — HTML dirender di server + `meta refresh`, sehingga
@@ -28,9 +27,10 @@ Endpoint:
 | `/api/level?guild=<id>` | JSON papan peringkat level |
 | `/api/kontrol?guild=<id>` | JSON status 5 sakelar cepat (level, ekonomi, tumbuh, antispam, antinuke) |
 | `/api/fitur?guild=<id>` | JSON peta fitur server |
-| `/api/setelan?guild=<id>` | JSON semua setelan (48 fitur) + nilai sekarang |
+| `/api/setelan?guild=<id>` | JSON semua setelan (56 fitur) + nilai sekarang |
 | `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
 | `POST /api/bangun` | Pratinjau tema/AI, terapkan, batal, riwayat & bongkar item `/bangun` tercatat |
+| `POST /api/ai` | Buat gambar di channel pilihan atau simpan prompt kepribadian AI server |
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
 | `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu; ganti/hapus banner panel |
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
@@ -51,6 +51,7 @@ from urllib.parse import urlencode
 
 import dashboard_admin
 import dashboard_bangun
+import dashboard_ai
 import dashboard_curhat
 import dashboard_giveaway
 import dashboard_keamanan
@@ -618,8 +619,15 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "",
         "menu": "📡 Ringkasan",
         "judul": "📡 Ringkasan",
-        "keterangan": "Status bot, pemakaian AI, tren 7 hari, papan peringkat, & tes koneksi AI.",
-        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level", "p-ai"),
+        "keterangan": "Status bot, pemakaian AI, tren 7 hari, & papan peringkat.",
+        "panel": ("p-status", "p-pemakaian", "p-jenis", "p-tren", "p-channel", "p-level"),
+    },
+    {
+        "slug": "ai",
+        "menu": "🤖 AI & Privasi",
+        "judul": "🤖 AI & Privasi",
+        "keterangan": "Buat gambar, atur kepribadian AI server, jalankan tes koneksi, dan ikuti jalur privasi mandiri.",
+        "panel": ("p-gambar", "p-ai-settings", "p-privasi", "p-ai"),
     },
     {
         "slug": "sambutan",
@@ -736,7 +744,7 @@ ANCHOR_HALAMAN.update({
     "p-goodbye": "sambutan",
     "p-boost-slot": "sambutan",
 })
-LEGACY_HALAMAN: dict[str, str] = {"uji": "", "setelan": "inti", "perpisahan": "sambutan",
+LEGACY_HALAMAN: dict[str, str] = {"uji": "ai", "setelan": "inti", "perpisahan": "sambutan",
                                   "boost": "sambutan"}
 
 # Setelan sambutan/pamit/boost dipisah per bagian di halamannya masing-masing.
@@ -783,7 +791,8 @@ BAGIAN_SAMBUTAN: tuple[tuple[str, str, str, str], ...] = (
 # Kartu & tes yang menempel di halaman selain halaman bagian sambutan.
 KARTU_HALAMAN: dict[str, tuple[str, ...]] = {"sambutan": ("welcome", "goodbye", "boost")}
 UJI_HALAMAN: dict[str, tuple[str, ...]] = {
-    "": ("ai",),
+    "": (),
+    "ai": ("ai",),
     "buat": ("pengumuman", "formulir"),
     "panel": ("panel",),
     "tiket": ("tiket",),
@@ -975,6 +984,29 @@ def _panel_ai(d: dict) -> str:
     )
 
 
+def _panel_gambar(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-gambar">\n    <h2>🎨 Generator gambar AI</h2>\n'
+        '    <p class="muted">Masukkan prompt, pilih channel dan gaya, lalu kirim hasilnya. '
+        'Form ini tidak berjalan sampai tombol ditekan.</p>\n'
+        f'    {d["gambar_block"]}\n  </div>'
+    )
+
+
+def _panel_ai_settings(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-ai-settings">\n    <h2>🧠 Kepribadian AI server</h2>\n'
+        f'    {d["ai_prompt_block"]}\n  </div>'
+    )
+
+
+def _panel_privasi(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-privasi">\n    <h2>🔐 Privasi data member</h2>\n'
+        f'    {d["ai_privasi_block"]}\n  </div>'
+    )
+
+
 def _label_tes(blok: str) -> str:
     """Beri judul kecil di atas tombol tes (kalau blok tesnya ada)."""
     if not blok:
@@ -1065,6 +1097,9 @@ PANEL: dict[str, object] = {
     "p-tiket": _panel_tiket,
     "p-banner": _panel_banner,
     "p-ai": _panel_ai,
+    "p-gambar": _panel_gambar,
+    "p-ai-settings": _panel_ai_settings,
+    "p-privasi": _panel_privasi,
     "p-sambutan": _panel_sambutan,
     "p-inti": _panel_grup(
         "p-inti", "⚙️ Inti, level, &amp; ekonomi",
@@ -1184,6 +1219,9 @@ def render_dashboard_html(
     form_inbox_block: str = "",
     stats_block: str = "",
     bangun_block: str = "",
+    gambar_block: str = "",
+    ai_prompt_block: str = "",
+    ai_privasi_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1278,6 +1316,9 @@ def render_dashboard_html(
         "form_inbox_block": form_inbox_block or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
         "stats_block": stats_block or '<div class="muted">Panel statistik tidak tersedia.</div>',
         "bangun_block": bangun_block or '<div class="muted">Panel bangun tidak tersedia.</div>',
+        "gambar_block": gambar_block or '<div class="muted">Generator gambar tidak tersedia.</div>',
+        "ai_prompt_block": ai_prompt_block or '<div class="muted">Prompt AI server tidak tersedia.</div>',
+        "ai_privasi_block": ai_privasi_block or '<div class="muted">Informasi privasi tidak tersedia.</div>',
         "pantau_block": pantau_block
         or '<div class="muted">Panel highlight tidak tersedia.</div>',
         "lencana_block": lencana_block
@@ -1797,6 +1838,18 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_bangun.render_bangun_block(bot, gid, token),
             '<div class="muted">Panel bangun tidak tersedia.</div>',
         )
+        gambar_block = _blok(
+            lambda: dashboard_ai.render_gambar_block(bot, gid, token),
+            '<div class="muted">Generator gambar tidak tersedia.</div>',
+        )
+        ai_prompt_block = _blok(
+            lambda: dashboard_ai.render_prompt_server_block(gid, token),
+            '<div class="muted">Prompt AI server tidak tersedia.</div>',
+        )
+        ai_privasi_block = _blok(
+            dashboard_ai.render_privasi_block,
+            '<div class="muted">Informasi privasi tidak tersedia.</div>',
+        )
         info_block = _blok(
             lambda: dashboard_info.render_info_block(bot, gid, token),
             '<div class="muted">Panel channel info tidak tersedia.</div>',
@@ -1895,6 +1948,9 @@ async def start_dashboard(bot) -> bool:
             form_inbox_block=form_inbox_block,
             stats_block=stats_block,
             bangun_block=bangun_block,
+            gambar_block=gambar_block,
+            ai_prompt_block=ai_prompt_block,
+            ai_privasi_block=ai_privasi_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -2625,6 +2681,53 @@ async def start_dashboard(bot) -> bool:
         logger.info("Dashboard bangun aksi %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-bangun", request)
 
+    async def handle_ai(request):
+        """Buat gambar di Discord atau simpan prompt kepribadian AI server."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or payload.get("aksi") or "-").strip().lower()
+        try:
+            ok, message = await dashboard_ai.proses_aksi(bot, gid, payload)
+        except Exception as exc:  # pragma: no cover - kegagalan Discord/API tak terduga
+            logger.warning("Dashboard AI %s gagal (server %s): %s", aksi, gid, type(exc).__name__)
+            ok, message = False, f"Aksi AI gagal ({type(exc).__name__})."
+
+        # Audit hanya metadata; prompt dan isi gambar/lampiran tidak pernah dicatat.
+        if aksi == "gambar":
+            nilai_audit = (
+                f"channel={_id_aman(payload.get('channel_id'))}; "
+                f"gaya={str(payload.get('style') or 'channel')[:32]}; "
+                f"rasio={str(payload.get('ratio') or 'channel')[:32]}; "
+                f"prompt {len(str(payload.get('prompt') or ''))} huruf"
+            )
+            anchor = "p-gambar"
+        elif aksi == "prompt-server":
+            nilai_audit = f"prompt {len(str(payload.get('prompt_server') or ''))} huruf (isi tidak dicatat)"
+            anchor = "p-ai-settings"
+        else:
+            nilai_audit, anchor = aksi[:100], "p-ai"
+        pesan_audit = (
+            ("Gambar dibuat dan dikirim." if ok else "Gambar gagal; detail tidak disimpan di audit.")
+            if aksi == "gambar" else message
+        )
+        await dashboard_admin.audit_append(
+            gid, f"ai.{aksi}"[:64], nilai_audit[:180], ok=ok, pesan=pesan_audit[:180]
+        )
+        logger.info(
+            "Dashboard AI %s (server %s): %s",
+            aksi, gid, ("berhasil" if ok else "gagal") if aksi == "gambar" else message,
+        )
+        return _jawab(gid, ok, message, anchor, request)
+
     async def handle_uji(request):
         """Jalankan satu tes fitur. Subjek tes opsional — default pemilik server."""
         if request.method != "POST":
@@ -2770,6 +2873,7 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/unggah", handle_unggah)
     app.router.add_post("/api/uji", handle_uji)
     app.router.add_post("/api/bangun", handle_bangun)
+    app.router.add_post("/api/ai", handle_ai)
     app.router.add_get("/api/kartu/{jenis}", handle_kartu)
     app.router.add_get("/api/rank.png", handle_rank_png)
     app.router.add_get("/api/ekspor", handle_ekspor)
@@ -2804,7 +2908,7 @@ async def start_dashboard(bot) -> bool:
         await _site.start()
         logger.info(
             "🛰️ Dashboard web aktif di http://%s:%s/?token=*** "
-            "(%s setelan, kirim embed/webhook, 0 kuota AI)",
+            "(%s setelan, kirim embed/webhook; AI hanya saat diminta)",
             cfg["host"],
             cfg["port"],
             len(dashboard_admin.FITUR),

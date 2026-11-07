@@ -284,7 +284,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-statistik": "**Konten & interaksi**",
     "p-buat": "**Buat konten**",
     "p-panel": "**Editor panel**",
-    "p-ai": "**Ringkasan**",
+    "p-ai": "**AI & Privasi**",
     "p-ekspor": "**Ekspor**",
     "p-giveaway": "**Giveaway**",
     "p-rank": "**Inti, level, & ekonomi**",

@@ -31,7 +31,7 @@ def test_halaman_sesuai_kelompok_fitur():
     slug = [h["slug"] for h in web_dashboard.HALAMAN]
     # Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
     # Satu halaman per grup setelan — sambutan/pamit/boost digabung.
-    assert slug == ["", "sambutan", "inti", "keamanan", "moderasi", "tiket", "konten",
+    assert slug == ["", "ai", "sambutan", "inti", "keamanan", "moderasi", "tiket", "konten",
                     "bangun", "giveaway", "kirim", "buat", "panel", "ekspor"]
     assert "uji" not in slug and "setelan" not in slug
 
@@ -82,6 +82,9 @@ def test_url_halaman_dan_pemetaan_anchor():
     assert web_dashboard.halaman_dari_anchor("p-riwayat") == "ekspor"
     assert web_dashboard.halaman_dari_anchor("p-sambutan") == "sambutan"
     assert web_dashboard.halaman_dari_anchor("p-bangun") == "bangun"
+    assert web_dashboard.halaman_dari_anchor("p-gambar") == "ai"
+    assert web_dashboard.halaman_dari_anchor("p-ai-settings") == "ai"
+    assert web_dashboard.halaman_dari_anchor("p-privasi") == "ai"
     assert web_dashboard.halaman_dari_anchor("p-konten") == "konten"
     assert web_dashboard.halaman_dari_anchor("p-keamanan") == "keamanan"
     # Bookmark lama tetap nyasar ke tempat yang benar
@@ -178,6 +181,12 @@ async def test_bookmark_lama_dialihkan_ke_halaman_baru(monkeypatch, tmp_path):
         ) as resp:
             assert resp.status == 303
             assert resp.headers["Location"] == f"/inti?token={TOKEN}&guild={GID}"
+
+        async with session.get(
+            f"{base}/uji?token={TOKEN}&guild={GID}", allow_redirects=False
+        ) as resp:
+            assert resp.status == 303
+            assert resp.headers["Location"] == f"/ai?token={TOKEN}&guild={GID}"
 
         # Halaman yang sama tidak me-redirect terus-menerus
         async with session.get(

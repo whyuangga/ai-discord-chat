@@ -19,8 +19,8 @@
 Dari pertanyaan ini muncul dua hal berbeda yang sering tercampur:
 
 1. **Mengatur fitur bot dari browser** → ini sudah ada (`web_dashboard.py` +
-   `dashboard_admin.py`): **55 setelan dalam 13 halaman**, kirim embed/webhook, unggah
-   banner & kartu sambutan, kotak masuk tiket, pengelolaan pengumuman/tautan/panel, serta halaman `/bangun` (pratinjau, Terapkan eksplisit, rollback terbatas).
+   `dashboard_admin.py`): **56 setelan dalam 14 halaman**, kirim embed/webhook, unggah
+   banner & kartu sambutan, kotak masuk tiket, pengelolaan pengumuman/tautan/panel, halaman `/bangun`, dan halaman `/ai` (buat gambar + prompt server). Privasi `/dataku` dan `/hapusdataku` tetap dikunci pada identitas pemilik lewat Discord; token dashboard tunggal tidak menerima ID untuk mengakses data member lain.
 2. **Pengguna lain memasukkan rahasia sendiri** (token bot, API key) → ini fitur baru, dan
    sebagian **tidak mungkin** dilakukan.
 
@@ -102,7 +102,7 @@ Batas Free Tier Wispbyte tetap: **1 proses, ~52 MB RAM, tanpa DB/Redis, butuh po
 ## 7. Prinsip yang tidak berubah apa pun keputusannya
 
 - Free Tier: 1 proses, JSON storage, tanpa DB/Redis, RAM tetap kecil.
-- **0 kuota AI** untuk UI, dashboard, dan alert.
+- Membuka/mengatur UI tidak memanggil AI; panggilan `/gambar` dan rancangan `/bangun` terjadi hanya setelah diminta.
 - Tidak mengganggu obrolan normal di channel publik.
 - Menu/tombol Discord tetap jalan penuh walau dashboard mati (dashboard hanya jalan pintas).
 

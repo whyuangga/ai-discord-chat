@@ -7,10 +7,10 @@ toc: true
 ---
 
 Satu server web ringan (proses yang sama dengan bot) untuk memantau **dan** mengatur bot
-tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **55 setelan server
-dalam 13 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
+tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **56 setelan server
+dalam 14 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
 & kartu sambutan, kotak masuk tiket, kendali giveaway, panel moderasi (antrean laporan &
-banding), serta **13 tombol tes fitur**.
+banding), generator gambar & prompt AI server, petunjuk privasi mandiri, serta **24 tombol tes fitur**.
 Template halaman depan ada di [README](../README.md#-dashboard-web-sekilas); rincian tiap
 bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
@@ -19,18 +19,18 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Tiga belas jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
+| **Endpoint tulis** | Empat belas jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/ai` (buat gambar atau simpan prompt server; prompt/gambar tidak masuk audit), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
 `/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan),
 `/api/transkrip` (hapus arsip transkrip tiket),
-`/api/keamanan` (penguji aturan anti-spam), `/api/bangun` (pratinjau tema/AI, terapkan, batal, bongkar tercatat),
+`/api/keamanan` (penguji aturan anti-spam), `/api/lencana` (setelan lencana), `/api/bangun` (pratinjau tema/AI, terapkan, batal, bongkar tercatat),
 `/api/moderasi` (setelan jalur laporan, status antrean, cari kasus, cabut temp-ban). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
 | **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
-| **Setelan** | **55 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
+| **Setelan** | **56 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
 | **Whitelist** | Hanya kunci yang terdaftar di `dashboard_admin.FITUR` yang bisa dijalankan — nama fungsi bebas tidak pernah dieksekusi. |
-| **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Semua perubahan (berhasil maupun gagal) dicatat di `data/dashboard_audit.json` dan log bot. |
+| **Mitigasi** | Halaman `/` tetap **GET-only** (POST ke `/` ditolak). Tidak ada `PUT`/`DELETE`/`PATCH`. Tombol Hapus hanya membuang satu item. Perubahan dicatat sebagai metadata di `data/dashboard_audit.json` dan log bot; prompt bebas serta isi gambar tidak direkam. |
 | **Unggahan** | Banner/gambar bisa diunggah dari dashboard (`DASHBOARD_UPLOAD_MB`, bawaan 8 MB) ke `data/uploads/` lalu dipakai sebagai banner panel, gambar embed, atau lampiran webhook. |
-| **Biaya** | **0 kuota AI**, ±2–4 MB RAM, tanpa dependency baru (`aiohttp.web` sudah dipakai bot), tetap **1 proses**. |
+| **Biaya** | Membuka/mengatur dashboard tidak memanggil AI; `/gambar` dan rancangan AI `/bangun` memakai kuota hanya saat diminta. ±2–4 MB RAM, tanpa dependency baru, tetap **1 proses**. |
 | **Tanpa JS** | HTML dirender di server (semua form HTML biasa), `meta refresh` bawaan **30 detik** (`DASHBOARD_REFRESH_SEC`; `0` = mati) dan **bisa diatur sendiri lewat satu dropdown di header** tanpa restart → ringan dibuka dari HP. |
 
 > ⚠️ Dashboard hanya bisa dibuka dari luar bila panel hosting memberi **port allocation**.
@@ -41,7 +41,7 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 
 Bot menjalankan satu halaman web di port privat (`DASHBOARD_PORT`, token di env) yang
 memuat **status bot, pemakaian AI, papan level, peta fitur, dan pengaturan server** —
-semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
+fitur dibagi ke **14 halaman** per grup, tanpa dependency baru dan tetap satu proses. AI hanya dipanggil secara eksplisit untuk gambar atau rancangan `/bangun`.
 
 | Bagian | Isi |
 | :--- | :--- |
@@ -51,15 +51,16 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Tren 7 hari** | grafik batang SVG (operasi AI & cache per hari) — dirender di server, tanpa JavaScript |
 | **Peta fitur** | fitur apa yang sudah dipakai (panel, formulir, pengumuman, tautan, pemicu) + ✅/⬜ |
 | **Kontrol Cepat** | sakelar level, ekonomi, & pertumbuhan dengan **tombol yang mengikuti keadaan** (“Nonaktifkan” saat aktif, “Aktifkan” saat mati) + mode anti-spam & aksi anti-nuke |
-| **Setelan server** | **55 setelan** dalam 5 grup (lihat tabel di bawah) |
+| **Setelan server** | **56 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
 | **Kartu sambutan** | **unggah sendiri** tiga gambar kartu (sambutan, pamit, boost) di halaman `/sambutan` — satu bagian per kartu; disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa |
 | **Kartu rank** | Halaman `/inti` → panel **🖼️ Kartu rank (PNG)**: pratinjau `GET /api/rank.png` memakai perender yang **sama** dengan `/level kartu`, sakelar hidup/mati, warna aksen hex, unggah/hapus latar, & tombol tes render. |
-| **Tes fitur** | tombol **Kirim tes** ada di tiap halaman fitur (sambutan, perpisahan, boost, pengumuman, panel, tiket, giveaway, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
+| **Tes fitur** | tombol **Kirim tes** ada di halaman fiturnya (sambutan, perpisahan, boost, pengumuman, panel, tiket, giveaway, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Kotak masuk formulir** | panel *📬 Kotak masuk formulir*: semua jawaban formulir dikumpulkan sebagai **antrean** (nomor, formulir, pengirim, waktu, status **baru/selesai**) — jawaban bisa dibaca langsung, **tandai selesai**, **buka lagi**, atau **hapus**. Batas 200/server, dibersihkan otomatis setelah 30 hari. Jalur tulis: `POST /api/konten` (`inbox-selesai:<nomor>`, `inbox-buka:<nomor>`, `inbox-hapus:<nomor>`). |
+| **AI & privasi** | halaman `/ai`: generator `/gambar` (prompt, channel, gaya, rasio, lampiran acuan opsional) + prompt kepribadian AI server. Lampiran divalidasi dan diproses di memori; prompt tidak dicatat di audit. Per-member memakai `/setelan-ai`; `/dataku` dan `/hapusdataku` tetap ephemeral dan hanya untuk pemilik akun. |
 | **Bangun server** | halaman `/bangun`: pilih satu dari 15 tema (0 kuota AI) atau rancang dengan AI; tinjau pratinjau, tekan Terapkan secara eksplisit, lihat riwayat, dan bongkar hanya item tercatat |
 | **Giveaway** | halaman `/giveaway`: buat giveaway dari HP (hadiah, channel, durasi, pemenang, level, umur akun, role bonus), **hentikan**, **undi ulang**, simpan/hapus **template**, dan atur **setelan bawaan** — semua memakai fungsi yang sama dengan command Discord |
 | **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web, plus **pasang panel tiket** |
@@ -92,14 +93,18 @@ menguji satu kelompok fitur tidak perlu berpindah-pindah halaman.
 
 | Halaman | Isi | Panel |
 | :--- | :--- | :--- |
-| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level, **tes koneksi AI** | 7 |
+| `/` | Ringkasan: status, pemakaian AI, jenis operasi, tren 7 hari, channel teramai, papan level | 6 |
+| `/ai` | Generator gambar + lampiran acuan, prompt server, privasi mandiri, **tes koneksi AI** | 4 |
 | `/sambutan` | **sambutan + pamit + boost** jadi satu halaman: tiap bagian punya setelan, **gambar kartu**, & **tombol tes** sendiri (`#p-welcome`, `#p-goodbye`, `#p-boost`) | 1 |
-| `/inti` | **Kontrol Cepat** (sakelar level/ekonomi/pertumbuhan) + setelan grup **inti, level, & ekonomi** (prefix, koin harian, log pertumbuhan, …) | 2 |
+| `/inti` | **Kontrol Cepat** + setelan grup **inti, level, & ekonomi** (prefix, kartu rank, lencana, koin harian, …) | 4 |
 | `/keamanan` | setelan **anti-spam, anti-nuke, pengaman raid, verifikasi, & anti-phishing** | 1 |
-| `/tiket` | kotak masuk tiket + pasang panel tiket + setelan **tiket & sapaan harian** (termasuk ucapan ulang tahun) + **tes panel tiket** | 1 |
-| `/konten` | setelan **konten & interaksi** (Auto-Chat AI, starboard, saran, fakta harian, koran pagi, backup, …) + **tes koran pagi** | 1 |
+| `/moderasi` | Antrean laporan/banding, pencarian kasus, temp-ban, statistik staf, snipe | 2 |
+| `/tiket` | Kotak masuk tiket + pasang panel tiket + setelan **tiket & sapaan harian** + arsip + **tes panel tiket** | 1 |
+| `/konten` | **Konten & interaksi** (Auto-Chat AI, starboard, saran, fakta harian, koran pagi, backup, …) + statistik & tes | 2 |
+| `/bangun` | Tema lokal atau rancangan AI; pratinjau, Terapkan eksplisit, riwayat & bongkar item tercatat | 1 |
+| `/giveaway` | Buat/hentikan/undi ulang giveaway, template, syarat & setelan bawaan | 1 |
 | `/kirim` | Kirim pesan/embed + pratinjau, banner & unggahan | 2 |
-| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan + **tes pengumuman** | 2 |
+| `/buat` | Buat pengumuman/tautan/panel/formulir/pemicu + konten tersimpan & kotak masuk formulir | 3 |
 | `/panel` | Editor tombol & dropdown + gerbang verifikasi + **tes panel** | 1 |
 | `/ekspor` | Ekspor CSV + riwayat perubahan + **tes ekspor** | 2 |
 
@@ -107,12 +112,12 @@ Aturan mainnya:
 
 | Bagian | Perilaku |
 | :--- | :--- |
-| **Menu halaman** | 📡 Ringkasan · 👋 Sambutan · ⚙️ Inti · 🛡️ Keamanan · 🎫 Tiket · 🧩 Konten · ✉️ Kirim · ➕ Buat · 🎨 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
+| **Menu halaman** | 📡 Ringkasan · 🤖 AI & Privasi · 👋 Sambutan · ⚙️ Inti · 🛡️ Keamanan · 🚨 Moderasi · 🎫 Tiket · 🧩 Konten · 🏗️ Bangun · 🎁 Giveaway · ✉️ Kirim · ➕ Buat · 🎨 Panel · 📥 Ekspor; halaman aktif ditandai `aria-current="page"` (warna ungu) |
 | **Token & server terbawa** | setiap tautan menu menyertakan `?token=…&guild=…`, jadi pindah halaman tidak pernah keluar sesi (tetap tanpa login) |
 | **Hamburger di HP** | di layar ≤ 820 px menu dilipat jadi **☰ Menu**; buka/tutup lewat `<input type="checkbox">` + CSS, **tanpa JavaScript** (tetap bisa diakses keyboard) |
 | **Header menempel** | bar atas (`position: sticky`) selalu terlihat: judul halaman + server, versi, waktu baca, & pemilih server |
 | **Anchor tetap ada** | tiap panel & bagian masih punya `id` (`#p-welcome`, `#p-inti`, `#p-tiket`, …) + `scroll-margin-top`, jadi `…/sambutan#p-goodbye` bisa dipakai sebagai bookmark |
-| **Bookmark lama** | `/setelan` → `/inti`, `/perpisahan` & `/boost` → `/sambutan`, `/uji` → `/` (semua `303`); anchor lama (`#p-setelan` → `/inti`, `#p-perpisahan` → `/sambutan`) ikut diarahkan; `/api/*` tidak berubah |
+| **Bookmark lama** | `/setelan` → `/inti`, `/perpisahan` & `/boost` → `/sambutan`, `/uji` → `/ai` (semua `303`); anchor lama (`#p-setelan` → `/inti`, `#p-perpisahan` → `/sambutan`) ikut diarahkan; `/api/*` tidak berubah |
 
 ### Setelah menekan Simpan
 
@@ -212,7 +217,7 @@ channel pertama di kunci lama (`channel_id`), jadi config lama di disk tetap ter
 migrasi. Centang **🚫 Kosongkan** untuk mematikan fitur. Penjelasan teknis ada di modul
 `channel_targets.py`.
 
-### Setelan yang bisa diubah dari web (55 fitur)
+### Setelan yang bisa diubah dari web (56 fitur)
 
 | Grup | Fitur |
 | :--- | :--- |
@@ -379,10 +384,10 @@ membawa token halaman.
 | Lapis | Jaminan |
 | :--- | :--- |
 | **Token** | semua endpoint baca & tulis wajib token (`?token=`, `X-Dashboard-Token`, `Bearer`, atau field tersembunyi pada form HTML) |
-| **Whitelist aksi** | hanya 48 kunci di `dashboard_admin.FITUR` yang bisa dijalankan — kunci lain ditolak |
-| **Tanpa PUT/DELETE/PATCH** | hanya enam jalur tulis `POST`: `/api/aksi`, `/api/kirim`, `/api/konten`, `/api/unggah`, `/api/tiket`, `/api/panel` |
+| **Whitelist aksi** | 56 setelan di `dashboard_admin.FITUR` punya kunci yang terdaftar; aksi tak dikenal ditolak |
+| **Tanpa PUT/DELETE/PATCH** | ada 14 jalur tulis `POST`, semuanya memeriksa token; data personal tetap memakai command Discord owner-only |
 | **Tanpa hapus data massal** | tombol Hapus hanya membuang satu item (pesan lama di Discord tidak ikut terhapus) |
-| **Jejak audit** | setiap perubahan (termasuk yang gagal) dicatat waktu, kunci, nilai, dan pesannya |
+| **Jejak audit** | perubahan mencatat metadata, waktu, status, dan hasil; prompt bebas serta isi gambar tidak ditulis ke audit |
 | **Bind privat** | default `DASHBOARD_HOST=0.0.0.0`, bisa diubah ke `127.0.0.1` + tunnel SSH |
 
 ### Endpoint
@@ -393,22 +398,33 @@ membawa token halaman.
 | `GET /api/status` · `/api/pemakaian` · `/api/level` · `/api/kontrol` · `/api/fitur` | data JSON |
 | `GET /api/setelan` | semua nilai setelan + ringkasan grup + riwayat |
 | `GET /api/tren?hari=7` | tren operasi AI & cache per hari (JSON) |
-| `POST /api/aksi` | ubah setelan: `action=set.<kunci>` (token boleh lewat body form) |
+| `POST /api/aksi` | ubah setelan: `action=set.<kunci>` atau sakelar cepat lama (token boleh lewat body form) |
+| `POST /api/ai` | `action=gambar` (multipart: `prompt`, `channel_id`, `style`, `ratio`, `acuan` opsional) / `action=prompt-server` (`prompt_server`, maks 500 huruf); prompt/gambar tidak masuk audit |
+| `POST /api/bangun` | tema/pratinjau AI, Terapkan eksplisit, batalkan, riwayat, dan bongkar item builder tercatat |
 | `POST /api/kirim` | kirim pesan/embed; field `channel, judul, isi, warna, footer, gambar, identitas, avatar`; tambahkan `pratinjau=1` untuk pratinjau tanpa kirim |
 | `POST /api/konten` | `action=buat.pengumuman` / `buat.tautan` / `buat.panel` / `buat.formulir` / `buat.pemicu` / `jeda.pengumuman:<id>` / `hapus.<jenis>:<id>` / `banner.panel:<id>` / `hapusbanner.panel:<id>` |
 | `POST /api/unggah` | `action=unggah.simpan` (multipart, field `banner`) / `hapus.banner:<nama>` |
+| `POST /api/uji` | tes fitur; subjek opsional dan tanpa ID memakai pemilik server |
 | `GET /api/unggahan/<nama>?guild=<id>` | pratinjau banner tersimpan (wajib token) |
 | `GET /api/tiket?guild=<id>` | daftar tiket aktif + statistik (JSON) |
-| `POST /api/tiket` | `action=balas:<id>` (field `teks`, `identitas` opsional) / `action=tutup:<id>` / `action=panel` (field `channel`, `staff_role`, `log_channel`, `max_open`) / `action=matikan` |
+| `POST /api/tiket` | balas/tutup tiket, pasang/matikan panel, kelola topik & catatan staf |
 | `GET /api/panel?guild=<id>` | daftar panel + tombol/dropdown-nya (JSON) |
-| `POST /api/panel` | `action=tambah:<id panel>` (field `jenis`: `peran`/`tautan`/`perintah`/`alur`/`formulir`/`dropdown`) / `action=hapus:<id panel>:<ref item>` / `action=verifikasi` (field `channel`, `role`, `catatan`) / `action=verifikasi:matikan` |
+| `POST /api/panel` | tambah/hapus tombol atau dropdown, pasang/matikan verifikasi |
+| `POST /api/keamanan` | setel honeypot dan uji aturan anti-spam tanpa menindak member |
+| `POST /api/moderasi` | setelan jalur laporan, status antrean, cari kasus, cabut temp-ban |
+| `POST /api/lencana` | atur lencana dan hadiah role server |
+| `GET /api/giveaway` · `POST /api/giveaway` | daftar, buat/hentikan/undi ulang, template & setelan bawaan |
+| `GET /api/transkrip` · `POST /api/transkrip` | cari/unduh arsip HTML atau hapus satu transkrip tiket |
 | `GET /api/ekspor?jenis=<level\|moderasi\|tiket\|pemakaian>` | unduh CSV analitik server (wajib token) |
 | `GET /healthz` | `ok` polos (tanpa token, untuk uptime monitor) |
 
 ### Yang tetap lebih enak di Discord
 
-Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**, dan
-**ekspor data**. Yang masih butuh percakapan interaktif di Discord:
+Dashboard mengatur **setelan**, **konten**, **panel**, **tiket**, **verifikasi**,
+**generator gambar**, prompt AI server, dan **ekspor analitik server**. Ekspor/penghapusan
+data personal bukan API operator: `/dataku` dan `/hapusdataku` hanya dilakukan member
+yang menjalankan command di Discord (ephemeral + konfirmasi pemilik). Yang masih butuh
+percakapan interaktif di Discord:
 
 | Kebutuhan | Command |
 | :--- | :--- |

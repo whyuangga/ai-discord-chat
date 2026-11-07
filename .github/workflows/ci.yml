@@ -31,7 +31,7 @@ jobs:
           pip install pytest pytest-asyncio pyflakes
 
       - name: Pyflakes (modul dashboard & channel helper)
-        run: python -m pyflakes web_dashboard.py channel_targets.py dashboard_admin.py dashboard_ui.py dashboard_tema.py dashboard_uji.py dashboard_unggah.py dashboard_pesan.py dashboard_tiket.py dashboard_panel.py
+        run: python -m pyflakes web_dashboard.py channel_targets.py dashboard_admin.py dashboard_ai.py dashboard_ui.py dashboard_tema.py dashboard_uji.py dashboard_unggah.py dashboard_pesan.py dashboard_tiket.py dashboard_panel.py
 
       - name: Dokumen situs sinkron dengan docs/
         run: python tools/sync_docs.py --check
