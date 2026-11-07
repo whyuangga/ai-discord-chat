@@ -203,35 +203,8 @@ def _role_overwrites(entry: dict) -> list[dict]:
 # ==============================================================================
 # RENCANA (DRY-RUN)
 # ==============================================================================
-def build_plan(
-    guild,
-    snapshot: dict,
-    *,
-    buat_role: bool = True,
-    buat_kategori: bool = True,
-    buat_channel: bool = True,
-) -> dict:
-    """Menghitung apa yang perlu dibuat. Tidak mengubah server sama sekali."""
-    existing_roles = {_norm(getattr(role, "name", "")) for role in getattr(guild, "roles", []) or []}
-    existing_categories = {
-        _norm(getattr(cat, "name", "")) for cat in getattr(guild, "categories", []) or []
-    }
-    existing_channels = set()
-    for channel in getattr(guild, "channels", []) or []:
-        if isinstance(channel, discord.CategoryChannel):
-            continue
-        existing_channels.add((_norm(getattr(channel, "name", "")), str(getattr(channel, "type", ""))))
-
-    plan: dict = {
-        "guild_id": int(getattr(guild, "id", 0)),
-        "roles": [],
-        "categories": [],
-        "channels": [],
-        "skipped": [],
-        "already": {"roles": 0, "categories": 0, "channels": 0},
-    }
-
-    # 1. Role
+def _rencana_role(plan: dict, snapshot: dict, existing_roles: set, *, buat_role: bool) -> None:
+    """Tambahkan role baru ke rencana (yang sudah ada/dinonaktifkan dilewati)."""
     for role in _ordered_entries(snapshot.get("roles") or []):
         if not isinstance(role, dict):
             continue
@@ -254,7 +227,11 @@ def build_plan(
             }
         )
 
-    # 2. Kategori; proses sesuai posisi sumber agar item baru berurutan.
+
+def _rencana_kategori(
+    plan: dict, snapshot: dict, existing_categories: set, *, buat_kategori: bool
+) -> None:
+    """Tambahkan kategori baru ke rencana."""
     for category in _ordered_entries(snapshot.get("categories") or []):
         if not isinstance(category, dict):
             continue
@@ -269,8 +246,9 @@ def build_plan(
             continue
         plan["categories"].append({"name": name[:100], "overwrites": _role_overwrites(category)})
 
-    # Peta kategori untuk channel. Snapshot hasil backup biasanya memakai `category_id`,
-    # sedangkan rancangan `/bangun` memakai nama kategori langsung di `category`.
+
+def _peta_kategori(snapshot: dict) -> dict[int, str]:
+    """Peta `id kategori -> nama` untuk memindahkan channel ke kategorinya."""
     category_by_id: dict[int, str] = {}
     for cat in snapshot.get("categories") or []:
         if not isinstance(cat, dict):
@@ -281,8 +259,13 @@ def build_plan(
             continue
         if category_id:
             category_by_id[category_id] = str(cat.get("name") or "").strip()
+    return category_by_id
 
-    # 3. Channel; proses sesuai posisi sumber agar urutan item baru tetap terjaga.
+
+def _rencana_channel(
+    guild, plan: dict, snapshot: dict, category_by_id: dict, *, buat_channel: bool
+) -> None:
+    """Tambahkan channel baru ke rencana (tipe tak didukung dilewati)."""
     for entry in _ordered_entries(snapshot.get("channels") or []):
         name = str(entry.get("name") or "").strip()
         if not name:
@@ -328,6 +311,9 @@ def build_plan(
             }
         )
 
+
+def _potong_batas(plan: dict) -> None:
+    """Batasi jumlah item agar aman dari rate limit (role -> kategori -> channel)."""
     total = len(plan["roles"]) + len(plan["categories"]) + len(plan["channels"])
     plan["total"] = total
     if total > MAX_CREATE_TOTAL:
@@ -342,6 +328,48 @@ def build_plan(
             f"{total - MAX_CREATE_TOTAL} item lain (batas {MAX_CREATE_TOTAL} item per pemulihan)"
         )
         plan["total"] = MAX_CREATE_TOTAL
+
+
+def build_plan(
+    guild,
+    snapshot: dict,
+    *,
+    buat_role: bool = True,
+    buat_kategori: bool = True,
+    buat_channel: bool = True,
+) -> dict:
+    """Menghitung apa yang perlu dibuat. Tidak mengubah server sama sekali."""
+    existing_roles = {_norm(getattr(role, "name", "")) for role in getattr(guild, "roles", []) or []}
+    existing_categories = {
+        _norm(getattr(cat, "name", "")) for cat in getattr(guild, "categories", []) or []
+    }
+    existing_channels = set()
+    for channel in getattr(guild, "channels", []) or []:
+        if isinstance(channel, discord.CategoryChannel):
+            continue
+        existing_channels.add((_norm(getattr(channel, "name", "")), str(getattr(channel, "type", ""))))
+
+    plan: dict = {
+        "guild_id": int(getattr(guild, "id", 0)),
+        "roles": [],
+        "categories": [],
+        "channels": [],
+        "skipped": [],
+        "already": {"roles": 0, "categories": 0, "channels": 0},
+    }
+
+    # 1. Role
+    _rencana_role(plan, snapshot, existing_roles, buat_role=buat_role)
+
+    # 2. Kategori; proses sesuai posisi sumber agar item baru berurutan.
+    _rencana_kategori(plan, snapshot, existing_categories, buat_kategori=buat_kategori)
+
+    # 3. Channel; proses sesuai posisi sumber agar urutan item baru tetap terjaga.
+    _rencana_channel(
+        guild, plan, snapshot, _peta_kategori(snapshot), buat_channel=buat_channel
+    )
+
+    _potong_batas(plan)
     return plan
 
 
