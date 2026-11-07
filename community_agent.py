@@ -1941,19 +1941,101 @@ async def _pakai_pencarian_gratis(
     return use_search
 
 
-async def generate_community_chat_reply(
+def _teks_giliran_pengguna(
     message: discord.Message,
-    bot_user: discord.ClientUser | discord.User,
-    *,
-    http_session: aiohttp.ClientSession | None = None,
+    clean_text: str,
+    forum_ctx_note: str,
+    media_descs: list,
+    web_snippets: list,
 ) -> str | None:
-    """Menghasilkan balasan chat komunitas natural (mendukung teks, stiker, custom emoji, & foto)."""
-    guild_id = message.guild.id if message.guild else 0
-    guild_cfg = get_guild_settings(guild_id)
-    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+    """Gabungkan teks member dengan catatan forum/lampiran; `None` bila tak ada isi."""
+    author_name = message.author.display_name
+    desc_items = [x for x in (forum_ctx_note, *media_descs, *web_snippets) if x]
+    desc_prefix = " ".join(desc_items)
+    if clean_text and desc_prefix:
+        user_turn_text = f"[{author_name}]: {clean_text}\n{desc_prefix}"
+    elif clean_text:
+        user_turn_text = f"[{author_name}]: {clean_text}"
+    elif desc_prefix:
+        user_turn_text = f"[{author_name}]: {desc_prefix}"
+    else:
+        return None
+    return user_turn_text
 
-    clean_text = _bersihkan_teks_chat(message, bot_user, guild_cfg)
 
+def _jawab_dari_faq_atau_cache(
+    clean_text: str,
+    conv_id: int,
+    guild_id: int,
+    *,
+    is_direct_call: bool,
+    can_use_local_answer: bool,
+) -> str | None:
+    """Jawab dari FAQ server / cache (0 kuota AI); `None` bila harus panggil AI."""
+    import ai_guard
+
+    if can_use_local_answer and clean_text:
+        faq_hit = ai_guard.faq_first_answer(get_server_knowledge_entries(guild_id), clean_text)
+        if faq_hit and (is_direct_call or len(clean_text) >= 24):
+            logger.info("Auto-Chat dijawab dari FAQ server (0 kuota AI) di channel %s", conv_id)
+            return ai_guard.format_faq_reply(faq_hit)
+
+        cached_reply = ai_guard.get_cached_reply(conv_id, clean_text)
+        if cached_reply:
+            logger.info("Auto-Chat memakai cache jawaban (0 kuota AI) di channel %s", conv_id)
+            return cached_reply
+
+
+async def _lolos_cek_kuota(
+    message: discord.Message, guild_id: int, *, is_direct_call: bool
+) -> tuple[bool, str | None]:
+    """Cek batas harian AI per server; `(boleh_lanjut, pesan_kuota_habis)`."""
+    import ai_guard
+
+    cap_ok, cap_used, cap_limit = ai_guard.check_guild_cap(guild_id)
+    if not cap_ok:
+        logger.info("Kuota AI server %s habis (%s/%s)", guild_id, cap_used, cap_limit)
+        return False, (
+            ai_guard.cap_message(guild_id, cap_used, cap_limit) if is_direct_call else None
+        )
+    return True, None
+
+
+async def _simpan_balasan(
+    reply: str,
+    *,
+    conv_id: int,
+    user_turn_text: str,
+    clean_text: str,
+    can_use_local_answer: bool,
+    is_post_thread: bool,
+    effective_cfg_cid: int,
+) -> None:
+    """Bersihkan awalan "[Bot]:", simpan cache + riwayat balasan."""
+    import ai_guard
+
+    if reply:
+        reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip()
+        if can_use_local_answer and clean_text:
+            ai_guard.store_cached_reply(conv_id, clean_text, reply)
+        _catat_balasan_chat(
+            conv_id,
+            user_turn_text,
+            reply,
+            is_post_thread=is_post_thread,
+            effective_cfg_cid=effective_cfg_cid,
+        )
+        await save_agent_config_to_disk()
+
+
+async def _siapkan_konteks_chat(
+    message: discord.Message,
+    bot_user,
+    guild_cfg: dict,
+    clean_text: str,
+    http_session,
+) -> dict:
+    """Lampiran, link publik, dan hasil pencarian web untuk satu giliran chat."""
     media_parts, media_descs, _ = await extract_social_media_and_stickers(
         message,
         http_session,
@@ -1961,7 +2043,6 @@ async def generate_community_chat_reply(
         include_audio=True,
         include_text_files=True,
     )
-
     is_direct_mention, replied_to_bot, _ = _is_direct_bot_call(message, bot_user, guild_cfg)
     is_direct_call = is_direct_mention or replied_to_bot
 
@@ -1970,9 +2051,6 @@ async def generate_community_chat_reply(
     post_title, post_tags, is_starter_post = _extract_forum_post_context(message)
 
     forum_ctx_note = _catatan_forum(is_post_thread, post_title, post_tags, is_starter_post)
-
-    # Baca link YouTube/Web hanya jika fitur YouTube AKTIF pada channel/forum ini DAN
-    # (member memanggil nama/mention/reply bot secara langsung ATAU mode auto_di_channel dinyalakan di channel/forum ini)
     web_snippets: list[str] = []
     yt_urls, web_snippets = await _lampiran_link_publik(
         message,
@@ -1986,7 +2064,6 @@ async def generate_community_chat_reply(
         is_starter_post=is_starter_post,
         http_session=http_session,
     )
-
     search_text_candidate = f"{post_title} {clean_text}".strip() if (is_starter_post and post_title) else clean_text
     use_search = await _pakai_pencarian_gratis(
         effective_cfg_cid,
@@ -1997,49 +2074,42 @@ async def generate_community_chat_reply(
         bot_user,
         http_session,
     )
+    return {
+        "media_parts": media_parts,
+        "media_descs": media_descs,
+        "is_direct_call": is_direct_call,
+        "is_post_thread": is_post_thread,
+        "effective_cfg_cid": effective_cfg_cid,
+        "post_title": post_title,
+        "is_starter_post": is_starter_post,
+        "forum_ctx_note": forum_ctx_note,
+        "yt_urls": yt_urls,
+        "web_snippets": web_snippets,
+        "use_search": use_search,
+    }
 
-    author_name = message.author.display_name
-    desc_items = [x for x in (forum_ctx_note, *media_descs, *web_snippets) if x]
-    desc_prefix = " ".join(desc_items)
-    if clean_text and desc_prefix:
-        user_turn_text = f"[{author_name}]: {clean_text}\n{desc_prefix}"
-    elif clean_text:
-        user_turn_text = f"[{author_name}]: {clean_text}"
-    elif desc_prefix:
-        user_turn_text = f"[{author_name}]: {desc_prefix}"
-    else:
-        return None
 
+async def _panggil_model_chat(
+    message: discord.Message,
+    bot_user,
+    guild_cfg: dict,
+    time_ctx: dict,
+    *,
+    conv_id: int,
+    clean_text: str,
+    media_parts: list,
+    yt_urls: list,
+    web_snippets: list,
+    use_search: bool,
+    is_post_thread: bool,
+    user_turn_text: str,
+    http_session,
+    guild_id: int,
+) -> str | None:
+    """Susun prompt sistem + contents, lalu panggil Gemini (satu giliran)."""
     import ai_guard
 
-    conv_id = message.channel.id
-    # ---------------------------------------------------------------
-    # AI GUARD: FAQ-first (0 kuota) & cache jawaban identik
-    # Hanya untuk pertanyaan teks (tanpa media/link) supaya tidak salah jawab.
-    # ---------------------------------------------------------------
-    can_use_local_answer = not media_parts and not yt_urls and not web_snippets
-    if can_use_local_answer and clean_text:
-        faq_hit = ai_guard.faq_first_answer(get_server_knowledge_entries(guild_id), clean_text)
-        if faq_hit and (is_direct_call or len(clean_text) >= 24):
-            logger.info("Auto-Chat dijawab dari FAQ server (0 kuota AI) di channel %s", conv_id)
-            return ai_guard.format_faq_reply(faq_hit)
-
-        cached_reply = ai_guard.get_cached_reply(conv_id, clean_text)
-        if cached_reply:
-            logger.info("Auto-Chat memakai cache jawaban (0 kuota AI) di channel %s", conv_id)
-            return cached_reply
-
-    # ---------------------------------------------------------------
-    # AI GUARD: batas harian AI per server
-    # ---------------------------------------------------------------
-    cap_ok, cap_used, cap_limit = ai_guard.check_guild_cap(guild_id)
-    if not cap_ok:
-        logger.info("Kuota AI server %s habis (%s/%s)", guild_id, cap_used, cap_limit)
-        await _maybe_alert_guild_cap(message, guild_id, cap_used, cap_limit)
-        return ai_guard.cap_message(guild_id, cap_used, cap_limit) if is_direct_call else None
-
     contents = _susun_konten_chat(conv_id, media_parts, user_turn_text)
-
     bot_display = (
         message.guild.me.display_name
         if (message.guild and message.guild.me)
@@ -2051,7 +2121,6 @@ async def generate_community_chat_reply(
         time_ctx,
         is_forum_post=is_post_thread,
     )
-
     prefer_fast = (
         ai_guard.route_model_key(
             "gemini_flash",
@@ -2080,20 +2149,83 @@ async def generate_community_chat_reply(
         prefer_fast=prefer_fast,
         safety_level=get_guild_safety_level(guild_id),
     )
+    return reply
+
+
+async def generate_community_chat_reply(
+    message: discord.Message,
+    bot_user: discord.ClientUser | discord.User,
+    *,
+    http_session: aiohttp.ClientSession | None = None,
+) -> str | None:
+    """Menghasilkan balasan chat komunitas natural (mendukung teks, stiker, custom emoji, & foto)."""
+    guild_id = message.guild.id if message.guild else 0
+
+    guild_cfg = get_guild_settings(guild_id)
+    time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
+
+    clean_text = _bersihkan_teks_chat(message, bot_user, guild_cfg)
+    konteks = await _siapkan_konteks_chat(message, bot_user, guild_cfg, clean_text, http_session)
+    media_parts = konteks["media_parts"]
+    media_descs = konteks["media_descs"]
+    is_direct_call = konteks["is_direct_call"]
+    is_post_thread = konteks["is_post_thread"]
+    effective_cfg_cid = konteks["effective_cfg_cid"]
+    yt_urls = konteks["yt_urls"]
+    web_snippets = konteks["web_snippets"]
+    use_search = konteks["use_search"]
+
+    user_turn_text = _teks_giliran_pengguna(
+        message, clean_text, konteks["forum_ctx_note"], media_descs, web_snippets
+    )
+    if user_turn_text is None:
+        return None
+
+    conv_id = message.channel.id
+    can_use_local_answer = not media_parts and not yt_urls and not web_snippets
+    jawaban_lokal = _jawab_dari_faq_atau_cache(
+        clean_text,
+        conv_id,
+        guild_id,
+        is_direct_call=is_direct_call,
+        can_use_local_answer=can_use_local_answer,
+    )
+    if jawaban_lokal is not None:
+        return jawaban_lokal
+
+    kuota_cukup, pesan_kuota = await _lolos_cek_kuota(
+        message, guild_id, is_direct_call=is_direct_call
+    )
+    if not kuota_cukup:
+        return pesan_kuota
+
+    reply = await _panggil_model_chat(
+        message,
+        bot_user,
+        guild_cfg,
+        time_ctx,
+        conv_id=conv_id,
+        clean_text=clean_text,
+        media_parts=media_parts,
+        yt_urls=yt_urls,
+        web_snippets=web_snippets,
+        use_search=use_search,
+        is_post_thread=is_post_thread,
+        user_turn_text=user_turn_text,
+        http_session=http_session,
+        guild_id=guild_id,
+    )
 
     if reply:
-        # Bersihkan awalan seperti "[NamaBot]:" jika model tidak sengaja menuliskannya
-        reply = re.sub(r"^\[[^\]]+\]\s*:\s*", "", reply).strip()
-        if can_use_local_answer and clean_text:
-            ai_guard.store_cached_reply(conv_id, clean_text, reply)
-        _catat_balasan_chat(
-            conv_id,
-            user_turn_text,
+        await _simpan_balasan(
             reply,
+            conv_id=conv_id,
+            user_turn_text=user_turn_text,
+            clean_text=clean_text,
+            can_use_local_answer=can_use_local_answer,
             is_post_thread=is_post_thread,
             effective_cfg_cid=effective_cfg_cid,
         )
-        await save_agent_config_to_disk()
 
     return reply
 
