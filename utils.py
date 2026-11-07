@@ -463,25 +463,18 @@ async def _fetch_small_media_bytes(
             return data if len(data) <= max_bytes else None
 
 
-async def extract_social_media_and_stickers(
+async def _kumpulkan_lampiran(
     message: discord.Message,
-    http_session: aiohttp.ClientSession | None = None,
+    http_session: aiohttp.ClientSession | None,
+    media_parts: list[dict],
+    descriptions: list[str],
+    warnings: list[str],
     *,
-    include_video: bool = True,
-    include_audio: bool = True,
-    include_text_files: bool = False,
-) -> tuple[list[dict], list[str], list[str]]:
-    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), file kode/teks opsional, Stiker Discord, serta Custom Emoji
-    agar AI Agent dapat mendengar pesan suara maupun melihat visual ekspresi stiker/emoji/foto/video!
-
-    Returns:
-        (media_parts, descriptions, warnings)
-    """
-    media_parts: list[dict] = []
-    descriptions: list[str] = []
-    warnings: list[str] = []
-
-    # 1. Lampiran File Gambar, Voice Note / Audio, & Video Klip
+    include_video: bool,
+    include_audio: bool,
+    include_text_files: bool,
+) -> None:
+    """Gambar, Voice Note/audio, video pendek, PDF, dan berkas teks."""
     for att in getattr(message, "attachments", []) or []:
         ext = Path(att.filename).suffix.lower()
         content_type = (att.content_type or "").split(";")[0].strip().lower()
@@ -567,6 +560,14 @@ async def extract_social_media_and_stickers(
                 except Exception as exc:  # pragma: no cover - media tak terbaca
                     logger.debug("Media opsional tidak terbaca: %s", exc)
 
+
+async def _kumpulkan_stiker(
+    message: discord.Message,
+    http_session: aiohttp.ClientSession | None,
+    media_parts: list[dict],
+    descriptions: list[str],
+) -> None:
+    """Stiker Discord (PNG/APNG/GIF bisa dilihat langsung oleh Gemini Vision)."""
     # 2. Stiker Discord (PNG / APNG / GIF dapat dilihat langsung visualnya oleh Gemini Vision!)
     for sticker in getattr(message, "stickers", []) or []:
         sticker_name = getattr(sticker, "name", "stiker")
@@ -587,6 +588,14 @@ async def extract_social_media_and_stickers(
 
         descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}"]')
 
+
+async def _kumpulkan_custom_emoji(
+    message: discord.Message,
+    http_session: aiohttp.ClientSession | None,
+    media_parts: list[dict],
+    descriptions: list[str],
+) -> None:
+    """Custom emoji server (`<:nama:id>` / `<a:nama:id>`) — unduh visualnya."""
     # 3. Custom Emoji Server (<:nama:id> atau <a:nama:id>) -> Unduh visual ekspresinya!
     content_str = getattr(message, "content", "") or ""
     custom_emojis = _CUSTOM_EMOJI_RE.findall(content_str)
@@ -607,6 +616,43 @@ async def extract_social_media_and_stickers(
         except Exception as exc:  # pragma: no cover - atribut discord.py berubah
             logger.debug("is_voice_message() gagal: %s", exc)
         descriptions.append(f"[Menggunakan custom emoji :{emoji_name}:]")
+
+
+async def extract_social_media_and_stickers(
+    message: discord.Message,
+    http_session: aiohttp.ClientSession | None = None,
+    *,
+    include_video: bool = True,
+    include_audio: bool = True,
+    include_text_files: bool = False,
+) -> tuple[list[dict], list[str], list[str]]:
+    """Mengekstrak gambar, Voice Note / Audio, video pendek (Galeri), file kode/teks opsional, Stiker Discord, serta Custom Emoji
+    agar AI Agent dapat mendengar pesan suara maupun melihat visual ekspresi stiker/emoji/foto/video!
+
+    Returns:
+        (media_parts, descriptions, warnings)
+    """
+    media_parts: list[dict] = []
+    descriptions: list[str] = []
+    warnings: list[str] = []
+
+    # 1. Lampiran File Gambar, Voice Note / Audio, & Video Klip
+    await _kumpulkan_lampiran(
+        message,
+        http_session,
+        media_parts,
+        descriptions,
+        warnings,
+        include_video=include_video,
+        include_audio=include_audio,
+        include_text_files=include_text_files,
+    )
+
+    # 2. Stiker Discord
+    await _kumpulkan_stiker(message, http_session, media_parts, descriptions)
+
+    # 3. Custom Emoji Server (<:nama:id> atau <a:nama:id>)
+    await _kumpulkan_custom_emoji(message, http_session, media_parts, descriptions)
 
     return media_parts, descriptions, warnings
 
