@@ -103,6 +103,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "pantau",
+        "label": "Highlight kata kunci",
+        "emoji": "🔔",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasikan pencocokan kata kunci yang sudah didaftarkan — tanpa DM apa pun.",
+    },
+    {
         "kunci": "lencana",
         "label": "Lencana bertingkat",
         "emoji": "🏅",
@@ -175,6 +184,7 @@ ANCHOR_UJI: dict[str, str] = {
     "moderasi": "p-moderasi",
     "tag": "p-tag",
     "lencana": "p-lencana",
+    "pantau": "p-pantau",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -556,6 +566,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "pantau":
+            return _uji_pantau(gid)
         if kunci == "lencana":
             return _uji_lencana(guild_id, member)
         if kunci == "tag":
@@ -574,6 +586,33 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_pantau(guild_id: int) -> tuple[bool, str]:
+    """Simulasi highlight: cocokkan kalimat contoh, tanpa mengirim DM."""
+    import highlights
+
+    data = highlights.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Fitur highlight sedang dimatikan. Nyalakan di halaman **Konten & interaksi** → "
+            "panel *🔔 Highlight kata kunci*."
+        )
+    pelanggan = highlights.daftar_pelanggan(guild_id)
+    if not pelanggan:
+        return False, (
+            "Belum ada member yang memantau kata kunci. Tambahkan dulu lewat "
+            "`/pantau tambah kata:open order`."
+        )
+    baris = pelanggan[0]
+    kata = baris["keywords"][0]
+    contoh = f"Contoh simulasi: ada info baru soal {kata} hari ini di server."
+    hasil = highlights.cocok(guild_id, contoh)
+    return True, (
+        f"Kata `{kata}` milik <@{baris['user_id']}> cocok dengan kalimat contoh → "
+        f"{len(hasil)} DM akan dikirim. Simulasi saja — tidak ada DM yang benar-benar "
+        "dikirim dan isi pesan tidak disimpan."
+    )
 
 
 def _uji_lencana(guild_id: int, member=None) -> tuple[bool, str]:

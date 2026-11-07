@@ -200,3 +200,33 @@ Detail penting:
   (`lencana-setelan`, `lencana-role`, `lencana-hapus:<kunci>:<tingkat>`).
 - Tombol tes **Lencana bertingkat** hanya menghitung progres (simulasi) — tidak memberi role
   dan tidak mengirim pengumuman.
+
+## 13. 🔔 Highlight Kata Kunci (`/pantau`)
+
+Member memilih kata kunci sendiri (mis. `open order`, nama barang, nama dirinya), lalu bot
+mengirim **DM** berisi tautan pesan, penulis, channel, dan cuplikan singkat setiap kali kata
+itu muncul di chat. Khas bot besar, tapi di sini **tanpa AI** dan **tanpa menyimpan isi pesan**.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/pantau tambah kata:open order` | Pantau satu kata/frasa (maks **10** per member). |
+| `/pantau hapus kata:open order` | Berhenti memantau satu kata. |
+| `/pantau daftar` | Lihat kata kunci, channel & kata yang diabaikan, jumlah DM terkirim. |
+| `/pantau abaikan channel:#umum` | Channel ini tidak memicu highlight untukmu. |
+| `/pantau abaikan kata:spam` | Kata ini tidak memicu highlight untuk siapa pun. |
+| `/pantau bersihkan` | Hapus semua setelan highlight milikmu (opt-out total). |
+| `/pantau atur aktif:… abaikan_channel:…` | *(Admin)* Sakelar server & channel yang selalu diabaikan. |
+
+Detail penting:
+- **Pencocokan batas kata** (`bot` cocok di “bot itu”, tidak di “robot”), tidak peka huruf besar.
+- **Anti-banjir:** jeda 5 menit untuk kata yang sama per member + maksimal **5 DM/menit**
+  (bisa diturunkan dari dashboard). Satu pesan = maksimal satu DM per member.
+- Penulis pesan tidak dikirimi DM untuk pesannya sendiri; DM yang ditutup member dilewati
+  tanpa mengganggu chat.
+- Tidak ada isi pesan yang ditulis ke disk — `data/highlights.json` hanya berisi kata kunci,
+  daftar abaikan, dan penghitung.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔔 Highlight kata kunci* — sakelar
+  aktif, batas DM/menit, daftar channel yang diabaikan, daftar pelanggan + tombol hapus.
+  Jalur tulis: `POST /api/konten` (`pantau-setelan`, `pantau-hapus:<user_id>`).
+- Tombol tes **Highlight kata kunci** hanya menyimulasikan pencocokan kalimat contoh —
+  tidak ada DM yang dikirim.

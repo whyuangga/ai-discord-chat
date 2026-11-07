@@ -75,6 +75,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/lencana periksa` | `member` | *(Staf)* Segarkan lencana sekarang tanpa menunggu aktivitas berikutnya. |
 | `/lencana atur` | `channel`, `aktif` | *(Admin)* Channel pengumuman lencana & sakelar global. |
 | `/lencana role` | `kunci`, `tingkat`, `role` | *(Admin)* Role hadiah per tingkat lencana (kosongkan `role` = hapus). |
+| `/pantau tambah` | `kata` | Pantau kata/frasa → DM saat muncul di chat (maks 10/member). |
+| `/pantau hapus` | `kata` | Berhenti memantau satu kata kunci. |
+| `/pantau daftar` | — | Lihat kata kunci, daftar abaikan, & jumlah DM terkirim. |
+| `/pantau abaikan` | `channel`, `kata` | Abaikan channel atau kata tertentu. |
+| `/pantau bersihkan` | — | Hapus semua setelan highlight milikmu. |
+| `/pantau atur` | `aktif`, `abaikan_channel` | *(Admin)* Sakelar server & channel yang selalu diabaikan. |
 | `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
 | `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |
 | `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |

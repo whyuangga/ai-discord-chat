@@ -601,6 +601,15 @@ def register_events_cog(bot: commands.Bot) -> None:
             except Exception as exc:  # pragma: no cover - jaring aman
                 logger.warning("Honeypot gagal memeriksa pesan: %s", exc)
 
+        # 1B-1b. Highlight kata kunci → DM (0 kuota AI, hanya pencocokan teks biasa).
+        if message.guild is not None:
+            try:
+                from cogs.highlights_cog import maybe_highlight
+
+                await maybe_highlight(bot, message)
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Highlight dilewati: %s", exc)
+
         # 1B-2. Penjaga Anti-Spam ringan (mode default: hanya lapor ke channel log).
         #       Admin, staf, bot, & channel/role pengecualian selalu diabaikan sehingga
         #       obrolan antar-member tidak pernah terusik.

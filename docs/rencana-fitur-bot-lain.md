@@ -52,7 +52,7 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 | :--- | :--- | :--- | :---: | :---: | :---: |
 | **Tags** (`/tag buat/lihat/hapus`) | Arclo | Jawaban server disimpan sekali, dipanggil kapan saja — pengganti FAQ manual, sangat sering dipakai | S | ★★★ | **C** ✅ v1.40 |
 | **Achievements** (badge bertingkat + role reward + papan sendiri) | Arclo | Memberi alasan **kembali** selain level; bisa memakai data yang sudah kita catat | M | ★★★ | **C** ✅ v1.40 |
-| **Highlights** (kata kunci → DM) | wisp | Sangat murah, langsung terasa: orang tidak perlu membaca seluruh channel | S | ★★★ | **C** |
+| **Highlights** (kata kunci → DM) | wisp | Sangat murah, langsung terasa: orang tidak perlu membaca seluruh channel | S | ★★★ | **C** ✅ v1.40 |
 | **Confessions** (anonim + moderasi) | wisp | Kanal engagement klasik; moderasi tetap jalan lewat antispam | S | ★★ | **C** |
 | **Snipe / EditSnipe** | wisp | Kecil, lucu, berguna untuk staf | S | ★★ | **C** |
 | **Honeypot + penguji aturan** | Arclo | Menangkap self-bot yang lolos dari filter kata; penguji membuat staf berani mengubah aturan | M | ★★★ | **B** |
@@ -146,6 +146,10 @@ Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·
    *🏅 Lencana bertingkat* di halaman **Inti & level** + tombol uji simulasi.
    Pemberian lencana menempel di alur XP pesan & voice — 0 kuota AI, tanpa proses latar baru.
 3. **Highlights** (kata kunci → DM, abaikan channel & kata yang dipilih).
+   ✅ **Sudah jalan** (v1.40): modul `highlights.py` + `/pantau tambah|hapus|daftar|abaikan|
+   bersihkan|atur` + listener di `cogs/events_cog.py` (maks 10 kata kunci/member, pencocokan
+   batas kata, jeda 5 menit per kata, batas DM/menit, tanpa menyimpan isi pesan) + panel
+   *🔔 Highlight kata kunci* di halaman Konten & interaksi + tombol uji simulasi.
 4. **Confessions** (channel anonim, moderasi lewat antispam).
 5. **Snipe / EditSnipe**.
 

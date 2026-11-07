@@ -51,6 +51,7 @@ from urllib.parse import urlencode
 import dashboard_admin
 import dashboard_giveaway
 import dashboard_keamanan
+import dashboard_highlights
 import dashboard_lencana
 import dashboard_moderasi
 import dashboard_tags
@@ -554,6 +555,8 @@ def _anchor_konten(aksi: str) -> str:
         return "p-konten"
     if kunci.startswith("unggah."):
         return "p-banner"
+    if kunci.startswith("pantau-"):
+        return "p-pantau"
     if kunci.startswith("tag-"):
         return "p-tag"
     if kunci.startswith("starboard-"):
@@ -637,7 +640,8 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "konten",
         "menu": "🧩 Konten & interaksi",
         "judul": "🧩 Konten & interaksi",
-        "keterangan": "Fitur AI per channel, starboard, kotak saran, fakta harian, koran pagi, & backup.",
+        "keterangan": "Fitur AI per channel, starboard, kotak saran, fakta harian, koran pagi, "
+        "tag siap pakai, highlight kata kunci, & backup.",
         "panel": ("p-konten",),
     },
     {
@@ -689,6 +693,7 @@ ANCHOR_HALAMAN.update({
     "p-aturan": "keamanan",
     "p-honeypot": "keamanan",
     "p-tag": "konten",
+    "p-pantau": "konten",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -747,7 +752,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "buat": ("pengumuman",),
     "panel": ("panel",),
     "tiket": ("tiket",),
-    "konten": ("digest", "tag"),
+    "konten": ("digest", "tag", "pantau"),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu", "lencana"),
@@ -1033,6 +1038,7 @@ PANEL: dict[str, object] = {
         "Fitur AI per channel (boleh lebih dari satu), starboard, kotak saran, fakta harian, "
         "koran pagi, &amp; backup otomatis.",
         "tag",
+        "pantau",
         "starboard",
         "uji",
     ),
@@ -1105,6 +1111,7 @@ def render_dashboard_html(
     moderasi_block: str = "",
     tag_block: str = "",
     lencana_block: str = "",
+    pantau_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1191,6 +1198,8 @@ def render_dashboard_html(
         "moderasi_block": moderasi_block
         or '<div class="muted">Panel moderasi tidak tersedia.</div>',
         "tag_block": tag_block or '<div class="muted">Panel tag tidak tersedia.</div>',
+        "pantau_block": pantau_block
+        or '<div class="muted">Panel highlight tidak tersedia.</div>',
         "lencana_block": lencana_block
         or '<div class="muted">Panel lencana tidak tersedia.</div>',
         "aturan_block": aturan_block
@@ -1688,6 +1697,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_tags.render_tags_block(bot, gid, token),
             '<div class="muted">Panel tag tidak tersedia.</div>',
         )
+        pantau_block = _blok(
+            lambda: dashboard_highlights.render_highlights_block(bot, gid, token),
+            '<div class="muted">Panel highlight tidak tersedia.</div>',
+        )
         lencana_block = _blok(
             lambda: dashboard_lencana.render_lencana_block(bot, gid, token),
             '<div class="muted">Panel lencana tidak tersedia.</div>',
@@ -1761,6 +1774,7 @@ async def start_dashboard(bot) -> bool:
             moderasi_block=moderasi_block,
             tag_block=tag_block,
             lencana_block=lencana_block,
+            pantau_block=pantau_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1923,6 +1937,8 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi.startswith("pantau-"):
+            ok, message = await dashboard_highlights.aksi_highlights(gid, aksi, payload)
         elif aksi == "tag-simpan":
             import tags
 
