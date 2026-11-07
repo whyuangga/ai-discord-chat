@@ -111,31 +111,74 @@ def detik_auto(request, bawaan: int = 30) -> int:
     return max(0, min(3600, int(bawaan or 0)))
 
 
-# Pilihan interval auto-refresh di header (form GET biasa, tanpa JavaScript).
+# Pilihan cepat interval auto-refresh di header (form GET biasa, tanpa JavaScript).
 PILIHAN_AUTO: tuple[tuple[int, str], ...] = (
     (0, "⏸ Mati"),
-    (15, "15 detik"),
-    (30, "30 detik"),
     (60, "1 menit"),
-    (120, "2 menit"),
-    (300, "5 menit"),
+    (600, "10 menit"),
+    (1800, "30 menit"),
+    (3600, "1 jam"),
 )
+# Nama field angka bebas (menimpa pilihan dropdown bila diisi).
+FIELD_AUTO_MANUAL = "refresh_detik"
+BATAS_AUTO = (0, 3600)
+
+
+def detik_dari_kueri(kueri) -> str:
+    """Nilai mentah auto-refresh dari query: field angka dulu, lalu dropdown.
+
+    Mengembalikan `"auto"`/`""` (ikut `.env`) atau angka sebagai string —
+    angka di luar 0–3600 dipotong, bukan ditolak, supaya tidak ada form buntu.
+    """
+    manual = str(kueri.get(FIELD_AUTO_MANUAL) or "").strip()
+    for kandidat in (manual, str(kueri.get("refresh") or "").strip()):
+        teks = kandidat.strip().lower()
+        if not teks:
+            continue
+        if teks in ("auto", "bawaan", "env"):
+            return "auto"
+        if teks.lstrip("+").isdigit():
+            bawah, atas = BATAS_AUTO
+            return str(max(bawah, min(atas, int(teks))))
+        return "0"
+    return "auto"
+
+
+def _label_auto(detik: int) -> str:
+    """Label manusiawi untuk angka detik (mis. 45 → “45 detik”, 3600 → “1 jam”)."""
+    for nilai, label in PILIHAN_AUTO:
+        if nilai == detik:
+            return label
+    if detik >= 60 and detik % 60 == 0:
+        menit = detik // 60
+        return f"{menit} menit"
+    return f"{detik} detik"
 
 
 def form_auto(aksi: str, token: str = "", guild_id: int = 0,
               detik: int = 30, dipilih: str = "") -> str:
-    """Dropdown “🔄 Auto-refresh” di header — atur interval tanpa `.env` & tanpa restart.
+    """Pengatur “🔄 Auto-refresh” di header — tanpa `.env` & tanpa restart.
+
+    Dua cara isi dalam **satu** form GET:
+    - dropdown pilihan cepat (`⏸ Mati` · `1 menit` · `10 menit` · `30 menit` ·
+      `1 jam` · `Ikut .env`), dan
+    - **input angka detik bebas** yang menimpa pilihan dropdown bila diisi.
 
     `dipilih` boleh `"auto"` (ikut `DASHBOARD_REFRESH_SEC`) atau angka detik.
-    Nilai angka di luar daftar (mis. dari URL `?refresh=45`) tetap ditampilkan
-    sebagai opsi tambahan supaya pilihan yang sedang aktif tidak “hilang”.
+    Nilai angka di luar daftar (mis. `?refresh=45`) tetap tampil sebagai opsi
+    tambahan supaya pilihan yang sedang aktif tidak “hilang”.
     """
     if not str(aksi or "").strip():
         return ""
     pilih = str(dipilih if str(dipilih or "").strip() else max(0, int(detik or 0)))
+    bawaan = max(0, int(detik or 0))
+    manual = pilih if pilih.isdigit() and int(pilih) not in {n for n, _ in PILIHAN_AUTO} else ""
     opsi = ""
-    if pilih != "auto" and pilih not in {str(nilai) for nilai, _ in PILIHAN_AUTO}:
-        opsi += f'<option value="{html.escape(pilih, quote=True)}" selected>{html.escape(pilih)} detik</option>'
+    if pilih.isdigit() and int(pilih) not in {n for n, _ in PILIHAN_AUTO}:
+        opsi += (
+            f'<option value="{pilih}" selected>'
+            f'{html.escape(_label_auto(int(pilih)))} (angka)</option>'
+        )
     for nilai, label in PILIHAN_AUTO:
         tanda = " selected" if str(nilai) == pilih else ""
         opsi += f'<option value="{nilai}"{tanda}>{label}</option>'
@@ -145,7 +188,14 @@ def form_auto(aksi: str, token: str = "", guild_id: int = 0,
         f'<input type="hidden" name="token" value="{html.escape(token, quote=True)}">'
         f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
         '<label for="pilih-auto">🔄 Auto-refresh</label>'
-        f'<select name="refresh" id="pilih-auto" aria-label="Interval auto-refresh">{opsi}</select>'
+        '<select name="refresh" id="pilih-auto" aria-label="Pilihan cepat interval auto-refresh">'
+        f"{opsi}</select>"
+        f'<input type="number" name="{FIELD_AUTO_MANUAL}" id="input-auto"'
+        f' min="{BATAS_AUTO[0]}" max="{BATAS_AUTO[1]}" step="5" inputmode="numeric"'
+        f' placeholder="{bawaan}" value="{html.escape(manual, quote=True)}"'
+        ' aria-label="Atau isi sendiri interval auto-refresh dalam detik"'
+        ' title="Isi sendiri (detik), mis. 45 — menimpa pilihan dropdown">'
+        '<span class="muted satuan">detik</span>'
         '<button type="submit">Set</button></form>'
     )
 
@@ -998,8 +1048,10 @@ def render_dashboard_html(
         if detik > 0
         else ""
     )
+    # Angka besar lebih enak dibaca sebagai menit/jam: “600s · 10 menit”.
+    petunjuk = f" · {_label_auto(detik)}" if detik >= 60 else ""
     refresh_info = (
-        f" (🔄 auto-refresh {detik}s)" if detik > 0 else " (⏸ auto-refresh mati)"
+        f" (🔄 auto-refresh {detik}s{petunjuk})" if detik > 0 else " (⏸ auto-refresh mati)"
     )
     auto_pilih = form_auto(auto_aksi, token, guild_id, detik, auto_dipilih)
     data = {
@@ -1386,18 +1438,18 @@ async def start_dashboard(bot) -> bool:
         flash_pesan = str(request.query.get("pesan") or "")[:300]
         flash_ok = str(request.query.get("ok") or "1") != "0"
 
-        # 🔄 Hidupkan / jeda auto-refresh dari header (tanpa JavaScript, tanpa .env).
-        # `?refresh=30` → simpan di cookie, `?refresh=0` → jeda, `?refresh=auto` → ikut .env.
-        if "refresh" in request.query:
-            nilai = str(request.query.get("refresh") or "").strip().lower()
+        # 🔄 Atur auto-refresh dari header (tanpa JavaScript, tanpa .env).
+        # Dropdown `?refresh=600` atau angka bebas `?refresh_detik=45` → cookie;
+        # `?refresh=auto` (atau kosong) → hapus cookie, ikut DASHBOARD_REFRESH_SEC.
+        if "refresh" in request.query or FIELD_AUTO_MANUAL in request.query:
+            nilai = detik_dari_kueri(request.query)
             balik = url_halaman(halaman_dari_path(request.path), token, gid)
             jawab = web.Response(status=303, headers={"Location": balik})
-            if nilai in ("", "auto", "bawaan", "env"):
+            if nilai == "auto":
                 jawab.del_cookie(COOKIE_AUTO, path="/")
             else:
-                angka = int(nilai) if nilai.isdigit() else 0
                 jawab.set_cookie(
-                    COOKIE_AUTO, str(max(0, min(3600, angka))),
+                    COOKIE_AUTO, nilai,
                     max_age=COOKIE_AUTO_MAKS, path="/", httponly=True, samesite="Lax",
                 )
             return jawab

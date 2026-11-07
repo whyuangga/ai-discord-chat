@@ -291,6 +291,8 @@ CSS_HALAMAN = f"""
   .pemilih-auto {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; }}
   .pemilih-auto label {{ font-size: 12px; color: var(--redup); white-space: nowrap; }}
   .pemilih-auto select {{ min-width: 118px; }}
+  .pemilih-auto input[type="number"] {{ width: 84px; }}
+  .pemilih-auto .satuan {{ font-size: 12px; color: var(--redup-2); margin-left: -4px; }}
   .pemilih-auto button {{ cursor: pointer; padding: 7px 12px; }}
   .topbar .baris .pemilih-server {{ margin: 0; }}
 

@@ -422,37 +422,46 @@ def test_modul_dashboard_tidak_menambah_dependency():
         assert not (modul & dilarang), f"{berkas} memakai dependency baru: {modul & dilarang}"
 
 
-def test_dropdown_auto_refresh_di_header():
-    """Header punya dropdown interval auto-refresh (form GET, tanpa JavaScript)."""
+def test_pengatur_auto_refresh_di_header():
+    """Header: dropdown pilihan cepat + input angka bebas (form GET, tanpa JS)."""
     dasar = dict(status={}, usage={}, levels={}, token="tok", guild_id=1234)
 
     html = web_dashboard.render_dashboard_html(
-        **dasar, refresh=30, auto_aksi="/inti", auto_dipilih="30"
+        **dasar, refresh=600, auto_aksi="/inti", auto_dipilih="600"
     )
     assert 'class="pemilih-auto"' in html
     assert 'action="/inti"' in html and 'name="refresh"' in html
     assert 'id="pilih-auto"' in html
-    for nilai in ("0", "15", "30", "60", "120", "300"):
+    # Pilihan cepat sesuai permintaan: mati · 1 menit · 10 menit · 30 menit · 1 jam
+    for nilai, label in (("0", "⏸ Mati"), ("60", "1 menit"), ("600", "10 menit"),
+                         ("1800", "30 menit"), ("3600", "1 jam")):
         assert f'<option value="{nilai}"' in html
+        assert label in html
     assert '<option value="auto"' in html            # ikut DASHBOARD_REFRESH_SEC
-    assert '<option value="30" selected>' in html
+    assert '<option value="600" selected>' in html
+    # Input angka bebas (detik) ada di form yang sama
+    assert f'name="{web_dashboard.FIELD_AUTO_MANUAL}"' in html
+    assert 'type="number"' in html and 'id="input-auto"' in html
+    assert 'min="0"' in html and 'max="3600"' in html
+    assert "auto-refresh 600s · 10 menit" in html      # angka besar diberi label enak dibaca
     assert 'name="token" value="tok"' in html and 'name="guild" value="1234"' in html
-    assert "auto-refresh 30s" in html
 
-    # Nilai .env → opsi “Ikut .env” yang terpilih
+    # Nilai .env → opsi “Ikut .env” terpilih, input angka kosong (placeholder = nilai aktif)
     ikut = web_dashboard.render_dashboard_html(
         **dasar, refresh=25, auto_aksi="/", auto_dipilih="auto"
     )
     assert '<option value="auto" selected>' in ikut
-    assert '<option value="30" selected>' not in ikut
+    assert '<option value="60" selected>' not in ikut
+    assert 'placeholder="25"' in ikut and 'value=""' in ikut
 
-    # Angka di luar daftar (mis. dari URL ?refresh=45) tetap tampil & terpilih
+    # Angka di luar daftar (mis. dari ?refresh_detik=45) tetap tampil & terpilih
     lain = web_dashboard.render_dashboard_html(
         **dasar, refresh=45, auto_aksi="/", auto_dipilih="45"
     )
-    assert '<option value="45" selected>45 detik</option>' in lain
+    assert '<option value="45" selected>45 detik (angka)</option>' in lain
+    assert 'value="45"' in lain                      # ikut tampil di input angka
 
-    # Mati → tidak ada meta refresh, opsi Mati terpilih
+    # Mati → tanpa meta refresh, opsi Mati terpilih
     mati = web_dashboard.render_dashboard_html(
         **dasar, refresh=0, auto_aksi="/", auto_dipilih="0"
     )
@@ -467,9 +476,32 @@ def test_dropdown_auto_refresh_di_header():
 
 def test_form_auto_bisa_dipanggil_langsung():
     assert web_dashboard.form_auto("") == ""       # tanpa aksi → kosong
-    html = web_dashboard.form_auto("/tiket", "abc", 99, 30, "auto")
+    html = web_dashboard.form_auto("/tiket", "abc", 99, 600, "auto")
     assert 'action="/tiket"' in html and "abc" in html and "99" in html
     assert '<option value="auto" selected>' in html
+    assert web_dashboard.form_auto("/tiket", "abc", 99, 600, "auto").count("<form") == 1
+
+
+def test_detik_dari_kueri_mendahulukan_input_angka():
+    """Input angka menimpa dropdown; nilai aneh dipotong, bukan ditolak."""
+    kueri = lambda **kw: kw  # noqa: E731  (dict sudah mirip MultiDict.get)
+
+    assert web_dashboard.detik_dari_kueri(kueri()) == "auto"
+    assert web_dashboard.detik_dari_kueri(kueri(refresh="auto")) == "auto"
+    assert web_dashboard.detik_dari_kueri(kueri(refresh="600")) == "600"
+    assert web_dashboard.detik_dari_kueri(kueri(refresh="0")) == "0"
+    # Angka bebas mengalahkan pilihan dropdown
+    assert web_dashboard.detik_dari_kueri(
+        kueri(refresh="600", refresh_detik="45")
+    ) == "45"
+    assert web_dashboard.detik_dari_kueri(
+        kueri(refresh="600", refresh_detik="")
+    ) == "600"
+    # Di luar batas → dipotong ke 0..3600, bukan error
+    assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="99999")) == "3600"
+    assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="-50")) == "0"
+    # Sampah → mati (lebih baik daripada error 500)
+    assert web_dashboard.detik_dari_kueri(kueri(refresh_detik="abc")) == "0"
 
 
 def test_detik_auto_memakai_cookie_lalu_env(monkeypatch):
@@ -510,21 +542,34 @@ def test_http_dropdown_auto_refresh_lewat_header(monkeypatch):
                     assert '<option value="auto" selected>' in body
                     assert "auto-refresh 30s" in body
 
-                # Pilih 60 detik (persis seperti submit form) → 303 + cookie + meta 60
+                # Pilih 10 menit (persis seperti submit dropdown) → 303 + cookie + meta
                 async with session.get(
-                    f"{base}?token=token-uji&guild=1234&refresh=60",
+                    f"{base}?token=token-uji&guild=1234&refresh=600",
                     allow_redirects=False,
                 ) as resp:
                     assert resp.status == 303
                     assert resp.headers["Location"] == "/?token=token-uji&guild=1234"
-                    assert resp.cookies[web_dashboard.COOKIE_AUTO].value == "60"
+                    assert resp.cookies[web_dashboard.COOKIE_AUTO].value == "600"
 
                 async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
                     body = await resp.text()
-                    assert "auto-refresh 60s" in body
-                    assert 'http-equiv="refresh" content="60"' in body
-                    assert '<option value="60" selected>' in body
+                    assert "auto-refresh 600s · 10 menit" in body
+                    assert 'http-equiv="refresh" content="600"' in body
+                    assert '<option value="600" selected>' in body
                     assert '<option value="auto" selected>' not in body
+
+                # Input angka bebas menimpa dropdown (mis. 45 detik)
+                async with session.get(
+                    f"{base}?token=token-uji&guild=1234&refresh=600&refresh_detik=45",
+                    allow_redirects=False,
+                ) as resp:
+                    assert resp.status == 303
+                    assert resp.cookies[web_dashboard.COOKIE_AUTO].value == "45"
+                async with session.get(f"{base}?token=token-uji&guild=1234") as resp:
+                    body = await resp.text()
+                    assert 'http-equiv="refresh" content="45"' in body
+                    assert '<option value="45" selected>45 detik (angka)</option>' in body
+                    assert 'value="45"' in body
 
                 # Pilih “Mati” → cookie 0, tanpa meta refresh
                 async with session.get(
