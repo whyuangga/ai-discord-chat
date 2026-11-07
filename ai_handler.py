@@ -1633,6 +1633,104 @@ async def transform_message_with_gemini(
     return None, f"⚠️ Gagal memproses pesan: {last_err}"
 
 
+async def _konteks_pencarian_fakta(session, message_text: str):
+    """Cari referensi berita/web terbaru untuk klaim; `(live_ctx, live_sources)`."""
+    live_ctx = ""
+
+    live_sources: list = []
+
+    search_seed = re.sub(r"https?://\S+", " ", message_text).strip()
+
+    if len(search_seed) >= 8:
+        live_ctx, live_sources = await free_live_web_search(search_seed[:180], http_session=session)
+
+    return live_ctx, live_sources
+
+
+def _parts_cek_fakta(full_text: str, live_ctx: str, media_parts) -> list[dict]:
+    """Susun `parts` Gemini dari lampiran + teks klaim + referensi web."""
+    prompt_parts_text: list[str] = []
+
+    if full_text:
+        prompt_parts_text.append(f"Klaim / Pesan yang Diperiksa:\n{full_text}")
+    else:
+        prompt_parts_text.append(
+            "Baca teks/klaim atau tangkapan layar berita pada media lampiran ini lalu periksa kebenaran faktanya!"
+        )
+
+    if live_ctx:
+        prompt_parts_text.append(f"Referensi Web & Berita Terbaru:\n{live_ctx}")
+
+    parts: list[dict] = [*(media_parts or []), {"text": "\n\n".join(prompt_parts_text)}]
+
+    return parts
+
+
+async def _jalankan_cek_fakta(
+    http_session,
+    *,
+    models_to_try: list[str],
+    active_keys: list[str],
+    system_prompt: str,
+    full_text: str,
+    media_parts,
+    message_text: str,
+    req_timeout,
+    last_err: str,
+) -> tuple[str | None, str | None]:
+    """Cari referensi lalu coba tiap model sampai ada jawaban."""
+    async with _borrow_session(http_session, req_timeout) as session:
+        live_ctx, live_sources = await _konteks_pencarian_fakta(session, message_text)
+        parts = _parts_cek_fakta(full_text, live_ctx, media_parts)
+
+    for idx, model_id in enumerate(models_to_try):
+        gen_config: dict = {"temperature": 0.25, "maxOutputTokens": 3072}
+        t_cfg = build_thinking_config(model_id, "low")
+        if t_cfg:
+            gen_config["thinkingConfig"] = t_cfg
+
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": gen_config,
+        }
+        api_key = active_keys[idx % len(active_keys)]
+        url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+        try:
+            async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status == 200 and isinstance(data, dict):
+                    _record_token_usage(data)
+                    reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                    if reply_text:
+                        if live_sources:
+                            footer = _format_grounding_footer(live_sources)
+                            max_body = max(500, 3850 - len(footer))
+                            clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+                            reply_text = f"{clipped}{footer}"
+                        return reply_text, None
+                    if block_msg and not should_retry:
+                        return None, block_msg
+                    continue
+
+                if resp.status in (500, 502, 503, 504):
+                    mark_model_unhealthy(model_id)
+                err_detail = (
+                    data.get("error", {}).get("message", f"HTTP {resp.status}")
+                    if isinstance(data, dict)
+                    else f"HTTP {resp.status}"
+                )
+                last_err = sanitize_error_message(err_detail)
+        except (asyncio.TimeoutError, aiohttp.ClientError):
+            mark_model_unhealthy(model_id)
+            continue
+
+
+    return None, f"⚠️ Gagal memeriksa fakta pesan: {last_err}"
+
+
 async def fact_check_message_with_gemini(
     message_text: str,
     *,
@@ -1669,71 +1767,17 @@ async def fact_check_message_with_gemini(
     models_to_try = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
     last_err = "Server Gemini sedang sibuk."
 
-    async with _borrow_session(http_session, req_timeout) as session:
-        live_ctx = ""
-        live_sources: list = []
-        # Jika ada teks klaim yang cukup jelas, cari referensi berita/web terbaru secara gratis
-        search_seed = re.sub(r"https?://\S+", " ", message_text).strip()
-        if len(search_seed) >= 8:
-            live_ctx, live_sources = await free_live_web_search(search_seed[:180], http_session=session)
-
-        prompt_parts_text: list[str] = []
-        if full_text:
-            prompt_parts_text.append(f"Klaim / Pesan yang Diperiksa:\n{full_text}")
-        else:
-            prompt_parts_text.append(
-                "Baca teks/klaim atau tangkapan layar berita pada media lampiran ini lalu periksa kebenaran faktanya!"
-            )
-        if live_ctx:
-            prompt_parts_text.append(f"Referensi Web & Berita Terbaru:\n{live_ctx}")
-
-        parts: list[dict] = [*(media_parts or []), {"text": "\n\n".join(prompt_parts_text)}]
-
-        for idx, model_id in enumerate(models_to_try):
-            gen_config: dict = {"temperature": 0.25, "maxOutputTokens": 3072}
-            t_cfg = build_thinking_config(model_id, "low")
-            if t_cfg:
-                gen_config["thinkingConfig"] = t_cfg
-
-            payload = {
-                "systemInstruction": {"parts": [{"text": system_prompt}]},
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": gen_config,
-            }
-            api_key = active_keys[idx % len(active_keys)]
-            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-
-            try:
-                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
-                    data = await resp.json(content_type=None)
-                    if resp.status == 200 and isinstance(data, dict):
-                        _record_token_usage(data)
-                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                        if reply_text:
-                            if live_sources:
-                                footer = _format_grounding_footer(live_sources)
-                                max_body = max(500, 3850 - len(footer))
-                                clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
-                                reply_text = f"{clipped}{footer}"
-                            return reply_text, None
-                        if block_msg and not should_retry:
-                            return None, block_msg
-                        continue
-
-                    if resp.status in (500, 502, 503, 504):
-                        mark_model_unhealthy(model_id)
-                    err_detail = (
-                        data.get("error", {}).get("message", f"HTTP {resp.status}")
-                        if isinstance(data, dict)
-                        else f"HTTP {resp.status}"
-                    )
-                    last_err = sanitize_error_message(err_detail)
-            except (asyncio.TimeoutError, aiohttp.ClientError):
-                mark_model_unhealthy(model_id)
-                continue
-
-    return None, f"⚠️ Gagal memeriksa fakta pesan: {last_err}"
+    return await _jalankan_cek_fakta(
+        http_session,
+        models_to_try=models_to_try,
+        active_keys=active_keys,
+        system_prompt=system_prompt,
+        full_text=full_text,
+        media_parts=media_parts,
+        message_text=message_text,
+        req_timeout=req_timeout,
+        last_err=last_err,
+    )
 
 
 async def generate_mystery_game_image_bytes(
