@@ -510,6 +510,72 @@ async def backup_pratinjau_cmd(interaction: discord.Interaction, berkas: discord
     )
 
 
+async def _terapkan_pemulihan(
+    interaction: discord.Interaction, plan: dict
+) -> dict:
+    """Jalankan rencana pemulihan, catat audit, lalu kembalikan hasilnya."""
+    result = await restore.apply_plan(
+        interaction.guild,
+        plan,
+        actor_id=interaction.user.id,
+        reason="Pemulihan struktur dari backup",
+    )
+
+    try:
+        import audit_log
+
+        await audit_log.log_event(
+            interaction.client,
+            interaction.guild,
+            "channel",
+            "♻️ Struktur server dipulihkan dari backup",
+            f"Role `{result['roles']}` • Kategori `{result['categories']}` • "
+            f"Channel `{result['channels']}` • Gagal `{len(result['errors'])}`",
+        )
+    except Exception as exc:  # pragma: no cover - audit opsional
+        logger.debug("Efek samping opsional gagal: %s", exc)
+
+    return result
+
+
+def _rencana_pemulihan(
+    guild: discord.Guild,
+    snapshot: dict,
+    *,
+    buat_role: bool,
+    buat_kategori: bool,
+    buat_channel: bool,
+) -> dict:
+    """Susun rencana pemulihan struktur dari snapshot backup."""
+    return restore.build_plan(
+        guild,
+        snapshot,
+        buat_role=buat_role,
+        buat_kategori=buat_kategori,
+        buat_channel=buat_channel,
+    )
+
+
+async def _run_pemulihan_konfirmasi(
+    confirm_interaction: discord.Interaction,
+    interaction: discord.Interaction,
+    plan: dict,
+) -> None:
+    """Callback tombol konfirmasi: terapkan rencana lalu perbarui pesan."""
+    await confirm_interaction.response.defer()
+
+    result = await _terapkan_pemulihan(interaction, plan)
+    await confirm_interaction.edit_original_response(
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok" if not result["errors"] else "warn",
+            "♻️ Pemulihan struktur selesai",
+            restore.describe_result(result)[:3900],
+            footer="0 kuota AI • hanya menambah, tidak menghapus",
+        )
+    )
+
+
 @backup_group.command(name="pulihkan", description="Buat ulang role/kategori/channel dari berkas backup (dengan konfirmasi)")
 @app_commands.describe(
     berkas="Lampirkan berkas .json hasil /backup struktur",
@@ -539,7 +605,7 @@ async def backup_pulihkan_cmd(
         )
         return
 
-    plan = restore.build_plan(
+    plan = _rencana_pemulihan(
         interaction.guild,
         snapshot,
         buat_role=buat_role,
@@ -560,36 +626,9 @@ async def backup_pulihkan_cmd(
         )
         return
 
-    async def _run(confirm_interaction: discord.Interaction) -> None:
-        await confirm_interaction.response.defer()
-        result = await restore.apply_plan(
-            interaction.guild,
-            plan,
-            actor_id=interaction.user.id,
-            reason="Pemulihan struktur dari backup",
-        )
-        try:
-            import audit_log
 
-            await audit_log.log_event(
-                interaction.client,
-                interaction.guild,
-                "channel",
-                "♻️ Struktur server dipulihkan dari backup",
-                f"Role `{result['roles']}` • Kategori `{result['categories']}` • "
-                f"Channel `{result['channels']}` • Gagal `{len(result['errors'])}`",
-            )
-        except Exception as exc:  # pragma: no cover - audit opsional
-            logger.debug("Efek samping opsional gagal: %s", exc)
-        await confirm_interaction.edit_original_response(
-            embed=ui_theme.status_embed(
-                interaction.guild.id,
-                "ok" if not result["errors"] else "warn",
-                "♻️ Pemulihan struktur selesai",
-                restore.describe_result(result)[:3900],
-                footer="0 kuota AI • hanya menambah, tidak menghapus",
-            )
-        )
+    async def _run(confirm_interaction: discord.Interaction) -> None:
+        await _run_pemulihan_konfirmasi(confirm_interaction, interaction, plan)
 
     view = await ui_kit.ask_confirm(
         interaction,
@@ -603,11 +642,10 @@ async def backup_pulihkan_cmd(
         confirm_label="Ya, pulihkan",
         on_confirm=_run,
     )
+
     if view is None:  # tema server mematikan konfirmasi → langsung jalankan
         await interaction.response.defer(ephemeral=True)
-        result = await restore.apply_plan(
-            interaction.guild, plan, actor_id=interaction.user.id, reason="Pemulihan struktur dari backup"
-        )
+        result = await _terapkan_pemulihan(interaction, plan)
         await ui_kit.send_status(
             interaction,
             embed=ui_theme.status_embed(
