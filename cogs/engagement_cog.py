@@ -67,21 +67,78 @@ giveaway_group = app_commands.Group(
 )
 
 
-@giveaway_group.command(name="mulai", description="Mulai giveaway baru dengan tombol peserta")
+def _susun_syarat(
+    guild_id: int,
+    *,
+    templat: str | None = None,
+    role_ids: list[int] | None = None,
+    level: int = 0,
+    account_age_days: int = 0,
+    bonus_role_id: int = 0,
+    bobot_bonus: int = 1,
+) -> tuple[dict, dict, dict]:
+    """Gabungkan template/setelan dashboard dengan argumen command.
+
+    Mengembalikan `(jumlah, syarat, bonus)` — `jumlah` berisi `winner_count`
+    & `seconds`, siap dipakai `create_giveaway`.
+    """
+    tpl = engagement.get_giveaway_template(guild_id, templat) if templat else None
+    if tpl:
+        jumlah = {"winner_count": tpl["winner_count"], "seconds": tpl["seconds"]}
+        syarat = dict(tpl["requirements"])
+        bonus = dict(tpl["bonus_roles"])
+    else:
+        bawaan = engagement.default_giveaway_config(guild_id)
+        jumlah = {"winner_count": bawaan["winner_count"], "seconds": bawaan["seconds"]}
+        syarat = engagement.default_requirements(guild_id)
+        bonus = engagement.default_bonus_roles(guild_id)
+
+    for rid in role_ids or []:
+        if rid and rid not in syarat["roles"]:
+            syarat["roles"].append(int(rid))
+    if level > 0:
+        syarat["level"] = int(level)
+    if account_age_days > 0:
+        syarat["account_age_days"] = int(account_age_days)
+    if bonus_role_id:
+        bonus[str(int(bonus_role_id))] = max(1, min(5, int(bobot_bonus)))
+    syarat = engagement.normalize_requirements(
+        roles=syarat.get("roles"),
+        level=syarat.get("level"),
+        account_age_days=syarat.get("account_age_days"),
+    )
+    return jumlah, syarat, engagement.normalize_bonus_roles(bonus)
+
+
+@giveaway_group.command(
+    name="mulai", description="Mulai giveaway baru (bisa disyaratkan level/umur akun/role & bonus booster)"
+)
 @app_commands.describe(
     hadiah="Nama hadiah, misal: Nitro 1 Bulan / Saldo 50rb",
-    durasi="Lama giveaway: 30m, 2 jam, 1j30m, 2 hari (default 1 jam)",
-    pemenang="Berapa pemenang yang diundi (1-20, default 1)",
+    durasi="Lama giveaway: 30m, 2 jam, 1j30m, 2 hari (kosong = ikut setelan dashboard)",
+    pemenang="Berapa pemenang yang diundi (1-20, 0 = ikut setelan dashboard)",
     channel="Channel tempat giveaway dipasang (default: channel ini)",
     syarat_role="Role yang wajib dimiliki untuk ikut (opsional)",
+    syarat_role_2="Role wajib kedua — harus dimiliki juga (opsional)",
+    syarat_level="Level minimal peserta (0 = tanpa syarat level)",
+    syarat_umur_akun="Umur akun Discord minimal dalam hari (0 = tanpa syarat)",
+    role_bonus="Role yang menambah peluang menang (mis. Booster)",
+    bobot_bonus="Tambahan peluang untuk pemilik role bonus (1-5)",
+    templat="Nama template tersimpan untuk mengisi semua setelan otomatis",
 )
 async def giveaway_mulai_cmd(
     interaction: discord.Interaction,
     hadiah: str,
-    durasi: str = "1 jam",
-    pemenang: int = 1,
+    durasi: str = "",
+    pemenang: int = 0,
     channel: discord.TextChannel | None = None,
     syarat_role: discord.Role | None = None,
+    syarat_role_2: discord.Role | None = None,
+    syarat_level: int = 0,
+    syarat_umur_akun: int = 0,
+    role_bonus: discord.Role | None = None,
+    bobot_bonus: int = 1,
+    templat: str | None = None,
 ):
     if interaction.guild is None:
         return
@@ -94,7 +151,27 @@ async def giveaway_mulai_cmd(
         await interaction.response.send_message("⚠️ Nama hadiah tidak boleh kosong.", ephemeral=True)
         return
 
-    seconds = engagement.parse_giveaway_duration(durasi)
+    gid = interaction.guild.id
+    if templat and engagement.get_giveaway_template(gid, templat) is None:
+        await interaction.response.send_message(
+            f"⚠️ Template `{templat}` belum ada. Lihat daftarnya di `/giveaway template-daftar`.",
+            ephemeral=True,
+        )
+        return
+
+    role_ids = [r.id for r in (syarat_role, syarat_role_2) if r is not None]
+    jumlah, syarat, bonus = _susun_syarat(
+        gid,
+        templat=templat,
+        role_ids=role_ids,
+        level=max(0, int(syarat_level)),
+        account_age_days=max(0, int(syarat_umur_akun)),
+        bonus_role_id=role_bonus.id if role_bonus else 0,
+        bobot_bonus=max(1, min(5, int(bobot_bonus))),
+    )
+
+    target_durasi = str(durasi or "").strip()
+    seconds = engagement.parse_giveaway_duration(target_durasi) if target_durasi else jumlah["seconds"]
     if not seconds:
         await interaction.response.send_message(
             "⚠️ Format durasi tidak valid. Contoh: `30m`, `2 jam`, `1j30m`, `2 hari`.",
@@ -116,19 +193,27 @@ async def giveaway_mulai_cmd(
 
     cfg = {
         "message_id": 0,
-        "guild_id": interaction.guild.id,
+        "guild_id": gid,
         "channel_id": target.id,
         "prize": prize[:200],
         "host_id": interaction.user.id,
-        "winner_count": max(1, min(20, int(pemenang))),
+        "winner_count": max(1, min(20, int(pemenang) if int(pemenang) > 0 else jumlah["winner_count"])),
         "ends_at": 0.0,
         "ended": False,
-        "role_id": syarat_role.id if syarat_role else None,
+        "role_id": syarat["roles"][0] if syarat["roles"] else None,
+        "requirements": syarat,
+        "bonus_roles": bonus,
         "entries": [],
         "winners": [],
     }
+    ping = engagement.default_giveaway_config(gid).get("ping_everyone") and interaction.guild is not None
     try:
-        message = await target.send(embed=engagement.build_giveaway_embed(cfg), view=GiveawayJoinView())
+        message = await target.send(
+            "@everyone 🎉 **Giveaway baru!**" if ping else None,
+            embed=engagement.build_giveaway_embed(cfg),
+            view=GiveawayJoinView(),
+            allowed_mentions=discord.AllowedMentions(everyone=True) if ping else discord.AllowedMentions.none(),
+        )
     except (discord.Forbidden, discord.HTTPException):
         await interaction.followup.send(
             f"⚠️ Gagal mengirim giveaway ke {target.mention}. Cek izin **Kirim Pesan** & **Embed Links**.",
@@ -137,14 +222,15 @@ async def giveaway_mulai_cmd(
         return
 
     cfg = engagement.create_giveaway(
-        guild_id=interaction.guild.id,
+        guild_id=gid,
         channel_id=target.id,
         message_id=message.id,
         prize=prize,
         host_id=interaction.user.id,
         seconds=seconds,
-        winner_count=int(pemenang),
-        role_id=syarat_role.id if syarat_role else None,
+        winner_count=int(cfg["winner_count"]),
+        requirements=syarat,
+        bonus_roles=bonus,
     )
     cfg["winners"] = []
     await engagement.save_engagement_to_disk()
@@ -153,10 +239,172 @@ async def giveaway_mulai_cmd(
         f"🎉 **Giveaway dimulai di {target.mention}!**\n"
         f"• Hadiah: **{cfg['prize']}**\n"
         f"• Pemenang: `{cfg['winner_count']}` orang\n"
+        f"• Syarat: {engagement.requirement_summary(cfg)}\n"
         f"• Berakhir: {engagement.format_timestamp(cfg['ends_at'], 'R')}\n"
         f"• ID pesan: `{message.id}` — simpan untuk `/giveaway akhiri` / `reroll`.",
         ephemeral=True,
     )
+
+
+@giveaway_group.command(name="peserta", description="Lihat peserta satu giveaway beserta peluang & syaratnya")
+@app_commands.describe(id_pesan="ID pesan giveaway (atau tempel tautan pesannya)")
+async def giveaway_peserta_cmd(interaction: discord.Interaction, id_pesan: str):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    message_id = _extract_message_id(id_pesan)
+    cfg = engagement.giveaways.get(message_id) if message_id else None
+    if cfg is None or cfg.get("guild_id") != interaction.guild.id:
+        await interaction.response.send_message(
+            "⚠️ Giveaway dengan ID itu tidak ditemukan di server ini.", ephemeral=True
+        )
+        return
+
+    entries = cfg.get("entries") or []
+    embed = discord.Embed(
+        title="👥 Peserta Giveaway",
+        color=discord.Color.gold(),
+        description=(
+            f"**{cfg.get('prize')}**\n"
+            f"`{len(entries)}` peserta • syarat: {engagement.requirement_summary(cfg)}\n"
+            f"Status: {'⏹️ selesai' if cfg.get('ended') else '⏳ berjalan'}"
+        ),
+    )
+    urut = sorted(entries, key=lambda uid: -engagement._weight_of(cfg, uid))
+    baris = [
+        f"• <@{uid}> — peluang `{engagement._weight_of(cfg, uid)}×`" for uid in urut[:25]
+    ]
+    if baris:
+        embed.add_field(name="Peserta (peluang terbesar di atas)", value="\n".join(baris)[:1024], inline=False)
+    else:
+        embed.add_field(name="Peserta", value="_Belum ada yang ikut._", inline=False)
+
+    riwayat = engagement.giveaway_history(message_id)
+    if riwayat:
+        isi = []
+        for item in riwayat[-5:]:
+            who = ", ".join(f"<@{uid}>" for uid in (item.get("pemenang") or [])) or "_kosong_"
+            pelaku = f"<@{item['oleh']}>" if item.get("oleh") else "otomatis"
+            isi.append(
+                f"• {engagement.format_timestamp(float(item.get('at') or 0), 'R')} — "
+                f"{item.get('aksi')} oleh {pelaku} → {who}"
+            )
+        embed.add_field(name="🧾 Riwayat undian", value="\n".join(isi)[:1024], inline=False)
+
+    embed.set_footer(text=f"Masih bisa diundi ulang: {engagement.reroll_pool_size(message_id)} peserta")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@giveaway_group.command(name="template-simpan", description="Simpan setelan giveaway jadi template yang bisa dipakai ulang")
+@app_commands.describe(
+    nama="Nama template (maksimal 40 karakter)",
+    pemenang="Jumlah pemenang bawaan (1-20)",
+    durasi="Durasi bawaan: 30m, 2 jam, 2 hari (default 1 jam)",
+    syarat_role="Role wajib untuk ikut (opsional)",
+    syarat_level="Level minimal peserta (0 = tanpa syarat)",
+    syarat_umur_akun="Umur akun minimal dalam hari (0 = tanpa syarat)",
+    role_bonus="Role yang menambah peluang (opsional)",
+    bobot_bonus="Tambahan peluang untuk role bonus (1-5)",
+)
+async def giveaway_template_simpan_cmd(
+    interaction: discord.Interaction,
+    nama: str,
+    pemenang: int = 1,
+    durasi: str = "1 jam",
+    syarat_role: discord.Role | None = None,
+    syarat_level: int = 0,
+    syarat_umur_akun: int = 0,
+    role_bonus: discord.Role | None = None,
+    bobot_bonus: int = 1,
+):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    seconds = engagement.parse_giveaway_duration(durasi) or 3600
+    if seconds < 60:
+        await interaction.response.send_message("⚠️ Durasi minimal 1 menit.", ephemeral=True)
+        return
+
+    syarat = engagement.normalize_requirements(
+        roles=[syarat_role.id] if syarat_role else [],
+        level=max(0, int(syarat_level)),
+        account_age_days=max(0, int(syarat_umur_akun)),
+    )
+    bonus = {str(role_bonus.id): max(1, min(5, int(bobot_bonus)))} if role_bonus else {}
+    ok, pesan = engagement.save_giveaway_template(
+        interaction.guild.id,
+        nama,
+        winner_count=max(1, min(20, int(pemenang))),
+        seconds=seconds,
+        requirements=syarat,
+        bonus_roles=bonus,
+    )
+    if ok:
+        await engagement.save_engagement_to_disk()
+        pesan += (
+            f"\nPakai dengan `/giveaway mulai hadiah:... templat:{nama}`.\n"
+            f"Syarat: {engagement.requirement_summary({'requirements': syarat, 'bonus_roles': bonus})}"
+        )
+    await interaction.response.send_message(
+        ("✅ " if ok else "⚠️ ") + pesan[:1500], ephemeral=True
+    )
+
+
+@giveaway_group.command(name="template-daftar", description="Lihat semua template giveaway di server ini")
+async def giveaway_template_daftar_cmd(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return
+
+    items = engagement.list_giveaway_templates(interaction.guild.id)
+    if not items:
+        await interaction.response.send_message(
+            "ℹ️ Belum ada template. Simpan satu dengan `/giveaway template-simpan`.\n"
+            "Template berguna untuk giveaway rutin (mis. “Nitro bulanan” dengan syarat level 5).",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🗂️ Template Giveaway",
+        color=discord.Color.gold(),
+        description=f"`{len(items)}` template tersimpan",
+    )
+    for tpl in items[:20]:
+        embed.add_field(
+            name=f"`{tpl['nama']}`",
+            value=(
+                f"{tpl['winner_count']} pemenang • {engagement.format_duration_short(tpl['seconds'])}\n"
+                f"Syarat: {engagement.requirement_summary({'requirements': tpl['requirements'], 'bonus_roles': tpl['bonus_roles']})}"
+            )[:1024],
+            inline=False,
+        )
+    embed.set_footer(text="Pakai: /giveaway mulai hadiah:... templat:<nama>")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@giveaway_group.command(name="template-hapus", description="Hapus satu template giveaway")
+@app_commands.describe(nama="Nama template yang ingin dihapus")
+async def giveaway_template_hapus_cmd(interaction: discord.Interaction, nama: str):
+    if interaction.guild is None:
+        return
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    if engagement.delete_giveaway_template(interaction.guild.id, nama):
+        await engagement.save_engagement_to_disk()
+        await interaction.response.send_message(f"🗑️ Template `{nama}` dihapus.", ephemeral=True)
+    else:
+        await interaction.response.send_message(
+            f"⚠️ Template `{nama}` tidak ditemukan. Lihat `/giveaway template-daftar`.",
+            ephemeral=True,
+        )
 
 
 @giveaway_group.command(name="akhiri", description="Tutup giveaway lebih awal & umumkan pemenang")

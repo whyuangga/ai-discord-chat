@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - Python lama
     ZoneInfo = None  # type: ignore[assignment]
     ZoneInfoNotFoundError = Exception  # type: ignore[misc,assignment]
 
-from config import BOT_TIMEZONE, ENGAGEMENT_FILE, DATA_DIR
+from config import BOT_TIMEZONE, ENGAGEMENT_FILE, GIVEAWAY_HISTORY_MAX, DATA_DIR
 from utils import sanitize_error_message
 
 logger = logging.getLogger("gemini_bot.engagement")
@@ -47,10 +47,18 @@ birthday_guilds: dict[int, dict] = {}    # guild_id -> {channel_id, hour, minute
 birthdays: dict[str, dict] = {}          # "guild_id:user_id" -> {day, month, year, user_id, guild_id}
 auto_reply_channels: dict[int, dict] = {}  # channel_id -> {guild_id, enabled, cooldown, rules, last_fired}
 announcements: dict[int, dict] = {}      # announcement_id -> data pengumuman terjadwal
+giveaway_templates: dict[int, dict] = {}  # guild_id -> {nama: {winner_count, seconds, requirements, bonus_roles}}
+giveaway_defaults: dict[int, dict] = {}   # guild_id -> setelan bawaan giveaway berlapis
 
 # Jadwal berulang berbasis interval: minimal 2 jam (batas Discohook), maksimal seminggu.
 MIN_INTERVAL_MINUTES = 120
 MAX_INTERVAL_MINUTES = 7 * 24 * 60
+
+# Batas aman giveaway berlapis.
+GIVEAWAY_MAX_WEIGHT = 6          # bobot maksimal per peserta (anti-curang)
+GIVEAWAY_MAX_TEMPLATE = 25       # template per server
+GIVEAWAY_MAX_REQUIREMENT_ROLES = 5
+GIVEAWAY_MAX_ENTRY_LOG = 200     # jejak peserta per giveaway (buat audit dashboard)
 
 _giveaway_seq: int = 0
 _announcement_seq: int = 0
@@ -119,6 +127,8 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
     """Memuat giveaway, ulang tahun, auto-responder, & pengumuman terjadwal."""
     global _giveaway_seq, _announcement_seq
     giveaways.clear()
+    giveaway_templates.clear()
+    giveaway_defaults.clear()
     birthday_guilds.clear()
     birthdays.clear()
     auto_reply_channels.clear()
@@ -151,8 +161,79 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
                 "ends_at": float(data.get("ends_at") or 0),
                 "ended": bool(data.get("ended", False)),
                 "role_id": _to_int(data.get("role_id")) or None,
+                "requirements": normalize_requirements(
+                    roles=(data.get("requirements") or {}).get("roles")
+                    or ([data.get("role_id")] if data.get("role_id") else []),
+                    level=(data.get("requirements") or {}).get("level"),
+                    account_age_days=(data.get("requirements") or {}).get("account_age_days"),
+                ),
+                "bonus_roles": {
+                    str(k): max(1, min(5, _to_int(v, 1)))
+                    for k, v in (data.get("bonus_roles") or {}).items()
+                    if _to_int(k)
+                },
+                "weights": {
+                    str(k): max(1, min(GIVEAWAY_MAX_WEIGHT, _to_int(v, 1)))
+                    for k, v in (data.get("weights") or {}).items()
+                    if _to_int(k)
+                },
+                "history": [
+                    {
+                        "at": float(item.get("at") or 0),
+                        "aksi": str(item.get("aksi") or "akhir")[:20],
+                        "pemenang": [_to_int(x) for x in (item.get("pemenang") or []) if _to_int(x)],
+                        "oleh": _to_int(item.get("oleh")),
+                    }
+                    for item in (data.get("history") or [])
+                    if isinstance(item, dict)
+                ][-GIVEAWAY_HISTORY_MAX:],
                 "entries": [_to_int(x) for x in (data.get("entries") or []) if _to_int(x)],
                 "winners": [_to_int(x) for x in (data.get("winners") or []) if _to_int(x)],
+            }
+        except (TypeError, ValueError):
+            continue
+
+    for gid_str, data in (raw.get("giveaway_templates") or {}).items():
+        try:
+            gid = int(gid_str)
+            kumpulan: dict[str, dict] = {}
+            for nama, isi in (data or {}).items():
+                kunci = str(nama or "").strip().lower()
+                if not kunci or not isinstance(isi, dict):
+                    continue
+                kumpulan[kunci] = {
+                    "nama": str(isi.get("nama") or nama)[:60],
+                    "winner_count": max(1, min(20, _to_int(isi.get("winner_count"), 1))),
+                    "seconds": max(60, _to_int(isi.get("seconds"), 3600)),
+                    "requirements": normalize_requirements(
+                        roles=(isi.get("requirements") or {}).get("roles"),
+                        level=(isi.get("requirements") or {}).get("level"),
+                        account_age_days=(isi.get("requirements") or {}).get("account_age_days"),
+                    ),
+                    "bonus_roles": {
+                        str(k): max(1, min(5, _to_int(v, 1)))
+                        for k, v in (isi.get("bonus_roles") or {}).items()
+                        if _to_int(k)
+                    },
+                }
+            if kumpulan:
+                giveaway_templates[gid] = kumpulan
+        except (TypeError, ValueError):
+            continue
+
+    for gid_str, data in (raw.get("giveaway_defaults") or {}).items():
+        try:
+            gid = int(gid_str)
+            if not isinstance(data, dict):
+                continue
+            giveaway_defaults[gid] = {
+                "winner_count": max(1, min(20, _to_int(data.get("winner_count"), 1))),
+                "seconds": max(60, min(30 * 86400, _to_int(data.get("seconds"), 3600))),
+                "level": max(0, min(500, _to_int(data.get("level")))),
+                "account_age_days": max(0, min(3650, _to_int(data.get("account_age_days")))),
+                "bonus_role_id": _to_int(data.get("bonus_role_id")),
+                "bonus_weight": max(1, min(5, _to_int(data.get("bonus_weight"), 1))),
+                "ping_everyone": bool(data.get("ping_everyone", False)),
             }
         except (TypeError, ValueError):
             continue
@@ -263,6 +344,10 @@ async def save_engagement_to_disk() -> None:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             payload = {
                 "giveaways": {str(k): v for k, v in giveaways.items()},
+                "giveaway_templates": {
+                    str(k): v for k, v in giveaway_templates.items() if v
+                },
+                "giveaway_defaults": {str(k): v for k, v in giveaway_defaults.items() if v},
                 "birthday_channels": {str(k): v for k, v in birthday_guilds.items()},
                 "birthdays": {
                     str(k): {
@@ -295,12 +380,153 @@ def parse_giveaway_duration(raw: str | None) -> int | None:
     return parse_reminder_duration(raw)
 
 
+def _norm_roles(roles) -> list[int]:
+    """Daftar role syarat yang unik & dibatasi jumlahnya."""
+    hasil: list[int] = []
+    for item in roles or []:
+        rid = _to_int(item)
+        if rid and rid not in hasil:
+            hasil.append(rid)
+    return hasil[:GIVEAWAY_MAX_REQUIREMENT_ROLES]
+
+
+def normalize_requirements(*, roles=None, level=None, account_age_days=None) -> dict:
+    """Merapikan syarat giveaway: role wajib, level minimum, & umur akun minimum.
+
+    Nilai `0` berarti syarat itu **tidak dipakai**, jadi giveaway lama (tanpa syarat)
+    tetap berjalan persis seperti sebelumnya.
+    """
+    return {
+        "roles": _norm_roles(roles),
+        "level": max(0, min(500, _to_int(level))),
+        "account_age_days": max(0, min(3650, _to_int(account_age_days))),
+    }
+
+
+def normalize_bonus_roles(bonus_roles) -> dict[str, int]:
+    """Role peluang ekstra → tambahan bobot undian (1–5, kunci selalu string ID)."""
+    hasil: dict[str, int] = {}
+    for rid, extra in dict(bonus_roles or {}).items():
+        kunci = str(_to_int(rid))
+        if kunci == "0":
+            continue
+        hasil[kunci] = max(1, min(5, _to_int(extra, 1)))
+    return hasil
+
+
+def describe_requirements(cfg: dict) -> list[str]:
+    """Baris-baris syarat giveaway dalam bahasa manusia (untuk embed & dashboard)."""
+    req = cfg.get("requirements") or {}
+    roles = _norm_roles(req.get("roles"))
+    baris: list[str] = []
+    if roles:
+        if len(roles) == 1:
+            baris.append(f"Punya role <@&{roles[0]}>")
+        else:
+            baris.append("Punya role " + " + ".join(f"<@&{rid}>" for rid in roles))
+    level = _to_int(req.get("level"))
+    if level:
+        baris.append(f"Level minimal **{level}**")
+    hari = _to_int(req.get("account_age_days"))
+    if hari:
+        baris.append(f"Akun berumur minimal **{hari} hari**")
+    bonus = normalize_bonus_roles(cfg.get("bonus_roles"))
+    if bonus:
+        baris.append(
+            "Peluang ekstra: " + " · ".join(f"<@&{rid}> +{bobot}" for rid, bobot in bonus.items())
+        )
+    return baris
+
+
+def requirement_summary(cfg: dict) -> str:
+    """Ringkasan satu baris syarat (dipakai `/giveaway daftar` & dashboard)."""
+    baris = describe_requirements(cfg)
+    return " · ".join(baris) if baris else "tanpa syarat"
+
+
+def describe_rejection(kode: str, cfg: dict) -> str:
+    """Kalimat alasan penolakan + rincian syarat (dipakai tombol & command)."""
+    req = cfg.get("requirements") or {}
+    alasan = {
+        "syarat_role": "role yang diwajibkan belum kamu miliki",
+        "syarat_level": f"level kamu belum mencapai **{_to_int(req.get('level'))}**",
+        "syarat_umur": "umur akun Discord-mu belum cukup",
+    }.get(kode, "syarat giveaway belum terpenuhi")
+    baris = describe_requirements(cfg)
+    rincian = "\n".join(f"• {item}" for item in baris)
+    return f"🔒 **Belum bisa ikut** — {alasan}." + (f"\n{rincian}" if rincian else "")
+
+
+def check_requirements(
+    cfg: dict,
+    *,
+    role_ids: set[int] | list[int] | None = None,
+    level: int | None = None,
+    account_age_days: int | None = None,
+) -> str | None:
+    """Cek semua syarat. `None` = lolos, selain itu kode alasan penolakan.
+
+    Kode: `syarat_role`, `syarat_level`, `syarat_umur`. Bila data member tidak
+    diberikan (`None`), syarat itu dianggap **tidak terpenuhi** supaya tidak ada
+    yang lolos tanpa bukti.
+    """
+    req = cfg.get("requirements") or {}
+    wajib = set(_norm_roles(req.get("roles")))
+    if wajib:
+        punya = {_to_int(r) for r in (role_ids or [])}
+        if not wajib.issubset(punya):
+            return "syarat_role"
+    level_min = _to_int(req.get("level"))
+    if level_min and _to_int(level) < level_min:
+        return "syarat_level"
+    umur_min = _to_int(req.get("account_age_days"))
+    if umur_min and _to_int(account_age_days) < umur_min:
+        return "syarat_umur"
+    return None
+
+
+def entry_weight(cfg: dict, role_ids: set[int] | list[int] | None = None) -> tuple[int, list[int]]:
+    """Bobot undian seorang peserta + daftar role bonus yang ia miliki."""
+    punya = {_to_int(r) for r in (role_ids or [])}
+    bobot = 1
+    pakai: list[int] = []
+    for rid, extra in normalize_bonus_roles(cfg.get("bonus_roles")).items():
+        if _to_int(rid) in punya:
+            bobot += extra
+            pakai.append(_to_int(rid))
+    return min(GIVEAWAY_MAX_WEIGHT, bobot), pakai
+
+
+def _weight_of(cfg: dict, user_id: int) -> int:
+    weights = cfg.get("weights") or {}
+    return max(1, min(GIVEAWAY_MAX_WEIGHT, _to_int(weights.get(str(int(user_id))), 1)))
+
+
+def _add_history(cfg: dict, aksi: str, winners: list[int], actor_id: int = 0) -> None:
+    """Menyimpan jejak pengundian (siapa diundi, kapan, oleh siapa)."""
+    riwayat = list(cfg.get("history") or [])
+    riwayat.append(
+        {
+            "at": time.time(),
+            "aksi": "reroll" if aksi == "reroll" else "akhir",
+            "pemenang": [int(x) for x in winners],
+            "oleh": int(actor_id or 0),
+        }
+    )
+    cfg["history"] = riwayat[-GIVEAWAY_HISTORY_MAX:]
+
+
+def giveaway_history(message_id: int) -> list[dict]:
+    """Riwayat pengundian & reroll satu giveaway (terbaru di akhir)."""
+    cfg = giveaways.get(int(message_id)) or {}
+    return list(cfg.get("history") or [])
+
+
 def build_giveaway_embed(cfg: dict, *, ended: bool = False, winners: list[int] | None = None) -> discord.Embed:
     """Embed pengumuman giveaway (dipakai saat mulai, diperbarui saat pesertaan, & saat selesai)."""
     entries = cfg.get("entries") or []
     ends_at = float(cfg.get("ends_at") or 0)
     winner_count = max(1, _to_int(cfg.get("winner_count"), 1))
-    role_id = cfg.get("role_id")
 
     if ended:
         title = "🎉 Giveaway Selesai!"
@@ -332,14 +558,19 @@ def build_giveaway_embed(cfg: dict, *, ended: bool = False, winners: list[int] |
                 value=f"{format_timestamp(ends_at, 'F')} ({format_timestamp(ends_at, 'R')})",
                 inline=False,
             )
-        if role_id:
-            embed.add_field(name="🔒 Syarat", value=f"Hanya pemilik <@&{role_id}> yang bisa ikut.", inline=False)
+        syarat = describe_requirements(cfg)
+        if syarat:
+            embed.add_field(
+                name="🔒 Syarat Ikut",
+                value="\n".join(f"• {baris}" for baris in syarat)[:1024],
+                inline=False,
+            )
         embed.add_field(
             name="📝 Cara Ikut",
             value="Tekan tombol **Ikuti Giveaway** di bawah. Boleh keluar-masuk kapan saja sebelum waktu habis.",
             inline=False,
         )
-        embed.set_footer(text="Satu akun = satu peluang.")
+        embed.set_footer(text="Satu akun = satu peluang (role bonus menambah peluang).")
 
     host_id = _to_int(cfg.get("host_id"))
     if host_id:
@@ -357,10 +588,23 @@ def create_giveaway(
     seconds: int,
     winner_count: int = 1,
     role_id: int | None = None,
+    requirements: dict | None = None,
+    bonus_roles: dict | None = None,
 ) -> dict:
-    """Mendaftarkan giveaway baru setelah pesannya berhasil dikirim."""
+    """Mendaftarkan giveaway baru setelah pesannya berhasil dikirim.
+
+    `role_id` lama tetap didukung (jadi syarat role pertama). `requirements`
+    menampung `roles`, `level`, & `account_age_days`; `bonus_roles` memetakan
+    role → tambahan bobot undian.
+    """
     global _giveaway_seq
     _giveaway_seq += 1
+    sumber = requirements if isinstance(requirements, dict) else {}
+    req = normalize_requirements(
+        roles=sumber.get("roles") or ([role_id] if role_id else None),
+        level=sumber.get("level"),
+        account_age_days=sumber.get("account_age_days"),
+    )
     cfg = {
         "message_id": int(message_id),
         "guild_id": int(guild_id),
@@ -370,7 +614,12 @@ def create_giveaway(
         "winner_count": max(1, min(20, int(winner_count))),
         "ends_at": time.time() + max(10, int(seconds)),
         "ended": False,
-        "role_id": int(role_id) if role_id else None,
+        "role_id": req["roles"][0] if req["roles"] else None,
+        "requirements": req,
+        "bonus_roles": normalize_bonus_roles(bonus_roles),
+        "weights": {},
+        "entry_log": [],
+        "history": [],
         "entries": [],
         "winners": [],
     }
@@ -378,23 +627,39 @@ def create_giveaway(
     return cfg
 
 
-def join_giveaway(message_id: int, user_id: int, role_ids: set[int] | None = None) -> tuple[str, dict | None]:
+def join_giveaway(
+    message_id: int,
+    user_id: int,
+    role_ids: set[int] | None = None,
+    *,
+    level: int | None = None,
+    account_age_days: int | None = None,
+) -> tuple[str, dict | None]:
     """Mendaftarkan peserta. Mengembalikan `(status, data_giveaway)`.
 
-    Status: `ok`, `ended`, `duplikat`, `syarat`, `tidak_ada`.
+    Status: `ok`, `ended`, `duplikat`, `syarat_role`, `syarat_level`, `syarat_umur`,
+    `tidak_ada`.
     """
     cfg = giveaways.get(int(message_id))
     if cfg is None:
         return "tidak_ada", None
     if cfg.get("ended") or float(cfg.get("ends_at") or 0) <= time.time():
         return "ended", cfg
-    role_id = cfg.get("role_id")
-    if role_id and role_ids is not None and int(role_id) not in {int(r) for r in role_ids}:
-        return "syarat", cfg
     entries = cfg.setdefault("entries", [])
     if int(user_id) in entries:
         return "duplikat", cfg
+    alasan = check_requirements(
+        cfg, role_ids=role_ids, level=level, account_age_days=account_age_days
+    )
+    if alasan:
+        return alasan, cfg
     entries.append(int(user_id))
+    bobot, pakai = entry_weight(cfg, role_ids)
+    cfg.setdefault("weights", {})[str(int(user_id))] = bobot
+    log = cfg.setdefault("entry_log", [])
+    log.append({"user_id": int(user_id), "at": time.time(), "weight": bobot, "bonus": pakai})
+    if len(log) > GIVEAWAY_MAX_ENTRY_LOG:
+        del log[:-GIVEAWAY_MAX_ENTRY_LOG]
     return "ok", cfg
 
 
@@ -409,32 +674,73 @@ def leave_giveaway(message_id: int, user_id: int) -> tuple[str, dict | None]:
     if int(user_id) not in entries:
         return "tidak_terdaftar", cfg
     entries.remove(int(user_id))
+    (cfg.get("weights") or {}).pop(str(int(user_id)), None)
+    log = cfg.get("entry_log") or []
+    cfg["entry_log"] = [item for item in log if _to_int(item.get("user_id")) != int(user_id)]
     return "ok", cfg
 
 
-def pick_winners(entries: list[int], count: int, *, rng: random.Random | None = None) -> list[int]:
-    """Mengacak pemenang unik dari daftar peserta."""
+def pick_winners(
+    entries: list[int],
+    count: int,
+    *,
+    rng: random.Random | None = None,
+    weights: dict | None = None,
+) -> list[int]:
+    """Mengacak pemenang unik. Bila `weights` diberikan, undian berbobot."""
     pool = [int(x) for x in entries]
     if not pool:
         return []
     picker = rng or random
     amount = max(0, min(int(count), len(pool)))
-    return picker.sample(pool, amount)
+    if not weights:
+        return picker.sample(pool, amount)
+
+    sisa = {uid: max(1, min(GIVEAWAY_MAX_WEIGHT, _to_int(weights.get(str(uid), weights.get(uid, 1)), 1))) for uid in pool}
+    hasil: list[int] = []
+    for _ in range(amount):
+        total = sum(sisa.values())
+        if total <= 0:  # pragma: no cover - jaring aman
+            break
+        undian = picker.random() * total
+        akumulasi = 0.0
+        dipilih = None
+        for uid in list(sisa.keys()):
+            akumulasi += sisa[uid]
+            if undian <= akumulasi:
+                dipilih = uid
+                break
+        if dipilih is None:  # pragma: no cover - pembulatan float
+            dipilih = list(sisa.keys())[-1]
+        hasil.append(dipilih)
+        sisa.pop(dipilih, None)
+    return hasil
 
 
-def end_giveaway(message_id: int, *, rng: random.Random | None = None) -> dict | None:
+def end_giveaway(
+    message_id: int, *, rng: random.Random | None = None, actor_id: int = 0
+) -> dict | None:
     """Menutup giveaway & menentukan pemenang (idempoten)."""
     cfg = giveaways.get(int(message_id))
     if cfg is None or cfg.get("ended"):
         return None
     cfg["ended"] = True
-    cfg["winners"] = pick_winners(cfg.get("entries") or [], cfg.get("winner_count") or 1, rng=rng)
+    cfg["winners"] = pick_winners(
+        cfg.get("entries") or [],
+        cfg.get("winner_count") or 1,
+        rng=rng,
+        weights=cfg.get("weights"),
+    )
+    _add_history(cfg, "akhir", cfg["winners"], actor_id)
     return cfg
 
 
-def reroll_giveaway(message_id: int, *, rng: random.Random | None = None) -> tuple[str, dict | None]:
+def reroll_giveaway(
+    message_id: int, *, rng: random.Random | None = None, actor_id: int = 0
+) -> tuple[str, dict | None]:
     """Mengundi ulang pemenang dari peserta yang belum pernah menang.
 
+    Setiap reroll tercatat di `history` sehingga bisa diaudit dari dashboard.
     Status: `ok`, `belum_selesai`, `habis`, `tidak_ada`.
     """
     cfg = giveaways.get(int(message_id))
@@ -443,10 +749,24 @@ def reroll_giveaway(message_id: int, *, rng: random.Random | None = None) -> tup
     if not cfg.get("ended"):
         return "belum_selesai", cfg
     previous = [int(x) for x in (cfg.get("winners") or [])]
-    remaining = [int(x) for x in (cfg.get("entries") or []) if int(x) not in previous]
+    semua_pernah_menang = {
+        int(x) for riwayat in (cfg.get("history") or []) for x in (riwayat.get("pemenang") or [])
+    }
+    remaining = [
+        int(x)
+        for x in (cfg.get("entries") or [])
+        if int(x) not in previous and int(x) not in semua_pernah_menang
+    ]
+    if not remaining:
+        # Semua peserta sudah pernah menang → ulangi dari peserta yang belum menang
+        # di putaran ini saja supaya tombol reroll tidak mengunci selamanya.
+        remaining = [int(x) for x in (cfg.get("entries") or []) if int(x) not in previous]
     if not remaining:
         return "habis", cfg
-    cfg["winners"] = pick_winners(remaining, cfg.get("winner_count") or 1, rng=rng)
+    cfg["winners"] = pick_winners(
+        remaining, cfg.get("winner_count") or 1, rng=rng, weights=cfg.get("weights")
+    )
+    _add_history(cfg, "reroll", cfg["winners"], actor_id)
     return "ok", cfg
 
 
@@ -504,6 +824,143 @@ async def _prune_ended_giveaways(max_items: int = 25) -> None:
     for mid, _ in ended[: len(ended) - max_items]:
         giveaways.pop(mid, None)
     await save_engagement_to_disk()
+
+
+# ==============================================================================
+# 1b. GIVEAWAY BERLAPIS — setelan bawaan server & template
+# ==============================================================================
+def default_giveaway_config(guild_id: int) -> dict:
+    """Setelan bawaan giveaway satu server (dipakai `/giveaway mulai` & dashboard)."""
+    data = giveaway_defaults.get(int(guild_id)) or {}
+    return {
+        "winner_count": max(1, min(20, _to_int(data.get("winner_count"), 1))),
+        "seconds": max(60, min(30 * 86400, _to_int(data.get("seconds"), 3600))),
+        "level": max(0, min(500, _to_int(data.get("level")))),
+        "account_age_days": max(0, min(3650, _to_int(data.get("account_age_days")))),
+        "bonus_role_id": _to_int(data.get("bonus_role_id")) or 0,
+        "bonus_weight": max(1, min(5, _to_int(data.get("bonus_weight"), 1))),
+        "ping_everyone": bool(data.get("ping_everyone", False)),
+    }
+
+
+def set_giveaway_defaults(guild_id: int, **kwargs) -> dict:
+    """Mengubah sebagian setelan bawaan giveaway satu server."""
+    gid = int(guild_id)
+    sekarang = default_giveaway_config(gid)
+    for kunci, nilai in kwargs.items():
+        if kunci in ("winner_count", "seconds", "level", "account_age_days", "bonus_role_id"):
+            sekarang[kunci] = max(0, _to_int(nilai))
+        elif kunci == "bonus_weight":
+            sekarang[kunci] = max(1, min(5, _to_int(nilai, 1)))
+        elif kunci == "ping_everyone":
+            sekarang[kunci] = bool(nilai)
+    sekarang["winner_count"] = max(1, min(20, sekarang["winner_count"]))
+    sekarang["seconds"] = max(60, min(30 * 86400, sekarang["seconds"]))
+    sekarang["level"] = min(500, sekarang["level"])
+    sekarang["account_age_days"] = min(3650, sekarang["account_age_days"])
+    giveaway_defaults[gid] = dict(sekarang)
+    return dict(sekarang)
+
+
+def default_requirements(guild_id: int) -> dict:
+    """Syarat bawaan server dalam bentuk siap pakai `create_giveaway(requirements=…)`."""
+    data = default_giveaway_config(guild_id)
+    return normalize_requirements(level=data["level"], account_age_days=data["account_age_days"])
+
+
+def default_bonus_roles(guild_id: int) -> dict[str, int]:
+    """Bonus role bawaan server (`{}` bila belum diatur)."""
+    data = default_giveaway_config(guild_id)
+    if not data["bonus_role_id"]:
+        return {}
+    return {str(data["bonus_role_id"]): data["bonus_weight"]}
+
+
+def save_giveaway_template(
+    guild_id: int,
+    nama: str,
+    *,
+    winner_count: int = 1,
+    seconds: int = 3600,
+    requirements: dict | None = None,
+    bonus_roles: dict | None = None,
+) -> tuple[bool, str]:
+    """Menyimpan (atau menimpa) template giveaway satu server. `(ok, pesan)`."""
+    gid = int(guild_id)
+    kunci = str(nama or "").strip().lower()
+    if not kunci:
+        return False, "Nama template tidak boleh kosong."
+    if len(kunci) > 40:
+        return False, "Nama template maksimal 40 karakter."
+    kumpulan = giveaway_templates.setdefault(gid, {})
+    if kunci not in kumpulan and len(kumpulan) >= GIVEAWAY_MAX_TEMPLATE:
+        return False, f"Template sudah penuh (maksimal {GIVEAWAY_MAX_TEMPLATE}). Hapus satu dulu."
+    sumber = requirements if isinstance(requirements, dict) else {}
+    kumpulan[kunci] = {
+        "nama": str(nama).strip()[:60],
+        "winner_count": max(1, min(20, _to_int(winner_count, 1))),
+        "seconds": max(60, min(30 * 86400, _to_int(seconds, 3600))),
+        "requirements": normalize_requirements(
+            roles=sumber.get("roles"),
+            level=sumber.get("level"),
+            account_age_days=sumber.get("account_age_days"),
+        ),
+        "bonus_roles": normalize_bonus_roles(bonus_roles),
+    }
+    return True, f"Template **{kumpulan[kunci]['nama']}** disimpan."
+
+
+def get_giveaway_template(guild_id: int, nama: str) -> dict | None:
+    """Ambil satu template (tidak peka huruf besar/kecil)."""
+    kunci = str(nama or "").strip().lower()
+    return (giveaway_templates.get(int(guild_id)) or {}).get(kunci)
+
+
+def list_giveaway_templates(guild_id: int) -> list[dict]:
+    """Semua template server (urut nama)."""
+    items = list((giveaway_templates.get(int(guild_id)) or {}).values())
+    return sorted(items, key=lambda item: str(item.get("nama") or "").lower())
+
+
+def delete_giveaway_template(guild_id: int, nama: str) -> bool:
+    """Hapus satu template; `True` bila ada yang dihapus."""
+    gid = int(guild_id)
+    kumpulan = giveaway_templates.get(gid) or {}
+    kunci = str(nama or "").strip().lower()
+    if kunci not in kumpulan:
+        return False
+    kumpulan.pop(kunci, None)
+    if not kumpulan:
+        giveaway_templates.pop(gid, None)
+    return True
+
+
+def apply_giveaway_template(guild_id: int, nama: str) -> dict | None:
+    """Kwarg siap pakai untuk `create_giveaway` dari sebuah template."""
+    tpl = get_giveaway_template(guild_id, nama)
+    if not tpl:
+        return None
+    return {
+        "winner_count": tpl["winner_count"],
+        "seconds": tpl["seconds"],
+        "requirements": dict(tpl["requirements"]),
+        "bonus_roles": dict(tpl["bonus_roles"]),
+    }
+
+
+def guild_giveaways(guild_id: int) -> list[dict]:
+    """Semua giveaway satu server, yang masih berjalan lebih dulu."""
+    items = [cfg for cfg in giveaways.values() if _to_int(cfg.get("guild_id")) == int(guild_id)]
+    return sorted(items, key=lambda cfg: (bool(cfg.get("ended")), -float(cfg.get("ends_at") or 0)))
+
+
+def reroll_pool_size(message_id: int) -> int:
+    """Berapa peserta yang masih bisa muncul di reroll berikutnya."""
+    cfg = giveaways.get(int(message_id)) or {}
+    sudah = {
+        int(x) for riwayat in (cfg.get("history") or []) for x in (riwayat.get("pemenang") or [])
+    }
+    return len([x for x in (cfg.get("entries") or []) if int(x) not in sudah])
 
 
 # ==============================================================================

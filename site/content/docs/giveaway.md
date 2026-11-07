@@ -15,15 +15,29 @@ toc: true
 | Command | Fungsi |
 | :--- | :--- |
 | **`/giveaway mulai hadiah:<teks> durasi:2jam pemenang:3`** | Pasang giveaway + tombol **🎉 Ikuti Giveaway** (peserta otomatis dicatat). |
-| **`/giveaway mulai ... syarat_role:@Booster`** | Batasi peserta hanya pemilik role tertentu. |
+| **`/giveaway mulai ... syarat_role:@Booster syarat_role_2:@Member`** | Peserta wajib punya **semua** role yang disebut. |
+| **`/giveaway mulai ... syarat_level:5 syarat_umur_akun:30`** | Syarat berlapis: level server minimal & umur akun Discord minimal (hari). |
+| **`/giveaway mulai ... role_bonus:@Booster bobot_bonus:2`** | Role bonus menambah peluang menang (bobot 1–5, dibatasi total 6×). |
+| **`/giveaway mulai hadiah:... templat:nitro-bulanan`** | Pakai setelan tersimpan: pemenang, durasi, syarat, & bonus role. |
 | **`/giveaway akhiri id_pesan:<ID>`** | Tutup lebih awal & umumkan pemenang. ID pesan dikirim saat giveaway dibuat. |
-| **`/giveaway reroll id_pesan:<ID>`** | Undi ulang dari peserta yang belum pernah menang. |
+| **`/giveaway reroll id_pesan:<ID>`** | Undi ulang dari peserta yang belum pernah menang; setiap reroll tercatat. |
 | **`/giveaway daftar`** | Giveaway yang masih berjalan + riwayat pemenang terakhir. |
+| **`/giveaway peserta id_pesan:<ID>`** *(Admin)* | Daftar peserta + peluang masing-masing + riwayat undian & reroll. |
+| **`/giveaway template-simpan / template-daftar / template-hapus`** | Kelola template giveaway rutin (maksimal 25 per server). |
 
-- **Format durasi fleksibel:** `30m`, `2 jam`, `1j30m`, `2 hari`, `45` (menit). Minimal 1 menit.
+- **Format durasi fleksibel:** `30m`, `2 jam`, `1j30m`, `2 hari`, `45` (menit). Minimal 1 menit. Kosongkan
+  `durasi`/`pemenang` untuk memakai setelan bawaan server.
+- **Syarat dicek saat tombol ditekan**, bukan saat pengundian: member langsung tahu apa yang kurang —
+  *"role yang diwajibkan belum kamu miliki"*, *"level kamu belum mencapai 5"*, atau *"umur akun
+  Discord-mu belum cukup"*. Tidak ada data member yang dikirim ke pihak lain.
+- **Peluang ekstra tanpa curang:** pemilik role bonus mendapat bobot undian lebih besar (mis. `2×`),
+  tetapi total bobot per peserta dibatasi `6×` dan satu akun tetap hanya terdaftar sekali.
 - **Tahan restart:** tombol memakai `custom_id` persisten, jadi peserta tetap bisa klik setelah bot restart.
-- Satu akun = satu peluang (klik berulang tidak menambah peluang); peserta bisa membatalkan sendiri.
-- Giveaway yang waktunya habis ditutup otomatis oleh loop latar belakang (maksimal ±15 detik setelah waktunya).
+  Bobot, log peserta, & riwayat undian ikut tersimpan di `data/engagement.json`.
+- **Riwayat undian:** siapa diundi lebih dulu, kapan, oleh siapa (manual via `/giveaway akhiri` atau
+  otomatis oleh loop latar belakang) — tersimpan maksimal `GIVEAWAY_HISTORY_MAX` entri per giveaway.
+- Peserta bisa membatalkan sendiri kapan saja sebelum waktu habis; giveaway yang waktunya habis
+  ditutup otomatis oleh loop latar belakang (maksimal ±15 detik setelah waktunya).
 
 ## 2. Ulang Tahun (`/ultah`)
 
