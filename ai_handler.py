@@ -303,6 +303,89 @@ def _format_grounding_footer(sources: list[tuple[str, str] | dict]) -> str:
     return "\n\n🌐 **Sumber Web:** " + " • ".join(links)
 
 
+def _hitung_flag_pencarian(
+    bahan: dict, model_info: dict, url_reader_on: bool, web_search_on: bool
+) -> dict:
+    """Tentukan apakah pencarian live / tool berbayar dipakai untuk pesan ini."""
+    desired_thinking = model_info.get("thinking_level", "low")
+    wants_live_search = (
+        web_search_on
+        and not bahan["parts"]
+        and not bahan["fetched_web"]
+        and needs_live_web_search(bahan["stripped"])
+    )
+    use_paid_search_tool = (
+        wants_live_search and GEMINI_PAID_SEARCH_ENABLED and _paid_google_search_available
+    )
+    use_url_context_tool = (
+        bool(bahan["unfetched_web"]) and not bahan["parts"] and GEMINI_PAID_SEARCH_ENABLED
+    )
+    return {
+        "desired_thinking": desired_thinking,
+        "wants_live_search": wants_live_search,
+        "use_paid": use_paid_search_tool,
+        "use_url_context": use_url_context_tool,
+    }
+
+
+def _susun_konteks_ai(
+    *,
+    thread_id: int,
+    bahan: dict,
+    system_text: str,
+    model_info: dict,
+    image_parts,
+    temperature_override,
+    safety_level,
+    flags: dict,
+    history: list,
+) -> dict:
+    """Kumpulkan semua bahan percakapan jadi satu `konteks` untuk jalur AI."""
+    konteks = {
+        "thread_id": thread_id,
+        "contents": bahan["contents"],
+        "effective_prompt": bahan["effective_prompt"],
+        "system_text": system_text,
+        "model_info": model_info,
+        "image_parts": image_parts,
+        "history_entry": bahan["history_entry"],
+        "history": history,
+        "temperature": temperature_override,
+        "safety_level": safety_level,
+        "desired_thinking": flags["desired_thinking"],
+        "wants_live_search": flags["wants_live_search"],
+        "use_paid": flags["use_paid"],
+        "use_url_context": flags["use_url_context"],
+        "yt_urls": bahan["yt_urls"],
+        "stripped": bahan["stripped"],
+        "media_parts": bahan["parts"],
+        "timeout": _pilih_timeout(
+            bool(bahan["yt_urls"]),
+            bool(bahan["parts"]),
+            flags["wants_live_search"],
+            flags["use_url_context"],
+        ),
+        "last_error": "Tidak dapat terhubung ke layanan Google Gemini.",
+        "free_sources": [],
+    }
+    return konteks
+
+
+async def _jalankan_jalur_ai(
+    session, konteks: dict, active_keys: list[str], url_reader_on: bool
+) -> str:
+    """Coba jalur berbayar (opsional) lalu jalur gratis yang sudah diperkaya."""
+    if konteks["use_paid"] or konteks["use_url_context"]:
+        jawab = await _panggil_jalur_berbayar(session, konteks, active_keys)
+        if jawab:
+            return jawab
+
+    if konteks["wants_live_search"]:
+        konteks = await _perkaya_pencarian_gratis(session, konteks)
+
+    return await _panggil_jalur_utama(session, konteks, active_keys)
+
+
 async def get_ai_response(
     thread_id: int,
     prompt: str,
@@ -360,60 +443,22 @@ async def get_ai_response(
         riwayat=session_data.get("history", []),
     )
     system_text = _susun_system_prompt(model_info, server_knowledge, session_data)
-
-    desired_thinking = model_info.get("thinking_level", "low")
-    wants_live_search = (
-        web_search_on
-        and not bahan["parts"]
-        and not bahan["fetched_web"]
-        and needs_live_web_search(bahan["stripped"])
+    flags = _hitung_flag_pencarian(bahan, model_info, url_reader_on, web_search_on)
+    konteks = _susun_konteks_ai(
+        thread_id=thread_id,
+        bahan=bahan,
+        system_text=system_text,
+        model_info=model_info,
+        image_parts=image_parts,
+        temperature_override=temperature_override,
+        safety_level=safety_level,
+        flags=flags,
+        history=session_data.get("history", []),
     )
-    use_paid_search_tool = (
-        wants_live_search and GEMINI_PAID_SEARCH_ENABLED and _paid_google_search_available
-    )
-    use_url_context_tool = (
-        bool(bahan["unfetched_web"]) and not bahan["parts"] and GEMINI_PAID_SEARCH_ENABLED
-    )
-
-    konteks = {
-        "thread_id": thread_id,
-        "contents": bahan["contents"],
-        "effective_prompt": bahan["effective_prompt"],
-        "system_text": system_text,
-        "model_info": model_info,
-        "image_parts": image_parts,
-        "history_entry": bahan["history_entry"],
-        "history": session_data.get("history", []),
-        "temperature": temperature_override,
-        "safety_level": safety_level,
-        "desired_thinking": desired_thinking,
-        "wants_live_search": wants_live_search,
-        "use_paid": use_paid_search_tool,
-        "use_url_context": use_url_context_tool,
-        "yt_urls": bahan["yt_urls"],
-        "stripped": bahan["stripped"],
-        "media_parts": bahan["parts"],
-        "timeout": _pilih_timeout(
-            bool(bahan["yt_urls"]),
-            bool(bahan["parts"]),
-            wants_live_search,
-            use_url_context_tool,
-        ),
-        "last_error": "Tidak dapat terhubung ke layanan Google Gemini.",
-        "free_sources": [],
-    }
     active_keys = get_gemini_keys_rotated()
 
     async with _borrow_session(http_session, konteks["timeout"]) as session:
-        if use_paid_search_tool or use_url_context_tool:
-            jawab = await _panggil_jalur_berbayar(session, konteks, active_keys)
-            if jawab:
-                return jawab
-
-        if wants_live_search:
-            konteks = await _perkaya_pencarian_gratis(session, konteks)
-
-        return await _panggil_jalur_utama(session, konteks, active_keys)
+        return await _jalankan_jalur_ai(session, konteks, active_keys, url_reader_on)
 
 
 def _terapkan_setelan_member(prompt: str, user_id, guild_id) -> tuple[str, float | None]:
