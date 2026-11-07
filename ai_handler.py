@@ -671,35 +671,121 @@ async def _perkaya_pencarian_gratis(session, konteks: dict) -> dict:
     return diperkaya
 
 
-async def _panggil_jalur_utama(session, konteks: dict, active_keys: list[str]) -> str:
-    """Rantai model standar: coba tiap kandidat sampai ada yang menjawab."""
+def _payload_jalur_utama(
+    konteks: dict, model_info: dict, candidate_model: str, contents: list[dict]
+) -> dict:
+    """Rakit payload `generateContent` untuk satu kandidat model."""
     import ai_guard
 
+    gen_config: dict = {
+        "temperature": (
+            konteks["temperature"]
+            if konteks["temperature"] is not None
+            else model_info.get("temperature", 0.7)
+        ),
+        "maxOutputTokens": 8192,
+    }
+    thinking_cfg = build_thinking_config(candidate_model, konteks["desired_thinking"])
+    if thinking_cfg:
+        gen_config["thinkingConfig"] = thinking_cfg
+
+    payload = {
+        "systemInstruction": {"parts": [{"text": konteks["system_text"]}]},
+        "contents": contents,
+        "generationConfig": gen_config,
+    }
+    ai_guard.apply_safety(payload, konteks["safety_level"])
+    return payload
+
+
+async def _tangani_respons_gemini(
+    resp,
+    data,
+    konteks: dict,
+    candidate_model: str,
+    api_key_for_attempt: str,
+    active_keys: list[str],
+    last_error_msg: str,
+    contents: list[dict],
+) -> tuple[str | None, str, list[dict]]:
+    """Olah satu respons Gemini.
+
+    Mengembalikan `(jawaban, pesan_error, contents)`; `jawaban` terisi berarti
+    fungsi pemanggil harus langsung mengembalikannya.
+    """
+    if resp.status == 200 and isinstance(data, dict):
+        _record_token_usage(data)
+        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+        if reply_text:
+            if konteks["free_sources"]:
+                reply_text = (
+                    f"{reply_text}{_format_grounding_footer(konteks['free_sources'])}"
+                )
+            append_conversation_turn(
+                konteks["thread_id"], konteks["history_entry"], reply_text
+            )
+            await save_sessions_to_disk()
+            return reply_text, last_error_msg, contents
+        if block_msg and not should_retry:
+            return block_msg, last_error_msg, contents
+        last_error_msg = block_msg or "Respons kosong dari model."
+        return None, last_error_msg, contents
+
+    err_detail = ""
+    if isinstance(data, dict) and isinstance(data.get("error"), dict):
+        err_detail = data["error"].get("message") or str(data["error"].get("status") or "")
+    else:
+        err_detail = str(data)[:200]
+    err_detail = sanitize_error_message(err_detail)
+
+    if (
+        resp.status in (400, 401, 403)
+        and "api key" in err_detail.lower()
+        and len(active_keys) == 1
+    ):
+        return (
+            f"⚠️ **API Key Gemini tidak valid ({resp.status}):** {err_detail}\n"
+            "Periksa kembali `GEMINI_API_KEY` Anda di Google AI Studio."
+        )
+
+    # Video privat/tidak bisa diakses lewat fileData → lepaskan fileData.
+    if resp.status in (400, 403) and konteks["yt_urls"]:
+        contents = _build_gemini_contents(
+            konteks["history"],
+            konteks["effective_prompt"],
+            image_parts=konteks["image_parts"],
+        )
+
+    if resp.status in (429, 500, 502, 503, 504, 404):
+        mark_model_unhealthy(candidate_model)
+    if resp.status == 429:
+        wait_s = parse_retry_after(resp.headers)
+        mark_key_unhealthy(api_key_for_attempt, wait_s)
+        logger.info(
+            "API key Gemini kena batas kuota (429) — cooldown %.0f detik, "
+            "lanjut key/model lain.",
+            wait_s,
+        )
+
+    last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
+    logger.warning(
+        "Gemini model %s gagal (%s). Pindah instan ke cadangan...",
+        candidate_model,
+        last_error_msg,
+    )
+    return None, last_error_msg, contents
+
+
+async def _panggil_jalur_utama(session, konteks: dict, active_keys: list[str]) -> str:
+    """Rantai model standar: coba tiap kandidat sampai ada yang menjawab."""
     model_info = konteks["model_info"]
     contents = konteks["contents"]
     models_to_try = _build_model_chain(model_info["model_id"], GEMINI_TEXT_FALLBACK_CHAIN)
     last_error_msg = konteks["last_error"]
-
     for attempt_idx, candidate_model in enumerate(models_to_try):
-        gen_config: dict = {
-            "temperature": (
-                konteks["temperature"]
-                if konteks["temperature"] is not None
-                else model_info.get("temperature", 0.7)
-            ),
-            "maxOutputTokens": 8192,
-        }
-        thinking_cfg = build_thinking_config(candidate_model, konteks["desired_thinking"])
-        if thinking_cfg:
-            gen_config["thinkingConfig"] = thinking_cfg
-
-        payload = {
-            "systemInstruction": {"parts": [{"text": konteks["system_text"]}]},
-            "contents": contents,
-            "generationConfig": gen_config,
-        }
-        ai_guard.apply_safety(payload, konteks["safety_level"])
-
+        payload = _payload_jalur_utama(
+            konteks, model_info, candidate_model, contents
+        )
         api_key_for_attempt = active_keys[attempt_idx % len(active_keys)]
         headers = {
             "x-goog-api-key": api_key_for_attempt,
@@ -712,67 +798,18 @@ async def _panggil_jalur_utama(session, konteks: dict, active_keys: list[str]) -
                 url, headers=headers, json=payload, timeout=konteks["timeout"]
             ) as resp:
                 data = await resp.json(content_type=None)
-
-                if resp.status == 200 and isinstance(data, dict):
-                    _record_token_usage(data)
-                    reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                    if reply_text:
-                        if konteks["free_sources"]:
-                            reply_text = (
-                                f"{reply_text}{_format_grounding_footer(konteks['free_sources'])}"
-                            )
-                        append_conversation_turn(
-                            konteks["thread_id"], konteks["history_entry"], reply_text
-                        )
-                        await save_sessions_to_disk()
-                        return reply_text
-                    if block_msg and not should_retry:
-                        return block_msg
-                    last_error_msg = block_msg or "Respons kosong dari model."
-                    continue
-
-                err_detail = ""
-                if isinstance(data, dict) and isinstance(data.get("error"), dict):
-                    err_detail = data["error"].get("message") or str(data["error"].get("status") or "")
-                else:
-                    err_detail = str(data)[:200]
-                err_detail = sanitize_error_message(err_detail)
-
-                if (
-                    resp.status in (400, 401, 403)
-                    and "api key" in err_detail.lower()
-                    and len(active_keys) == 1
-                ):
-                    return (
-                        f"⚠️ **API Key Gemini tidak valid ({resp.status}):** {err_detail}\n"
-                        "Periksa kembali `GEMINI_API_KEY` Anda di Google AI Studio."
-                    )
-
-                # Video privat/tidak bisa diakses lewat fileData → lepaskan fileData.
-                if resp.status in (400, 403) and konteks["yt_urls"]:
-                    contents = _build_gemini_contents(
-                        konteks["history"],
-                        konteks["effective_prompt"],
-                        image_parts=konteks["image_parts"],
-                    )
-
-                if resp.status in (429, 500, 502, 503, 504, 404):
-                    mark_model_unhealthy(candidate_model)
-                if resp.status == 429:
-                    wait_s = parse_retry_after(resp.headers)
-                    mark_key_unhealthy(api_key_for_attempt, wait_s)
-                    logger.info(
-                        "API key Gemini kena batas kuota (429) — cooldown %.0f detik, "
-                        "lanjut key/model lain.",
-                        wait_s,
-                    )
-
-                last_error_msg = f"HTTP {resp.status} pada `{candidate_model}`: {err_detail}"
-                logger.warning(
-                    "Gemini model %s gagal (%s). Pindah instan ke cadangan...",
+                jawab, last_error_msg, contents = await _tangani_respons_gemini(
+                    resp,
+                    data,
+                    konteks,
                     candidate_model,
+                    api_key_for_attempt,
+                    active_keys,
                     last_error_msg,
+                    contents,
                 )
+                if jawab is not None:
+                    return jawab
 
         except asyncio.TimeoutError:
             mark_model_unhealthy(candidate_model)
