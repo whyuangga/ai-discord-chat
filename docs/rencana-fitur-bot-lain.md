@@ -243,18 +243,19 @@ bot kita — yaitu yang masih 0–beberapa kuota AI, tanpa dependency baru, dan 
 dashboard:
 
 1. **`/bangun` — pembangun server instan** *(Instabot 15 tema + `/genserver` purpleGPT)*.
-   🚧 **Sedang jalan**: modul `server_builder.py` (15 tema bawaan, tebak tema dari deskripsi,
-   perancang AI → JSON, validasi batas 8 kategori/40 channel/12 role, pratinjau, terapkan lewat
-   mesin `backup_restore` yang sudah teruji, bongkar/rollback berbasis nama tercatat, riwayat
-   tersimpan di `data/server_builder.json`). Berikutnya: command `/bangun` + panel dashboard.
+   ✅ **Sudah jalan** (v1.40): modul `server_builder.py` + command `/bangun
+   tema|rancang|terapkan|riwayat|bongkar` (15 tema, perancang AI → JSON tervalidasi, pratinjau,
+   eksekusi lewat mesin `backup_restore`, rollback berbasis nama tercatat, riwayat di
+   `data/server_builder.json`). Panel dashboard menyusul di E#1b.
 2. **`/gambar` (`/draw`) & `/gambar edit`** — generasi gambar dari prompt + **5 rasio aspek** dan
    **referensi gambar** (pakai `ai_handler.generate_image` yang sudah ada). `/edit` memakai gambar
    terakhir otomatis, tanpa perlu unggah ulang. Tanpa dependency baru.
 3. **Setelan AI per member (`/setelan-ai`)** — temperature, format gambar, bahasa balasan, dan
    **prompt pribadi** (maks 300 huruf), tersimpan per user; dashboard menampilkan ringkasannya.
    Menghemat kuota karena member mengatur sendiri panjang/jenis jawaban.
-4. **`/meme`** — 10 template meme lokal (Pillow yang sudah dipakai kartu sambutan), teks atas &
-   bawah, **0 kuota AI**, hasil dikirim sebagai lampiran.
+4. **`/meme`** — meme lokal (Pillow yang sudah dipakai kartu sambutan), **0 kuota AI**.
+   ✅ **Sudah jalan** (v1.40): `meme_maker.py` + `/meme` dengan **6 gaya** (klasik, impact,
+   drake dua panel, neon, kertas, terminal), teks dibungkus otomatis, hasil PNG 800×800.
 5. **Privasi mandiri (`/dataku` & `/hapusdataku`)** — ekspor seluruh data pribadi sebagai JSON
    (level, ekonomi, lencana, kata kunci pantau, dsb.) dan hapus permanen dengan konfirmasi.
    Mengikuti janji "export or delete your data anytime" milik purpleGPT, tanpa proses baru.

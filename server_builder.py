@@ -190,6 +190,9 @@ _TEMA_BAKU: dict[str, dict] = {
 #: Riwayat pembangunan per server (untuk `/bangun riwayat` & bongkar).
 riwayat: dict[int, dict] = {}
 
+#: Rencana yang sudah disiapkan tapi belum diterapkan (menunggu konfirmasi Admin).
+siap: dict[int, dict] = {}
+
 
 def _norm(nama: object) -> str:
     return str(nama or "").strip().casefold()
@@ -463,8 +466,28 @@ async def bongkar(guild, *, gid: int | None = None) -> tuple[bool, str]:
 # ==============================================================================
 
 
+def simpan_siap(gid: int, snapshot: dict, *, sumber: str = "") -> dict:
+    """Simpan rencana sebagai "menunggu konfirmasi" (in-memory, per server)."""
+    entri = {
+        "snapshot": snapshot,
+        "sumber": sumber or str((snapshot.get("meta") or {}).get("sumber") or ""),
+        "pada": time.time(),
+    }
+    siap[int(gid)] = entri
+    return entri
+
+
+def ambil_siap(gid: int) -> dict | None:
+    return siap.get(int(gid or 0))
+
+
+def lupakan_siap(gid: int) -> None:
+    siap.pop(int(gid or 0), None)
+
+
 def reset_state() -> None:
     riwayat.clear()
+    siap.clear()
 
 
 def load_from_disk() -> int:

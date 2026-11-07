@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 61
+TOP_LEVEL_COUNT = 63
 import ui_kit
 
 
@@ -644,14 +644,16 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "**🏷️ Tag, Lencana & Pantau**\n"
                 "• **`/lencana`** — lencana + role hadiah.\n"
                 "• **`/pantau`** — kata kunci → DM.\n"
-                "• **`/snipe`** — pesan terakhir yang dihapus.\n"
-                "• **`/curhat`** — curhat anonim ke satu channel.\n"
-                "• **`/kanal-info`** — aturan & info yang diperbarui otomatis.\n"
+                "• **`/bangun`** — 15 tema server / deskripsi AI.\n"
+                "• **`/meme`** — meme lokal, 0 kuota AI.\n"
+                "• **`/snipe`** — pesan terhapus terakhir.\n"
+                "• **`/curhat`** — anonim, satu channel.\n"
+                "• **`/kanal-info`** — aturan & info otomatis.\n"
                 "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`).\n"
                 "**🛡️ Moderasi**\n"
                 "• **`/lapor`** & **`/banding`** — lapor & minta peninjauan.\n"
                 "• **`/mod`** — tempban, softban, note, statistik.\n"
-                "**🛡️ Keamanan & Pemulihan**\n"
+                "**🛡️ Keamanan**\n"
                 "• **`/raid`** — darurat: tahan Auto Role & verifikasi.\n"
                 "• **`/nuke`** — anti-nuke, keluarkan bot asing, beku.\n"
                 "• **`/backup pulihkan`** — susun ulang struktur server.\n"
@@ -660,9 +662,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "• **`/musik playlist`** — playlist pribadi.\n"
                 "• **`/tiket atur`** & **`/tiket rating`** — SLA & rating.\n"
                 "**🧰 Admin & Diagnosa**\n"
-                "• **`/mod`** — slowmode, role, nickname.\n"
                 "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
-                "• **Dashboard web** — kontrol fitur lewat browser (token)."
+                "• **Dashboard web** — semua fitur lewat browser."
             ),
             inline=False,
         )

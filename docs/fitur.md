@@ -2226,3 +2226,37 @@ Fitur-fitur baru (raid, playlist, rating tiket, musim, i18n, prefix, ekspor) men
 Laporan `/perawatan memori` menampilkan: RAM proses, ukuran `data/`, 6 cache terbesar beserta
 batasnya, 5 berkas `data/` terbesar, dan **saran otomatis** (mis. matikan gambar dinamis bila
 RAM sudah >200 MB, atau minta member merapikan playlist bila >2000 lagu).
+
+## X. Pembangun Server Instan (`/bangun`) & Meme Lokal (`/meme`)
+
+### 🏗️ `/bangun` — 15 tema siap pakai + perancang AI
+
+Terinspirasi **Instabot** (server langsung jadi dari tema) dan **purpleGPT** `/genserver`
+(jelaskan server impian, AI menyusun strukturnya). **Tidak ada yang dibuat sebelum Admin
+menekan tombol Terapkan.**
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/bangun tema tema:gaming` | Pratinjau struktur dari salah satu **15 tema** (gaming, komunitas, aesthetic, study, musik, seni, teknologi, crypto, anime, roleplay, bisnis, coding, kesehatan, keluarga, startup) — **0 kuota AI**. |
+| `/bangun rancang deskripsi:…` | **AI (Gemini)** menyusun kategori, channel, & role dari deskripsi bebas → pratinjau. Bila AI gagal/ngawur, otomatis memakai tema terdekat. |
+| `/bangun terapkan` | Terapkan rencana terakhir yang masih menunggu konfirmasi. |
+| `/bangun riwayat` | Apa yang terakhir dibangun (jumlah role/kategori/channel). |
+| `/bangun bongkar` | Hapus **hanya** item yang tercatat dibuat `/bangun` (rollback aman). |
+
+Pengaman:
+
+- Rencana divalidasi dulu: maks **8 kategori / 40 channel / 12 role**, nama ≤100 huruf, tipe
+  channel harus salah satu yang didukung Discord.
+- Eksekusi memakai mesin `backup_restore` yang sudah teruji: urutan **role → kategori → channel**,
+  jeda anti rate-limit, **hanya menambah**, dan kegagalan satu item tidak menghentikan sisanya.
+- AI tidak pernah menyentuh API Discord: ia hanya menghasilkan **JSON rencana**; kode bot yang
+  membuat channel setelah konfirmasi.
+- Riwayat tersimpan di `data/server_builder.json` sehingga `/bangun bongkar` tetap bisa dipakai
+  setelah bot restart.
+
+### 🖼️ `/meme` — meme lokal, 0 kuota AI, tanpa aset gambar
+
+`/meme teks_atas:"…" teks_bawah:"…" template:neon` menggambar meme sendiri dengan **Pillow**
+(tidak ada API gambar & tidak ada berkas aset): 6 gaya — `klasik`, `impact`, `drake` (dua panel
+ditolak/diterima), `neon`, `kertas`, `terminal`. Teks otomatis dibungkus (maks 6 baris × 120 huruf)
+dan hasilnya dikirim sebagai PNG 800×800.

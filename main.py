@@ -58,6 +58,7 @@ import command_policy
 import flow_triggers
 import link_embed
 import modal_forms
+import server_builder
 import webhook_identity
 from growth_tracker import (
     cleanup_growth_runtime,
@@ -350,6 +351,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_menus = load_menus_from_disk()
         loaded_webhooks = webhook_identity.load_from_disk()
         loaded_forms = modal_forms.load_from_disk()
+        loaded_bangun = server_builder.load_from_disk()
         loaded_links = link_embed.load_from_disk()
         loaded_triggers = flow_triggers.load_from_disk()
         loaded_antinuke = load_antinuke_from_disk()
@@ -458,6 +460,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info("Panel menu dimuat: %d panel.", loaded_menus)
         logger.info("Webhook identitas dimuat: %d channel.", loaded_webhooks)
         logger.info("Formulir (modal) dimuat: %d formulir.", loaded_forms)
+        logger.info("Riwayat /bangun dimuat: %d server.", loaded_bangun)
         logger.info("Tautan embed dimuat: %d tautan.", loaded_links)
         logger.info("Pemicu gabung dimuat: %d server.", loaded_triggers)
         logger.info("Anti-Nuke dimuat: %d server.", loaded_antinuke)
@@ -550,6 +553,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_moderation_to_disk()
         await save_reports_to_disk()
         await modal_forms.save_to_disk()
+        await server_builder.save_to_disk()
         await save_tags_to_disk()
         await save_achievements_to_disk()
         await save_highlights_to_disk()

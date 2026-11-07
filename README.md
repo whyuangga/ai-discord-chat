@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **61 command utama** (280 subcommand) · **984 tes otomatis**
+> **Versi `v1.40.0-beta`** · **63 command utama** (285 subcommand) · **1000 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -664,7 +664,10 @@ ai-discord-chat/
 │   ├── ui_kit.py           # Komponen V2 siap pakai (kartu, baris status, progress bar, tombol)
 │   ├── i18n.py             # Teks kerangka ID/EN per server
 │   ├── prefixes.py         # Prefix command teks per server
-│   ├── server_builder.py      # /bangun: 15 tema server instan + perancang AI (draf inti)
+│   ├── server_builder.py   # /bangun: 15 tema server instan + perancang AI
+│   ├── cogs/bangun_cog.py  # Command /bangun (tema/rancang/terapkan/riwayat/bongkar)
+│   ├── cogs/meme_cog.py    # Command /meme (6 gaya, Pillow, 0 kuota AI)
+│   ├── meme_maker.py       # /meme: 6 gaya meme lokal lewat Pillow (0 kuota AI)
 ├── backup_restore.py   # Pemulihan struktur dari JSON: validasi, dry-run, eksekusi aman
 │   ├── games.py            # Mesin 6 mode mini-game tongkrongan AI & papan skor server
 │   └── utils.py            # Pemotong kode Markdown, live web/news search, SSRF guard, jam lokal
@@ -688,7 +691,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 54 berkas pytest → 984 tes (979 lulus, 5 dilewati)
+├── tests/                  # 55 berkas pytest → 1000 tes (995 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

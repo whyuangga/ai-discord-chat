@@ -86,6 +86,12 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/curhat kirim` | `teks` | Kirim curhat anonim ke satu channel (10–900 huruf, maks 3/jam). |
 | `/curhat atur` | `channel`, `aktif`, `izinkan_link`, `jeda_menit` | *(Admin)* Setelan channel, sakelar, izin tautan, & jeda per orang. |
 | `/curhat hapus` | `nomor` | *(Staf)* Hapus satu curhat yang melanggar. |
+| `/bangun tema` | `tema` | *(Admin)* Pratinjau struktur server dari salah satu **15 tema** (0 kuota AI) + tombol Terapkan/Batal. |
+| `/bangun rancang` | `deskripsi` | *(Admin)* AI menyusun kategori/channel/role dari deskripsi bebas, lalu pratinjau. |
+| `/bangun terapkan` | — | *(Admin)* Terapkan rencana terakhir yang menunggu konfirmasi. |
+| `/bangun riwayat` | — | Lihat pembangunan terakhir di server ini. |
+| `/bangun bongkar` | — | *(Admin)* Hapus hanya item yang tercatat dibuat `/bangun`. |
+| `/meme` | `teks_atas`, `teks_bawah`, `template` | Buat meme lokal (6 gaya), 0 kuota AI. |
 | `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
 | `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |
 | `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |

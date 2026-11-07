@@ -36,7 +36,9 @@ from cogs.confessions_cog import curhat_group, register_confessions_cog
 from cogs.info_channel_cog import kanal_info_group, register_info_channel_cog
 from cogs.highlights_cog import pantau_group, register_highlights_cog
 from cogs.snipe_cog import register_snipe_cog, snipe_group
+from cogs.bangun_cog import bangun_group, register_bangun_cog
 from cogs.lencana_cog import lencana_group, register_lencana_cog
+from cogs.meme_cog import register_meme_cog
 from cogs.moderation_cog import banding_cmd, lapor_cmd, mod_group, register_moderation_cog
 from cogs.raid_cog import raid_group, register_raid_cog
 from cogs.language_cog import bahasa_group, register_language_cog
@@ -107,6 +109,8 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_moderation_cog(bot)
     register_tags_cog(bot)
     register_lencana_cog(bot)
+    register_bangun_cog(bot)
+    register_meme_cog(bot)
     register_highlights_cog(bot)
     register_snipe_cog(bot)
     register_confessions_cog(bot)
