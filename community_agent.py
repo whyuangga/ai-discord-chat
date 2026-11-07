@@ -1378,6 +1378,99 @@ def _is_pure_emoji_or_sticker(message: discord.Message, content: str) -> bool:
     return not bool(re.search(r"[a-zA-Z0-9]{2,}", without_custom))
 
 
+def _balas_link_atau_lewati(
+    message: discord.Message,
+    content: str,
+    *,
+    cfg_cid,
+    conv_id: int,
+    state_bag: dict,
+    now: float,
+    last_bot_at: float,
+    is_starter_post: bool,
+    post_title: str,
+) -> tuple[bool, bool] | None:
+    """Aturan #4: pesan berisi link — rangkum otomatis, atau diam sopan."""
+
+    # 4. Jika member hanya membagikan link (YouTube, Spotify, TikTok, IG, Web) tanpa memanggil bot:
+    #    - Bila auto_di_channel OFF pada channel/forum ini -> diam sopan (kecuali postingan diskusi Forum baru yg bukan murni link).
+    #    - Bila auto_di_channel ON pada channel/forum ini & linknya YouTube/Web -> rangkum/komentari otomatis!
+    auto_link_on = is_youtube_enabled_in_channel(cfg_cid, require_auto_in_chat=True)
+    if has_youtube_url(content) or has_any_url(content):
+        if auto_link_on:
+            if now - last_bot_at >= AGENT_CHANNEL_COOLDOWN_SEC:
+                yt_u, web_u = extract_urls_from_text(content)
+                if yt_u or web_u:
+                    state_bag["last_bot_target_user_id"] = message.author.id
+                    state_bag["warm_followups"] = 0
+                    return True, True
+            return False, False
+        if not is_starter_post:
+            if content:
+                _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
+            return False, False
+        # Untuk Postingan Forum baru yang HANYA berisi link mentah tanpa pertanyaan teks, tetap hormati auto_di_channel=False
+        stripped_no_url = re.sub(r"https?://\S+", "", content).strip()
+        if not stripped_no_url and not post_title:
+            return False, False
+    return None
+
+
+def _balas_mode_smart(
+    message: discord.Message,
+    content: str,
+    *,
+    conv_id: int,
+    state_bag: dict,
+    now: float,
+    prev_activity: float,
+    last_bot_at: float,
+    humans_chatting_together: bool,
+) -> tuple[bool, bool]:
+    """Mode `smart`: tahu diri, tidak mengganggu obrolan sesama member."""
+    # Mode 'smart' (Natural, tahu diri, & tidak mengganggu obrolan sesama member):
+    # A. Channel/postingan tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
+    if prev_activity == 0 or (now - prev_activity) >= 180:
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
+        return True, True
+
+    # Jika 2+ manusia sedang aktif saling mengobrol dalam 60 detik terakhir, tahan diri (mundur sopan)
+    # sampai ada yang memanggil nama bot!
+    if humans_chatting_together:
+        if content:
+            _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
+        return False, False
+
+    # B. Kelanjutan obrolan 1-lawan-1 yang masih hangat (maks. 90 detik & maks. 2 sahutan ke orang yang sama)
+    last_target_uid = state_bag.get("last_bot_target_user_id")
+    warm_count = int(state_bag.get("warm_followups") or 0)
+    if (
+        last_bot_at > 0
+        and (now - last_bot_at) <= 90
+        and last_target_uid == message.author.id
+        and warm_count < 2
+    ):
+        state_bag["warm_followups"] = warm_count + 1
+        return True, False
+
+    # C. Member mengirim murni Stiker atau ekspresi Emoji saja (bukan kalimat teks ke orang lain)
+    if _is_pure_emoji_or_sticker(message, content):
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
+        return True, True
+
+    # D. Sapaan pembuka obrolan umum / nanya jam saat channel sedang santai
+    if _GREETING_KEYWORDS.search(content):
+        state_bag["last_bot_target_user_id"] = message.author.id
+        state_bag["warm_followups"] = 0
+        return True, True
+
+    # Simpan sebagai konteks pasif grup jika tidak dibalas langsung
+    if content:
+        _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
+
+
 def should_agent_reply_in_chat(
     message: discord.Message,
     bot_user: discord.ClientUser | discord.User,
@@ -1433,31 +1526,22 @@ def should_agent_reply_in_chat(
         state_bag["last_bot_target_user_id"] = message.author.id
         state_bag["warm_followups"] = 0
         return True, True
+    # 4. Member hanya membagikan link (YouTube/Spotify/TikTok/IG/Web) tanpa memanggil bot
+    hasil_link = _balas_link_atau_lewati(
+        message,
+        content,
+        cfg_cid=cfg_cid,
+        conv_id=conv_id,
+        state_bag=state_bag,
+        now=now,
+        last_bot_at=last_bot_at,
+        is_starter_post=is_starter_post,
+        post_title=post_title,
+    )
+    if hasil_link is not None:
+        return hasil_link
 
-    # 4. Jika member hanya membagikan link (YouTube, Spotify, TikTok, IG, Web) tanpa memanggil bot:
-    #    - Bila auto_di_channel OFF pada channel/forum ini -> diam sopan (kecuali postingan diskusi Forum baru yg bukan murni link).
-    #    - Bila auto_di_channel ON pada channel/forum ini & linknya YouTube/Web -> rangkum/komentari otomatis!
-    auto_link_on = is_youtube_enabled_in_channel(cfg_cid, require_auto_in_chat=True)
-    if has_youtube_url(content) or has_any_url(content):
-        if auto_link_on:
-            if now - last_bot_at >= AGENT_CHANNEL_COOLDOWN_SEC:
-                yt_u, web_u = extract_urls_from_text(content)
-                if yt_u or web_u:
-                    state_bag["last_bot_target_user_id"] = message.author.id
-                    state_bag["warm_followups"] = 0
-                    return True, True
-            return False, False
-        if not is_starter_post:
-            if content:
-                _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
-            return False, False
-        # Untuk Postingan Forum baru yang HANYA berisi link mentah tanpa pertanyaan teks, tetap hormati auto_di_channel=False
-        stripped_no_url = re.sub(r"https?://\S+", "", content).strip()
-        if not stripped_no_url and not post_title:
-            return False, False
-
-    # 5. Jika member mengunggah file lagu/audio biasa (.mp3/.wav, bukan rekaman mikrofon Voice Note 🎤)
-    #    tanpa memanggil nama bot -> jangan menyela kiriman musik member!
+    # 5. Unggahan file lagu/audio biasa (.mp3/.wav) tanpa memanggil bot -> jangan menyela
     if has_voice_or_audio_attachment(message) and not has_discord_voice_note(message):
         return False, False
 
@@ -1473,7 +1557,7 @@ def should_agent_reply_in_chat(
             _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
         return False, False
 
-    # 6. Rekaman mikrofon Voice Note (🎤) asli Discord -> balas jika bukan di tengah keramaian obrolan sesama warga
+    # 6. Voice Note mikrofon asli Discord -> balas bila bukan di tengah keramaian
     if has_discord_voice_note(message) and not humans_chatting_together:
         state_bag["last_bot_target_user_id"] = message.author.id
         state_bag["warm_followups"] = 0
@@ -1482,48 +1566,17 @@ def should_agent_reply_in_chat(
     if ch_cfg.get("reply_mode") == "all":
         return True, False
 
-    # Mode 'smart' (Natural, tahu diri, & tidak mengganggu obrolan sesama member):
-    # A. Channel/postingan tadinya sepi (>= 3 menit hening) lalu ada member masuk ngobrol
-    if prev_activity == 0 or (now - prev_activity) >= 180:
-        state_bag["last_bot_target_user_id"] = message.author.id
-        state_bag["warm_followups"] = 0
-        return True, True
-
-    # Jika 2+ manusia sedang aktif saling mengobrol dalam 60 detik terakhir, tahan diri (mundur sopan)
-    # sampai ada yang memanggil nama bot!
-    if humans_chatting_together:
-        if content:
-            _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
-        return False, False
-
-    # B. Kelanjutan obrolan 1-lawan-1 yang masih hangat (maks. 90 detik & maks. 2 sahutan ke orang yang sama)
-    last_target_uid = state_bag.get("last_bot_target_user_id")
-    warm_count = int(state_bag.get("warm_followups") or 0)
-    if (
-        last_bot_at > 0
-        and (now - last_bot_at) <= 90
-        and last_target_uid == message.author.id
-        and warm_count < 2
-    ):
-        state_bag["warm_followups"] = warm_count + 1
-        return True, False
-
-    # C. Member mengirim murni Stiker atau ekspresi Emoji saja (bukan kalimat teks ke orang lain)
-    if _is_pure_emoji_or_sticker(message, content):
-        state_bag["last_bot_target_user_id"] = message.author.id
-        state_bag["warm_followups"] = 0
-        return True, True
-
-    # D. Sapaan pembuka obrolan umum / nanya jam saat channel sedang santai
-    if _GREETING_KEYWORDS.search(content):
-        state_bag["last_bot_target_user_id"] = message.author.id
-        state_bag["warm_followups"] = 0
-        return True, True
-
-    # Simpan sebagai konteks pasif grup jika tidak dibalas langsung
-    if content:
-        _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
-    return False, False
+    # Mode smart: tahu diri & tidak mengganggu obrolan sesama member
+    return _balas_mode_smart(
+        message,
+        content,
+        conv_id=conv_id,
+        state_bag=state_bag,
+        now=now,
+        prev_activity=prev_activity,
+        last_bot_at=last_bot_at,
+        humans_chatting_together=humans_chatting_together,
+    )
 
 
 def should_standalone_feature_reply(
