@@ -65,6 +65,7 @@ import dashboard_tiket
 import dashboard_ui
 import dashboard_unggah
 import dashboard_uji
+import dashboard_voice
 import insights
 import ticket_archive
 from config import (
@@ -558,6 +559,8 @@ def _anchor_konten(aksi: str) -> str:
         return "p-konten"
     if kunci.startswith("unggah."):
         return "p-banner"
+    if kunci.startswith("voice-"):
+        return "p-voice"
     if kunci.startswith("sosial-"):
         return "p-sosial"
     if kunci.startswith("curhat-"):
@@ -703,6 +706,7 @@ ANCHOR_HALAMAN.update({
     "p-pantau": "konten",
     "p-curhat": "konten",
     "p-sosial": "konten",
+    "p-voice": "konten",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -761,7 +765,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "buat": ("pengumuman",),
     "panel": ("panel",),
     "tiket": ("tiket",),
-    "konten": ("digest", "tag", "pantau", "curhat", "sosial"),
+    "konten": ("digest", "tag", "pantau", "curhat", "sosial", "voice"),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu", "lencana"),
@@ -1050,6 +1054,7 @@ PANEL: dict[str, object] = {
         "pantau",
         "curhat",
         "sosial",
+        "voice",
         "starboard",
         "uji",
     ),
@@ -1131,6 +1136,7 @@ def render_dashboard_html(
     pantau_block: str = "",
     curhat_block: str = "",
     sosial_block: str = "",
+    voice_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1220,6 +1226,7 @@ def render_dashboard_html(
         "tag_block": tag_block or '<div class="muted">Panel tag tidak tersedia.</div>',
         "curhat_block": curhat_block or '<div class="muted">Panel curhat tidak tersedia.</div>',
         "sosial_block": sosial_block or '<div class="muted">Panel notifikasi sosial tidak tersedia.</div>',
+        "voice_block": voice_block or '<div class="muted">Panel voice linking tidak tersedia.</div>',
         "pantau_block": pantau_block
         or '<div class="muted">Panel highlight tidak tersedia.</div>',
         "lencana_block": lencana_block
@@ -1727,6 +1734,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_curhat.render_curhat_block(bot, gid, token),
             '<div class="muted">Panel curhat tidak tersedia.</div>',
         )
+        voice_block = _blok(
+            lambda: dashboard_voice.render_voice_block(bot, gid, token),
+            '<div class="muted">Panel voice linking tidak tersedia.</div>',
+        )
         sosial_block = _blok(
             lambda: dashboard_sosial.render_sosial_block(bot, gid, token),
             '<div class="muted">Panel notifikasi sosial tidak tersedia.</div>',
@@ -1812,6 +1823,7 @@ async def start_dashboard(bot) -> bool:
             pantau_block=pantau_block,
             curhat_block=curhat_block,
             sosial_block=sosial_block,
+            voice_block=voice_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1974,6 +1986,8 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi.startswith("voice-"):
+            ok, message = await dashboard_voice.aksi_voice(bot, gid, aksi, payload)
         elif aksi.startswith("sosial-"):
             ok, message = await dashboard_sosial.aksi_sosial(gid, aksi, payload)
         elif aksi.startswith("curhat-"):

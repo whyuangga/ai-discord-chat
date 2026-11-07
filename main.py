@@ -162,6 +162,11 @@ from achievements import (
     load_achievements_from_disk,
     save_achievements_to_disk,
 )
+from voice_link import (
+    cleanup_voice_link_runtime,
+    load_voice_link_from_disk,
+    save_voice_link_to_disk,
+)
 from confessions import (
     cleanup_confessions_runtime,
     load_confessions_from_disk,
@@ -325,6 +330,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_ach_guilds, loaded_ach_members = load_achievements_from_disk()
         loaded_hl_guilds, loaded_hl_members = load_highlights_from_disk()
         loaded_cf_guilds, loaded_cf_items = load_confessions_from_disk()
+        loaded_vl_guilds, loaded_vl_links = load_voice_link_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
@@ -423,6 +429,9 @@ class GeminiDiscordBot(commands.Bot):
         )
         logger.info(
             "Curhat dimuat: %d server, %d curhat.", loaded_cf_guilds, loaded_cf_items
+        )
+        logger.info(
+            "Voice linking dimuat: %d server, %d channel.", loaded_vl_guilds, loaded_vl_links
         )
         logger.info(
             "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
@@ -534,6 +543,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_achievements_to_disk()
         await save_highlights_to_disk()
         await save_confessions_to_disk()
+        await save_voice_link_to_disk()
         reset_voice_sessions()
         await save_levels_to_disk()
         await stop_dashboard()
@@ -634,6 +644,7 @@ async def idle_chat_watcher():
             cleanup_achievements_runtime()
             cleanup_highlights_runtime()
             cleanup_confessions_runtime()
+            cleanup_voice_link_runtime()
             cleanup_temp_voice_runtime()
             cleanup_suggestions_runtime()
             cleanup_server_tools_runtime()

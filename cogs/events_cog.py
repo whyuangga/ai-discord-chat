@@ -513,7 +513,11 @@ def register_events_cog(bot: commands.Bot) -> None:
 
     @bot.event
     async def on_voice_state_update(member, before, after):
-        """Memulai/menghentikan hitungan XP voice (0 kuota AI)."""
+        """Satu-satunya listener voice: XP voice, audit log, Temp Voice, & voice linking.
+
+        Penting: `bot.event` menimpa handler dengan nama sama, jadi semua fitur voice
+        harus dipanggil dari sini (bukan mendaftarkan listener kedua).
+        """
         try:
             import voice_activity
 
@@ -526,6 +530,19 @@ def register_events_cog(bot: commands.Bot) -> None:
             await audit_log.log_voice_change(bot, member, before, after)
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Audit log voice dilewati: %s", exc)
+        try:
+            import temp_voice as tv
+
+            if not (getattr(member, "bot", False) and getattr(before, "channel", None) == getattr(after, "channel", None)):
+                await tv.handle_voice_update(before, after, member)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.warning("Temp Voice gagal memproses perubahan voice: %s", exc)
+        try:
+            import voice_link
+
+            await voice_link.handle_voice_state(member, before, after)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Voice linking dilewati: %s", exc)
 
     @bot.event
     async def on_member_remove(member: discord.Member):

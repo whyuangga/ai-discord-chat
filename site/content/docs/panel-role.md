@@ -254,3 +254,32 @@ Detail penting:
   catatan. Jalur tulis: `POST /api/konten` (`curhat-setelan`, `curhat-hapus:<nomor>`).
 - Tombol tes **Curhat anonim** menjalankan validasi aturan pada kalimat contoh — tidak ada
   pesan yang diposting dan nomor tidak terpakai.
+
+## 15. 🔗 Voice Linking (`/tempvoice tautkan`)
+
+Ala bot besar: selama member berada di voice channel, bot memberi **role khusus** dan membuka
+**channel teks privat** untuk voice itu. Keluar voice → akses dicabut otomatis. **0 kuota AI.**
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/tempvoice tautkan` | Lihat status voice linking (role, channel privat, jumlah channel). |
+| `/tempvoice tautkan aktif:True role:@Warga Voice` | *(Admin)* Nyalakan & pilih role selama di voice. |
+| `/tempvoice tautkan channel_privat:True kategori:#Voice` | *(Admin)* Buat channel teks privat per voice, di kategori tertentu. |
+| `/tempvoice tautkan hapus_kosong:False` | *(Admin)* Biarkan channel privat tetap ada walau voice kosong. |
+
+Cara kerja:
+- Saat member **masuk** voice: role diberikan (hanya bila dia belum memilikinya) dan channel
+  `⌨️-<nama voice>` dibuat/disiapkan. `@everyone` **tidak** bisa melihat; hanya member yang
+  sedang di voice itu yang mendapat izin lihat + kirim.
+- Saat member **keluar**: izinnya dicabut. Bila voice channel jadi kosong dan
+  `hapus_kosong` menyala, channel privatnya dihapus. Pindah voice **tidak** mencabut role.
+- Role yang **sudah dimiliki member sebelum masuk voice** tidak akan dicabut saat keluar —
+  bot hanya mencabut role yang benar-benar ia berikan.
+- Batas **40** channel privat per server. Butuh izin **Manage Roles** & **Manage Channels**.
+- Satu listener voice dipakai bersama XP voice, audit log, dan Temp Voice (supaya tidak saling
+  menimpa) — lihat `cogs/events_cog.py`.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🔗 Voice linking* — sakelar, role,
+  channel privat, hapus-saat-kosong, kategori, daftar channel yang dikelola + tombol lepas.
+  Jalur tulis: `POST /api/konten` (`voice-setelan`, `voice-lepas:<voice_id>`).
+- Tombol tes **Voice linking** hanya memeriksa setelan & keberadaan role — tidak mengubah role
+  atau channel siapa pun.

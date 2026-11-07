@@ -8,6 +8,7 @@ from discord.ext import commands
 
 import temp_voice as tv
 import ui_kit
+import voice_link
 import ui_theme
 
 logger = logging.getLogger("gemini_bot.tempvoice_cog")
@@ -106,6 +107,75 @@ async def tempvoice_atur_cmd(
     await interaction.response.send_message(
         embed=ui_theme.apply_embed_theme(
             discord.Embed(title="🔊 Temp Voice Aktif", description=body), interaction.guild.id
+        ),
+        ephemeral=True,
+    )
+
+
+@tempvoice_group.command(
+    name="tautkan",
+    description="(Admin) Voice linking: role + channel teks privat selama member di voice",
+)
+@app_commands.describe(
+    aktif="Nyalakan/matikan voice linking",
+    role="Role yang diberikan selama member berada di voice",
+    channel_privat="Buat channel teks privat per voice channel (hanya yang di voice bisa lihat)",
+    hapus_kosong="Hapus channel privat saat voice channel-nya kosong",
+    kategori="Kategori tempat channel privat dibuat (kosong = ikut kategori voice)",
+)
+async def tempvoice_tautkan_cmd(
+    interaction: discord.Interaction,
+    aktif: bool | None = None,
+    role: discord.Role | None = None,
+    channel_privat: bool | None = None,
+    hapus_kosong: bool | None = None,
+    kategori: discord.CategoryChannel | None = None,
+):
+    if interaction.guild is None:
+        return
+    if not _is_admin(interaction):
+        return await _reject_admin(interaction)
+
+    ada_perubahan = any(
+        nilai is not None for nilai in (aktif, role, channel_privat, hapus_kosong, kategori)
+    )
+    if ada_perubahan:
+        voice_link.set_config(
+            interaction.guild.id,
+            enabled=aktif,
+            role_id=getattr(role, "id", None),
+            channel_privat=channel_privat,
+            hapus_kosong=hapus_kosong,
+            kategori_id=getattr(kategori, "id", None),
+        )
+        await voice_link.save_voice_link_to_disk()
+
+    data = voice_link.statistik(interaction.guild.id)
+    status = "aktif" if data["aktif"] else "nonaktif"
+    tujuan_role = f"<@&{data['role_id']}>" if data["role_id"] else "belum dipilih"
+    kategori_teks = f"<#{data['kategori_id']}>" if data["kategori_id"] else "ikut kategori voice"
+    lines = [
+        f"• **Status:** {status}",
+        f"• **Role selama di voice:** {tujuan_role}",
+        f"• **Channel teks privat:** {'ya' if data['channel_privat'] else 'tidak'} "
+        f"({kategori_teks})",
+        f"• **Hapus saat kosong:** {'ya' if data['hapus_kosong'] else 'tidak'}",
+        f"• **Channel privat sekarang:** {data['jumlah_channel']} / {data['maks_channel']}",
+        f"• **Member ber-role (dari bot):** {data['jumlah_berole']}",
+    ]
+    if not data["aktif"]:
+        lines.append(
+            "\nℹ️ Isi `aktif:True` **dan** pilih `role:` atau biarkan channel privat menyala "
+            "supaya fitur berjalan."
+        )
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            interaction.guild.id,
+            "ok" if data["aktif"] else "info",
+            "🔗 Voice Linking",
+            "\n".join(lines)[:1500]
+            + ("\n\nSetelan disimpan." if ada_perubahan else ""),
         ),
         ephemeral=True,
     )
@@ -303,16 +373,9 @@ async def tempvoice_tendang_cmd(interaction: discord.Interaction, member: discor
 def register_tempvoice_cog(bot: commands.Bot) -> None:
     """Mendaftarkan `/tempvoice` + listener pembuatan room otomatis."""
     bot.tree.add_command(tempvoice_group)
-
-    @bot.event
-    async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-        """Membuat room saat member masuk hub & menghapusnya saat kosong."""
-        if getattr(member, "bot", False) and before.channel == after.channel:
-            return
-        try:
-            await tv.handle_voice_update(before, after, member)
-        except Exception as exc:  # pragma: no cover - jaring aman
-            logger.warning("Temp Voice gagal memproses perubahan voice: %s", exc)
+    # Listener voice TIDAK didaftarkan di sini: `bot.event` bersifat menimpa, sehingga
+    # listener kedua akan mematikan pelacakan XP voice. Satu listener resmi ada di
+    # `cogs/events_cog.py` dan memanggil `temp_voice.handle_voice_update` + `voice_link`.
 
 
 __all__ = ["register_tempvoice_cog", "tempvoice_group"]

@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **60 command utama** (275 subcommand) · **874 tes otomatis**
+> **Versi `v1.40.0-beta`** · **60 command utama** (276 subcommand) · **897 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -542,7 +542,7 @@ ai-discord-chat/
 │   ├── server_cog.py      # /serverstats, /autorole, /fakta, & /keamanan (anti-phishing, anti-spam)
 │   ├── community_cog.py   # /panel-role, /poll, /ingatkan, /starboard, /verifikasi, /sticky, /info, /perawatan
 │   ├── suggestions_cog.py # /saran — kotak saran + voting & status
-│   ├── tempvoice_cog.py   # /tempvoice — voice room sementara (join-to-create)
+│   ├── tempvoice_cog.py   # /tempvoice — voice room sementara (join-to-create) & voice linking (tautkan)
 │   ├── music_cog.py       # /musik (putar, cari, antrean berhalaman, seek, filter, autoplay, DJ, panel)
 │   ├── engagement_cog.py  # /giveaway, /ultah, /jawab-otomatis, /pengumuman
 │   ├── growth_cog.py      # /level (XP, papan peringkat) & /tiket (tiket thread privat)
@@ -594,6 +594,8 @@ ai-discord-chat/
 │   ├── tags.py             # Tag jawaban siap pakai (`/tag`) — 0 kuota AI
 │   ├── highlights.py       # Highlight kata kunci → DM (`/pantau`), tanpa simpan isi pesan
 │   ├── dashboard_highlights.py # Panel highlight di halaman Konten & interaksi
+│   ├── voice_link.py       # Voice linking — role + channel teks privat selama di voice
+│   ├── dashboard_voice.py  # Panel voice linking di halaman Konten & interaksi
 │   ├── confessions.py      # Curhat anonim (`/curhat`) — tanpa menyimpan isi curhat
 │   ├── dashboard_curhat.py # Panel curhat di halaman Konten & interaksi
 │   ├── dashboard_sosial.py # Panel notifikasi sosial (YouTube/Twitch/TikTok/Reddit/RSS)
@@ -667,7 +669,7 @@ ai-discord-chat/
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md          # Referensi 60 command utama, 275 subcommand, & tombol panel
+│   ├── command.md          # Referensi 60 command utama, 276 subcommand, & tombol panel
 │   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
 │   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
@@ -680,7 +682,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 48 berkas pytest → 874 tes (869 lulus, 5 dilewati)
+├── tests/                  # 49 berkas pytest → 897 tes (892 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "voice",
+        "label": "Voice linking",
+        "emoji": "🔗",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Periksa role & channel privat voice tanpa mengubah role siapa pun.",
+    },
+    {
         "kunci": "sosial",
         "label": "Notifikasi sosial",
         "emoji": "🔔",
@@ -216,6 +225,7 @@ ANCHOR_UJI: dict[str, str] = {
     "snipe": "p-snipe",
     "curhat": "p-curhat",
     "sosial": "p-sosial",
+    "voice": "p-voice",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -239,6 +249,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-rank": "**Inti, level, & ekonomi**",
     "p-honeypot": "**Keamanan**",
     "p-sosial": "**Konten & interaksi**",
+    "p-voice": "**Konten & interaksi**",
     "p-curhat": "**Konten & interaksi**",
 }
 
@@ -599,6 +610,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "voice":
+            return _uji_voice(bot, guild)
         if kunci == "sosial":
             return _uji_sosial(gid)
         if kunci == "curhat":
@@ -625,6 +638,42 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_voice(bot, guild) -> tuple[bool, str]:
+    """Simulasi voice linking: cek setelan & keberadaan role, tanpa menyentuh member."""
+    import voice_link
+
+    gid = int(getattr(guild, "id", 0) or 0)
+    data = voice_link.statistik(gid)
+    if not data["enabled"]:
+        return False, (
+            "Voice linking belum dinyalakan. Atur di halaman **Konten & interaksi** → "
+            "panel *🔗 Voice linking* (atau `/tempvoice tautkan`)."
+        )
+    if not data["aktif"]:
+        return False, (
+            "Voice linking menyala tapi belum berefek: pilih **role** untuk diberikan, "
+            "atau nyalakan **channel teks privat**."
+        )
+
+    catatan = [
+        f"role <@&{data['role_id']}>" if data["role_id"] else "tanpa role",
+        f"channel privat {'ya' if data['channel_privat'] else 'tidak'}",
+        f"hapus saat kosong {'ya' if data['hapus_kosong'] else 'tidak'}",
+    ]
+    get_role = getattr(guild, "get_role", None)
+    if data["role_id"] and callable(get_role):
+        if get_role(int(data["role_id"])) is None:
+            return False, (
+                "Role yang dipilih untuk voice linking sudah tidak ada di server — "
+                "pilih role lain di panel *🔗 Voice linking*."
+            )
+    return True, (
+        "Setelan voice linking siap: " + " · ".join(catatan)
+        + f". Channel privat terkelola: {data['jumlah_channel']}/{data['maks_channel']}. "
+        "Simulasi saja — tidak ada role atau channel yang diubah."
+    )
 
 
 def _uji_sosial(guild_id: int) -> tuple[bool, str]:

@@ -91,6 +91,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |
 | `/tempvoice atur` | `hub`, `aktif`, `nama`, `limit` | *(Admin)* Aktifkan voice room sementara (join-to-create). |
 | `/tempvoice status` | — | Lihat hub & room sementara yang aktif. |
+| `/tempvoice tautkan` | `aktif`, `role`, `channel_privat`, `hapus_kosong`, `kategori` | *(Admin)* Voice linking: role + channel teks privat selama member di voice. |
 | `/tempvoice kunci` / `nama` / `limit` / `tendang` | `aktif` / `nama` / `jumlah` / `member` | Pengaturan room oleh **pemilik room**. |
 | `/saran pasang` | `channel`, `nonaktifkan` | *(Admin)* Tentukan channel kotak saran. |
 | `/saran kirim` | `teks` | Kirim usulan dengan tombol voting 👍/👎. |

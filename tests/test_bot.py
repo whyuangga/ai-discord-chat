@@ -6005,7 +6005,7 @@ async def test_temp_voice_config_rooms_and_persistence():
 
     # 7. Command /tempvoice terdaftar
     assert {c.name for c in tempvoice_group.commands} == {
-        "atur", "status", "kunci", "nama", "limit", "tendang"
+        "atur", "status", "kunci", "nama", "limit", "tendang", "tautkan"
     }
 
     tv.unregister_room(9001)
