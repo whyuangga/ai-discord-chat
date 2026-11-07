@@ -31,3 +31,7 @@ site/hugo_stats.json
 
 # Artefak build/pemasangan (dibuat oleh `pip wheel .` / `pip install .`)
 build/
+
+# Artefak build/packaging (dihasilkan otomatis, jangan di-commit)
+*.egg-info/
+dist/
