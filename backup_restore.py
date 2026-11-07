@@ -408,35 +408,23 @@ def describe_plan(plan: dict, limit: int = 8) -> str:
 # ==============================================================================
 # EKSEKUSI
 # ==============================================================================
-async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pemulihan backup") -> dict:
-    """Menjalankan rencana. Tidak pernah menghapus apa pun."""
-    result = {
-        "roles": 0,
-        "categories": 0,
-        "channels": 0,
-        "errors": [],
-        "overwrites": 0,
-        # Objek sukses yang dikembalikan API, untuk rollback berbasis ID yang presisi.
-        "created": {"roles": [], "categories": [], "channels": []},
+def _created_item(obj, fallback_name: str) -> dict:
+    """Ringkas objek hasil API jadi `{id, name}` untuk rollback presisi."""
+    raw_id = getattr(obj, "id", None)
+    try:
+        item_id = int(raw_id) if raw_id is not None else None
+    except (TypeError, ValueError):
+        item_id = None
+    return {
+        "id": item_id,
+        "name": str(getattr(obj, "name", fallback_name) or fallback_name)[:100],
     }
-    if not plan:
-        return result
 
-    def created_item(obj, fallback_name: str) -> dict:
-        raw_id = getattr(obj, "id", None)
-        try:
-            item_id = int(raw_id) if raw_id is not None else None
-        except (TypeError, ValueError):
-            item_id = None
-        return {
-            "id": item_id,
-            "name": str(getattr(obj, "name", fallback_name) or fallback_name)[:100],
-        }
 
-    reason_text = f"{reason} (oleh {actor_id})"[:400] if actor_id else reason[:400]
-
-    # 1. Role → peta nama ke objek (termasuk role lama, untuk overwrite)
-    role_map = {_norm(getattr(r, "name", "")): r for r in getattr(guild, "roles", []) or []}
+async def _buat_role_plan(
+    guild, plan: dict, result: dict, role_map: dict, reason_text: str
+) -> None:
+    """Buat role dari rencana, catat kegagalan per item."""
     for item in plan.get("roles") or []:
         try:
             role = await guild.create_role(
@@ -449,25 +437,89 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
             )
             role_map[_norm(item["name"])] = role
             result["roles"] += 1
-            result["created"]["roles"].append(created_item(role, item["name"]))
+            result["created"]["roles"].append(_created_item(role, item["name"]))
         except (discord.Forbidden, discord.HTTPException, TypeError) as exc:
             result["errors"].append(f"role `{item['name']}`: {type(exc).__name__}")
         await asyncio.sleep(CREATE_DELAY_SEC)
 
-    # 2. Kategori (beserta izin role)
-    category_map = {_norm(getattr(c, "name", "")): c for c in getattr(guild, "categories", []) or []}
+
+async def _buat_kategori_plan(
+    guild, plan: dict, result: dict, category_map: dict, role_map: dict, reason_text: str
+) -> None:
+    """Buat kategori beserta izin per-role."""
     for item in plan.get("categories") or []:
         try:
             category = await guild.create_category(name=item["name"], reason=reason_text)
             category_map[_norm(item["name"])] = category
             result["categories"] += 1
-            result["created"]["categories"].append(created_item(category, item["name"]))
+            result["created"]["categories"].append(_created_item(category, item["name"]))
             result["overwrites"] += await _apply_overwrites(category, item.get("overwrites"), role_map)
         except (discord.Forbidden, discord.HTTPException, TypeError) as exc:
             result["errors"].append(f"kategori `{item['name']}`: {type(exc).__name__}")
         await asyncio.sleep(CREATE_DELAY_SEC)
 
-    # 3. Channel
+
+def _siapkan_kwargs(
+    item: dict,
+    creator_name: str,
+    kind: str,
+    category_map: dict,
+    result: dict,
+    reason_text: str,
+) -> dict | None:
+    """Rakit argumen pembuatan channel; `None` bila kategori tujuan tidak ada."""
+    kwargs: dict = {"name": item["name"], "reason": reason_text}
+    category_name = str(item.get("category") or "").strip()
+    category = category_map.get(_norm(category_name)) if category_name else None
+    if category_name and category is None:
+        result["errors"].append(
+            f"channel `{item['name']}`: kategori `{category_name}` tidak tersedia"
+        )
+        return None
+    if category is not None:
+        kwargs["category"] = category
+
+    if creator_name in ("create_text_channel", "create_forum"):
+        if item.get("topic"):
+            kwargs["topic"] = item["topic"]
+        if item.get("nsfw"):
+            kwargs["nsfw"] = True
+        if int(item.get("slowmode") or 0) > 0:
+            kwargs["slowmode_delay"] = min(int(item["slowmode"]), 21600)
+    if creator_name == "create_forum":
+        forum = _forum_settings(item.get("forum"))
+        if kind == "media":
+            kwargs["media"] = True
+        archive_duration = forum.get("default_auto_archive_duration")
+        if archive_duration in {60, 1440, 4320, 10080}:
+            kwargs["default_auto_archive_duration"] = archive_duration
+        thread_slowmode = forum.get("default_thread_slowmode_delay")
+        if thread_slowmode is not None:
+            kwargs["default_thread_slowmode_delay"] = max(0, min(thread_slowmode, 21600))
+        sort_order = _forum_enum(discord.ForumOrderType, forum.get("default_sort_order"))
+        if sort_order is not None:
+            kwargs["default_sort_order"] = sort_order
+        if kind != "media":
+            layout = _forum_enum(discord.ForumLayoutType, forum.get("default_layout"))
+            if layout is not None:
+                kwargs["default_layout"] = layout
+        reaction_emoji = forum.get("default_reaction_emoji")
+        if reaction_emoji:
+            kwargs["default_reaction_emoji"] = reaction_emoji
+        tags = _forum_tags(forum.get("available_tags"))
+        if tags:
+            kwargs["available_tags"] = tags
+    elif creator_name in ("create_voice_channel", "create_stage_channel"):
+        if item.get("bitrate"):
+            kwargs["bitrate"] = int(item["bitrate"])
+        if int(item.get("user_limit") or 0) > 0:
+            kwargs["user_limit"] = min(int(item["user_limit"]), 99)
+    return kwargs
+
+async def _buat_channel_plan(
+    guild, plan: dict, result: dict, category_map: dict, role_map: dict, reason_text: str
+) -> None:
+    """Buat channel sesuai tipe, kategori, dan izin per-role."""
     for item in plan.get("channels") or []:
         kind = str(item.get("type") or "text")
         creator_name = CHANNEL_CREATORS.get(kind)
@@ -481,61 +533,53 @@ async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pem
             )
             continue
 
-        kwargs: dict = {"name": item["name"], "reason": reason_text}
-        category_name = str(item.get("category") or "").strip()
-        category = category_map.get(_norm(category_name)) if category_name else None
-        if category_name and category is None:
-            result["errors"].append(
-                f"channel `{item['name']}`: kategori `{category_name}` tidak tersedia"
-            )
+        kwargs = _siapkan_kwargs(item, creator_name, kind, category_map, result, reason_text)
+        if kwargs is None:
             continue
-        if category is not None:
-            kwargs["category"] = category
-
-        if creator_name in ("create_text_channel", "create_forum"):
-            if item.get("topic"):
-                kwargs["topic"] = item["topic"]
-            if item.get("nsfw"):
-                kwargs["nsfw"] = True
-            if int(item.get("slowmode") or 0) > 0:
-                kwargs["slowmode_delay"] = min(int(item["slowmode"]), 21600)
-        if creator_name == "create_forum":
-            forum = _forum_settings(item.get("forum"))
-            if kind == "media":
-                kwargs["media"] = True
-            archive_duration = forum.get("default_auto_archive_duration")
-            if archive_duration in {60, 1440, 4320, 10080}:
-                kwargs["default_auto_archive_duration"] = archive_duration
-            thread_slowmode = forum.get("default_thread_slowmode_delay")
-            if thread_slowmode is not None:
-                kwargs["default_thread_slowmode_delay"] = max(0, min(thread_slowmode, 21600))
-            sort_order = _forum_enum(discord.ForumOrderType, forum.get("default_sort_order"))
-            if sort_order is not None:
-                kwargs["default_sort_order"] = sort_order
-            if kind != "media":
-                layout = _forum_enum(discord.ForumLayoutType, forum.get("default_layout"))
-                if layout is not None:
-                    kwargs["default_layout"] = layout
-            reaction_emoji = forum.get("default_reaction_emoji")
-            if reaction_emoji:
-                kwargs["default_reaction_emoji"] = reaction_emoji
-            tags = _forum_tags(forum.get("available_tags"))
-            if tags:
-                kwargs["available_tags"] = tags
-        elif creator_name in ("create_voice_channel", "create_stage_channel"):
-            if item.get("bitrate"):
-                kwargs["bitrate"] = int(item["bitrate"])
-            if int(item.get("user_limit") or 0) > 0:
-                kwargs["user_limit"] = min(int(item["user_limit"]), 99)
 
         try:
             channel = await creator(**kwargs)
             result["channels"] += 1
-            result["created"]["channels"].append(created_item(channel, item["name"]))
-            result["overwrites"] += await _apply_overwrites(channel, item.get("overwrites"), role_map)
+            result["created"]["channels"].append(_created_item(channel, item["name"]))
+            result["overwrites"] += await _apply_overwrites(
+                channel, item.get("overwrites"), role_map
+            )
         except (discord.Forbidden, discord.HTTPException, TypeError) as exc:
             result["errors"].append(f"channel `{item['name']}`: {type(exc).__name__}")
         await asyncio.sleep(CREATE_DELAY_SEC)
+
+
+async def apply_plan(guild, plan: dict, *, actor_id: int = 0, reason: str = "Pemulihan backup") -> dict:
+    """Menjalankan rencana. Tidak pernah menghapus apa pun."""
+    result = {
+        "roles": 0,
+        "categories": 0,
+        "channels": 0,
+        "errors": [],
+        "overwrites": 0,
+        # Objek sukses yang dikembalikan API, untuk rollback berbasis ID yang presisi.
+        "created": {"roles": [], "categories": [], "channels": []},
+    }
+    if not plan:
+        return result
+    reason_text = f"{reason} (oleh {actor_id})"[:400] if actor_id else reason[:400]
+
+    # 1. Role -> peta nama ke objek (termasuk role lama, untuk overwrite)
+    role_map = {
+        _norm(getattr(r, "name", "")): r for r in getattr(guild, "roles", []) or []
+    }
+    await _buat_role_plan(guild, plan, result, role_map, reason_text)
+
+    # 2. Kategori (beserta izin role)
+    category_map = {
+        _norm(getattr(c, "name", "")): c for c in getattr(guild, "categories", []) or []
+    }
+    await _buat_kategori_plan(
+        guild, plan, result, category_map, role_map, reason_text
+    )
+
+    # 3. Channel
+    await _buat_channel_plan(guild, plan, result, category_map, role_map, reason_text)
 
     return result
 
