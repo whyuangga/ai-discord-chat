@@ -1312,6 +1312,80 @@ def _is_official_domain(host: str, brand: str) -> bool:
     return False
 
 
+def _skor_sinyal_domain(
+    host: str, bare_host: str, tld: str, impersonated, parts
+) -> tuple[int, list[str]]:
+    """Poin risiko dari bentuk domain itu sendiri."""
+    reasons: list[str] = []
+    score = 0
+    if bare_host in KNOWN_BAD_HOSTS or host in KNOWN_BAD_HOSTS:
+        score = 100
+        reasons.append("Domain ada di daftar hitam phishing")
+    if _PUNYCODE_RE.search(host):
+        score += 55
+        reasons.append("Domain memakai karakter punycode (`xn--`) untuk menyamarkan brand")
+    if _IPV4_RE.match(host):
+        score += 40
+        reasons.append("Link memakai alamat IP langsung, bukan nama domain resmi")
+    if impersonated:
+        score += 60
+        reasons.append(f"Meniru brand **{impersonated.title()}** tetapi bukan domain resmi")
+    if tld in HIGH_RISK_TLDS:
+        score += 40
+        reasons.append(f"Akronim domain `.{tld}` sangat sering dipakai kampanye phishing")
+    elif tld in SUSPICIOUS_TLDS:
+        score += 18
+        reasons.append(f"Akronim domain `.{tld}` perlu diwaspadai")
+    if bare_host in URL_SHORTENERS or host in URL_SHORTENERS:
+        score += 30
+        reasons.append("Link pemendek URL menyembunyikan alamat asli")
+    if "@" in (parts.netloc or ""):
+        score += 45
+        reasons.append("Link memakai trik `@` untuk menyamarkan domain asli")
+    return score, reasons
+
+
+def _skor_sinyal_struktur(
+    host: str, labels: list, tld: str, suspicious_context: bool, parts
+) -> tuple[int, list[str]]:
+    """Poin risiko dari struktur host (subdomain, tanda hubung, panjang, angka)."""
+    reasons: list[str] = []
+    score = 0
+    is_ip_host = _IPV4_RE.match(host) is not None
+    if not is_ip_host and len(labels) >= 4:
+        score += 15
+        reasons.append("Subdomain bertumpuk tidak wajar")
+    hyphen_count = host.count("-")
+    if not is_ip_host and hyphen_count >= 2:
+        score += 12
+        reasons.append("Domain memakai banyak tanda hubung (ciri domain tiruan)")
+    if not is_ip_host and tld in HIGH_RISK_TLDS and len(labels) >= 3:
+        score += 10
+    if suspicious_context and any(k in (parts.path or "").lower() for k in PHISHING_KEYWORDS):
+        score += 10
+    if suspicious_context and any(k in host for k in PHISHING_KEYWORDS):
+        score += 12
+    if len(host) > 45:
+        score += 8
+    if re.search(r"\d{4,}", host):
+        score += 8
+    return score, reasons
+
+
+def _nilai_risiko(score: int, reasons: list[str]) -> tuple[int, str]:
+    """Batasi skor 0..100 lalu tentukan vonisnya."""
+    score = max(0, min(100, score))
+    if score >= 60:
+        verdict = "berbahaya"
+    elif score >= 30:
+        verdict = "mencurigakan"
+    else:
+        verdict = "aman"
+        if not reasons:
+            reasons.append("Tidak ada pola phishing yang terdeteksi")
+    return score, verdict
+
+
 def analyze_url_risk(raw_url: str) -> dict:
     """Menganalisis risiko satu link tanpa API berbayar.
 
@@ -1359,60 +1433,14 @@ def analyze_url_risk(raw_url: str) -> dict:
         or _IPV4_RE.match(host) is not None
         or _PUNYCODE_RE.search(host) is not None
     )
+    poin_domain, alasan_domain = _skor_sinyal_domain(host, bare_host, tld, impersonated, parts)
+    poin_struktur, alasan_struktur = _skor_sinyal_struktur(
+        host, labels, tld, suspicious_context, parts
+    )
+    score += poin_domain + poin_struktur
+    reasons.extend(alasan_domain + alasan_struktur)
 
-    if bare_host in KNOWN_BAD_HOSTS or host in KNOWN_BAD_HOSTS:
-        score = 100
-        reasons.append("Domain ada di daftar hitam phishing")
-    if _PUNYCODE_RE.search(host):
-        score += 55
-        reasons.append("Domain memakai karakter punycode (`xn--`) untuk menyamarkan brand")
-    if _IPV4_RE.match(host):
-        score += 40
-        reasons.append("Link memakai alamat IP langsung, bukan nama domain resmi")
-    if impersonated:
-        score += 60
-        reasons.append(f"Meniru brand **{impersonated.title()}** tetapi bukan domain resmi")
-    if tld in HIGH_RISK_TLDS:
-        score += 40
-        reasons.append(f"Akronim domain `.{tld}` sangat sering dipakai kampanye phishing")
-    elif tld in SUSPICIOUS_TLDS:
-        score += 18
-        reasons.append(f"Akronim domain `.{tld}` perlu diwaspadai")
-    if bare_host in URL_SHORTENERS or host in URL_SHORTENERS:
-        score += 30
-        reasons.append("Link pemendek URL menyembunyikan alamat asli")
-    if "@" in (parts.netloc or ""):
-        score += 45
-        reasons.append("Link memakai trik `@` untuk menyamarkan domain asli")
-    is_ip_host = _IPV4_RE.match(host) is not None
-    if not is_ip_host and len(labels) >= 4:
-        score += 15
-        reasons.append("Subdomain bertumpuk tidak wajar")
-    hyphen_count = host.count("-")
-    if not is_ip_host and hyphen_count >= 2:
-        score += 12
-        reasons.append("Domain memakai banyak tanda hubung (ciri domain tiruan)")
-    if not is_ip_host and tld in HIGH_RISK_TLDS and len(labels) >= 3:
-        score += 10
-    if suspicious_context and any(k in (parts.path or "").lower() for k in PHISHING_KEYWORDS):
-        score += 10
-    if suspicious_context and any(k in host for k in PHISHING_KEYWORDS):
-        score += 12
-    if len(host) > 45:
-        score += 8
-    if re.search(r"\d{4,}", host):
-        score += 8
-
-    score = max(0, min(100, score))
-    if score >= 60:
-        verdict = "berbahaya"
-    elif score >= 30:
-        verdict = "mencurigakan"
-    else:
-        verdict = "aman"
-        if not reasons:
-            reasons.append("Tidak ada pola phishing yang terdeteksi")
-
+    score, verdict = _nilai_risiko(score, reasons)
     return {
         "url": url,
         "host": host,
