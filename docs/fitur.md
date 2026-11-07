@@ -640,6 +640,40 @@ Detail penting:
 - **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🏷️ Tag jawaban siap pakai* — tambah/perbarui, hapus per tag, lihat statistik pemakaian, dan **sakelar aktif/nonaktif** (data tetap tersimpan). Jalur tulis: `POST /api/konten` (`tag-simpan`, `tag-hapus:<nama>`, `tag-aktif:1|0`).
 - Data di `data/tags.json`; tombol tes **Tag jawaban server** hanya menyimulasikan pencarian tanpa menaikkan penghitung.
 
+### 12. 🏅 Lencana Bertingkat (`/lencana`)
+
+Pencapaian yang **dihitung dari data yang sudah dicatat bot** (jumlah pesan, menit voice,
+level, riwayat menang undian). Tidak ada pelacakan baru, tidak ada tabel tambahan, dan
+**0 kuota AI**.
+
+| Lencana | Tangga tingkat |
+| :--- | :--- |
+| 💬 Rajin Ngobrol | 50 · 250 · 1.000 · 5.000 · 15.000 pesan |
+| 🎙️ Penghuni Voice | 60 · 300 · 1.200 · 5.000 menit voice |
+| 📈 Pendaki Level | 5 · 10 · 25 · 50 level (prestise menambah 100) |
+| 🎉 Hoki Undian | 1 · 3 · 10 kali menang undian |
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lencana lihat [member]` | Lencana + bar progres + sisa menuju tingkat berikutnya. |
+| `/lencana papan` | Papan lencana server (10 teratas, medali 🥇🥈🥉). |
+| `/lencana periksa [member]` | *(Staf)* Segarkan lencana sekarang — berguna setelah impor data level. |
+| `/lencana atur channel:… aktif:…` | *(Admin)* Channel pengumuman lencana & sakelar global. |
+| `/lencana role kunci:… tingkat:… role:…` | *(Admin)* Role hadiah per tingkat (kosongkan `role` untuk menghapus). |
+
+Detail penting:
+- Pemeriksaan otomatis menempel di alur XP pesan & voice, jadi tidak ada pekerjaan latar
+  tambahan dan tidak menambah beban CPU server Free Tier.
+- Pemberian role hadiah **idempoten**: tingkat yang sudah diumumkan tidak diulang, dan
+  pemberian lencana selalu aman walau bot restart (tersimpan di `data/achievements.json`).
+- Maksimal **500 member terdata per server** (yang paling lama tidak aktif dikeluarkan lebih dulu).
+- **Panel dashboard:** halaman **⚙️ Inti & level** → *🏅 Lencana bertingkat* — setelan channel
+  pengumuman, sakelar aktif/nonaktif, pemasangan/penghapusan role hadiah per tingkat, tangga
+  tingkat, dan papan lencana. Jalur tulis: `POST /api/lencana`
+  (`lencana-setelan`, `lencana-role`, `lencana-hapus:<kunci>:<tingkat>`).
+- Tombol tes **Lencana bertingkat** hanya menghitung progres (simulasi) — tidak memberi role
+  dan tidak mengirim pengumuman.
+
 ## F. Streaming Musik 24/7 (`/musik` + Lavalink)
 
 > ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.

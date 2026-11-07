@@ -602,6 +602,18 @@ async def run_voice_xp_check(bot: commands.Bot) -> int:
         _voice_flush_since_save = 0
         await levels.save_levels_to_disk()
 
+    # Lencana voice: dicek untuk setiap sesi yang baru dicairkan (murah, tanpa I/O)
+    try:
+        from cogs.lencana_cog import proses_lencana
+
+        for award in awards:
+            guild = bot.get_guild(award["guild_id"]) if callable(getattr(bot, "get_guild", None)) else None
+            member = guild.get_member(award["user_id"]) if guild is not None else None
+            if member is not None:
+                await proses_lencana(bot, guild, member, sumber="voice")
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Lencana voice dilewati: %s", exc)
+
     announced = 0
     for award in level_up_awards:
         guild = bot.get_guild(award["guild_id"]) if callable(getattr(bot, "get_guild", None)) else None
@@ -671,6 +683,15 @@ async def handle_message_xp(bot: commands.Bot, message) -> None:
         return
 
     await levels.save_levels_to_disk()
+
+    # Lencana (achievements) — dihitung dari data yang sudah tercatat, 0 kuota AI
+    try:
+        from cogs.lencana_cog import proses_lencana
+
+        await proses_lencana(bot, guild, author, sumber="chat")
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Lencana pesan dilewati: %s", exc)
+
     if not result.get("level_up"):
         return
 

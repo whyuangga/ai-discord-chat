@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **56 command utama** (258 subcommand) · **765 tes otomatis**
+> **Versi `v1.40.0-beta`** · **57 command utama** (263 subcommand) · **794 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -555,7 +555,9 @@ ai-discord-chat/
 │   ├── menu_cog.py        # /menu (buat panel, tombol role/link/command, dropdown, kelola)
 │   ├── antinuke_cog.py    # /nuke (status, atur, whitelist, uji, pulihkan, matikan)
 │   ├── raid_cog.py        # /raid — raid guard mode darurat
-│   ├── moderation_cog.py  # /mod — warn, timeout, kick, ban, purge
+│   ├── moderation_cog.py  # /mod — warn, timeout, kick, ban, purge, tempban, softban, note, antrean
+│   ├── lencana_cog.py     # /lencana — lencana bertingkat + pemberian otomatis saat naik
+│   ├── tags_cog.py        # /tag — tag jawaban siap pakai (lihat/daftar/cari/buat/ubah/hapus)
 │   ├── translate_cog.py   # /terjemah — terjemahan ter-cache
 │   ├── language_cog.py    # /bahasa — antarmuka ID/EN per server
 │   ├── prefix_cog.py      # /prefix — prefix teks per server
@@ -587,8 +589,9 @@ ai-discord-chat/
 │   ├── honeypot.py         # Channel jebakan untuk self-bot & skrip raid (lapor/hapus/timeout/kick/ban)
 │   ├── reports.py          # Laporan member (`/lapor`) & antrean banding (`/banding`) + status penanganan
 │   ├── tags.py             # Tag jawaban siap pakai (`/tag`) — 0 kuota AI
-│   └── cogs/tags_cog.py    # Command /tag (lihat/daftar/cari/buat/ubah/hapus) (`/tag lihat aturan`) — 0 kuota AI
 │   ├── dashboard_tags.py   # Panel tag di halaman Konten & interaksi
+│   ├── achievements.py     # Lencana bertingkat (pesan/voice/level/undian) + role hadiah
+│   ├── dashboard_lencana.py # Panel lencana di halaman Inti & level
 │   ├── dashboard_moderasi.py # Panel Moderasi: antrean, setelan laporan, pencarian kasus, statistik staf
 │   ├── ticket_archive.py   # Arsip transkrip tiket HTML + teks, bisa dicari dari dashboard
 │   ├── rank_card.py        # Kartu rank PNG (Pillow) — perender /level kartu & pratinjau dashboard
@@ -654,7 +657,7 @@ ai-discord-chat/
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md          # Referensi 56 command utama, 258 subcommand, & tombol panel
+│   ├── command.md          # Referensi 57 command utama, 263 subcommand, & tombol panel
 │   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
 │   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
@@ -667,7 +670,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 43 berkas pytest → 770 tes (765 lulus, 5 dilewati)
+├── tests/                  # 44 berkas pytest → 799 tes (794 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

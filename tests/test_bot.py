@@ -2249,8 +2249,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "analitik",
         # v1.40.0-beta (Paket B): jalur resmi member → staf
         "lapor", "banding",
-        # v1.40.0-beta (Paket C): tag jawaban siap pakai
-        "tag",
+        # v1.40.0-beta (Paket C): tag jawaban siap pakai + lencana bertingkat
+        "tag", "lencana",
     }
     assert len(chat_cmds) <= 100
 
@@ -6725,7 +6725,7 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
 
     # 6. Jalur tulis dibatasi 9 endpoint POST (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    assert src.count("add_post(") == 11
+    assert src.count("add_post(") == 12
     for jalur in (
         'add_post("/api/aksi"',
         'add_post("/api/kirim"',
@@ -6738,6 +6738,7 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
         'add_post("/api/transkrip"',
         'add_post("/api/keamanan"',
         'add_post("/api/moderasi"',
+        'add_post("/api/lencana"',
     ):
         assert jalur in src, f"endpoint tulis {jalur} hilang"
     for needle in ("add_put(", "add_delete(", "add_patch("):

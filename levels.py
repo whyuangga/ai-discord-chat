@@ -532,6 +532,12 @@ def get_member_level(guild_id: int, user_id: int) -> dict:
     }
 
 
+def voice_minutes(guild_id: int, user_id: int) -> int:
+    """Total menit voice seorang member (dipakai lencana & dashboard)."""
+    data = levels.get(_key(guild_id, user_id)) or {}
+    return int(data.get("voice_sec") or 0) // 60
+
+
 def leaderboard(guild_id: int, *, limit: int = 10, page: int = 0) -> tuple[list[tuple[int, dict]], int, int]:
     """Papan peringkat server. Mengembalikan `(entries, halaman, total_halaman)`."""
     rows: list[tuple[int, dict]] = []

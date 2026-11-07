@@ -70,6 +70,11 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/banding` | `alasan`, `kasus` | **(Semua member)** Ajukan peninjauan hukuman (bisa dari DM bila sudah diban). |
 | `/mod hapus` | `id` | *(Admin)* Hapus satu kasus dari catatan. |
 | `/mod atur` | `log_channel`, `ambang_warn`, `durasi_auto`, `jendela_hari`, `dm` | *(Admin)* Pengaturan moderasi. |
+| `/lencana lihat` | `member` | Lencana + progres seorang member (kosongkan = dirimu). |
+| `/lencana papan` | — | Papan lencana server (10 teratas). |
+| `/lencana periksa` | `member` | *(Staf)* Segarkan lencana sekarang tanpa menunggu aktivitas berikutnya. |
+| `/lencana atur` | `channel`, `aktif` | *(Admin)* Channel pengumuman lencana & sakelar global. |
+| `/lencana role` | `kunci`, `tingkat`, `role` | *(Admin)* Role hadiah per tingkat lencana (kosongkan `role` = hapus). |
 | `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
 | `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |
 | `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |

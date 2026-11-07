@@ -103,6 +103,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "lencana",
+        "label": "Lencana bertingkat",
+        "emoji": "🏅",
+        "grup": "Level & XP",
+        "cfg": "",
+        "kolom": "member",
+        "contoh": "Hitung progres lencana pemilik server — tanpa memberi role/berapa pun.",
+    },
+    {
         "kunci": "tag",
         "label": "Tag jawaban server",
         "emoji": "🏷️",
@@ -165,6 +174,7 @@ ANCHOR_UJI: dict[str, str] = {
     "honeypot": "p-honeypot",
     "moderasi": "p-moderasi",
     "tag": "p-tag",
+    "lencana": "p-lencana",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -546,6 +556,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "lencana":
+            return _uji_lencana(guild_id, member)
         if kunci == "tag":
             return _uji_tag(guild_id)
         if kunci == "moderasi":
@@ -562,6 +574,32 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_lencana(guild_id: int, member=None) -> tuple[bool, str]:
+    """Simulasi lencana: hitung progres tanpa memberi role & tanpa mengumumkan."""
+    import achievements
+
+    data = achievements.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Lencana sedang dimatikan. Nyalakan di halaman **Inti & level** → "
+            "panel *🏅 Lencana bertingkat*."
+        )
+    if member is None:
+        return True, (
+            f"Lencana aktif: {data['anggota']} member terdata, {data['total_tingkat']} "
+            f"tingkat diberikan, {data['hadiah_role']} role hadiah. Simulasi saja — "
+            "tidak ada role yang diberikan."
+        )
+    progres = achievements.progres(guild_id, int(getattr(member, "id", 0)))
+    ringkas = " · ".join(
+        f"{item['emoji']} {item['tingkat']}/{item['maks']}" for item in progres
+    )
+    return True, (
+        f"Progres **{_nama_member(member)}**: {ringkas}. "
+        "Simulasi saja — tidak ada role yang diberikan & tidak ada pengumuman."
+    )
 
 
 def _uji_tag(guild_id: int) -> tuple[bool, str]:

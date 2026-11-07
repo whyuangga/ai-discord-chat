@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 56
+TOP_LEVEL_COUNT = 57
 import ui_kit
 
 
@@ -641,22 +641,24 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
             value=(
-                "**🏷️ Tag & Moderasi**\n"
+                "**🏷️ Tag & Lencana**\n"
+                "• **`/lencana`** — lencana bertingkat + role hadiah.\n"
                 "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`), 0 kuota AI.\n"
+                "**🛡️ Moderasi**\n"
                 "• **`/lapor`** & **`/banding`** — member melapor / minta peninjauan hukuman.\n"
                 "• **`/mod tempban`**, **`/mod softban`**, **`/mod note`**, **`/mod statistik`**.\n"
                 "**🛡️ Keamanan & Pemulihan**\n"
-                "• **`/raid`** — mode darurat otomatis: tahan Auto Role, minta verifikasi, lockdown opsional.\n"
-                "• **`/nuke`** — anti-nuke, **keluarkan bot asing**, & **`/nuke beku`** (ambang 1 aksi).\n"
-                "• **`/backup pulihkan`** — bangun ulang role/kategori/channel dari JSON (dry-run dulu).\n"
+                "• **`/raid`** — darurat: tahan Auto Role, verifikasi, lockdown opsional.\n"
+                "• **`/nuke`** — anti-nuke, **keluarkan bot asing**, **`/nuke beku`**.\n"
+                "• **`/backup pulihkan`** — bangun ulang role/kategori/channel dari JSON.\n"
                 "**📈 Retensi & Pelayanan**\n"
                 "• **`/level musim`** & **`/level prestise`** — musim level + trofi permanen.\n"
-                "• **`/musik playlist`** — playlist pribadi per member.\n"
-                "• **`/tiket atur`** & **`/tiket rating`** — SLA respons pertama, auto-close, rating bintang.\n"
+                "• **`/musik playlist`** — playlist pribadi member.\n"
+                "• **`/tiket atur`** & **`/tiket rating`** — SLA, auto-close, rating bintang.\n"
                 "**🧰 Admin & Diagnosa**\n"
-                "• **`/mod`** — slowmode, role, role-massal, nickname.\n"
+                "• **`/mod`** — slowmode, role (massal), nickname.\n"
                 "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
-                "• **Dashboard web** — pantau + **kontrol** fitur dari browser dengan token."
+                "• **Dashboard web** — pantau & **kontrol** fitur lewat browser (token)."
             ),
             inline=False,
         )

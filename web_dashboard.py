@@ -51,6 +51,7 @@ from urllib.parse import urlencode
 import dashboard_admin
 import dashboard_giveaway
 import dashboard_keamanan
+import dashboard_lencana
 import dashboard_moderasi
 import dashboard_tags
 import dashboard_panel
@@ -608,7 +609,7 @@ HALAMAN: tuple[dict, ...] = (
         "menu": "⚙️ Inti & level",
         "judul": "⚙️ Inti, level, & ekonomi",
         "keterangan": "Kontrol cepat + setelan level, ekonomi koin, pelacakan pertumbuhan, & prefix.",
-        "panel": ("p-kontrol", "p-inti", "p-rank"),
+        "panel": ("p-kontrol", "p-inti", "p-rank", "p-lencana"),
     },
     {
         "slug": "keamanan",
@@ -749,7 +750,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "konten": ("digest", "tag"),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
-    "inti": ("kartu",),
+    "inti": ("kartu", "lencana"),
     "keamanan": ("honeypot",),
     "moderasi": ("moderasi",),
 }
@@ -1042,6 +1043,11 @@ PANEL: dict[str, object] = {
         'Latar boleh diunggah sendiri; tanpa latar, bot memakai gradasi warna aksen.</p>\n'
         f'    {d.get("kartu_rank_block", "")}\n  </div>'
     ),
+    "p-lencana": lambda d: (
+        '<div class="panel" id="p-lencana">\n    '
+        + (d.get("lencana_block") or '<div class="muted">Panel lencana tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
     "p-moderasi": lambda d: (
         '<div class="panel" id="p-moderasi">\n    '
         + (d.get("moderasi_block") or '<div class="muted">Panel moderasi tidak tersedia.</div>')
@@ -1098,6 +1104,7 @@ def render_dashboard_html(
     honeypot_block: str = "",
     moderasi_block: str = "",
     tag_block: str = "",
+    lencana_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1184,6 +1191,8 @@ def render_dashboard_html(
         "moderasi_block": moderasi_block
         or '<div class="muted">Panel moderasi tidak tersedia.</div>',
         "tag_block": tag_block or '<div class="muted">Panel tag tidak tersedia.</div>',
+        "lencana_block": lencana_block
+        or '<div class="muted">Panel lencana tidak tersedia.</div>',
         "aturan_block": aturan_block
         or '<div class="muted">Penguji aturan tidak tersedia.</div>',
         "starboard_block": starboard_block
@@ -1679,6 +1688,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_tags.render_tags_block(bot, gid, token),
             '<div class="muted">Panel tag tidak tersedia.</div>',
         )
+        lencana_block = _blok(
+            lambda: dashboard_lencana.render_lencana_block(bot, gid, token),
+            '<div class="muted">Panel lencana tidak tersedia.</div>',
+        )
         aturan_block = _blok(
             lambda: dashboard_ui.render_aturan_block(
                 gid, token, dashboard_keamanan.collect(gid)
@@ -1747,6 +1760,7 @@ async def start_dashboard(bot) -> bool:
             honeypot_block=honeypot_block,
             moderasi_block=moderasi_block,
             tag_block=tag_block,
+            lencana_block=lencana_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -2092,6 +2106,25 @@ async def start_dashboard(bot) -> bool:
             ok, message = False, f"Aksi keamanan `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard keamanan %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-aturan", request)
+
+    async def handle_lencana(request):
+        """Panel lencana: setelan, role hadiah, & hapus hadiah."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+
+        ok, message = await dashboard_lencana.aksi_lencana(gid, aksi, payload)
+        logger.info("Dashboard lencana %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, "p-lencana", request)
 
     async def handle_moderasi(request):
         """Panel moderasi: setelan laporan, ubah status antrean, cari kasus, cabut temp-ban."""
@@ -2560,6 +2593,7 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_post("/api/keamanan", handle_keamanan)
     app.router.add_post("/api/moderasi", handle_moderasi)
+    app.router.add_post("/api/lencana", handle_lencana)
     app.router.add_get("/api/giveaway", handle_giveaway)
     app.router.add_post("/api/giveaway", handle_giveaway)
     app.router.add_get("/transkrip", handle_transkrip)

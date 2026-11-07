@@ -51,7 +51,7 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 | Fitur | Sumber | Kenapa layak | Effort | Dampak | Paket |
 | :--- | :--- | :--- | :---: | :---: | :---: |
 | **Tags** (`/tag buat/lihat/hapus`) | Arclo | Jawaban server disimpan sekali, dipanggil kapan saja — pengganti FAQ manual, sangat sering dipakai | S | ★★★ | **C** ✅ v1.40 |
-| **Achievements** (badge bertingkat + role reward + papan sendiri) | Arclo | Memberi alasan **kembali** selain level; bisa memakai data yang sudah kita catat | M | ★★★ | **C** |
+| **Achievements** (badge bertingkat + role reward + papan sendiri) | Arclo | Memberi alasan **kembali** selain level; bisa memakai data yang sudah kita catat | M | ★★★ | **C** ✅ v1.40 |
 | **Highlights** (kata kunci → DM) | wisp | Sangat murah, langsung terasa: orang tidak perlu membaca seluruh channel | S | ★★★ | **C** |
 | **Confessions** (anonim + moderasi) | wisp | Kanal engagement klasik; moderasi tetap jalan lewat antispam | S | ★★ | **C** |
 | **Snipe / EditSnipe** | wisp | Kecil, lucu, berguna untuk staf | S | ★★ | **C** |
@@ -140,12 +140,19 @@ Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·
 
 1. **Tags** (`/tag`) + kelola di dashboard.
 2. **Achievements** (chat/voice/giveaway, bertingkat, role reward, papan sendiri).
+   ✅ **Sudah jalan** (v1.40): modul `achievements.py` (4 lencana × 3–5 tingkat dari data
+   pesan/voice/level/undian yang sudah ada, role hadiah per tingkat, papan sendiri,
+   maks 500 member/server) + `/lencana lihat|papan|periksa|atur|role` + panel
+   *🏅 Lencana bertingkat* di halaman **Inti & level** + tombol uji simulasi.
+   Pemberian lencana menempel di alur XP pesan & voice — 0 kuota AI, tanpa proses latar baru.
 3. **Highlights** (kata kunci → DM, abaikan channel & kata yang dipilih).
 4. **Confessions** (channel anonim, moderasi lewat antispam).
 5. **Snipe / EditSnipe**.
 
 Berkas: modul baru (`tags.py`, `achievements.py`, `highlights.py`, `confessions.py`) +
 cog baru + entri dashboard + docs + tes.
+Sudah ada: `tags.py` + `cogs/tags_cog.py` + `dashboard_tags.py` (C#1),
+`achievements.py` + `cogs/lencana_cog.py` + `dashboard_lencana.py` (C#2).
 
 ### Paket D — Integrasi & pelengkap
 
