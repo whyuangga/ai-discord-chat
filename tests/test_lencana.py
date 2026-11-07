@@ -424,7 +424,7 @@ def test_panel_lencana_render_dan_bisa_dikontrol():
     achievements.cek_member(1, 7)
 
     html = dashboard_lencana.render_lencana_block(SimpleNamespace(), 1, "tok")
-    assert "p-lencana" in html
+    assert "Lencana bertingkat" in html
     assert 'action="/api/lencana"' in html
     assert "lencana-setelan" in html and "lencana-role" in html
     assert "lencana-hapus:chat:2" in html
@@ -436,7 +436,7 @@ def test_panel_lencana_render_dan_bisa_dikontrol():
 
 def test_panel_lencana_tanpa_guild_tetap_render():
     html = dashboard_lencana.render_lencana_block(None, 0, "tok")
-    assert "p-lencana" in html and "tidak tersedia" not in html
+    assert "Lencana bertingkat" in html and "tidak tersedia" not in html
 
 
 @pytest.mark.asyncio

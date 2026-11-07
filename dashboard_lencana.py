@@ -151,7 +151,7 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
         tabel_papan = '<p class="muted">Belum ada lencana tercatat.</p>'
 
     return (
-        '<div class="subpanel" id="p-lencana"><h3>🏅 Lencana bertingkat</h3>'
+        '<div class="subpanel"><h3>🏅 Lencana bertingkat</h3>'
         '<p class="muted">Lencana dihitung dari data yang <b>sudah</b> dicatat bot '
         "(pesan, menit voice, level, riwayat menang undian) — tidak ada pelacakan baru, "
         "<b>0 kuota AI</b>. Setiap tingkat bisa diberi role hadiah.</p>"

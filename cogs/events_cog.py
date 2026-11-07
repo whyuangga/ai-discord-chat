@@ -192,6 +192,9 @@ def register_events_cog(bot: commands.Bot) -> None:
             )
             if audit_log.handle_channel_delete(getattr(channel, "id", 0)):
                 await audit_log.save_audit_to_disk()
+            import snipe
+
+            snipe.lupakan_channel(getattr(channel, "id", 0))
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Audit log channel hapus dilewati: %s", exc)
         removed = False
@@ -311,6 +314,14 @@ def register_events_cog(bot: commands.Bot) -> None:
         except Exception as exc:  # pragma: no cover - jaring aman
             logger.debug("Audit log pesan hapus dilewati: %s", exc)
 
+        # Snipe: simpan 5 pesan terakhir per channel **di memori** untuk staf.
+        try:
+            import snipe
+
+            snipe.catat_hapus(message)
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Snipe hapus dilewati: %s", exc)
+
     @bot.event
     async def on_bulk_message_delete(messages):
         """Mencatat hapus massal (purge) ke Audit Log."""
@@ -321,6 +332,15 @@ def register_events_cog(bot: commands.Bot) -> None:
         except Exception as exc:  # pragma: no cover
             logger.debug("Audit log hapus massal dilewati: %s", exc)
 
+        # Snipe: catat juga pesan yang terhapus lewat purge (tanpa membanjiri memori).
+        try:
+            import snipe
+
+            for pesan in list(messages)[-snipe.MAX_PER_CHANNEL:]:
+                snipe.catat_hapus(pesan)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Snipe hapus massal dilewati: %s", exc)
+
     @bot.event
     async def on_message_edit(before: discord.Message, after: discord.Message):
         """Mencatat pesan yang diedit ke Audit Log."""
@@ -330,6 +350,14 @@ def register_events_cog(bot: commands.Bot) -> None:
             await audit_log.log_message_edit(bot, before, after)
         except Exception as exc:  # pragma: no cover
             logger.debug("Audit log pesan edit dilewati: %s", exc)
+
+        # EditSnipe: isi sebelum & sesudah (memori saja, maks 5/channel).
+        try:
+            import snipe
+
+            snipe.catat_edit(before, after)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Snipe edit dilewati: %s", exc)
 
     @bot.event
     async def on_audit_log_entry_create(entry):

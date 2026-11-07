@@ -335,6 +335,29 @@ Pengaman:
 - **Banding terhubung kasus**: nomor kasus ikut tersimpan, dan hanya kasus atas nama pelapor yang bisa dibanding.
 - Semua antrean tersimpan di `data/reports.json` (maks 300 entri/server) dan bisa dikelola dari halaman **🚨 Moderasi** di dashboard.
 
+### 1c. 🔎 Snipe & EditSnipe (`/snipe`)
+
+Pesan yang dihapus/diubah **sebelum staf sempat melihat** tidak hilang begitu saja.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/snipe hapus [jumlah]` | Tampilkan 1–5 pesan terakhir yang dihapus **di channel itu**. |
+| `/snipe edit [jumlah]` | Tampilkan isi **sebelum → sesudah** pesan yang baru diubah. |
+| `/snipe atur aktif:True hapus:True edit:True` | *(Admin)* Sakelar fitur, per jenis. |
+
+Detail penting:
+- **Khusus staf:** grup `/snipe` memakai izin bawaan *Manage Messages*, jadi member biasa
+  tidak melihatnya sama sekali.
+- **Hanya di memori** — maksimal 5 pesan per channel dan **hilang saat bot restart**.
+  Tidak ada berkas baru, tidak ada riwayat permanen, tidak ada risiko data sensitif tersimpan.
+- Bot, pesan kosong, dan pesan tanpa lampiran tidak dicatat; pesan yang ikut terhapus oleh
+  `purge` juga dicatat (maks 5 terakhir).
+- **Panel dashboard:** halaman **🚨 Moderasi** → *🔎 Snipe & EditSnipe* — sakelar aktif,
+  catat-hapus, catat-edit, plus jumlah entri yang sedang tersimpan di memori.
+  Jalur tulis: `POST /api/moderasi` (`snipe-setelan`).
+- Tombol tes **Snipe & EditSnipe** mencatat pesan contoh di memori, membacanya kembali, lalu
+  membersihkannya — tidak menyentuh pesan asli.
+
 ### 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
 
 Anti-raid di `/keamanan` hanya **melapor**. **Raid Guard** bertindak: kalau server diserbu

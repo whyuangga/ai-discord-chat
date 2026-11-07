@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 58
+TOP_LEVEL_COUNT = 59
 import ui_kit
 
 
@@ -642,8 +642,9 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
             name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
             value=(
                 "**🏷️ Tag, Lencana & Pantau**\n"
-                "• **`/lencana`** — lencana bertingkat + role hadiah.\n"
+                "• **`/lencana`** — lencana + role hadiah.\n"
                 "• **`/pantau`** — kata kunci → DM.\n"
+                "• **`/snipe`** — pesan yang baru dihapus/diubah.\n"
                 "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`), 0 kuota AI.\n"
                 "**🛡️ Moderasi**\n"
                 "• **`/lapor`** & **`/banding`** — member melapor / minta peninjauan hukuman.\n"
@@ -655,11 +656,11 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "**📈 Retensi & Pelayanan**\n"
                 "• **`/level musim`** & **`/level prestise`** — musim + trofi.\n"
                 "• **`/musik playlist`** — playlist pribadi member.\n"
-                "• **`/tiket atur`** & **`/tiket rating`** — SLA, auto-close, rating bintang.\n"
+                "• **`/tiket atur`** & **`/tiket rating`** — SLA, auto-close, rating.\n"
                 "**🧰 Admin & Diagnosa**\n"
                 "• **`/mod`** — slowmode, role, nickname.\n"
                 "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
-                "• **Dashboard web** — pantau & **kontrol** fitur lewat browser (token)."
+                "• **Dashboard web** — kontrol fitur lewat browser (token)."
             ),
             inline=False,
         )

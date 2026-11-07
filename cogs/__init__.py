@@ -33,6 +33,7 @@ from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
 from cogs.menu_cog import menu_group, register_menu_cog
 from cogs.highlights_cog import pantau_group, register_highlights_cog
+from cogs.snipe_cog import register_snipe_cog, snipe_group
 from cogs.lencana_cog import lencana_group, register_lencana_cog
 from cogs.moderation_cog import banding_cmd, lapor_cmd, mod_group, register_moderation_cog
 from cogs.raid_cog import raid_group, register_raid_cog
@@ -105,6 +106,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_tags_cog(bot)
     register_lencana_cog(bot)
     register_highlights_cog(bot)
+    register_snipe_cog(bot)
     register_tempvoice_cog(bot)
     register_suggestions_cog(bot)
     register_utility_cog(bot)
@@ -119,6 +121,7 @@ __all__ = [
     "tag_group",
     "lencana_group",
     "pantau_group",
+    "snipe_group",
     "lapor_cmd",
     "banding_cmd",
     "tempvoice_group",

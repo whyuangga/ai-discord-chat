@@ -54,7 +54,7 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 | **Achievements** (badge bertingkat + role reward + papan sendiri) | Arclo | Memberi alasan **kembali** selain level; bisa memakai data yang sudah kita catat | M | ★★★ | **C** ✅ v1.40 |
 | **Highlights** (kata kunci → DM) | wisp | Sangat murah, langsung terasa: orang tidak perlu membaca seluruh channel | S | ★★★ | **C** ✅ v1.40 |
 | **Confessions** (anonim + moderasi) | wisp | Kanal engagement klasik; moderasi tetap jalan lewat antispam | S | ★★ | **C** |
-| **Snipe / EditSnipe** | wisp | Kecil, lucu, berguna untuk staf | S | ★★ | **C** |
+| **Snipe / EditSnipe** | wisp | Kecil, lucu, berguna untuk staf | S | ★★ | **C** ✅ v1.40 |
 | **Honeypot + penguji aturan** | Arclo | Menangkap self-bot yang lolos dari filter kata; penguji membuat staf berani mengubah aturan | M | ★★★ | **B** |
 | **`/report` + antrean banding** | Arclo, wisp | Tanpa ini, moderasi kita satu arah: member tidak punya jalur resmi | M | ★★★ | **B** |
 | **tempban / softban / note** | wisp | Melengkapi tangga hukuman yang sudah ada | S | ★★ | **B** |
@@ -152,6 +152,9 @@ Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·
    *🔔 Highlight kata kunci* di halaman Konten & interaksi + tombol uji simulasi.
 4. **Confessions** (channel anonim, moderasi lewat antispam).
 5. **Snipe / EditSnipe**.
+   ✅ **Sudah jalan** (v1.40): modul `snipe.py` (memori saja, maks 5 pesan/channel, 300 channel)
+   + `/snipe hapus|edit|atur` (izin *Manage Messages*) + panel *🔎 Snipe & EditSnipe* di halaman
+   Moderasi + tombol uji simulasi yang membersihkan datanya sendiri.
 
 Berkas: modul baru (`tags.py`, `achievements.py`, `highlights.py`, `confessions.py`) +
 cog baru + entri dashboard + docs + tes.

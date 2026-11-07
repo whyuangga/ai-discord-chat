@@ -57,6 +57,7 @@ import dashboard_moderasi
 import dashboard_tags
 import dashboard_panel
 import dashboard_pesan
+import dashboard_snipe
 import dashboard_tema
 import dashboard_tiket
 import dashboard_ui
@@ -627,7 +628,7 @@ HALAMAN: tuple[dict, ...] = (
         "judul": "🚨 Moderasi",
         "keterangan": "Kasus moderasi, antrean laporan & banding, temp-ban, pencarian kasus, "
                       "dan statistik staf.",
-        "panel": ("p-moderasi",),
+        "panel": ("p-moderasi", "p-snipe"),
     },
     {
         "slug": "tiket",
@@ -757,7 +758,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "giveaway": ("giveaway",),
     "inti": ("kartu", "lencana"),
     "keamanan": ("honeypot",),
-    "moderasi": ("moderasi",),
+    "moderasi": ("moderasi", "snipe"),
 }
 
 
@@ -1054,6 +1055,11 @@ PANEL: dict[str, object] = {
         + (d.get("lencana_block") or '<div class="muted">Panel lencana tidak tersedia.</div>')
         + "\n  </div>"
     ),
+    "p-snipe": lambda d: (
+        '<div class="panel" id="p-snipe">\n    '
+        + (d.get("snipe_block") or '<div class="muted">Panel snipe tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
     "p-moderasi": lambda d: (
         '<div class="panel" id="p-moderasi">\n    '
         + (d.get("moderasi_block") or '<div class="muted">Panel moderasi tidak tersedia.</div>')
@@ -1109,6 +1115,7 @@ def render_dashboard_html(
     aturan_block: str = "",
     honeypot_block: str = "",
     moderasi_block: str = "",
+    snipe_block: str = "",
     tag_block: str = "",
     lencana_block: str = "",
     pantau_block: str = "",
@@ -1197,6 +1204,7 @@ def render_dashboard_html(
         or '<div class="muted">Honeypot tidak tersedia.</div>',
         "moderasi_block": moderasi_block
         or '<div class="muted">Panel moderasi tidak tersedia.</div>',
+        "snipe_block": snipe_block or '<div class="muted">Panel snipe tidak tersedia.</div>',
         "tag_block": tag_block or '<div class="muted">Panel tag tidak tersedia.</div>',
         "pantau_block": pantau_block
         or '<div class="muted">Panel highlight tidak tersedia.</div>',
@@ -1689,6 +1697,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_ui.render_honeypot_block(bot, gid, token),
             '<div class="muted">Honeypot tidak tersedia.</div>',
         )
+        snipe_block = _blok(
+            lambda: dashboard_snipe.render_snipe_block(bot, gid, token),
+            '<div class="muted">Panel snipe tidak tersedia.</div>',
+        )
         moderasi_block = _blok(
             lambda: dashboard_moderasi.render_moderasi_block(bot, gid, token),
             '<div class="muted">Panel moderasi tidak tersedia.</div>',
@@ -1772,6 +1784,7 @@ async def start_dashboard(bot) -> bool:
             aturan_block=aturan_block,
             honeypot_block=honeypot_block,
             moderasi_block=moderasi_block,
+            snipe_block=snipe_block,
             tag_block=tag_block,
             lencana_block=lencana_block,
             pantau_block=pantau_block,

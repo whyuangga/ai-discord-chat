@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "snipe",
+        "label": "Snipe & EditSnipe",
+        "emoji": "🔎",
+        "grup": "Moderasi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasikan pencatatan pesan terhapus di memori — tanpa menyentuh pesan asli.",
+    },
+    {
         "kunci": "pantau",
         "label": "Highlight kata kunci",
         "emoji": "🔔",
@@ -186,6 +195,7 @@ ANCHOR_UJI: dict[str, str] = {
     "tag": "p-tag",
     "lencana": "p-lencana",
     "pantau": "p-pantau",
+    "snipe": "p-snipe",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -567,6 +577,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "snipe":
+            return _uji_snipe(gid)
         if kunci == "pantau":
             return _uji_pantau(gid)
         if kunci == "lencana":
@@ -587,6 +599,41 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_snipe(guild_id: int) -> tuple[bool, str]:
+    """Simulasi snipe: catat pesan contoh di memori, baca, lalu bersihkan."""
+    import snipe
+
+    data = snipe.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Snipe sedang dimatikan. Nyalakan di halaman **Moderasi** → "
+            "panel *🔎 Snipe & EditSnipe*."
+        )
+    kanal = 424242
+    from types import SimpleNamespace
+
+    contoh = SimpleNamespace(
+        guild=SimpleNamespace(id=guild_id),
+        author=SimpleNamespace(id=1, bot=False, display_name="Contoh Member"),
+        content="Ini pesan contoh untuk simulasi snipe.",
+        attachments=[],
+        channel=SimpleNamespace(id=kanal),
+    )
+    tercatat = snipe.catat_hapus(contoh)
+    terbaca = snipe.ambil_hapus(guild_id, kanal, 1)
+    snipe.lupakan_channel(kanal)  # jangan tinggalkan data simulasi di memori
+    if not tercatat or not terbaca:
+        return False, (
+            "Pencatatan snipe tidak berjalan — kemungkinan fitur **catat pesan dihapus** "
+            "dimatikan di panel Moderasi."
+        )
+    return True, (
+        "Pesan contoh berhasil dicatat lalu dibaca kembali "
+        f"(`{terbaca[0]['nama']}`). Simulasi saja — pesan asli tidak disentuh dan data "
+        "simulasi sudah dibersihkan dari memori."
+    )
 
 
 def _uji_pantau(guild_id: int) -> tuple[bool, str]:

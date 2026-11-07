@@ -62,6 +62,8 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/mod tempban` | `member`, `durasi`, `alasan`, `hapus_pesan_hari` | *(Staff)* Ban sementara, dicabut otomatis saat durasi habis. |
 | `/mod softban` | `member`, `alasan`, `hapus_pesan_hari` | *(Staff)* Ban + cabut langsung (pembersihan pesan tanpa hukuman permanen). |
 | `/mod note` | `member`, `teks` | *(Staff)* Catatan internal staff, tanpa tindakan apa pun. |
+| `/snipe hapus` / `/snipe edit` | `jumlah` | *(Staf)* Lihat pesan terakhir yang dihapus/diubah di channel (memori saja). |
+| `/snipe atur` | `aktif`, `hapus`, `edit` | *(Admin)* Sakelar snipe & edit-snipe. |
 | `/mod statistik` | `hari` | *(Staff)* Siapa menindak berapa banyak + temp-ban yang masih berjalan. |
 | `/mod catatan` | `member`, `jumlah` | *(Staff)* Riwayat kasus + jumlah peringatan aktif. |
 | `/mod antrean` | `status`, `jenis` | *(Staff)* Antrean laporan member & banding hukuman. |
