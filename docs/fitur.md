@@ -1155,8 +1155,11 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 3. Staf memakai **🙋 Klaim** (thread di-rename `tiket-0001-ditangani`) dan **🔒 Tutup Tiket**.
 4. Saat ditutup: thread **di-lock & diarsipkan**, lalu **transkrip `.txt`** (maks `TICKET_MAX_TRANSCRIPT_LINES`) dikirim ke `log_channel`.
    Transkrip juga diarsipkan sebagai **HTML** di `data/transcripts/<server>/` sehingga bisa **dibuka & dicari
-   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Batas arsip
-   `TICKET_ARSIP_MAX` (default **200** tiket terbaru per server); arsip lama otomatis dipangkas.
+   dari dashboard** (halaman `/tiket` → subpanel *Arsip transkrip*) tanpa mengunduh berkas. Arsip
+   dibatasi `TICKET_ARSIP_MAX` (default **200** tiket/server) dan `TICKET_ARSIP_RETENSI_HARI`
+   (default **180 hari**; `0` menonaktifkan batas umur). Yang melewati batas jumlah/umur dihapus
+   otomatis saat tiket diarsipkan dan saat bot mulai. Pasangan HTML/TXT utuh tanpa indeks akan
+   direkonstruksi; berkas sementara atau pasangan tidak lengkap dibersihkan.
    Setiap tiket juga bisa diberi **catatan internal staf** (`/tiket catat` atau kotak di dashboard):
    disimpan di `data/tickets.json`, maksimal **25 catatan** per tiket, dan **tidak pernah** dikirim
    ke thread — member tidak bisa membacanya.

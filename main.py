@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 import time
@@ -60,6 +61,7 @@ import link_embed
 import modal_forms
 import ai_user_settings
 import server_builder
+import ticket_archive
 import webhook_identity
 from growth_tracker import (
     cleanup_growth_runtime,
@@ -344,6 +346,16 @@ class GeminiDiscordBot(commands.Bot):
         loaded_ic_guilds = load_info_channel_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
+        try:
+            arsip_dibersihkan = await asyncio.to_thread(ticket_archive.rapikan_arsip)
+            logger.info(
+                "Retensi arsip tiket: %d arsip kedaluwarsa/tidak lengkap dihapus, %d entri pulih, %d berkas yatim dibersihkan.",
+                arsip_dibersihkan["arsip_dihapus"],
+                arsip_dibersihkan["entri_dipulihkan"],
+                arsip_dibersihkan["berkas_yatim_dihapus"],
+            )
+        except Exception as exc:  # Arsip bukan alasan untuk menggagalkan startup bot.
+            logger.warning("Pembersihan retensi arsip tiket gagal: %s", exc)
         loaded_usage_days = load_ai_usage_from_disk()
         loaded_translate_guilds = load_translate_from_disk()
         loaded_audit_guilds = load_audit_from_disk()

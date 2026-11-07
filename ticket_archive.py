@@ -8,7 +8,7 @@ Kenapa HTML, bukan hanya `.txt`?
 
 Berkas: `data/transcripts/<guild_id>/tiket-0001.html` + `.txt`, indeks di
 `data/transcripts/index.json`. Semua **tanpa JavaScript, tanpa dependency baru,
-tanpa kuota AI**. Arsip dibatasi `TICKET_ARSIP_MAX` tiket terbaru per server.
+tanpa kuota AI**. Arsip dibatasi oleh jumlah tiket dan `TICKET_ARSIP_RETENSI_HARI`.
 """
 
 import html
@@ -18,7 +18,7 @@ import os
 import time
 from pathlib import Path
 
-from config import DATA_DIR, TICKET_ARSIP_MAX
+from config import DATA_DIR, TICKET_ARSIP_MAX, TICKET_ARSIP_RETENSI_HARI
 
 logger = logging.getLogger("gemini_bot.ticket_archive")
 
@@ -26,6 +26,7 @@ ARSIP_DIR = Path(DATA_DIR) / "transcripts"
 INDEX_FILE = ARSIP_DIR / "index.json"
 
 MAX_DISIMPAN = max(10, int(TICKET_ARSIP_MAX or 200))
+RETENSI_HARI = max(0, int(TICKET_ARSIP_RETENSI_HARI or 0))
 MAX_CARI = 50
 
 _index: dict[str, dict] | None = None
@@ -63,6 +64,13 @@ def _waktu(nilai: object) -> str:
         return time.strftime("%Y-%m-%d %H:%M", time.localtime(float(nilai or 0)))
     except (TypeError, ValueError, OSError):
         return "-"
+
+
+def _tulis_atomik(path: Path, isi: str) -> None:
+    """Tulis ke berkas sementara lalu ganti nama agar arsip tidak setengah tertulis."""
+    sementara = path.with_name(path.name + ".tmp")
+    sementara.write_text(isi, encoding="utf-8")
+    os.replace(sementara, path)
 
 
 # ==============================================================================
@@ -275,8 +283,8 @@ def simpan(
         berkas_teks = folder / f"tiket-{kode}.txt"
         isi_html = build_html(data, pesan, guild_name=guild_name)
         isi_teks = teks or build_text(data, pesan)
-        berkas_html.write_text(isi_html, "utf-8")
-        berkas_teks.write_text(isi_teks, "utf-8")
+        _tulis_atomik(berkas_html, isi_html)
+        _tulis_atomik(berkas_teks, isi_teks)
     except OSError as exc:  # pragma: no cover - I/O gagal
         logger.warning("Gagal menyimpan arsip tiket: %s", exc)
         return None
@@ -301,27 +309,54 @@ def simpan(
     return entri
 
 
-def _pangkas(guild_id: int, *, maksimal: int = MAX_DISIMPAN) -> int:
-    """Sisakan `maksimal` arsip terbaru per server; berkas lama dihapus."""
+def _waktu_tutup(item: dict) -> float:
+    try:
+        return float(item.get("ditutup") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pangkas(
+    guild_id: int,
+    *,
+    maksimal: int | None = None,
+    retensi_hari: int | None = None,
+    sekarang: float | None = None,
+) -> int:
+    """Terapkan batas umur dan jumlah; hapus berkas tiket yang sudah kedaluwarsa."""
     gid = int(guild_id)
+    indeks = load_index()
     milik = [
         (kunci, item)
-        for kunci, item in load_index().items()
+        for kunci, item in indeks.items()
         if _to_int(item.get("guild_id")) == gid
     ]
-    if len(milik) <= maksimal:
-        return 0
-    milik.sort(key=lambda pasangan: -float(pasangan[1].get("ditutup") or 0))
     dibuang = 0
-    for kunci, item in milik[maksimal:]:
-        load_index().pop(kunci, None)
-        _hapus_berkas(gid, str(item.get("kode") or ""))
-        dibuang += 1
+    hari = max(0, int(RETENSI_HARI if retensi_hari is None else retensi_hari))
+    if hari:
+        saat_ini = time.time() if sekarang is None else float(sekarang)
+        batas = saat_ini - hari * 86400
+        kedaluwarsa = [(kunci, item) for kunci, item in milik if _waktu_tutup(item) < batas]
+        for kunci, item in kedaluwarsa:
+            indeks.pop(kunci, None)
+            _hapus_berkas(gid, str(item.get("kode") or ""))
+            dibuang += 1
+        if kedaluwarsa:
+            kunci_lama = {kunci for kunci, _item in kedaluwarsa}
+            milik = [(kunci, item) for kunci, item in milik if kunci not in kunci_lama]
+
+    batas_jumlah = max(0, int(MAX_DISIMPAN if maksimal is None else maksimal))
+    if len(milik) > batas_jumlah:
+        milik.sort(key=lambda pasangan: -_waktu_tutup(pasangan[1]))
+        for kunci, item in milik[batas_jumlah:]:
+            indeks.pop(kunci, None)
+            _hapus_berkas(gid, str(item.get("kode") or ""))
+            dibuang += 1
     return dibuang
 
 
 def _hapus_berkas(guild_id: int, kode: str) -> None:
-    if not kode:
+    if not str(kode).isdigit():
         return
     folder = _folder(guild_id)
     for ekstensi in ("html", "txt"):
@@ -424,11 +459,101 @@ def statistik(guild_id: int) -> dict:
         "ukuran_kb": round(ukuran / 1024, 1),
         "terakhir": _waktu(terbaru.get("ditutup")) if terbaru else "-",
         "maksimal": MAX_DISIMPAN,
+        "retensi_hari": RETENSI_HARI,
+    }
+
+
+def _pulihkan_entri_dari_berkas(indeks: dict[str, dict]) -> int:
+    """Rekonstruksi metadata minimum dari pasangan HTML/TXT sebelum membersihkan yatim."""
+    dipulihkan = 0
+    if not ARSIP_DIR.exists():
+        return 0
+    for folder in ARSIP_DIR.iterdir():
+        if not folder.is_dir() or not folder.name.isdigit():
+            continue
+        guild_id = int(folder.name)
+        for berkas_html in folder.glob("tiket-*.html"):
+            kode = berkas_html.stem.removeprefix("tiket-")
+            berkas_teks = folder / f"tiket-{kode}.txt"
+            if not kode.isdigit() or not berkas_teks.is_file():
+                continue
+            try:
+                ditutup = max(berkas_html.stat().st_mtime, berkas_teks.stat().st_mtime)
+                ukuran = berkas_html.stat().st_size + berkas_teks.stat().st_size
+            except OSError:
+                continue
+            kunci = _kunci(guild_id, kode)
+            entri = indeks.get(kunci)
+            if entri is None:
+                indeks[kunci] = {
+                    "guild_id": guild_id,
+                    "kode": kode,
+                    "nomor": _to_int(kode),
+                    "thread_id": 0,
+                    "user_id": 0,
+                    "topik": "-",
+                    "dibuka": 0,
+                    "ditutup": ditutup,
+                    "ditutup_oleh": 0,
+                    "ditangani": 0,
+                    "jumlah_pesan": 0,
+                    "ukuran": ukuran,
+                }
+                dipulihkan += 1
+            elif _waktu_tutup(entri) <= 0:
+                entri["ditutup"] = ditutup
+                entri["guild_id"] = guild_id
+                entri["kode"] = kode
+                dipulihkan += 1
+    return dipulihkan
+
+
+def rapikan_arsip(*, sekarang: float | None = None) -> dict[str, int]:
+    """Terapkan retensi saat startup dan buang entri/berkas arsip yang tidak lengkap."""
+    indeks = load_index()
+    dipulihkan = _pulihkan_entri_dari_berkas(indeks)
+    sebelum = len(indeks)
+    jumlah_dihapus = 0
+    guild_ids = sorted(
+        {
+            _to_int(item.get("guild_id"))
+            for item in indeks.values()
+            if _to_int(item.get("guild_id")) > 0
+        }
+    )
+    for guild_id in guild_ids:
+        jumlah_dihapus += _pangkas(guild_id, sekarang=sekarang)
+
+    # Jangan tampilkan arsip yang hanya punya salah satu dari berkas HTML/TXT.
+    for kunci, item in list(indeks.items()):
+        guild_id = _to_int(item.get("guild_id"))
+        kode = str(item.get("kode") or "")
+        if guild_id <= 0 or not kode.isdigit():
+            indeks.pop(kunci, None)
+            jumlah_dihapus += 1
+            continue
+        folder = _folder(guild_id)
+        pasangan_utuh = (folder / f"tiket-{kode}.html").is_file() and (
+            folder / f"tiket-{kode}.txt"
+        ).is_file()
+        if not pasangan_utuh:
+            indeks.pop(kunci, None)
+            _hapus_berkas(guild_id, kode)
+            jumlah_dihapus += 1
+
+    berubah = bool(dipulihkan or jumlah_dihapus or len(indeks) != sebelum)
+    if berubah:
+        _simpan_index()
+    yatim = bersihkan_berkas_yatim()
+    return {
+        "arsip_dihapus": jumlah_dihapus,
+        "entri_dipulihkan": dipulihkan,
+        "berkas_yatim_dihapus": yatim,
     }
 
 
 def bersihkan_berkas_yatim() -> int:
-    """Hapus berkas arsip yang tidak lagi ada di indeks (dipanggil saat start)."""
+    """Hapus HTML/TXT sementara atau yatim; dipanggil oleh `rapikan_arsip` saat start."""
     indeks = load_index()
     dibuang = 0
     if not ARSIP_DIR.exists():
@@ -436,10 +561,17 @@ def bersihkan_berkas_yatim() -> int:
     for folder in ARSIP_DIR.iterdir():
         if not folder.is_dir() or not folder.name.isdigit():
             continue
-        gid = int(folder.name)
-        for berkas in folder.glob("tiket-*.htm*"):
-            kode = berkas.stem.replace("tiket-", "")
-            if _kunci(gid, kode) not in indeks:
+        guild_id = int(folder.name)
+        for berkas in folder.glob("tiket-*"):
+            # Sisa penulisan atomik selalu aman dibuang setelah proses sebelumnya berhenti.
+            if berkas.name.endswith((".html.tmp", ".txt.tmp")):
+                yatim = True
+            elif berkas.suffix in {".html", ".txt"}:
+                kode = berkas.stem.removeprefix("tiket-")
+                yatim = _kunci(guild_id, kode) not in indeks
+            else:
+                continue
+            if yatim:
                 try:
                     berkas.unlink()
                     dibuang += 1

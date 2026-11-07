@@ -1769,6 +1769,8 @@ def render_arsip_block(guild_id: int, token: str, stat: dict, terbaru: list[dict
     stat = stat or {}
     items = terbaru or []
     gid = int(guild_id or 0)
+    retensi_hari = int(stat.get("retensi_hari") or 0)
+    retensi = f"hapus setelah {retensi_hari} hari" if retensi_hari else "tanpa batas umur"
 
     if items:
         baris = "".join(
@@ -1798,7 +1800,8 @@ def render_arsip_block(guild_id: int, token: str, stat: dict, terbaru: list[dict
     ringkas = (
         f'<p class="muted">📚 Tersimpan <b>{int(stat.get("jumlah") or 0)}</b> transkrip '
         f'({_esc(stat.get("ukuran_kb") or 0)} KB) · arsip terakhir: '
-        f'{_esc(stat.get("terakhir") or "-")} · batas {int(stat.get("maksimal") or 0)} per server</p>'
+        f'{_esc(stat.get("terakhir") or "-")} · batas {int(stat.get("maksimal") or 0)} per server · '
+        f'{_esc(retensi)}</p>'
     )
     return (
         ringkas
@@ -1834,6 +1837,8 @@ def render_halaman_arsip(
     gid = int(guild_id or 0)
     daftar = hasil or []
     stat = stat or {}
+    retensi_hari = int(stat.get("retensi_hari") or 0)
+    retensi = f"hapus setelah {retensi_hari} hari" if retensi_hari else "tanpa batas umur"
     kueri = str(kata or "").strip()
 
     if daftar:
@@ -1900,7 +1905,7 @@ def render_halaman_arsip(
 <p><a href="{kembali}">← Kembali ke tiket</a></p>
 <h1>📚 Arsip transkrip tiket</h1>
 <p class="redup">{_esc(nama_server or "")} · tersimpan <b>{int(stat.get("jumlah") or 0)}</b> transkrip
-({_esc(stat.get("ukuran_kb") or 0)} KB) · batas {int(stat.get("maksimal") or 0)} per server.</p>
+({_esc(stat.get("ukuran_kb") or 0)} KB) · batas {int(stat.get("maksimal") or 0)} per server · {_esc(retensi)}.</p>
 <form method="get" action="/transkrip" class="cari">
   <input type="hidden" name="token" value="{_esc(token)}">
   <input type="hidden" name="guild" value="{gid}">
