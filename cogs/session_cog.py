@@ -162,6 +162,135 @@ async def sesi_tutup_cmd(interaction: discord.Interaction):
     await close_and_recap_session(interaction, channel)
 
 
+async def _tangani_ruang_ai(bot, message: discord.Message, http_session) -> None:
+    """Tangani pesan di thread `ai-` (teks, vision, PDF, voice note, stiker, file kode)."""
+    prompt = message.content.strip()
+    image_parts, image_filenames, text_blocks, warnings = await extract_message_attachments(
+        message,
+        http_session=http_session,
+    )
+
+    if not prompt and not image_parts and not text_blocks:
+        if warnings:
+            await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
+        return True
+
+    lock = get_thread_lock(message.channel.id)
+    async with lock:
+        async with message.channel.typing():
+            try:
+                srv_knowledge = format_server_knowledge_for_prompt(
+                    message.guild.id if message.guild else None
+                )
+                insights.record_ai_usage(
+                    "chat",
+                    user_id=message.author.id,
+                    channel_id=message.channel.id,
+                )
+                reply_text = await ai_handler.get_ai_response(
+                    message.channel.id,
+                    prompt,
+                    image_parts=image_parts,
+                    image_filenames=image_filenames,
+                    text_blocks=text_blocks,
+                    allow_url_reader=ENABLE_URL_READER,
+                    allow_web_search=ENABLE_GOOGLE_SEARCH,
+                    http_session=http_session,
+                    thread=message.channel,
+                    bot_user_id=bot.user.id if bot.user else None,
+                    server_knowledge=srv_knowledge,
+                    user_id=message.author.id,
+                    guild_id=message.guild.id if message.guild else None,
+                )
+
+                if warnings:
+                    warn_banner = "\n".join(f"⚠️ *{w}*" for w in warnings)
+                    reply_text = f"{warn_banner}\n\n{reply_text}"
+
+                for chunk in split_discord_message(reply_text):
+                    await message.channel.send(chunk)
+
+            except Exception as exc:
+                await message.channel.send(
+                    f"⚠️ Terjadi kesalahan saat memproses pesan: `{sanitize_error_message(exc)}`"
+                )
+    return True
+
+
+async def _tangani_ruang_draw(bot, message: discord.Message, http_session) -> None:
+    """Tangani pesan di thread `draw-` (generate & edit gambar AI)."""
+    prompt = message.content.strip()
+    image_parts, _, _, warnings = await extract_message_attachments(
+        message,
+        http_session=http_session,
+        include_audio=False,
+        include_pdf=False,
+    )
+
+    if not prompt and not image_parts:
+        if warnings:
+            await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
+        return True
+
+    is_adm = isinstance(message.author, discord.Member) and bool(
+        message.author.guild_permissions.administrator
+    )
+    rem_cd = check_user_cooldown(message.author.id, "draw_image", 8, is_admin=is_adm)
+    if rem_cd > 0:
+        await message.channel.send(
+            f"⏳ Tunggu **{rem_cd} detik** lagi sebelum membuat gambar berikutnya ya!"
+        )
+        return True
+
+    display_prompt = prompt or "Edit gambar lampiran"
+    settings = get_image_settings(message.channel.id)
+    status_msg = await message.channel.send(
+        f"🎨 **Memproses gambar [{settings['style']} | {settings['ratio']}] untuk:** *\"{display_prompt[:150]}\"*..."
+    )
+
+    lock = get_thread_lock(message.channel.id)
+    async with lock:
+        async with message.channel.typing():
+            try:
+                insights.record_ai_usage(
+                    "galeri",
+                    user_id=message.author.id,
+                    channel_id=message.channel.id,
+                )
+                engine_label, picture, err_detail = await ai_handler.generate_image(
+                    message.channel.id,
+                    prompt,
+                    reference_images=image_parts or None,
+                    http_session=http_session,
+                )
+
+                if picture is not None:
+                    try:
+                        await status_msg.delete()
+                    except discord.HTTPException:
+                        pass
+
+                    caption = (
+                        f"🖼️ **Hasil Gambar:** `{display_prompt[:200]}`\n"
+                        f"⚙️ **Gaya:** `{settings['style']}` | **Rasio:** `{settings['ratio']}` | "
+                        f"**Mesin:** `{engine_label}`\n"
+                        f"👤 Diminta oleh {message.author.mention}"
+                    )
+                    await message.channel.send(content=caption, file=picture)
+                else:
+                    await status_msg.edit(
+                        content=(
+                            "⚠️ **Gagal membuat gambar.**\n"
+                            f"Detail: `{err_detail or 'Layanan tidak merespons'}`"
+                        )
+                    )
+            except Exception as exc:
+                await status_msg.edit(
+                    content=f"⚠️ Terjadi kesalahan: `{sanitize_error_message(exc)}`"
+                )
+    return True
+
+
 async def handle_private_session_message(bot: commands.Bot, message: discord.Message) -> bool:
     """Memproses pesan di ruang sesi privat (`ai-...` & `draw-...`).
     Mengembalikan `True` jika pesan ditangani di ruang privat, `False` jika bukan ruang privat.
@@ -172,131 +301,12 @@ async def handle_private_session_message(bot: commands.Bot, message: discord.Mes
     channel_name = message.channel.name or ""
     http_session = getattr(bot, "http_session", None)
 
-    # 1A. RUANG CHAT TEKS, VISION, PDF, VOICE NOTE, STIKER & FILE KODE (Thread 'ai-')
     if channel_name.startswith("ai-"):
-        prompt = message.content.strip()
-        image_parts, image_filenames, text_blocks, warnings = await extract_message_attachments(
-            message,
-            http_session=http_session,
-        )
-
-        if not prompt and not image_parts and not text_blocks:
-            if warnings:
-                await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
-            return True
-
-        lock = get_thread_lock(message.channel.id)
-        async with lock:
-            async with message.channel.typing():
-                try:
-                    srv_knowledge = format_server_knowledge_for_prompt(
-                        message.guild.id if message.guild else None
-                    )
-                    insights.record_ai_usage(
-                        "chat",
-                        user_id=message.author.id,
-                        channel_id=message.channel.id,
-                    )
-                    reply_text = await ai_handler.get_ai_response(
-                        message.channel.id,
-                        prompt,
-                        image_parts=image_parts,
-                        image_filenames=image_filenames,
-                        text_blocks=text_blocks,
-                        allow_url_reader=ENABLE_URL_READER,
-                        allow_web_search=ENABLE_GOOGLE_SEARCH,
-                        http_session=http_session,
-                        thread=message.channel,
-                        bot_user_id=bot.user.id if bot.user else None,
-                        server_knowledge=srv_knowledge,
-                        user_id=message.author.id,
-                        guild_id=message.guild.id if message.guild else None,
-                    )
-
-                    if warnings:
-                        warn_banner = "\n".join(f"⚠️ *{w}*" for w in warnings)
-                        reply_text = f"{warn_banner}\n\n{reply_text}"
-
-                    for chunk in split_discord_message(reply_text):
-                        await message.channel.send(chunk)
-
-                except Exception as exc:
-                    await message.channel.send(
-                        f"⚠️ Terjadi kesalahan saat memproses pesan: `{sanitize_error_message(exc)}`"
-                    )
+        await _tangani_ruang_ai(bot, message, http_session)
         return True
 
-    # 1B. RUANG GENERATE & EDIT GAMBAR AI (Thread 'draw-')
     if channel_name.startswith("draw-"):
-        prompt = message.content.strip()
-        image_parts, _, _, warnings = await extract_message_attachments(
-            message,
-            http_session=http_session,
-            include_audio=False,
-            include_pdf=False,
-        )
-
-        if not prompt and not image_parts:
-            if warnings:
-                await message.channel.send("⚠️ " + "\n⚠️ ".join(warnings))
-            return True
-
-        is_adm = isinstance(message.author, discord.Member) and bool(
-            message.author.guild_permissions.administrator
-        )
-        rem_cd = check_user_cooldown(message.author.id, "draw_image", 8, is_admin=is_adm)
-        if rem_cd > 0:
-            await message.channel.send(
-                f"⏳ Tunggu **{rem_cd} detik** lagi sebelum membuat gambar berikutnya ya!"
-            )
-            return True
-
-        display_prompt = prompt or "Edit gambar lampiran"
-        settings = get_image_settings(message.channel.id)
-        status_msg = await message.channel.send(
-            f"🎨 **Memproses gambar [{settings['style']} | {settings['ratio']}] untuk:** *\"{display_prompt[:150]}\"*..."
-        )
-
-        lock = get_thread_lock(message.channel.id)
-        async with lock:
-            async with message.channel.typing():
-                try:
-                    insights.record_ai_usage(
-                        "galeri",
-                        user_id=message.author.id,
-                        channel_id=message.channel.id,
-                    )
-                    engine_label, picture, err_detail = await ai_handler.generate_image(
-                        message.channel.id,
-                        prompt,
-                        reference_images=image_parts or None,
-                        http_session=http_session,
-                    )
-
-                    if picture is not None:
-                        try:
-                            await status_msg.delete()
-                        except discord.HTTPException:
-                            pass
-
-                        caption = (
-                            f"🖼️ **Hasil Gambar:** `{display_prompt[:200]}`\n"
-                            f"⚙️ **Gaya:** `{settings['style']}` | **Rasio:** `{settings['ratio']}` | "
-                            f"**Mesin:** `{engine_label}`\n"
-                            f"👤 Diminta oleh {message.author.mention}"
-                        )
-                        await message.channel.send(content=caption, file=picture)
-                    else:
-                        await status_msg.edit(
-                            content=(
-                                "⚠️ **Gagal membuat gambar.**\n"
-                                f"Detail: `{err_detail or 'Layanan tidak merespons'}`"
-                            )
-                        )
-                except Exception as exc:
-                    await status_msg.edit(
-                        content=f"⚠️ Terjadi kesalahan: `{sanitize_error_message(exc)}`"
-                    )
+        await _tangani_ruang_draw(bot, message, http_session)
         return True
 
     return False
