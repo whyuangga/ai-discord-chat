@@ -81,30 +81,8 @@ ringkas_group = app_commands.Group(
 )
 
 
-@ringkas_group.command(
-    name="chat",
-    description="Rangkum inti obrolan terakhir di channel/thread ini agar tidak ketinggalan topik",
-)
-@app_commands.describe(
-    jumlah="Berapa banyak pesan terakhir yang ingin dirangkum",
-    channel="Channel yang ingin dirangkum (kosongkan untuk channel saat ini)",
-    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
-)
-@app_commands.choices(
-    jumlah=[
-        app_commands.Choice(name="25 Pesan Terakhir", value="25"),
-        app_commands.Choice(name="50 Pesan Terakhir - Default", value="50"),
-        app_commands.Choice(name="100 Pesan Terakhir", value="100"),
-        app_commands.Choice(name="150 Pesan Terakhir", value="150"),
-    ]
-)
-async def ringkas_chat_cmd(
-    interaction: discord.Interaction,
-    jumlah: app_commands.Choice[str] | None = None,
-    channel: discord.TextChannel | None = None,
-    publik: bool = False,
-):
-    target = channel or interaction.channel
+async def _validasi_target_ringkas(interaction: discord.Interaction, target) -> bool:
+    """Cek jenis channel & izin baca riwayat untuk pengguna dan bot."""
     if not isinstance(target, (discord.TextChannel, discord.Thread)) or interaction.guild is None:
         await interaction.response.send_message(
             "⚠️ Command `/ringkas chat` hanya dapat digunakan di Text Channel atau Thread server.",
@@ -129,17 +107,13 @@ async def ringkas_chat_cmd(
                 ephemeral=True,
             )
             return
+    return True
 
-    if not await enforce_member_cooldown(interaction, "ringkas"):
-        return
 
-    limit_count = int(jumlah.value) if jumlah else 50
-    await interaction.response.defer(ephemeral=not publik)
-
-    g_cfg = get_guild_settings(interaction.guild.id)
-    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
-    http_session = get_interaction_http_session(interaction)
-
+async def _kumpulkan_pesan_ringkas(
+    interaction: discord.Interaction, target, limit_count: int
+) -> list[str] | None:
+    """Ambil `limit_count` pesan teks terakhir; `None` bila pengambilan gagal."""
     collected_lines: list[str] = []
     try:
         async for msg in target.history(limit=limit_count + 20):
@@ -169,8 +143,53 @@ async def ringkas_chat_cmd(
             f"⚠️ Gagal mengambil riwayat pesan: `{sanitize_error_message(exc)}`",
             ephemeral=True,
         )
+        return None
+    return collected_lines
+
+
+@ringkas_group.command(
+    name="chat",
+    description="Rangkum inti obrolan terakhir di channel/thread ini agar tidak ketinggalan topik",
+)
+@app_commands.describe(
+    jumlah="Berapa banyak pesan terakhir yang ingin dirangkum",
+    channel="Channel yang ingin dirangkum (kosongkan untuk channel saat ini)",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+@app_commands.choices(
+    jumlah=[
+        app_commands.Choice(name="25 Pesan Terakhir", value="25"),
+        app_commands.Choice(name="50 Pesan Terakhir - Default", value="50"),
+        app_commands.Choice(name="100 Pesan Terakhir", value="100"),
+        app_commands.Choice(name="150 Pesan Terakhir", value="150"),
+    ]
+)
+async def ringkas_chat_cmd(
+    interaction: discord.Interaction,
+    jumlah: app_commands.Choice[str] | None = None,
+    channel: discord.TextChannel | None = None,
+    publik: bool = False,
+):
+    target = channel or interaction.channel
+
+    if not await _validasi_target_ringkas(interaction, target):
         return
 
+    if not await enforce_member_cooldown(interaction, "ringkas"):
+        return
+
+    limit_count = int(jumlah.value) if jumlah else 50
+    await interaction.response.defer(ephemeral=not publik)
+
+    g_cfg = get_guild_settings(interaction.guild.id)
+    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
+    http_session = get_interaction_http_session(interaction)
+
+    collected_lines: list[str] = []
+
+    collected_lines = await _kumpulkan_pesan_ringkas(interaction, target, limit_count)
+    if collected_lines is None:
+        return
     if len(collected_lines) < 2:
         await interaction.followup.send(
             f"ℹ️ Belum cukup obrolan teks di {target.mention} untuk dirangkum.",
