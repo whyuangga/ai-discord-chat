@@ -50,13 +50,14 @@ def _daftar_preview(snapshot: dict) -> str:
     return role_html + "<ul class=\"bangun-preview\">" + "".join(bagian) + "</ul>"
 
 
-def render_bangun_block(bot, guild_id: int, token: str) -> str:
-    """Panel tema, rancangan AI, konfirmasi, riwayat, dan bongkar aman."""
-    gid = int(guild_id or 0)
+def _form_bangun(gid: int, token: str) -> str:
+    """Dua formulir: pilih tema siap pakai dan rancang dengan AI."""
     tema = sb.daftar_tema()
+
     opsi = "".join(
         f'<option value="{_esc(item["id"])}">{_esc(item["label"])}</option>' for item in tema
     )
+
     form_tema = (
         '<form method="post" action="/api/bangun" class="formgrid">'
         + _field(gid, token, "tema")
@@ -64,6 +65,7 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
         f'<select id="bangun-tema" name="tema" required>{opsi}</select></div>'
         '<button type="submit">Pratinjau tema</button></form>'
     )
+
     form_ai = (
         '<form method="post" action="/api/bangun" class="formgrid">'
         + _field(gid, token, "rancang")
@@ -73,6 +75,11 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
         '</div><button type="submit">Rancang dengan AI</button></form>'
     )
 
+    return form_tema + form_ai
+
+
+def _blok_pending_bangun(gid: int, token: str) -> str:
+    """Pratinjau rencana yang menunggu keputusan (atau keterangan kosong)."""
     pending = sb.ambil_siap(gid)
     if pending and isinstance(pending.get("snapshot"), dict):
         snapshot = pending["snapshot"]
@@ -108,6 +115,11 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
     else:
         pending_html = '<p class="muted">Belum ada pratinjau yang menunggu. Memilih tema atau merancang dengan AI belum mengubah struktur server.</p>'
 
+    return pending_html
+
+
+def _blok_sejarah_bangun(gid: int, token: str) -> str:
+    """Build terbaru, daftar build sebelumnya, dan tombol bongkar."""
     daftar_riwayat = sb.daftar_riwayat(gid)
     if daftar_riwayat:
         riwayat = daftar_riwayat[-1]
@@ -145,12 +157,22 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
     else:
         sejarah_html = '<p class="muted">Belum ada riwayat pembangunan di server ini.</p>'
 
+    return sejarah_html
+
+
+def render_bangun_block(bot, guild_id: int, token: str) -> str:
+    """Panel tema, rancangan AI, konfirmasi, riwayat, dan bongkar aman."""
+    gid = int(guild_id or 0)
+
+    form_tema_dan_ai = _form_bangun(gid, token)
+    pending_html = _blok_pending_bangun(gid, token)
+    sejarah_html = _blok_sejarah_bangun(gid, token)
     return (
         '<div class="subpanel"><h3>🏗️ Bangun server</h3>'
         '<p class="muted">Mulai dari 15 tema lokal (0 kuota AI) atau minta Gemini merancang struktur. '
         'Tidak ada item yang dibuat sebelum tombol <b>Terapkan</b> ditekan. '
         'Pembangunan hanya menambah struktur; hak izin role tidak diubah.</p>'
-        f'{form_tema}{form_ai}{pending_html}'
+        f'{form_tema_dan_ai}{pending_html}'
         '<div class="subpanel"><h4>📜 Riwayat &amp; rollback</h4>'
         '<p class="muted">Build dibongkar berurutan dari yang terbaru; '
         'item baru dicocokkan dengan ID Discord yang dicatat.</p>'
