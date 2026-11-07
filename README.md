@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **55 command utama** (252 subcommand) · **740 tes otomatis**
+> **Versi `v1.40.0-beta`** · **56 command utama** (258 subcommand) · **765 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -586,6 +586,9 @@ ai-discord-chat/
 │   ├── dashboard_keamanan.py # Penguji aturan anti-spam + statistik per aturan (halaman Keamanan)
 │   ├── honeypot.py         # Channel jebakan untuk self-bot & skrip raid (lapor/hapus/timeout/kick/ban)
 │   ├── reports.py          # Laporan member (`/lapor`) & antrean banding (`/banding`) + status penanganan
+│   ├── tags.py             # Tag jawaban siap pakai (`/tag`) — 0 kuota AI
+│   └── cogs/tags_cog.py    # Command /tag (lihat/daftar/cari/buat/ubah/hapus) (`/tag lihat aturan`) — 0 kuota AI
+│   ├── dashboard_tags.py   # Panel tag di halaman Konten & interaksi
 │   ├── dashboard_moderasi.py # Panel Moderasi: antrean, setelan laporan, pencarian kasus, statistik staf
 │   ├── ticket_archive.py   # Arsip transkrip tiket HTML + teks, bisa dicari dari dashboard
 │   ├── rank_card.py        # Kartu rank PNG (Pillow) — perender /level kartu & pratinjau dashboard
@@ -651,7 +654,7 @@ ai-discord-chat/
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md          # Referensi 55 command utama, 252 subcommand, & tombol panel
+│   ├── command.md          # Referensi 56 command utama, 258 subcommand, & tombol panel
 │   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
 │   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
@@ -664,7 +667,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 42 berkas pytest → 745 tes (740 lulus, 5 dilewati)
+├── tests/                  # 43 berkas pytest → 770 tes (765 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

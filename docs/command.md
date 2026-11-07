@@ -64,6 +64,9 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/banding` | `alasan`, `kasus` | **(Semua member)** Ajukan peninjauan hukuman (bisa dari DM bila sudah diban). |
 | `/mod hapus` | `id` | *(Admin)* Hapus satu kasus dari catatan. |
 | `/mod atur` | `log_channel`, `ambang_warn`, `durasi_auto`, `jendela_hari`, `dm` | *(Admin)* Pengaturan moderasi. |
+| `/tag lihat` | `nama` | Tampilkan isi tag server (semua member). |
+| `/tag daftar` / `/tag cari` | — / `kata` | Daftar semua tag / cari tag lewat nama atau isi. |
+| `/tag buat` / `/tag ubah` / `/tag hapus` | `nama`, `isi` | *(Staf)* Kelola tag jawaban siap pakai (maks 100/server). |
 | `/tempvoice atur` | `hub`, `aktif`, `nama`, `limit` | *(Admin)* Aktifkan voice room sementara (join-to-create). |
 | `/tempvoice status` | — | Lihat hub & room sementara yang aktif. |
 | `/tempvoice kunci` / `nama` / `limit` / `tendang` | `aktif` / `nama` / `jumlah` / `member` | Pengaturan room oleh **pemilik room**. |

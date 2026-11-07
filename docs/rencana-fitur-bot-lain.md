@@ -50,7 +50,7 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 
 | Fitur | Sumber | Kenapa layak | Effort | Dampak | Paket |
 | :--- | :--- | :--- | :---: | :---: | :---: |
-| **Tags** (`/tag buat/lihat/hapus`) | Arclo | Jawaban server disimpan sekali, dipanggil kapan saja — pengganti FAQ manual, sangat sering dipakai | S | ★★★ | **C** |
+| **Tags** (`/tag buat/lihat/hapus`) | Arclo | Jawaban server disimpan sekali, dipanggil kapan saja — pengganti FAQ manual, sangat sering dipakai | S | ★★★ | **C** ✅ v1.40 |
 | **Achievements** (badge bertingkat + role reward + papan sendiri) | Arclo | Memberi alasan **kembali** selain level; bisa memakai data yang sudah kita catat | M | ★★★ | **C** |
 | **Highlights** (kata kunci → DM) | wisp | Sangat murah, langsung terasa: orang tidak perlu membaca seluruh channel | S | ★★★ | **C** |
 | **Confessions** (anonim + moderasi) | wisp | Kanal engagement klasik; moderasi tetap jalan lewat antispam | S | ★★ | **C** |

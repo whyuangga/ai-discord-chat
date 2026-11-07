@@ -103,6 +103,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "tag",
+        "label": "Tag jawaban server",
+        "emoji": "🏷️",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasi pencarian tag tanpa mengubah penghitung pemakaian.",
+    },
+    {
         "kunci": "moderasi",
         "label": "Jalur laporan & banding",
         "emoji": "🚨",
@@ -155,6 +164,7 @@ ANCHOR_UJI: dict[str, str] = {
     "kartu": "p-rank",
     "honeypot": "p-honeypot",
     "moderasi": "p-moderasi",
+    "tag": "p-tag",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -536,6 +546,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "tag":
+            return _uji_tag(guild_id)
         if kunci == "moderasi":
             return _uji_moderasi(guild_id)
         if kunci == "honeypot":
@@ -550,6 +562,33 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_tag(guild_id: int) -> tuple[bool, str]:
+    """Simulasi fitur tag: cek jumlah tag & pencarian contoh. Tanpa mengubah apa pun."""
+    import tags
+
+    data = tags.statistik(guild_id)
+    if not data["aktif"]:
+        return False, (
+            "Fitur tag sedang dimatikan. Nyalakan di halaman **Konten & interaksi** → "
+            "panel *🏷️ Tag jawaban siap pakai*."
+        )
+    contoh = tags.cari(guild_id, "aturan", limit=1)
+    if not data["total"]:
+        return True, (
+            "Tag siap dipakai, tapi belum ada isinya. Tambahkan satu di panel "
+            "*🏷️ Tag* (atau `/tag buat`) — 0 kuota AI."
+        )
+    return True, (
+        f"{data['total']} tag tersimpan, dipanggil {data['dipakai']}× total. "
+        + (
+            f"Pencarian contoh \"aturan\" menemukan `{contoh[0]['nama']}`. "
+            if contoh
+            else ""
+        )
+        + "Simulasi saja — isi tag tidak dikirim ke AI."
+    )
 
 
 def _uji_moderasi(guild_id: int) -> tuple[bool, str]:

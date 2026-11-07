@@ -156,6 +156,7 @@ ANTISPAM_FILE = DATA_DIR / "antispam.json"
 # Channel jebakan (honeypot) — self-bot & skrip raid tidak membaca aturan.
 HONEYPOT_FILE = DATA_DIR / "honeypot.json"
 REPORTS_FILE = DATA_DIR / "reports.json"
+TAGS_FILE = DATA_DIR / "tags.json"
 LEVELS_FILE = DATA_DIR / "levels.json"
 TRANSLATE_FILE = DATA_DIR / "translate.json"
 AUDIT_FILE = DATA_DIR / "audit.json"

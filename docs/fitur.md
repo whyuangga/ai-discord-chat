@@ -618,6 +618,28 @@ Detail penting:
 - **Tidak mengganggu musik:** listener hanya menyentuh channel hub & room yang dibuatnya sendiri.
 - **0 kuota AI.**
 
+### 11. 🏷️ Tag Jawaban Siap Pakai (`/tag`)
+
+Jawaban yang paling sering ditanya staf (`aturan`, `harga`, `cara refund`) disimpan
+sekali, lalu dipanggil kapan saja oleh siapa pun. **Tanpa AI sama sekali** — isi tag
+tidak pernah dikirim ke Gemini, jadi 0 kuota dan tidak bisa "dikarang" model.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/tag lihat nama:aturan` | Tampilkan isi tag (siapa pun boleh). Nama bisa dicari langsung dari dropdown. |
+| `/tag daftar` | Daftar semua tag server + jumlah pemakaian. |
+| `/tag cari kata:refund` | Cari tag lewat **nama atau isi** — berguna saat staf lupa nama tag-nya. |
+| `/tag buat nama:aturan isi:…` | *(Staf)* Buat tag baru. |
+| `/tag ubah nama:aturan isi:…` | *(Staf)* Perbarui isi tag. |
+| `/tag hapus nama:aturan` | *(Staf)* Hapus tag. |
+
+Detail penting:
+- Nama tag **dinormalisasi** otomatis (`Aturan Server!` → `aturan-server`) supaya mudah dipanggil.
+- Maksimal **100 tag/server**, isi maks **1.800 huruf** (batas embed), tanpa biaya kuota.
+- Penghitung `dipakai` membantu melihat tag mana yang benar-benar berguna (dan mana yang usang).
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *🏷️ Tag jawaban siap pakai* — tambah/perbarui, hapus per tag, lihat statistik pemakaian, dan **sakelar aktif/nonaktif** (data tetap tersimpan). Jalur tulis: `POST /api/konten` (`tag-simpan`, `tag-hapus:<nama>`, `tag-aktif:1|0`).
+- Data di `data/tags.json`; tombol tes **Tag jawaban server** hanya menyimulasikan pencarian tanpa menaikkan penghitung.
+
 ## F. Streaming Musik 24/7 (`/musik` + Lavalink)
 
 > ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.

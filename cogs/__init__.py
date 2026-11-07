@@ -53,6 +53,7 @@ from cogs.suggestions_cog import (
     saran_group,
 )
 from cogs.social_cog import register_social_cog, sosial_group
+from cogs.tags_cog import register_tags_cog, tag_group
 from cogs.tempvoice_cog import register_tempvoice_cog, tempvoice_group
 from cogs.translate_cog import register_translate_cog, terjemah_group
 from cogs.utility_cog import (
@@ -99,6 +100,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
     register_export_cog(bot)
     register_music_cog(bot)
     register_moderation_cog(bot)
+    register_tags_cog(bot)
     register_tempvoice_cog(bot)
     register_suggestions_cog(bot)
     register_utility_cog(bot)
@@ -110,6 +112,7 @@ def register_all_cogs(bot: commands.Bot) -> None:
 __all__ = [
     "agent_group",
     "mod_group",
+    "tag_group",
     "lapor_cmd",
     "banding_cmd",
     "tempvoice_group",

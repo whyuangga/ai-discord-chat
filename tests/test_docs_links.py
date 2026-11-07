@@ -90,7 +90,12 @@ def test_daftar_isi_readme_berurutan():
 def test_dokumen_menyebut_jumlah_yang_benar():
     """Angka di dokumen harus ikut kode (jumlah command, setelan, & berkas tes)."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "55 command utama" in readme
+    # Jumlah command utama di README harus sama dengan yang benar-benar terdaftar
+    jumlah_cmd = re.search(r"\*\*(\d+) command utama\*\*", readme)
+    assert jumlah_cmd, "README harus menyebut jumlah command utama"
+    import main as bot_main
+
+    assert int(jumlah_cmd.group(1)) == len(bot_main.bot.tree.get_commands())
     assert re.search(r"\*\*\d+ tes otomatis\*\*", readme), "README harus menyebut jumlah tes"
     assert "367 tes" not in readme            # angka lama, jangan balik lagi
     assert "149 test" not in readme

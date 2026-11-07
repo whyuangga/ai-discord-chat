@@ -52,6 +52,7 @@ import dashboard_admin
 import dashboard_giveaway
 import dashboard_keamanan
 import dashboard_moderasi
+import dashboard_tags
 import dashboard_panel
 import dashboard_pesan
 import dashboard_tema
@@ -552,6 +553,10 @@ def _anchor_konten(aksi: str) -> str:
         return "p-konten"
     if kunci.startswith("unggah."):
         return "p-banner"
+    if kunci.startswith("tag-"):
+        return "p-tag"
+    if kunci.startswith("starboard-"):
+        return "p-konten"
     return "p-buat"
 
 
@@ -682,6 +687,7 @@ ANCHOR_HALAMAN.update({
     "p-rank": "inti",
     "p-aturan": "keamanan",
     "p-honeypot": "keamanan",
+    "p-tag": "konten",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -740,7 +746,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "buat": ("pengumuman",),
     "panel": ("panel",),
     "tiket": ("tiket",),
-    "konten": ("digest",),
+    "konten": ("digest", "tag"),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu",),
@@ -1025,6 +1031,7 @@ PANEL: dict[str, object] = {
         "p-konten", "🧩 Konten &amp; interaksi",
         "Fitur AI per channel (boleh lebih dari satu), starboard, kotak saran, fakta harian, "
         "koran pagi, &amp; backup otomatis.",
+        "tag",
         "starboard",
         "uji",
     ),
@@ -1090,6 +1097,7 @@ def render_dashboard_html(
     aturan_block: str = "",
     honeypot_block: str = "",
     moderasi_block: str = "",
+    tag_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1175,6 +1183,7 @@ def render_dashboard_html(
         or '<div class="muted">Honeypot tidak tersedia.</div>',
         "moderasi_block": moderasi_block
         or '<div class="muted">Panel moderasi tidak tersedia.</div>',
+        "tag_block": tag_block or '<div class="muted">Panel tag tidak tersedia.</div>',
         "aturan_block": aturan_block
         or '<div class="muted">Penguji aturan tidak tersedia.</div>',
         "starboard_block": starboard_block
@@ -1666,6 +1675,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_moderasi.render_moderasi_block(bot, gid, token),
             '<div class="muted">Panel moderasi tidak tersedia.</div>',
         )
+        tag_block = _blok(
+            lambda: dashboard_tags.render_tags_block(bot, gid, token),
+            '<div class="muted">Panel tag tidak tersedia.</div>',
+        )
         aturan_block = _blok(
             lambda: dashboard_ui.render_aturan_block(
                 gid, token, dashboard_keamanan.collect(gid)
@@ -1733,6 +1746,7 @@ async def start_dashboard(bot) -> bool:
             aturan_block=aturan_block,
             honeypot_block=honeypot_block,
             moderasi_block=moderasi_block,
+            tag_block=tag_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1895,6 +1909,33 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi == "tag-simpan":
+            import tags
+
+            ok, message = dashboard_tags.simpan_tag(gid, payload)
+            if ok:
+                await tags.save_tags_to_disk()
+        elif aksi.startswith("tag-hapus:"):
+            import tags
+
+            nama = aksi.split(":", 1)[1]
+            ok = tags.hapus(gid, nama)
+            if ok:
+                await tags.save_tags_to_disk()
+            message = (
+                f"Tag `{tags.normalisasi(nama)}` dihapus." if ok
+                else f"Tidak ada tag bernama `{nama}`."
+            )
+        elif aksi.startswith("tag-aktif:"):
+            import tags
+
+            hidup = aksi.split(":", 1)[1].strip() not in ("0", "false", "off")
+            tags.set_config(gid, enabled=hidup)
+            await tags.save_tags_to_disk()
+            ok, message = True, (
+                f"Fitur tag {'diaktifkan' if hidup else 'dimatikan'} "
+                "(data tag tetap tersimpan)."
+            )
         elif aksi == "starboard-tambah":
             import community_tools
 

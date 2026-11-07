@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 55
+TOP_LEVEL_COUNT = 56
 import ui_kit
 
 
@@ -641,7 +641,8 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
         embed.add_field(
             name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
             value=(
-                "**🚨 Moderasi Dua Arah**\n"
+                "**🏷️ Tag & Moderasi**\n"
+                "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`), 0 kuota AI.\n"
                 "• **`/lapor`** & **`/banding`** — member melapor / minta peninjauan hukuman.\n"
                 "• **`/mod tempban`**, **`/mod softban`**, **`/mod note`**, **`/mod statistik`**.\n"
                 "**🛡️ Keamanan & Pemulihan**\n"
