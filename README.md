@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **53 command utama** (250 subcommand) · **719 tes otomatis**
+> **Versi `v1.40.0-beta`** · **55 command utama** (252 subcommand) · **740 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -32,7 +32,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **55 setelan dalam 11 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), dan **tombol tes fitur** | 0 |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **55 setelan dalam 12 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), dan **tombol tes fitur** | 0 |
 
 ---
 
@@ -96,7 +96,7 @@ Tiga hal yang sering ditanya:
 1. [Peta Fitur (ringkasan semua area)](#-peta-fitur)
 2. [Kenapa ringan (angka RAM terukur)](#-kenapa-ringan-angka-terukur-bukan-perkiraan)
 3. [Mulai cepat (3 langkah)](#-mulai-cepat)
-4. [Dashboard web sekilas (11 halaman, auto-refresh, multi-channel)](#-dashboard-web-sekilas)
+4. [Dashboard web sekilas (12 halaman, auto-refresh, multi-channel)](#-dashboard-web-sekilas)
 5. [Penjelasan Lengkap Semua Fitur A–W](docs/fitur.md) — *dokumen terpisah*
 6. [Daftar Lengkap Command & Tombol](docs/command.md) — *dokumen terpisah*
 7. [Panduan Cara Pakai Semua Fitur (Step-by-Step)](#-panduan-cara-pakai-semua-fitur-step-by-step)
@@ -574,7 +574,7 @@ ai-discord-chat/
 │   └── help.py            # Menu /bantuan klasik & panel panduan V2 (11 kategori)
 │
 ├── ← DASHBOARD WEB (satu proses, tanpa JavaScript, 0 kuota AI) →
-│   ├── web_dashboard.py    # Server aiohttp: 11 halaman, endpoint /api/*, redirect bookmark lama
+│   ├── web_dashboard.py    # Server aiohttp: 12 halaman, endpoint /api/*, redirect bookmark lama
 │   ├── dashboard_admin.py  # Registry 55 setelan + grup, audit perubahan, & penulisan config
 │   ├── dashboard_ui.py     # Blok HTML (setelan, kartu, tes, tiket, ekspor, unggahan, pemilih server)
 │   ├── dashboard_tema.py   # Semua warna & font (LATAR, TEKS, FONT_STACK, CSS_HALAMAN/PRATINJAU/HASIL)
@@ -585,6 +585,8 @@ ai-discord-chat/
 │   ├── dashboard_giveaway.py # Kendali giveaway: buat, hentikan, reroll, template, setelan bawaan
 │   ├── dashboard_keamanan.py # Penguji aturan anti-spam + statistik per aturan (halaman Keamanan)
 │   ├── honeypot.py         # Channel jebakan untuk self-bot & skrip raid (lapor/hapus/timeout/kick/ban)
+│   ├── reports.py          # Laporan member (`/lapor`) & antrean banding (`/banding`) + status penanganan
+│   ├── dashboard_moderasi.py # Panel Moderasi: antrean, setelan laporan, pencarian kasus, statistik staf
 │   ├── ticket_archive.py   # Arsip transkrip tiket HTML + teks, bisa dicari dari dashboard
 │   ├── rank_card.py        # Kartu rank PNG (Pillow) — perender /level kartu & pratinjau dashboard
 │   └── dashboard_panel.py  # Editor tombol/dropdown panel & gerbang verifikasi
@@ -649,7 +651,7 @@ ai-discord-chat/
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
 ├── docs/
 │   ├── fitur.md            # Penjelasan lengkap 23 area fitur (A–W) + batas cache & RAM
-│   ├── command.md          # Referensi 53 command utama, 250 subcommand, & tombol panel
+│   ├── command.md          # Referensi 55 command utama, 252 subcommand, & tombol panel
 │   ├── catatan-dashboard-dan-kunci-api.md  # Rencana BYOK/"isi sendiri API key" yang masih diparkir
 │   └── rencana-fitur-bot-lain.md           # Bedah 6 bot pembanding & roadmap fitur (paket A–D)
 ├── site/                   # Situs dokumentasi statis (Hugo + Lotus Docs, deploy Vercel)
@@ -662,7 +664,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 41 berkas pytest → 724 tes (719 lulus, 5 dilewati)
+├── tests/                  # 42 berkas pytest → 745 tes (740 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

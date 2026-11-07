@@ -32,7 +32,7 @@ from cogs.insights_cog import (
 from cogs.events_cog import register_events_cog
 from cogs.games_cog import game_group, register_games_cog
 from cogs.menu_cog import menu_group, register_menu_cog
-from cogs.moderation_cog import mod_group, register_moderation_cog
+from cogs.moderation_cog import banding_cmd, lapor_cmd, mod_group, register_moderation_cog
 from cogs.raid_cog import raid_group, register_raid_cog
 from cogs.language_cog import bahasa_group, register_language_cog
 from cogs.prefix_cog import prefix_group, register_prefix_cog
@@ -110,6 +110,8 @@ def register_all_cogs(bot: commands.Bot) -> None:
 __all__ = [
     "agent_group",
     "mod_group",
+    "lapor_cmd",
+    "banding_cmd",
     "tempvoice_group",
     "saran_group",
     "embed_group",

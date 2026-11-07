@@ -317,6 +317,24 @@ Pengaman bawaan:
 - **Catatan ≠ hukuman** — `/mod note` hanya menulis riwayat untuk staff; member tidak diberi DM dan tidak dikenai aksi apa pun.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
 
+### 1b. 🚨 Jalur member: `/lapor` & `/banding`
+
+Moderasi yang hanya satu arah membuat member merasa tidak didengar. Dua command ini
+membuka jalur resmi **member → staf**, tanpa menambah risiko:
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lapor member:@x alasan:... bukti:...` | Member melaporkan pesan/member. Laporan **masuk antrean staf** (bukan langsung hukuman), dikirim ke channel laporan, dan pelapor dapat DM konfirmasi. |
+| `/banding alasan:... [kasus:12]` | Member mengajukan peninjauan hukuman. Bisa dijalankan dari **DM** (untuk yang sudah diban) — bot mencari kasus terakhir atas nama member itu. |
+| `/mod antrean [status] [jenis]` | *(Staff)* Lihat antrean laporan & banding. |
+| `/mod tindak kode:12 status:diterima catatan:"..." cabut:True` | *(Staff)* Ubah status; `cabut:True` pada banding **langsung mencabut** timeout/ban/temp-ban terkait dan mencatat kasus baru. |
+
+Pengaman:
+- **Tidak ada hukuman otomatis** dari laporan — keputusan tetap di staf.
+- **Anti-spam laporan**: cooldown per pelapor (bawaan **300 detik**), alasan minimal **10 huruf**, dan laporan beruntun tidak menumpuk antrean.
+- **Banding terhubung kasus**: nomor kasus ikut tersimpan, dan hanya kasus atas nama pelapor yang bisa dibanding.
+- Semua antrean tersimpan di `data/reports.json` (maks 300 entri/server) dan bisa dikelola dari halaman **🚨 Moderasi** di dashboard.
+
 ### 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
 
 Anti-raid di `/keamanan` hanya **melapor**. **Raid Guard** bertindak: kalau server diserbu
@@ -936,8 +954,9 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 Satu server web ringan (proses yang sama dengan bot) untuk memantau **dan** mengatur bot
 tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **55 setelan server
-dalam 11 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
-& kartu sambutan, kotak masuk tiket, kendali giveaway, serta **11 tombol tes fitur**.
+dalam 12 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
+& kartu sambutan, kotak masuk tiket, kendali giveaway, panel moderasi (antrean laporan &
+banding), serta **13 tombol tes fitur**.
 Template halaman depan ada di [README](../README.md#-dashboard-web-sekilas); rincian tiap
 bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-lengkap).
 
@@ -946,10 +965,11 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Sepuluh jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
+| **Endpoint tulis** | Sebelas jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
 `/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan),
 `/api/transkrip` (hapus arsip transkrip tiket),
-`/api/keamanan` (penguji aturan anti-spam). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
+`/api/keamanan` (penguji aturan anti-spam),
+`/api/moderasi` (setelan jalur laporan, status antrean, cari kasus, cabut temp-ban). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
 | **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
 | **Setelan** | **55 fitur** dalam 5 grup: inti/level/ekonomi, sambutan & pamit, keamanan, tiket & sapaan harian, konten & interaksi. |
@@ -987,6 +1007,7 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Giveaway** | halaman `/giveaway`: buat giveaway dari HP (hadiah, channel, durasi, pemenang, level, umur akun, role bonus), **hentikan**, **undi ulang**, simpan/hapus **template**, dan atur **setelan bawaan** — semua memakai fungsi yang sama dengan command Discord |
 | **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web, plus **pasang panel tiket** |
+| **Moderasi** | Halaman `/moderasi`: antrean **laporan member** & **banding** (ubah status + catatan), **setelan jalur laporan** (channel, cooldown, DM pelapor), daftar **temp-ban** dengan tombol cabut, **pencarian kasus** (nomor/ID/kata/jenis aksi), **statistik staf** 30 hari, & kasus terbaru |
 | **Editor panel** | tambah/hapus **tombol** (role, tautan, perintah, alur, formulir) & **dropdown role** — panel di Discord langsung disegarkan |
 | **Panel verifikasi** | pasang/matikan gerbang verifikasi (tombol sekali klik → role) tanpa command |
 | **Ekspor CSV** | unduh data level, moderasi, tiket, & pemakaian AI langsung dari browser |

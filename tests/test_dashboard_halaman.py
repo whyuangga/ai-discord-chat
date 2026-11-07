@@ -30,7 +30,7 @@ def test_halaman_sesuai_kelompok_fitur():
     slug = [h["slug"] for h in web_dashboard.HALAMAN]
     # Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
     # Satu halaman per grup setelan — sambutan/pamit/boost digabung.
-    assert slug == ["", "sambutan", "inti", "keamanan", "tiket", "konten",
+    assert slug == ["", "sambutan", "inti", "keamanan", "moderasi", "tiket", "konten",
                     "giveaway", "kirim", "buat", "panel", "ekspor"]
     assert "uji" not in slug and "setelan" not in slug
 

@@ -64,6 +64,10 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/mod note` | `member`, `teks` | *(Staff)* Catatan internal staff, tanpa tindakan apa pun. |
 | `/mod statistik` | `hari` | *(Staff)* Siapa menindak berapa banyak + temp-ban yang masih berjalan. |
 | `/mod catatan` | `member`, `jumlah` | *(Staff)* Riwayat kasus + jumlah peringatan aktif. |
+| `/mod antrean` | `status`, `jenis` | *(Staff)* Antrean laporan member & banding hukuman. |
+| `/mod tindak` | `kode`, `status`, `catatan`, `cabut` | *(Staff)* Ubah status antrean; `cabut` mencabut hukuman dari banding yang diterima. |
+| `/lapor` | `member`, `alasan`, `bukti` | **(Semua member)** Laporkan member ke staf — masuk antrean, bukan langsung hukuman. |
+| `/banding` | `alasan`, `kasus` | **(Semua member)** Ajukan peninjauan hukuman (bisa dari DM bila sudah diban). |
 | `/mod hapus` | `id` | *(Admin)* Hapus satu kasus dari catatan. |
 | `/mod atur` | `log_channel`, `ambang_warn`, `durasi_auto`, `jendela_hari`, `dm` | *(Admin)* Pengaturan moderasi. |
 | `/tempvoice atur` | `hub`, `aktif`, `nama`, `limit` | *(Admin)* Aktifkan voice room sementara (join-to-create). |

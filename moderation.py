@@ -192,6 +192,31 @@ def delete_case(guild_id: int, case_id: int) -> bool:
     return False
 
 
+#: Aksi yang bisa diajukan banding.
+APPEALABLE = ("warn", "timeout", "kick", "ban", "tempban", "softban")
+
+
+def latest_punishment(
+    user_id: int, guild_id: int | None = None
+) -> tuple[int, dict] | None:
+    """Kasus hukuman terakhir seorang member → `(guild_id, kasus)`.
+
+    Tanpa `guild_id` (mis. dijalankan dari DM) semua server dicari, sehingga member
+    yang sudah diban tetap punya jalan untuk mengajukan banding.
+    """
+    uid = int(user_id)
+    kandidat: list[tuple[int, dict]] = []
+    for gid, cases in mod_cases.items():
+        if guild_id is not None and int(gid) != int(guild_id):
+            continue
+        for case in cases:
+            if int(case.get("user_id", 0)) == uid and str(case.get("action")) in APPEALABLE:
+                kandidat.append((int(gid), case))
+    if not kandidat:
+        return None
+    return max(kandidat, key=lambda item: float(item[1].get("created_at", 0)))
+
+
 def count_warns(guild_id: int, user_id: int, *, days: int | None = None) -> int:
     """Jumlah `warn` aktif (dalam jendela hari tertentu) untuk satu member."""
     window = get_settings(guild_id)["warn_window_days"] if days is None else max(1, int(days))

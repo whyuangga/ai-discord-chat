@@ -35,6 +35,24 @@ Pengaman bawaan:
 - **Catatan ≠ hukuman** — `/mod note` hanya menulis riwayat untuk staff; member tidak diberi DM dan tidak dikenai aksi apa pun.
 - **Default NONAKTIF-kan diri sendiri:** bot tidak menindak siapa pun sampai staff menjalankan `/mod`. Anti-spam yang ada tetap berjalan dalam mode *lapor saja*.
 
+## 1b. 🚨 Jalur member: `/lapor` & `/banding`
+
+Moderasi yang hanya satu arah membuat member merasa tidak didengar. Dua command ini
+membuka jalur resmi **member → staf**, tanpa menambah risiko:
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/lapor member:@x alasan:... bukti:...` | Member melaporkan pesan/member. Laporan **masuk antrean staf** (bukan langsung hukuman), dikirim ke channel laporan, dan pelapor dapat DM konfirmasi. |
+| `/banding alasan:... [kasus:12]` | Member mengajukan peninjauan hukuman. Bisa dijalankan dari **DM** (untuk yang sudah diban) — bot mencari kasus terakhir atas nama member itu. |
+| `/mod antrean [status] [jenis]` | *(Staff)* Lihat antrean laporan & banding. |
+| `/mod tindak kode:12 status:diterima catatan:"..." cabut:True` | *(Staff)* Ubah status; `cabut:True` pada banding **langsung mencabut** timeout/ban/temp-ban terkait dan mencatat kasus baru. |
+
+Pengaman:
+- **Tidak ada hukuman otomatis** dari laporan — keputusan tetap di staf.
+- **Anti-spam laporan**: cooldown per pelapor (bawaan **300 detik**), alasan minimal **10 huruf**, dan laporan beruntun tidak menumpuk antrean.
+- **Banding terhubung kasus**: nomor kasus ikut tersimpan, dan hanya kasus atas nama pelapor yang bisa dibanding.
+- Semua antrean tersimpan di `data/reports.json` (maks 300 entri/server) dan bisa dikelola dari halaman **🚨 Moderasi** di dashboard.
+
 ## 2. 🚨 Raid Guard — Mode Darurat Otomatis (`/raid`)
 
 Anti-raid di `/keamanan` hanya **melapor**. **Raid Guard** bertindak: kalau server diserbu

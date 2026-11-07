@@ -103,6 +103,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "moderasi",
+        "label": "Jalur laporan & banding",
+        "emoji": "🚨",
+        "grup": "Moderasi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Simulasikan laporan masuk antrean staf — tanpa membuat laporan palsu.",
+    },
+    {
         "kunci": "kartu",
         "label": "Kartu rank PNG",
         "emoji": "🖼️",
@@ -145,6 +154,7 @@ ANCHOR_UJI: dict[str, str] = {
     "giveaway": "p-giveaway",
     "kartu": "p-rank",
     "honeypot": "p-honeypot",
+    "moderasi": "p-moderasi",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -526,6 +536,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "moderasi":
+            return _uji_moderasi(guild_id)
         if kunci == "honeypot":
             return _uji_honeypot(guild, gid, member, opsi)
         if kunci == "kartu":
@@ -538,6 +550,22 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_moderasi(guild_id: int) -> tuple[bool, str]:
+    """Simulasi jalur laporan: apakah laporan wajar akan masuk antrean? Tanpa efek samping."""
+    import reports
+
+    data = reports.status(guild_id)
+    simulasi = reports.akan_masuk_antrean(guild_id, jenis="laporan", panjang_alasan=40)
+    if not simulasi["masuk"]:
+        return False, f"Laporan tidak akan masuk antrean: {simulasi['alasan']}"
+    return True, (
+        "Jalur laporan sehat: laporan wajar akan masuk antrean staf "
+        f"(cooldown {data['cooldown_sec']} detik per pelapor, "
+        f"{data['menunggu']} menunggu, {data['total']} total). "
+        "Simulasi saja — tidak ada laporan yang dibuat."
+    )
 
 
 def _uji_honeypot(guild, guild_id: int, member=None, opsi: str = "") -> tuple[bool, str]:

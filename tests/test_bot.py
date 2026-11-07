@@ -2247,6 +2247,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "prefix",
         # v1.38.0-beta: ekspor analitik CSV & webhook
         "analitik",
+        # v1.40.0-beta (Paket B): jalur resmi member → staf
+        "lapor", "banding",
     }
     assert len(chat_cmds) <= 100
 
@@ -5932,6 +5934,8 @@ async def test_moderation_cases_auto_punish_and_persistence():
         "slowmode", "role", "role-massal", "nickname",
         # v1.40.0-beta (Paket B): tangga hukuman lengkap + statistik staf
         "tempban", "softban", "note", "statistik",
+        # antrean laporan member & banding
+        "antrean", "tindak",
     } == names
 
     md.mod_cases.pop(gid, None)
@@ -6719,7 +6723,7 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
 
     # 6. Jalur tulis dibatasi 9 endpoint POST (tanpa PUT/DELETE/PATCH)
     src = open("web_dashboard.py", encoding="utf-8").read()
-    assert src.count("add_post(") == 10
+    assert src.count("add_post(") == 11
     for jalur in (
         'add_post("/api/aksi"',
         'add_post("/api/kirim"',
@@ -6731,6 +6735,7 @@ async def test_web_dashboard_readonly_render_auth_and_http(monkeypatch):
         'add_post("/api/giveaway"',
         'add_post("/api/transkrip"',
         'add_post("/api/keamanan"',
+        'add_post("/api/moderasi"',
     ):
         assert jalur in src, f"endpoint tulis {jalur} hilang"
     for needle in ("add_put(", "add_delete(", "add_patch("):

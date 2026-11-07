@@ -150,6 +150,12 @@ from moderation import (
     cleanup_moderation_runtime,
     load_moderation_from_disk,
     run_tempban_check,
+    save_moderation_to_disk,
+)
+from reports import (
+    cleanup_reports_runtime,
+    load_reports_from_disk,
+    save_reports_to_disk,
 )
 from social_notify import (
     cleanup_social_runtime,
@@ -294,6 +300,7 @@ class GeminiDiscordBot(commands.Bot):
         )
         loaded_antispam = load_antispam_from_disk()
         loaded_honeypot = load_honeypot_from_disk()
+        loaded_report_guilds, loaded_report_entries = load_reports_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
@@ -379,6 +386,10 @@ class GeminiDiscordBot(commands.Bot):
         )
         logger.info("Anti-Spam & Anti-Raid dimuat: %d server aktif.", loaded_antispam)
         logger.info("Honeypot dimuat: %d server.", loaded_honeypot)
+        logger.info(
+            "Laporan & banding dimuat: %d server, %d entri antrean.",
+            loaded_report_guilds, loaded_report_entries,
+        )
         logger.info(
             "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
             loaded_levels,
@@ -483,6 +494,8 @@ class GeminiDiscordBot(commands.Bot):
         await save_music_settings_to_disk()
         await save_engagement_to_disk()
         await save_antispam_to_disk()
+        await save_moderation_to_disk()
+        await save_reports_to_disk()
         reset_voice_sessions()
         await save_levels_to_disk()
         await stop_dashboard()
@@ -578,6 +591,7 @@ async def idle_chat_watcher():
             cleanup_ui_runtime()
             cleanup_social_runtime()
             cleanup_moderation_runtime()
+            cleanup_reports_runtime()
             cleanup_temp_voice_runtime()
             cleanup_suggestions_runtime()
             cleanup_server_tools_runtime()

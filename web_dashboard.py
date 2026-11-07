@@ -51,6 +51,7 @@ from urllib.parse import urlencode
 import dashboard_admin
 import dashboard_giveaway
 import dashboard_keamanan
+import dashboard_moderasi
 import dashboard_panel
 import dashboard_pesan
 import dashboard_tema
@@ -612,6 +613,14 @@ HALAMAN: tuple[dict, ...] = (
         "panel": ("p-keamanan",),
     },
     {
+        "slug": "moderasi",
+        "menu": "🚨 Moderasi",
+        "judul": "🚨 Moderasi",
+        "keterangan": "Kasus moderasi, antrean laporan & banding, temp-ban, pencarian kasus, "
+                      "dan statistik staf.",
+        "panel": ("p-moderasi",),
+    },
+    {
         "slug": "tiket",
         "menu": "🎫 Tiket & sapaan",
         "judul": "🎫 Tiket & sapaan harian",
@@ -736,6 +745,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "giveaway": ("giveaway",),
     "inti": ("kartu",),
     "keamanan": ("honeypot",),
+    "moderasi": ("moderasi",),
 }
 
 
@@ -1025,6 +1035,11 @@ PANEL: dict[str, object] = {
         'Latar boleh diunggah sendiri; tanpa latar, bot memakai gradasi warna aksen.</p>\n'
         f'    {d.get("kartu_rank_block", "")}\n  </div>'
     ),
+    "p-moderasi": lambda d: (
+        '<div class="panel" id="p-moderasi">\n    '
+        + (d.get("moderasi_block") or '<div class="muted">Panel moderasi tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
     "p-giveaway": _panel_giveaway,
     "p-tersimpan": _panel_tersimpan,
     "p-riwayat": _panel_riwayat,
@@ -1074,6 +1089,7 @@ def render_dashboard_html(
     starboard_block: str = "",
     aturan_block: str = "",
     honeypot_block: str = "",
+    moderasi_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1157,6 +1173,8 @@ def render_dashboard_html(
         "kartu_block": kartu_block or '<div class="muted">Kartu tidak tersedia.</div>',
         "honeypot_block": honeypot_block
         or '<div class="muted">Honeypot tidak tersedia.</div>',
+        "moderasi_block": moderasi_block
+        or '<div class="muted">Panel moderasi tidak tersedia.</div>',
         "aturan_block": aturan_block
         or '<div class="muted">Penguji aturan tidak tersedia.</div>',
         "starboard_block": starboard_block
@@ -1644,6 +1662,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_ui.render_honeypot_block(bot, gid, token),
             '<div class="muted">Honeypot tidak tersedia.</div>',
         )
+        moderasi_block = _blok(
+            lambda: dashboard_moderasi.render_moderasi_block(bot, gid, token),
+            '<div class="muted">Panel moderasi tidak tersedia.</div>',
+        )
         aturan_block = _blok(
             lambda: dashboard_ui.render_aturan_block(
                 gid, token, dashboard_keamanan.collect(gid)
@@ -1710,6 +1732,7 @@ async def start_dashboard(bot) -> bool:
             starboard_block=starboard_block,
             aturan_block=aturan_block,
             honeypot_block=honeypot_block,
+            moderasi_block=moderasi_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -2028,6 +2051,79 @@ async def start_dashboard(bot) -> bool:
             ok, message = False, f"Aksi keamanan `{aksi or '-'}` tidak dikenal."
         logger.info("Dashboard keamanan %s (server %s): %s", aksi, gid, message)
         return _jawab(gid, ok, message, "p-aturan", request)
+
+    async def handle_moderasi(request):
+        """Panel moderasi: setelan laporan, ubah status antrean, cari kasus, cabut temp-ban."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        import moderation
+        import reports
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or "").strip().lower()
+        anchor = "p-moderasi"
+
+        if aksi == "laporan-setelan":
+            cid = _id_aman(payload.get("channel_id"))
+            reports.set_config(
+                gid,
+                channel_id=cid or None,
+                cooldown_sec=_id_aman(payload.get("cooldown_sec")),
+                enabled=str(payload.get("enabled") or "1") not in ("0", "false", "off"),
+                dm_pelapor=str(payload.get("dm_pelapor") or "1") not in ("0", "false", "off"),
+            )
+            await reports.save_reports_to_disk()
+            data = reports.status(gid)
+            ok, message = True, (
+                f"Setelan laporan disimpan: {'aktif' if data['aktif'] else 'nonaktif'} · "
+                f"cooldown {data['cooldown_sec']} detik · channel "
+                f"{'#' + str(data['channel_id']) if data['channel_id'] else 'ikut log moderasi'}."
+            )
+        elif aksi == "antrean-status":
+            kode = _id_aman(payload.get("kode"))
+            entri = reports.ubah_status(
+                gid, kode, str(payload.get("status") or ""),
+                catatan=str(payload.get("catatan") or ""),
+            )
+            if entri is None:
+                ok, message = False, f"Antrean `#{kode}` tidak ditemukan atau status tidak valid."
+            else:
+                await reports.save_reports_to_disk()
+                ok, message = True, (
+                    f"Antrean `#{kode}` → {reports.STATUS.get(entri['status'], entri['status'])}."
+                )
+        elif aksi == "tempban-cabut":
+            uid = _id_aman(payload.get("user_id"))
+            dicabut = moderation.drop_tempban(gid, uid)
+            if not dicabut:
+                ok, message = False, f"Tidak ada temp-ban aktif untuk `{uid}`."
+            else:
+                await moderation.save_moderation_to_disk()
+                ok, message = True, (
+                    f"Temp-ban `{uid}` dicabut dari daftar tunggu. Bila ban masih aktif, "
+                    "cabut lewat `/mod unban user_id:" + str(uid) + "`."
+                )
+        elif aksi == "cari-kasus":
+            hasil = dashboard_moderasi.cari_kasus(
+                gid, str(payload.get("q") or ""), str(payload.get("aksi") or "")
+            )
+            ok, message = True, (
+                f"{len(hasil)} kasus ditemukan."
+                if hasil
+                else "Tidak ada kasus yang cocok dengan pencarian itu."
+            )
+        else:
+            ok, message = False, f"Aksi moderasi `{aksi or '-'}` tidak dikenal."
+        logger.info("Dashboard moderasi %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, anchor, request)
 
     async def handle_tiket(request):
         """Kotak masuk tiket: daftar (GET) atau balas/tutup (POST)."""
@@ -2422,6 +2518,7 @@ async def start_dashboard(bot) -> bool:
     app.router.add_get("/api/tiket", handle_tiket)
     app.router.add_post("/api/tiket", handle_tiket)
     app.router.add_post("/api/keamanan", handle_keamanan)
+    app.router.add_post("/api/moderasi", handle_moderasi)
     app.router.add_get("/api/giveaway", handle_giveaway)
     app.router.add_post("/api/giveaway", handle_giveaway)
     app.router.add_get("/transkrip", handle_transkrip)

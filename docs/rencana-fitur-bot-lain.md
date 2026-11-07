@@ -42,7 +42,7 @@ Kolom **Paket** menunjuk ke roadmap di bagian 5.
 | **Statistik channel** | Member, boost, dll. | Member, role, boost, **tiket**, **pengikut sosial** | Tambah sumber angka tiket & sosial | **D** |
 | **Notifikasi sosial** | YouTube, Twitch, TikTok/RSS | **14 platform** satu mesin | Tambah Reddit & RSS generik (tanpa API key) | **D** |
 | **Formulir (modal)** | Buat & kirim formulir | **Antrean submission** yang direview | Daftar kiriman + status di dashboard | **D** |
-| **Dashboard** | 11 halaman, 54 setelan, 11 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
+| **Dashboard** | 12 halaman, 55 setelan, 13 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
 
 ## 3. Fitur BARU yang layak diambil
 
@@ -121,11 +121,17 @@ Berkas: `engagement.py` · `tickets.py` · `levels.py` · `community_tools.py` �
    ✅ **Sudah jalan** (v1.40): penghitung `stats` per aturan di `data/antispam.json`,
    reset harian otomatis, ditampilkan di panel yang sama dengan penguji aturan.
 4. **`/report` + antrean banding** di dashboard.
+   ✅ **Sudah jalan** (v1.40): `/lapor` & `/banding` (termasuk dari DM) + antrean staf
+   (`/mod antrean`, `/mod tindak`) + panel antrean di halaman **🚨 Moderasi**;
+   data di `data/reports.json`.
 5. **tempban / softban / note** + **statistik staf** (siapa menindak berapa banyak).
    ✅ **Sudah jalan** (v1.40): `/mod tempban` (dicabut otomatis oleh watcher 15 detik),
    `/mod softban`, `/mod note`, `/mod statistik` + `moderation.staff_stats()` dan
    `moderation.search_cases()` untuk papan & pencarian kasus.
 6. **Halaman Moderasi** di dashboard (kasus terakhir, cari nomor kasus, statistik staf).
+   ✅ **Sudah jalan** (v1.40): halaman **🚨 Moderasi** (`dashboard_moderasi.py`) berisi
+   antrean laporan/banding, setelan jalur laporan, temp-ban + tombol cabut, pencarian
+   kasus (nomor/ID/kata/jenis), statistik staf 30 hari, & kasus terbaru.
 
 Berkas: `antispam.py` · `moderation.py` · `cogs/moderation_cog.py` ·
 `web_dashboard.py` (+ halaman `moderasi`) · `dashboard_admin.py` · tes.
