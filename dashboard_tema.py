@@ -283,10 +283,16 @@ CSS_HALAMAN = f"""
     .uji-baris input[name="opsi_manual"] {{ width: 100%; max-width: none; }}
   }}
 
-  /* --- pemilih server --- */
+  /* --- pemilih server & auto-refresh --- */
   .pemilih-server {{ display: flex; gap: 8px; align-items: center; margin: 8px 0 0; flex-wrap: wrap; }}
   .pemilih-server label {{ font-size: 12px; color: var(--redup); }}
   .pemilih-server button {{ cursor: pointer; }}
+
+  .pemilih-auto {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0; }}
+  .pemilih-auto label {{ font-size: 12px; color: var(--redup); white-space: nowrap; }}
+  .pemilih-auto select {{ min-width: 118px; }}
+  .pemilih-auto button {{ cursor: pointer; padding: 7px 12px; }}
+  .topbar .baris .pemilih-server {{ margin: 0; }}
 
   /* --- grafik --- */
   .grafik {{ margin: 6px 0 10px; }}

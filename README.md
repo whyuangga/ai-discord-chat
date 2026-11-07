@@ -328,7 +328,7 @@ Hanya **2 variabel pertama** yang wajib diisi; sisanya bersifat opsional dan sud
 | `DASHBOARD_TOKEN` | Opsional | Kosong | Kata sandi akses dashboard web. Kosong = dashboard nonaktif. |
 | `DASHBOARD_PORT` | Opsional | `0` | Port dashboard (`0` = ambil otomatis dari `SERVER_PORT`/`PORT` panel). |
 | `DASHBOARD_HOST` | Opsional | `0.0.0.0` | Alamat bind server dashboard (jangan diganti kecuali perlu). |
-| `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). Isi `0` untuk mematikan permanen — atau klik **jeda/hidupkan** di header dashboard (tersimpan di cookie, tanpa restart). |
+| `DASHBOARD_REFRESH_SEC` | Opsional | `30` | Interval auto-refresh halaman dashboard (detik). Isi `0` untuk mematikan permanen — atau pilih sendiri lewat **dropdown 🔄 Auto-refresh** di header dashboard (`Mati` … `Ikut .env`, tersimpan di cookie 30 hari, tanpa restart). |
 | `DASHBOARD_UPLOAD_MB` | Opsional | `8` | Batas ukuran unggahan banner/gambar dari dashboard (MB, 1–25). Disimpan di `data/uploads/`. |
 | `TRANSLATE_RATE_LIMIT_SEC` | — | `3` | (internal, `translate_tools.py`) Jeda minimal antar-terjemahan per channel. |
 | `TICKET_MAX_OPEN_PER_USER` | Opsional | `2` | Batas tiket aktif per member. |

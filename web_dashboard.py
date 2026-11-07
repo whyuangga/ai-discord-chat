@@ -111,6 +111,45 @@ def detik_auto(request, bawaan: int = 30) -> int:
     return max(0, min(3600, int(bawaan or 0)))
 
 
+# Pilihan interval auto-refresh di header (form GET biasa, tanpa JavaScript).
+PILIHAN_AUTO: tuple[tuple[int, str], ...] = (
+    (0, "⏸ Mati"),
+    (15, "15 detik"),
+    (30, "30 detik"),
+    (60, "1 menit"),
+    (120, "2 menit"),
+    (300, "5 menit"),
+)
+
+
+def form_auto(aksi: str, token: str = "", guild_id: int = 0,
+              detik: int = 30, dipilih: str = "") -> str:
+    """Dropdown “🔄 Auto-refresh” di header — atur interval tanpa `.env` & tanpa restart.
+
+    `dipilih` boleh `"auto"` (ikut `DASHBOARD_REFRESH_SEC`) atau angka detik.
+    Nilai angka di luar daftar (mis. dari URL `?refresh=45`) tetap ditampilkan
+    sebagai opsi tambahan supaya pilihan yang sedang aktif tidak “hilang”.
+    """
+    if not str(aksi or "").strip():
+        return ""
+    pilih = str(dipilih if str(dipilih or "").strip() else max(0, int(detik or 0)))
+    opsi = ""
+    if pilih != "auto" and pilih not in {str(nilai) for nilai, _ in PILIHAN_AUTO}:
+        opsi += f'<option value="{html.escape(pilih, quote=True)}" selected>{html.escape(pilih)} detik</option>'
+    for nilai, label in PILIHAN_AUTO:
+        tanda = " selected" if str(nilai) == pilih else ""
+        opsi += f'<option value="{nilai}"{tanda}>{label}</option>'
+    opsi += f'<option value="auto"{" selected" if pilih == "auto" else ""}>Ikut .env</option>'
+    return (
+        f'<form method="get" action="{html.escape(aksi, quote=True)}" class="pemilih-auto">'
+        f'<input type="hidden" name="token" value="{html.escape(token, quote=True)}">'
+        f'<input type="hidden" name="guild" value="{int(guild_id or 0)}">'
+        '<label for="pilih-auto">🔄 Auto-refresh</label>'
+        f'<select name="refresh" id="pilih-auto" aria-label="Interval auto-refresh">{opsi}</select>'
+        '<button type="submit">Set</button></form>'
+    )
+
+
 def is_authorized(*, query_token: str = "", header_token: str = "", expected: str = "") -> bool:
     """Cek token akses dashboard (query, `X-Dashboard-Token`, atau `Bearer`)."""
     want = str(expected or "").strip()
@@ -369,7 +408,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       <label class="menu-btn" for="nav-buka">☰ Menu</label>
     </div>
     {menu}
-    <div class="baris" style="margin-top:8px">{guild_picker}</div>
+    <div class="baris" style="margin-top:8px">{guild_picker}{auto_pilih}</div>
   </header>
   {flash}
   <p class="keterangan-halaman">{keterangan}</p>
@@ -896,7 +935,8 @@ def render_dashboard_html(
     usage: dict,
     levels: dict,
     refresh: int = 30,
-    auto_tautan: str = "",
+    auto_aksi: str = "",
+    auto_dipilih: str = "",
     heading: str = "🛰️ Dashboard Bot",
     kontrol_block: str = '<div class="muted">Kontrol tidak tersedia.</div>',
     fitur_block: str = "",
@@ -958,20 +998,10 @@ def render_dashboard_html(
         if detik > 0
         else ""
     )
-    tautan_auto = (
-        f'<a class="auto" href="{html.escape(auto_tautan, quote=True)}&amp;refresh={{}}">{{}}</a>'
-        if auto_tautan
-        else ""
+    refresh_info = (
+        f" (🔄 auto-refresh {detik}s)" if detik > 0 else " (⏸ auto-refresh mati)"
     )
-    if detik > 0:
-        refresh_info = f" (🔄 auto-refresh {detik}s"
-        if tautan_auto:
-            refresh_info += " · " + tautan_auto.format(0, "jeda")
-    else:
-        refresh_info = " (⏸ auto-refresh mati"
-        if tautan_auto:
-            refresh_info += " · " + tautan_auto.format(30, "hidupkan")
-    refresh_info += ")"
+    auto_pilih = form_auto(auto_aksi, token, guild_id, detik, auto_dipilih)
     data = {
         "uptime": html.escape(str(status.get("uptime") or "-")),
         "ram_mb": status.get("ram_mb") or 0,
@@ -1037,6 +1067,7 @@ def render_dashboard_html(
         font_link=dashboard_tema.FONT_LINK,
         css=dashboard_tema.CSS_HALAMAN,
         refresh_info=refresh_info,
+        auto_pilih=auto_pilih,
         meta_refresh=meta_refresh,
         version=html.escape(str(status.get("version") or "-")),
         bot_name=html.escape(str(status.get("bot_name") or "Bot")),
@@ -1388,6 +1419,12 @@ async def start_dashboard(bot) -> bool:
         slug = halaman_dari_path(request.path)
         halaman_meta = HALAMAN_SLUG[slug]
 
+        # Interval yang benar-benar dipakai: cookie (kalau ada) lalu
+        # `DASHBOARD_REFRESH_SEC`. Dropdown di header menampilkan yang aktif.
+        simpan_auto = str(request.cookies.get(COOKIE_AUTO) or "").strip()
+        detik = detik_auto(request, cfg["refresh"])
+        pilih_auto = simpan_auto if simpan_auto.isdigit() else "auto"
+
         def _blok(pembuat, bawaan: str) -> str:
             """Gambar satu blok; kegagalan satu blok tidak mematikan halaman."""
             try:
@@ -1489,8 +1526,9 @@ async def start_dashboard(bot) -> bool:
             status=collect_status(bot),
             usage=collect_usage(gid),
             levels=collect_levels(gid),
-            refresh=detik_auto(request, cfg["refresh"]),
-            auto_tautan=url_halaman(slug, token, gid),
+            refresh=detik,
+            auto_aksi=f"/{slug}" if slug else "/",
+            auto_dipilih=pilih_auto,
             heading=guild_name or "Bot",
             kontrol_block=render_controls_block(gid, token),
             fitur_block=render_features_block(gid),
