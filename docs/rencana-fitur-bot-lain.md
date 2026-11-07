@@ -62,7 +62,7 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 | **Voice linking** | Arclo | Role + chat privat otomatis selama di voice | S | ★★ | **D** ✅ v1.40 |
 | **Information channel** | Arclo | Channel baca-saja berisi aturan & info, disegarkan sendiri | S | ★★ | **D** ✅ v1.40 |
 | **Reddit / RSS generik** | Axis | Sumber konten baru tanpa API key | S | ★★ | **D** ✅ v1.40 |
-| **CAPTCHA verifikasi** | AdmiBot | Gerbang verifikasi kita masih tombol; CAPTCHA menahan bot yang lebih rajin | M | ★★ | **D** |
+| **CAPTCHA verifikasi** | AdmiBot | Gerbang verifikasi kita masih tombol; CAPTCHA menahan bot yang lebih rajin | M | ★★ | **D** ✅ v1.40 |
 | **Halaman publik server** | Axis | Keren, tapi membuka data ke publik | M | ★ | — (butuh keputusan) |
 
 ## 4. Yang **tidak** kita ambil (dan alasannya)
@@ -190,6 +190,10 @@ Sudah ada: `tags.py` + `cogs/tags_cog.py` + `dashboard_tags.py` (C#1),
    pesan hilang), interval verifikasi 5–1440 menit, maks 3500 huruf + panel *ℹ️ Channel info
    otomatis* di halaman Konten & interaksi + tombol tes yang tidak mengedit apa pun.
 4. **CAPTCHA verifikasi** (kode teks/gambar, tanpa dependency baru).
+   ✅ **Sudah jalan** (v1.40): CAPTCHA **teks** di `community_tools.py` (kode 5 huruf tanpa
+   0/O/1/I/L, TTL 5 menit, 3 percobaan, hanya di memori) + modal Discord di
+   `views/community.py` + `/verifikasi pasang … captcha:True` + sakelar *CAPTCHA verifikasi*
+   di halaman Keamanan + tombol tes yang tidak memberi role.
 5. **Antrean submission formulir** di dashboard.
 6. **Statistik channel**: tambah angka tiket & pengikut sosial.
 

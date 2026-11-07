@@ -50,6 +50,14 @@ starboard_guilds: dict[int, dict] = {}       # guild_id -> konfigurasi starboard
 STARBOARD_MAX_BOARD = 4
 sticky_channels: dict[int, dict] = {}        # channel_id -> konfigurasi sticky
 verification_guilds: dict[int, dict] = {}    # guild_id -> gerbang verifikasi
+
+# --- CAPTCHA verifikasi (tanpa dependency baru, hanya kode teks) ---
+CAPTCHA_PANJANG = 5
+CAPTCHA_TTL_SEC = 300          # kode kedaluwarsa setelah 5 menit
+CAPTCHA_MAKS_PERCOBAAN = 3
+CAPTCHA_HURUF = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # tanpa 0/O/1/I/L agar tidak salah baca
+# guild_id -> {user_id: {"kode", "kedaluwarsa", "percobaan"}}
+captcha_pending: dict[int, dict[int, dict]] = {}
 maintenance_guilds: dict[int, dict] = {}     # guild_id -> backup & log channel
 
 _sticky_last_refresh: dict[int, float] = {}
@@ -204,6 +212,7 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
                 "channel_id": _to_int(data.get("channel_id")),
                 "role_id": role_id,
                 "message_id": _to_int(data.get("message_id")),
+                "captcha": bool(data.get("captcha")),
             }
         except (TypeError, ValueError):
             continue
@@ -887,6 +896,7 @@ def set_verification_config(
     role_id: int | None = None,
     message_id: int | None = None,
     enabled: bool | None = None,
+    captcha: bool | None = None,
 ) -> dict | None:
     """Mengatur gerbang verifikasi (channel + role yang diberikan setelah klik tombol)."""
     if enabled is False:
@@ -898,6 +908,7 @@ def set_verification_config(
         "channel_id": 0,
         "role_id": 0,
         "message_id": 0,
+        "captcha": False,
     }
     if channel_id is not None:
         cfg["channel_id"] = int(channel_id)
@@ -905,25 +916,143 @@ def set_verification_config(
         cfg["role_id"] = int(role_id)
     if message_id is not None:
         cfg["message_id"] = int(message_id)
+    if captcha is not None:
+        cfg["captcha"] = bool(captcha)
+    cfg.setdefault("captcha", False)
     cfg["enabled"] = True if enabled is None else bool(enabled)
     verification_guilds[guild_id] = cfg
     return cfg
 
 
-def build_verification_embed(guild_name: str, role_name: str, extra_note: str = "") -> discord.Embed:
+def build_verification_embed(
+    guild_name: str, role_name: str, extra_note: str = "", *, captcha: bool = False
+) -> discord.Embed:
+    langkah = (
+        "Tekan tombol **Verifikasi Saya**, lalu **ketik kode CAPTCHA** yang muncul "
+        "untuk membuka seluruh akses channel.\n"
+        if captcha
+        else "Tekan tombol **Verifikasi Saya** di bawah untuk membuka seluruh akses channel.\n"
+    )
     embed = discord.Embed(
         title="✅ Verifikasi Keanggotaan",
         description=(
             f"Selamat datang di **{guild_name}**!\n\n"
-            "Tekan tombol **Verifikasi Saya** di bawah untuk membuka seluruh akses channel.\n"
-            f"Kamu akan otomatis mendapatkan role **{role_name}**."
+            + langkah
+            + f"Kamu akan otomatis mendapatkan role **{role_name}**."
         ),
         color=discord.Color.green(),
     )
     if extra_note:
         embed.add_field(name="📌 Catatan", value=extra_note[:1024], inline=False)
-    embed.set_footer(text="Sekali klik saja • Anti-bot & anti-raid")
+    embed.set_footer(
+        text=("Kode CAPTCHA • Anti-bot & anti-raid" if captcha else "Sekali klik saja • Anti-bot & anti-raid")
+    )
     return embed
+
+
+# ==============================================================================
+# CAPTCHA VERIFIKASI
+# ==============================================================================
+def buat_kode(*, panjang: int = CAPTCHA_PANJANG, rng=None) -> str:
+    """Kode CAPTCHA acak (huruf/angka tanpa 0/O/1/I/L)."""
+    import secrets
+
+    sumber = rng or secrets.SystemRandom()
+    panjang = max(4, min(8, int(panjang)))
+    return "".join(sumber.choice(CAPTCHA_HURUF) for _ in range(panjang))
+
+
+def captcha_aktif(guild_id: int) -> bool:
+    cfg = verification_guilds.get(int(guild_id)) or {}
+    return bool(cfg.get("enabled") and cfg.get("captcha"))
+
+
+def minta_kode(guild_id: int, user_id: int, *, sekarang: float | None = None, rng=None) -> dict:
+    """Ambil kode aktif member, atau buat kode baru (TTL 5 menit, 3 percobaan)."""
+    gid, uid = int(guild_id), int(user_id)
+    kini = sekarang if sekarang is not None else time.time()
+    kumpulan = captcha_pending.setdefault(gid, {})
+    data = kumpulan.get(uid)
+    if data and float(data.get("kedaluwarsa") or 0) > kini and data.get("kode"):
+        return data
+    data = {
+        "kode": buat_kode(rng=rng),
+        "kedaluwarsa": kini + CAPTCHA_TTL_SEC,
+        "percobaan": 0,
+        "dibuat": kini,
+    }
+    kumpulan[uid] = data
+    return data
+
+
+def cocokkan_kode(
+    guild_id: int, user_id: int, jawaban: str, *, sekarang: float | None = None
+) -> str:
+    """Cek jawaban member. Kode: ok / salah / habis / kedaluwarsa / tidak_ada."""
+    gid, uid = int(guild_id), int(user_id)
+    kini = sekarang if sekarang is not None else time.time()
+    data = (captcha_pending.get(gid) or {}).get(uid)
+    if not data or not data.get("kode"):
+        return "tidak_ada"
+    if float(data.get("kedaluwarsa") or 0) <= kini:
+        captcha_pending[gid].pop(uid, None)
+        return "kedaluwarsa"
+
+    tebakan = "".join(str(jawaban or "").upper().split())
+    if tebakan == str(data["kode"]).upper():
+        captcha_pending[gid].pop(uid, None)
+        return "ok"
+
+    data["percobaan"] = int(data.get("percobaan") or 0) + 1
+    if data["percobaan"] >= CAPTCHA_MAKS_PERCOBAAN:
+        captcha_pending[gid].pop(uid, None)
+        return "habis"
+    return "salah"
+
+
+def sisa_percobaan(guild_id: int, user_id: int) -> int:
+    """Sisa percobaan untuk kode yang sedang aktif (0 bila tidak ada kode aktif)."""
+    data = (captcha_pending.get(int(guild_id)) or {}).get(int(user_id))
+    if not data:
+        return 0
+    return max(0, CAPTCHA_MAKS_PERCOBAAN - int(data.get("percobaan") or 0))
+
+
+def bersihkan_kode(guild_id: int, user_id: int) -> bool:
+    kumpulan = captcha_pending.get(int(guild_id)) or {}
+    return kumpulan.pop(int(user_id), None) is not None
+
+
+def statistik_captcha(guild_id: int) -> dict:
+    cfg = verification_guilds.get(int(guild_id)) or {}
+    return {
+        "aktif": captcha_aktif(guild_id),
+        "terpasang": bool(cfg.get("enabled")),
+        "menunggu": len(captcha_pending.get(int(guild_id)) or {}),
+        "ttl_detik": CAPTCHA_TTL_SEC,
+        "maks_percobaan": CAPTCHA_MAKS_PERCOBAAN,
+    }
+
+
+def cleanup_captcha_runtime(limit: int = 500, *, sekarang: float | None = None) -> int:
+    """Buang kode kedaluwarsa / server tanpa kode (hemat RAM)."""
+    kini = sekarang if sekarang is not None else time.time()
+    dibuang = 0
+    for gid in list(captcha_pending):
+        kumpulan = captcha_pending[gid]
+        for uid in list(kumpulan):
+            if dibuang >= limit:
+                break
+            if float((kumpulan.get(uid) or {}).get("kedaluwarsa") or 0) <= kini:
+                kumpulan.pop(uid, None)
+                dibuang += 1
+        if not kumpulan:
+            captcha_pending.pop(gid, None)
+    return dibuang
+
+
+def reset_captcha_state() -> None:
+    captcha_pending.clear()
 
 
 async def grant_verification_role(user: discord.abc.User, guild_id: int) -> tuple[bool, str]:

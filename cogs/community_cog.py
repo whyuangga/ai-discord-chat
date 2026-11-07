@@ -817,12 +817,14 @@ verifikasi_group = app_commands.Group(
     channel="Channel tempat tombol verifikasi dipasang",
     role="Role yang otomatis diberikan setelah member verifikasi",
     catatan="Catatan tambahan di panel verifikasi (opsional)",
+    captcha="Minta member mengetik kode CAPTCHA sebelum dapat role",
 )
 async def verifikasi_pasang_cmd(
     interaction: discord.Interaction,
     channel: discord.TextChannel,
     role: discord.Role,
     catatan: str | None = None,
+    captcha: bool | None = None,
 ):
     if interaction.guild is None:
         return
@@ -845,7 +847,13 @@ async def verifikasi_pasang_cmd(
 
     await interaction.response.defer(ephemeral=True)
 
-    embed = build_verification_embed(interaction.guild.name, role.name, catatan or "")
+    captcha_nyala = bool((verification_guilds.get(interaction.guild.id) or {}).get("captcha"))
+    if captcha is not None:
+        captcha_nyala = bool(captcha)
+
+    embed = build_verification_embed(
+        interaction.guild.name, role.name, catatan or "", captcha=captcha_nyala
+    )
     try:
         from views import VerificationGateView
 
@@ -863,12 +871,18 @@ async def verifikasi_pasang_cmd(
         role_id=role.id,
         message_id=message.id,
         enabled=True,
+        captcha=captcha_nyala,
     )
     await save_community_tools_to_disk()
     await interaction.followup.send(
         f"✅ **Gerbang verifikasi aktif** di {channel.mention}.\n"
         f"• Member baru klik tombol **Verifikasi Saya** → otomatis dapat {role.mention}.\n"
-        f"• Cocok dipadukan dengan `/autorole` untuk role tambahan.",
+        + (
+            "• **CAPTCHA aktif:** member mengetik kode 5 huruf (3 percobaan, 5 menit).\n"
+            if captcha_nyala
+            else "• CAPTCHA nonaktif — tambahkan `captcha:True` untuk meminta kode.\n"
+        )
+        + "• Cocok dipadukan dengan `/autorole` untuk role tambahan.",
         ephemeral=True,
     )
 
@@ -891,6 +905,7 @@ async def verifikasi_status_cmd(interaction: discord.Interaction):
         f"✅ **Status Gerbang Verifikasi**\n"
         f"• **Channel:** <#{cfg['channel_id']}>\n"
         f"• **Role diberikan:** <@&{cfg['role_id']}>\n"
+        f"• **CAPTCHA:** {'aktif' if cfg.get('captcha') else 'nonaktif'}\n"
         f"• Matikan dengan `/verifikasi matikan`.",
         ephemeral=True,
     )

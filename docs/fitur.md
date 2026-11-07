@@ -560,6 +560,22 @@ seorang member **tanpa** menghapus pesan atau menghukum siapa pun). Jalur tulis:
 - **`/verifikasi status`** & **`/verifikasi matikan`** — pantau / matikan kapan saja.
 - Tombol bersifat **persisten** (`custom_id`), jadi tetap berfungsi setelah bot restart.
 
+**CAPTCHA (v1.40.0-beta, tanpa dependency baru):**
+
+```bash
+/verifikasi pasang channel:#verifikasi role:@Member captcha:True
+```
+
+- Member menekan **✅ Verifikasi Saya** → muncul **modal** berisi kode **5 huruf** (alfabet
+  tanpa `0/O/1/I/L` supaya tidak salah baca). Kode hanya terlihat oleh member itu.
+- Salah ketik: **3 percobaan**, kode **kedaluwarsa 5 menit**; habis/kedaluwarsa → tekan tombol
+  lagi untuk kode baru. Kode disimpan **di memori** saja dan dibersihkan otomatis tiap jam.
+- Bedanya dengan tombol biasa: bot self-bot/otomasi tidak bisa menyelesaikan modal, jadi
+  gerbang ini menahan akun yang "rajin" klik.
+- **Dashboard:** halaman **🛡️ Keamanan** → sakelar *CAPTCHA verifikasi* (butuh channel
+  verifikasi terpasang dulu) + tombol tes **Gerbang verifikasi & CAPTCHA** yang hanya
+  memeriksa setelan — **tidak** memberikan role ke siapa pun.
+
 ### 6. 📌 Sticky Message — Petunjuk Selalu di Bawah (`/sticky`)
 - **`/sticky pasang isi:"Baca #rules dulu sebelum chat!" channel:#umum judul:"📌 Aturan"`**
 - Setiap ada obrolan baru, bot menurunkan ulang pesan petunjuk ke bawah channel (pesan lama dihapus).

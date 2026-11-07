@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **61 command utama** (280 subcommand) · **919 tes otomatis**
+> **Versi `v1.40.0-beta`** · **61 command utama** (280 subcommand) · **937 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -685,7 +685,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 50 berkas pytest → 919 tes (914 lulus, 5 dilewati)
+├── tests/                  # 51 berkas pytest → 937 tes (932 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

@@ -773,7 +773,7 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu", "lencana"),
-    "keamanan": ("honeypot",),
+    "keamanan": ("honeypot", "verifikasi"),
     "moderasi": ("moderasi", "snipe"),
 }
 

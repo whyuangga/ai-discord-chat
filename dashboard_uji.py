@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "verifikasi",
+        "label": "Gerbang verifikasi & CAPTCHA",
+        "emoji": "✅",
+        "grup": "Keamanan",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Cek channel/role verifikasi & status CAPTCHA tanpa memberi role ke siapa pun.",
+    },
+    {
         "kunci": "info",
         "label": "Channel info otomatis",
         "emoji": "ℹ️",
@@ -236,6 +245,7 @@ ANCHOR_UJI: dict[str, str] = {
     "sosial": "p-sosial",
     "voice": "p-voice",
     "info": "p-info",
+    "verifikasi": "p-keamanan",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -621,6 +631,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "verifikasi":
+            return _uji_verifikasi(guild)
         if kunci == "info":
             return _uji_info(gid)
         if kunci == "voice":
@@ -651,6 +663,32 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_verifikasi(guild) -> tuple[bool, str]:
+    """Simulasi gerbang verifikasi: periksa channel, role, & CAPTCHA tanpa memberi role."""
+    import community_tools as ct
+
+    gid = int(getattr(guild, "id", 0) or 0)
+    cfg = (getattr(ct, "verification_guilds", {}) or {}).get(gid) or {}
+    if not cfg.get("enabled"):
+        return False, (
+            "Gerbang verifikasi belum aktif. Pasang lewat `/verifikasi pasang` atau panel "
+            "*🛡️ Keamanan* di dashboard."
+        )
+    if not cfg.get("channel_id"):
+        return False, "Channel verifikasi belum dipilih."
+    role_id = int(cfg.get("role_id") or 0)
+    get_role = getattr(guild, "get_role", None)
+    role = get_role(role_id) if (callable(get_role) and role_id) else None
+    if role is None:
+        return False, "Role verifikasi sudah tidak ada di server — pilih role lain di panel Keamanan."
+    return True, (
+        f"Gerbang verifikasi siap: channel <#{cfg['channel_id']}> · role **@{getattr(role, 'name', role_id)}** "
+        f"· CAPTCHA **{'aktif' if cfg.get('captcha') else 'nonaktif'}** "
+        f"({ct.CAPTCHA_MAKS_PERCOBAAN} percobaan / {ct.CAPTCHA_TTL_SEC // 60} menit). "
+        "Simulasi saja — tidak ada role yang diberikan ke siapa pun."
+    )
 
 
 def _uji_info(guild_id: int) -> tuple[bool, str]:

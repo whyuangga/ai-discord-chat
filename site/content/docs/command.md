@@ -153,7 +153,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/starboard atur` | `channel`, `batas`, `emoji`, `aktif` | *(Admin)* Atur channel sorotan & ambang bintang. |
 | `/starboard status` | — | Lihat semua papan sorotan & jumlah pesan tersorot. |
 | `/starboard varian` | `tambah`, `emoji`, `batas`, `channel`, `warna`, `hapus` | *(Admin)* Papan sorotan tambahan (skullboard 💀, clownboard 🤡, …) dengan emoji, ambang, channel, & warna sendiri — maks 4 papan/server. |
-| `/verifikasi pasang` | `channel`, `role`, `catatan` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya**. |
+| `/verifikasi pasang` | `channel`, `role`, `catatan`, `captcha` | *(Admin)* Pasang gerbang verifikasi + tombol **✅ Verifikasi Saya** (opsional: kode CAPTCHA). |
 | `/verifikasi status` / `matikan` | — | Pantau / matikan gerbang verifikasi. |
 | `/sticky pasang` | `isi`, `channel`, `judul` | *(Admin)* Pasang pesan petunjuk yang selalu di bawah channel. |
 | `/sticky lepas` / `status` | `channel` | Lepas / lihat daftar sticky message. |

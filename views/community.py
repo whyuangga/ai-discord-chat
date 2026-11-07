@@ -2,7 +2,13 @@
 
 import logging
 import discord
-from community_tools import grant_verification_role
+from community_tools import (
+    captcha_aktif,
+    cocokkan_kode,
+    grant_verification_role,
+    minta_kode,
+    sisa_percobaan,
+)
 from utils import find_solved_forum_tag
 
 logger = logging.getLogger("gemini_bot.views.community")
@@ -23,6 +29,44 @@ def _build_solved_disabled_view() -> discord.ui.View:
         )
     )
     return done_view
+class CaptchaVerificationModal(discord.ui.Modal, title="Verifikasi: ketik kode CAPTCHA"):
+    """Modal tempat member mengetik kode — kode hanya terlihat olehnya."""
+
+    def __init__(self, guild_id: int, kode: str):
+        super().__init__(timeout=180)
+        self.guild_id = int(guild_id)
+        self.kode = str(kode)
+        self.jawaban = discord.ui.TextInput(
+            label=f"Ketik kode: {self.kode}",
+            placeholder="Huruf besar/kecil sama saja",
+            min_length=len(self.kode),
+            max_length=len(self.kode),
+            required=True,
+        )
+        self.add_item(self.jawaban)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        status = cocokkan_kode(self.guild_id, interaction.user.id, str(self.jawaban.value))
+        if status == "ok":
+            ok, message = await grant_verification_role(interaction.user, self.guild_id)
+            if ok:
+                logger.info(
+                    "Member %s lolos CAPTCHA verifikasi di guild %s",
+                    interaction.user.id,
+                    self.guild_id,
+                )
+            await interaction.response.send_message(message, ephemeral=True)
+            return
+
+        alasan = {
+            "salah": f"⚠️ Kode belum tepat. Sisa percobaan: **{sisa_percobaan(self.guild_id, interaction.user.id)}**.",
+            "habis": "⛔ Percobaan habis. Tekan tombol **Verifikasi Saya** lagi untuk kode baru.",
+            "kedaluwarsa": "⌛ Kode kedaluwarsa. Tekan tombol **Verifikasi Saya** lagi.",
+            "tidak_ada": "⚠️ Kode tidak ditemukan. Tekan tombol **Verifikasi Saya** lagi.",
+        }.get(status, "⚠️ Kode tidak cocok.")
+        await interaction.response.send_message(alasan, ephemeral=True)
+
+
 class VerificationGateView(discord.ui.View):
     """Tombol persisten "Verifikasi Saya" untuk membuka akses channel member baru."""
 
@@ -41,6 +85,13 @@ class VerificationGateView(discord.ui.View):
                 "⚠️ Tombol verifikasi hanya berlaku di dalam server.", ephemeral=True
             )
             return
+        if captcha_aktif(interaction.guild.id):
+            data = minta_kode(interaction.guild.id, interaction.user.id)
+            await interaction.response.send_modal(
+                CaptchaVerificationModal(interaction.guild.id, data["kode"])
+            )
+            return
+
         ok, message = await grant_verification_role(interaction.user, interaction.guild.id)
         await interaction.response.send_message(message, ephemeral=True)
         if ok:
