@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -156,6 +157,26 @@ async def test_submit_form_mencatat_walau_channel_hilang():
 
 
 @pytest.mark.asyncio
+async def test_submit_form_langsung_menyimpan_ke_disk():
+    """Antrean disimpan saat submit, jadi restart bot tidak menghilangkan jawaban."""
+    import modal_forms as mf
+
+    class _Response:
+        async def send_message(self, isi, **kwargs):
+            pass
+
+    interaksi = SimpleNamespace(
+        guild=SimpleNamespace(id=GID),
+        user=SimpleNamespace(id=5, display_name="Sari", name="Sari"),
+        client=None,
+        response=_Response(),
+    )
+    assert await mf.submit_form(interaksi, _form(), {"nama": "Sari", "alasan": "Halo"}) is False
+    assert Path(mf.FORMS_FILE).exists()
+    isi = json.loads(Path(mf.FORMS_FILE).read_text(encoding="utf-8"))
+    assert isi["inbox"][str(GID)]
+
+
 async def test_submit_form_mode_uji_tidak_mengisi_antrean():
     class _Response:
         async def defer(self, **kwargs):

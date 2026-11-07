@@ -549,6 +549,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_antispam_to_disk()
         await save_moderation_to_disk()
         await save_reports_to_disk()
+        await modal_forms.save_to_disk()
         await save_tags_to_disk()
         await save_achievements_to_disk()
         await save_highlights_to_disk()

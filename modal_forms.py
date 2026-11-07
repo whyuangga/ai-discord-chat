@@ -620,6 +620,7 @@ async def submit_form(
         user_nama=str(getattr(member, "display_name", "") or getattr(member, "name", "")),
         values=values,
     )
+    await save_to_disk()  # jawaban langsung aman di disk, bukan hanya di memori
 
     channel = None
     if form.get("channel_id"):
