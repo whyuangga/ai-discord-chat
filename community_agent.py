@@ -1471,23 +1471,11 @@ def _balas_mode_smart(
         _append_channel_history(conv_id, "user", f"[{message.author.display_name}]: {content}")
 
 
-def should_agent_reply_in_chat(
-    message: discord.Message,
-    bot_user: discord.ClientUser | discord.User,
-) -> tuple[bool, bool]:
-    """Menentukan secara cerdas & sopan apakah AI Agent perlu membalas pesan di channel publik / Forum Post.
+def _siapkan_state_obrolan(message: discord.Message, ch_cfg: dict, is_post_thread: bool):
+    """Ambil state bag percakapan & catat aktivitas manusia terbaru.
 
-    Returns:
-        (should_reply, use_reply_reference)
+    Mengembalikan `(conv_id, state_bag, now, prev_activity, last_bot_at)`.
     """
-    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
-    if cfg_cid is None:
-        return False, False
-
-    ch_cfg = chat_agent_channels.get(cfg_cid)
-    if not ch_cfg or not ch_cfg.get("enabled"):
-        return False, False
-
     conv_id = message.channel.id
     state_bag = _post_runtime_state.setdefault(conv_id, {}) if is_post_thread else ch_cfg
 
@@ -1500,7 +1488,17 @@ def should_agent_reply_in_chat(
     ch_cfg["last_activity_at"] = now
     ch_cfg["last_human_at"] = now
     ch_cfg["consecutive_idle_pokes"] = 0
+    return conv_id, state_bag, now, prev_activity, last_bot_at
 
+
+def _konteks_pesan_obrolan(
+    message: discord.Message, ch_cfg: dict, bot_user, conv_id: int, now: float
+):
+    """Isi pesan, konteks forum, dan sinyal lawan bicara untuk satu pesan.
+
+    Mengembalikan `(content, post_title, is_starter_post, is_direct_mention,
+    replied_to_bot, directed_at_other_human, humans_chatting_together)`.
+    """
     content = (message.content or "").strip()
     post_title, _, is_starter_post = _extract_forum_post_context(message)
     guild_cfg = get_guild_settings(ch_cfg["guild_id"])
@@ -1510,8 +1508,28 @@ def should_agent_reply_in_chat(
     humans_chatting_together = _record_and_check_crowd_chat(
         conv_id, message.author.id, now
     )
+    return (
+        content,
+        post_title,
+        is_starter_post,
+        is_direct_mention,
+        replied_to_bot,
+        directed_at_other_human,
+        humans_chatting_together,
+    )
 
-    # 1. Abaikan perintah untuk bot lain (contoh: m!play, $wa, owo, .help) kecuali memanggil bot ini langsung
+
+def _saring_balasan_langsung(
+    message: discord.Message,
+    content: str,
+    conv_id: int,
+    state_bag: dict,
+    *,
+    is_direct_mention: bool,
+    replied_to_bot: bool,
+    directed_at_other_human: bool,
+) -> tuple[bool, bool] | None:
+    """Aturan yang memutus lebih awal; `None` berarti lanjut ke pemeriksaan berikutnya."""
     if content and _OTHER_BOT_COMMAND_RE.match(content) and not is_direct_mention and not replied_to_bot:
         return False, False
 
@@ -1526,7 +1544,25 @@ def should_agent_reply_in_chat(
         state_bag["last_bot_target_user_id"] = message.author.id
         state_bag["warm_followups"] = 0
         return True, True
-    # 4. Member hanya membagikan link (YouTube/Spotify/TikTok/IG/Web) tanpa memanggil bot
+    return None
+
+
+def _lanjutkan_penilaian_balasan(
+    message: discord.Message,
+    content: str,
+    ch_cfg: dict,
+    state_bag: dict,
+    *,
+    cfg_cid: int,
+    conv_id: int,
+    now: float,
+    last_bot_at: float,
+    prev_activity: float,
+    is_starter_post: bool,
+    post_title: str,
+    humans_chatting_together: bool,
+) -> tuple[bool, bool]:
+    """Lanjutan penilaian: link, lampiran audio, starter post, cooldown, voice note, mode smart."""
     hasil_link = _balas_link_atau_lewati(
         message,
         content,
@@ -1575,6 +1611,64 @@ def should_agent_reply_in_chat(
         now=now,
         prev_activity=prev_activity,
         last_bot_at=last_bot_at,
+        humans_chatting_together=humans_chatting_together,
+    )
+
+
+def should_agent_reply_in_chat(
+    message: discord.Message,
+    bot_user: discord.ClientUser | discord.User,
+) -> tuple[bool, bool]:
+    """Menentukan secara cerdas & sopan apakah AI Agent perlu membalas pesan di channel publik / Forum Post.
+
+    Returns:
+        (should_reply, use_reply_reference)
+    """
+    cfg_cid, is_post_thread, _ = resolve_agent_channel_id(message.channel)
+    if cfg_cid is None:
+        return False, False
+
+    ch_cfg = chat_agent_channels.get(cfg_cid)
+    if not ch_cfg or not ch_cfg.get("enabled"):
+        return False, False
+
+    conv_id, state_bag, now, prev_activity, last_bot_at = _siapkan_state_obrolan(
+        message, ch_cfg, is_post_thread
+    )
+    (
+        content,
+        post_title,
+        is_starter_post,
+        is_direct_mention,
+        replied_to_bot,
+        directed_at_other_human,
+        humans_chatting_together,
+    ) = _konteks_pesan_obrolan(message, ch_cfg, bot_user, conv_id, now)
+
+    hasil_awal = _saring_balasan_langsung(
+        message,
+        content,
+        conv_id,
+        state_bag,
+        is_direct_mention=is_direct_mention,
+        replied_to_bot=replied_to_bot,
+        directed_at_other_human=directed_at_other_human,
+    )
+    if hasil_awal is not None:
+        return hasil_awal
+
+    return _lanjutkan_penilaian_balasan(
+        message,
+        content,
+        ch_cfg,
+        state_bag,
+        cfg_cid=cfg_cid,
+        conv_id=conv_id,
+        now=now,
+        last_bot_at=last_bot_at,
+        prev_activity=prev_activity,
+        is_starter_post=is_starter_post,
+        post_title=post_title,
         humans_chatting_together=humans_chatting_together,
     )
 
