@@ -102,6 +102,117 @@ def _build_channel_spotlight_summary(guild: discord.Guild, cid: int) -> str:
         f"\n🌍 Fakta Harian: `{b(fak_on)}` • 🛡️ Anti-Phishing: `{b(sec_on)}`"
     )
     return line1 + line2 + line3
+def _sorot_chat(guild: discord.Guild, guild_chats: list, now_ts: float) -> list[str]:
+    """Baris ringkas untuk tiap channel/forum auto-chat beserta mode jedanya."""
+    chat_lines: list[str] = []
+    for cid, cdata in guild_chats:
+        ch_obj = guild.get_channel(cid)
+        is_forum_ch = isinstance(ch_obj, discord.ForumChannel)
+        idle_s = int(
+            cdata.get("idle_seconds")
+            if cdata.get("idle_seconds") is not None
+            else int(cdata.get("idle_minutes") or 0) * 60
+        )
+        if is_forum_ch:
+            idle_info = "`Mode Forum (Aktif di Postingan)`"
+        elif idle_s <= 0:
+            idle_info = "Pemecah Sepi: `Mati`"
+        elif int(cdata.get("consecutive_idle_pokes") or 0) >= AGENT_MAX_IDLE_POKES:
+            idle_info = f"`{format_idle_duration(idle_s)}` *(menunggu balasan warga)*"
+        else:
+            rem_sec = max(0, int(idle_s - (now_ts - float(cdata.get("last_activity_at") or now_ts))))
+            rem_lbl = f"{rem_sec} dtk" if rem_sec < 60 else f"{rem_sec // 60} mnt {rem_sec % 60} dtk"
+            idle_info = f"`{format_idle_duration(idle_s)}` *(sapa dlm ~{rem_lbl})*"
+        chat_lines.append(f"• <#{cid}> — Mode `{cdata.get('reply_mode')}` | {idle_info}")
+    return chat_lines
+
+
+def _teks_youtube(guild_yt: list) -> str:
+    """Teks status perangkum YouTube & pembaca link web."""
+    if not ENABLE_URL_READER:
+        return "⛔ **Nonaktif Global di `.env`** (`ENABLE_URL_READER=false`)"
+    if not guild_yt:
+        return "_Belum ada channel (aktifkan via panel atau `/agent youtube`)_"
+    yt_lines = [
+        f"• <#{cid}> — Mode: `{'Otomatis Semua Link' if ydata.get('auto_in_chat') else 'Saat Dipanggil & /ringkas link'}`"
+        for cid, ydata in guild_yt
+    ]
+    return "\n".join(yt_lines)
+
+
+def _teks_pencarian(guild_search: list) -> str:
+    """Teks status pencarian berita & web terkini."""
+    if not ENABLE_GOOGLE_SEARCH:
+        return "⛔ **Nonaktif Global di `.env`** (`ENABLE_GOOGLE_SEARCH=false`)"
+    if not guild_search:
+        return "_Belum ada channel (aktifkan via panel atau `/agent cari`)_"
+    s_lines = [
+        f"• <#{cid}> — `/cari`: `ON` | Auto di Chat: `{'ON' if sdata.get('auto_in_chat', True) else 'OFF'}`"
+        for cid, sdata in guild_search
+    ]
+    return "\n".join(s_lines)
+
+
+def _teks_welcome(guild_id: int) -> str:
+    """Teks status agen sambutan member."""
+    w_cfg = welcome_agent_guilds.get(guild_id)
+    if not (w_cfg and w_cfg.get("enabled")):
+        return "_Belum aktif_"
+    w_note = f" *(Info: {w_cfg['extra_note']})*" if w_cfg.get("extra_note") else ""
+    persona_lbl = GREETING_PERSONAS.get(str(w_cfg.get("persona") or "hangat"), {}).get("label", "Hangat & Tulus")
+    card_mode = str(w_cfg.get("card_mode") or "mati")
+    card_lbl = {"mati": "teks", "statis": "banner", "dinamis": "kartu"}.get(card_mode, "teks")
+    dm_lbl = " • DM ✅" if w_cfg.get("dm") else ""
+    return (
+        f"✅ Aktif di <#{w_cfg['channel_id']}> — Persona: `{persona_lbl}` "
+        f"• Tampilan: `{card_lbl}`{dm_lbl}{w_note}"
+    )
+
+
+def _teks_goodbye(guild_id: int) -> str:
+    """Teks status agen perpisahan member."""
+    gb_cfg = goodbye_agent_guilds.get(guild_id)
+    if not (gb_cfg and gb_cfg.get("enabled")):
+        return "_Belum aktif_"
+    gb_persona = GREETING_PERSONAS.get(str(gb_cfg.get("persona") or "hangat"), {}).get("label", "Hangat & Tulus")
+    return f"✅ Aktif di <#{gb_cfg['channel_id']}> — Persona: `{gb_persona}`"
+
+
+def _teks_fakta(guild_id: int, t_ctx: dict) -> str:
+    """Teks status fakta unik harian beserta jadwalnya."""
+    f_cfg = facts_guilds.get(guild_id)
+    if not (f_cfg and f_cfg.get("enabled")):
+        return "_Belum aktif_"
+    f_times = list(f_cfg.get("times") or [])
+    return (
+        f"✅ Aktif di <#{f_cfg['channel_id']}> — "
+        f"{format_facts_schedule(f_times)} {t_ctx['tz_label']} *({len(f_times)}x sehari)*"
+    )
+
+
+def _teks_keamanan(guild_id: int) -> str:
+    """Teks status agen anti-phishing."""
+    sec_cfg = security_guilds.get(guild_id)
+    if not (sec_cfg and sec_cfg.get("enabled")):
+        return "_Belum aktif_"
+    sec_scope = f"<#{sec_cfg['channel_ids'][0]}>" if sec_cfg.get("channel_ids") else "Seluruh Server"
+    return (
+        f"✅ Aktif ({sec_scope}) — Aksi: `{sec_cfg.get('action')}` | "
+        f"Diblokir: `{sec_cfg.get('blocked', 0)}`"
+    )
+
+
+def _teks_digest(guild_id: int, t_ctx: dict) -> str:
+    """Teks status koran pagi (morning digest)."""
+    d_cfg = digest_agent_guilds.get(guild_id)
+    if not (d_cfg and d_cfg.get("enabled")):
+        return "_Belum aktif_"
+    return (
+        f"✅ Aktif di <#{d_cfg['channel_id']}> pukul **`{d_cfg['hour']:02d}:{d_cfg['minute']:02d} {t_ctx['tz_label']}`** "
+        f"*(Topik: {d_cfg.get('topic')})*"
+    )
+
+
 def build_agent_status_embed(
     guild: discord.Guild,
     *,
@@ -128,105 +239,18 @@ def build_agent_status_embed(
     guild_yt = get_guild_youtube_channels(guild_id)
     guild_search = get_guild_search_channels(guild_id)
 
-    chat_lines: list[str] = []
-    for cid, cdata in guild_chats:
-        ch_obj = guild.get_channel(cid)
-        is_forum_ch = isinstance(ch_obj, discord.ForumChannel)
-        idle_s = int(
-            cdata.get("idle_seconds")
-            if cdata.get("idle_seconds") is not None
-            else int(cdata.get("idle_minutes") or 0) * 60
-        )
-        if is_forum_ch:
-            idle_info = "`Mode Forum (Aktif di Postingan)`"
-        elif idle_s <= 0:
-            idle_info = "Pemecah Sepi: `Mati`"
-        elif int(cdata.get("consecutive_idle_pokes") or 0) >= AGENT_MAX_IDLE_POKES:
-            idle_info = f"`{format_idle_duration(idle_s)}` *(menunggu balasan warga)*"
-        else:
-            rem_sec = max(0, int(idle_s - (now_ts - float(cdata.get("last_activity_at") or now_ts))))
-            rem_lbl = f"{rem_sec} dtk" if rem_sec < 60 else f"{rem_sec // 60} mnt {rem_sec % 60} dtk"
-            idle_info = f"`{format_idle_duration(idle_s)}` *(sapa dlm ~{rem_lbl})*"
-        chat_lines.append(f"• <#{cid}> — Mode `{cdata.get('reply_mode')}` | {idle_info}")
-
+    chat_lines = _sorot_chat(guild, guild_chats, now_ts)
     gal_lines = [
         f"• <#{cid}> — Auto-Reaction: `{'ON' if gdata.get('auto_reaction', True) else 'OFF'}`"
         for cid, gdata in guild_galleries
     ]
-
-    if not ENABLE_URL_READER:
-        yt_text = "⛔ **Nonaktif Global di `.env`** (`ENABLE_URL_READER=false`)"
-    elif guild_yt:
-        yt_lines = [
-            f"• <#{cid}> — Mode: `{'Otomatis Semua Link' if ydata.get('auto_in_chat') else 'Saat Dipanggil & /ringkas link'}`"
-            for cid, ydata in guild_yt
-        ]
-        yt_text = "\n".join(yt_lines)
-    else:
-        yt_text = "_Belum ada channel (aktifkan via panel atau `/agent youtube`)_"
-
-    if not ENABLE_GOOGLE_SEARCH:
-        search_text = "⛔ **Nonaktif Global di `.env`** (`ENABLE_GOOGLE_SEARCH=false`)"
-    elif guild_search:
-        s_lines = [
-            f"• <#{cid}> — `/cari`: `ON` | Auto di Chat: `{'ON' if sdata.get('auto_in_chat', True) else 'OFF'}`"
-            for cid, sdata in guild_search
-        ]
-        search_text = "\n".join(s_lines)
-    else:
-        search_text = "_Belum ada channel (aktifkan via panel atau `/agent cari`)_"
-
-    w_cfg = welcome_agent_guilds.get(guild_id)
-    if w_cfg and w_cfg.get("enabled"):
-        w_note = f" *(Info: {w_cfg['extra_note']})*" if w_cfg.get("extra_note") else ""
-        persona_lbl = GREETING_PERSONAS.get(str(w_cfg.get("persona") or "hangat"), {}).get("label", "Hangat & Tulus")
-        card_mode = str(w_cfg.get("card_mode") or "mati")
-        card_lbl = {"mati": "teks", "statis": "banner", "dinamis": "kartu"}.get(card_mode, "teks")
-        dm_lbl = " • DM ✅" if w_cfg.get("dm") else ""
-        welcome_text = (
-            f"✅ Aktif di <#{w_cfg['channel_id']}> — Persona: `{persona_lbl}` "
-            f"• Tampilan: `{card_lbl}`{dm_lbl}{w_note}"
-        )
-    else:
-        welcome_text = "_Belum aktif_"
-
-    gb_cfg = goodbye_agent_guilds.get(guild_id)
-    if gb_cfg and gb_cfg.get("enabled"):
-        gb_persona = GREETING_PERSONAS.get(str(gb_cfg.get("persona") or "hangat"), {}).get("label", "Hangat & Tulus")
-        goodbye_text = f"✅ Aktif di <#{gb_cfg['channel_id']}> — Persona: `{gb_persona}`"
-    else:
-        goodbye_text = "_Belum aktif_"
-
-    f_cfg = facts_guilds.get(guild_id)
-    if f_cfg and f_cfg.get("enabled"):
-        f_times = list(f_cfg.get("times") or [])
-        facts_text = (
-            f"✅ Aktif di <#{f_cfg['channel_id']}> — "
-            f"{format_facts_schedule(f_times)} {t_ctx['tz_label']} *({len(f_times)}x sehari)*"
-        )
-    else:
-        facts_text = "_Belum aktif_"
-
-    sec_cfg = security_guilds.get(guild_id)
-    if sec_cfg and sec_cfg.get("enabled"):
-        sec_scope = (
-            f"<#{sec_cfg['channel_ids'][0]}>" if sec_cfg.get("channel_ids") else "Seluruh Server"
-        )
-        security_text = (
-            f"✅ Aktif ({sec_scope}) — Aksi: `{sec_cfg.get('action')}` | "
-            f"Diblokir: `{sec_cfg.get('blocked', 0)}`"
-        )
-    else:
-        security_text = "_Belum aktif_"
-
-    d_cfg = digest_agent_guilds.get(guild_id)
-    if d_cfg and d_cfg.get("enabled"):
-        digest_text = (
-            f"✅ Aktif di <#{d_cfg['channel_id']}> pukul **`{d_cfg['hour']:02d}:{d_cfg['minute']:02d} {t_ctx['tz_label']}`** "
-            f"*(Topik: {d_cfg.get('topic')})*"
-        )
-    else:
-        digest_text = "_Belum aktif_"
+    yt_text = _teks_youtube(guild_yt)
+    search_text = _teks_pencarian(guild_search)
+    welcome_text = _teks_welcome(guild_id)
+    goodbye_text = _teks_goodbye(guild_id)
+    facts_text = _teks_fakta(guild_id, t_ctx)
+    security_text = _teks_keamanan(guild_id)
+    digest_text = _teks_digest(guild_id, t_ctx)
 
     desc_parts: list[str] = []
     if notice_banner:
@@ -268,16 +292,8 @@ def build_agent_status_embed(
         value="\n".join(gal_lines) if gal_lines else "_Belum ada channel aktif_",
         inline=False,
     )
-    embed.add_field(
-        name="▶️ Perangkum YouTube & Link Web",
-        value=yt_text,
-        inline=False,
-    )
-    embed.add_field(
-        name="🌐 Pencarian Berita & Web Terkini",
-        value=search_text,
-        inline=False,
-    )
+    embed.add_field(name="▶️ Perangkum YouTube & Link Web", value=yt_text, inline=False)
+    embed.add_field(name="🌐 Pencarian Berita & Web Terkini", value=search_text, inline=False)
     embed.add_field(
         name="👋 Sambutan Member & ☀️ Koran Pagi",
         value=(
@@ -293,6 +309,8 @@ def build_agent_status_embed(
         inline=False,
     )
     return embed
+
+
 class EditPersonaModal(discord.ui.Modal, title="🎭 Ubah Kepribadian AI Server"):
     nickname_input = discord.ui.TextInput(
         label="Nama Panggilan Bot (ketik - untuk reset)",
