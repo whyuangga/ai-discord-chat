@@ -4,7 +4,7 @@ import discord
 from config import BOT_VERSION
 
 # Jumlah grup/command tingkat atas — dipakai di judul ringkasan /bantuan.
-TOP_LEVEL_COUNT = 60
+TOP_LEVEL_COUNT = 61
 import ui_kit
 
 
@@ -644,20 +644,21 @@ def build_help_embed(category: str = "overview") -> discord.Embed:
                 "**🏷️ Tag, Lencana & Pantau**\n"
                 "• **`/lencana`** — lencana + role hadiah.\n"
                 "• **`/pantau`** — kata kunci → DM.\n"
-                "• **`/snipe`** — pesan yang baru dihapus/diubah.\n"
-                "• **`/curhat`** — kirim curhat anonim ke satu channel.\n"
-                "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`), 0 kuota AI.\n"
+                "• **`/snipe`** — pesan terakhir yang dihapus.\n"
+                "• **`/curhat`** — curhat anonim ke satu channel.\n"
+                "• **`/kanal-info`** — aturan & info yang diperbarui otomatis.\n"
+                "• **`/tag`** — jawaban siap pakai (`/tag lihat aturan`).\n"
                 "**🛡️ Moderasi**\n"
-                "• **`/lapor`** & **`/banding`** — member melapor / minta peninjauan hukuman.\n"
-                "• **`/mod`** — tempban, softban, note, & statistik.\n"
+                "• **`/lapor`** & **`/banding`** — lapor & minta peninjauan.\n"
+                "• **`/mod`** — tempban, softban, note, statistik.\n"
                 "**🛡️ Keamanan & Pemulihan**\n"
                 "• **`/raid`** — darurat: tahan Auto Role & verifikasi.\n"
-                "• **`/nuke`** — anti-nuke, keluarkan bot asing, & beku.\n"
+                "• **`/nuke`** — anti-nuke, keluarkan bot asing, beku.\n"
                 "• **`/backup pulihkan`** — susun ulang struktur server.\n"
                 "**📈 Retensi & Pelayanan**\n"
-                "• **`/level musim`** & **`/level prestise`** — musim + trofi.\n"
-                "• **`/musik playlist`** — playlist pribadi member.\n"
-                "• **`/tiket atur`** & **`/tiket rating`** — SLA, auto-close.\n"
+                "• **`/level musim`** & **`/level prestise`** — trofi.\n"
+                "• **`/musik playlist`** — playlist pribadi.\n"
+                "• **`/tiket atur`** & **`/tiket rating`** — SLA & rating.\n"
                 "**🧰 Admin & Diagnosa**\n"
                 "• **`/mod`** — slowmode, role, nickname.\n"
                 "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"

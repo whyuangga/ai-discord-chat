@@ -60,7 +60,7 @@ Semua di bawah ini **tidak butuh dependency baru** dan tetap JSON + 1 proses.
 | **tempban / softban / note** | wisp | Melengkapi tangga hukuman yang sudah ada | S | ★★ | **B** ✅ v1.40 |
 | **Kartu rank PNG** | Arclo, AdmiBot | Kartu level yang bisa dibanggakan; Pillow sudah dipakai untuk kartu sambutan | M | ★★★ | **A** ✅ v1.40 |
 | **Voice linking** | Arclo | Role + chat privat otomatis selama di voice | S | ★★ | **D** ✅ v1.40 |
-| **Information channel** | Arclo | Channel baca-saja berisi aturan & info, disegarkan sendiri | S | ★★ | **D** |
+| **Information channel** | Arclo | Channel baca-saja berisi aturan & info, disegarkan sendiri | S | ★★ | **D** ✅ v1.40 |
 | **Reddit / RSS generik** | Axis | Sumber konten baru tanpa API key | S | ★★ | **D** ✅ v1.40 |
 | **CAPTCHA verifikasi** | AdmiBot | Gerbang verifikasi kita masih tombol; CAPTCHA menahan bot yang lebih rajin | M | ★★ | **D** |
 | **Halaman publik server** | Axis | Keren, tapi membuka data ke publik | M | ★ | — (butuh keputusan) |
@@ -185,6 +185,10 @@ Sudah ada: `tags.py` + `cogs/tags_cog.py` + `dashboard_tags.py` (C#1),
    menimpa**, sehingga pembuatan room Temp Voice bisa mati; kini satu listener di
    `cogs/events_cog.py` memanggil XP voice, audit log, Temp Voice, dan voice linking.
 3. **Information channel** (aturan & info, disegarkan sendiri).
+   ✅ **Sudah jalan** (v1.40): modul `info_channel.py` + `/kanal-info atur|isi|segarkan|status`
+   — satu pesan embed yang **diedit**, bukan dikirim ulang (diterbitkan ulang otomatis bila
+   pesan hilang), interval verifikasi 5–1440 menit, maks 3500 huruf + panel *ℹ️ Channel info
+   otomatis* di halaman Konten & interaksi + tombol tes yang tidak mengedit apa pun.
 4. **CAPTCHA verifikasi** (kode teks/gambar, tanpa dependency baru).
 5. **Antrean submission formulir** di dashboard.
 6. **Statistik channel**: tambah angka tiket & pengikut sosial.

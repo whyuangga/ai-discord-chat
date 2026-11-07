@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "info",
+        "label": "Channel info otomatis",
+        "emoji": "ℹ️",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Cek setelan & isi channel info tanpa mengedit pesan di channel.",
+    },
+    {
         "kunci": "voice",
         "label": "Voice linking",
         "emoji": "🔗",
@@ -226,6 +235,7 @@ ANCHOR_UJI: dict[str, str] = {
     "curhat": "p-curhat",
     "sosial": "p-sosial",
     "voice": "p-voice",
+    "info": "p-info",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -250,6 +260,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-honeypot": "**Keamanan**",
     "p-sosial": "**Konten & interaksi**",
     "p-voice": "**Konten & interaksi**",
+    "p-info": "**Konten & interaksi**",
     "p-curhat": "**Konten & interaksi**",
 }
 
@@ -610,6 +621,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "info":
+            return _uji_info(gid)
         if kunci == "voice":
             return _uji_voice(bot, guild)
         if kunci == "sosial":
@@ -638,6 +651,28 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_info(guild_id: int) -> tuple[bool, str]:
+    """Simulasi channel info: periksa kelengkapan setelan, tanpa mengedit pesan."""
+    import info_channel as ic
+
+    data = ic.statistik(guild_id)
+    if not data["channel_id"]:
+        return False, (
+            "Channel info belum dipilih. Atur di halaman **Konten & interaksi** → "
+            "panel *ℹ️ Channel info otomatis*."
+        )
+    if not data["isi"]:
+        return False, "Isi channel info masih kosong — tulis aturan/info dulu di panel tersebut."
+    if not data["enabled"]:
+        return False, "Channel info sudah lengkap, tapi sakelar penyegaran masih **nonaktif**."
+    return True, (
+        f"Channel info siap: <#{data['channel_id']}> · isi {data['panjang_isi']} huruf · "
+        f"cek tiap {data['interval_menit']} menit · pesan "
+        f"{'sudah terpasang' if data['pesan_id'] else 'akan diterbitkan pada pemeriksaan berikutnya'}. "
+        "Simulasi saja — tidak ada pesan yang diedit."
+    )
 
 
 def _uji_voice(bot, guild) -> tuple[bool, str]:

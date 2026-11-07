@@ -794,6 +794,32 @@ Cara kerja:
 - Tombol tes **Voice linking** hanya memeriksa setelan & keberadaan role — tidak mengubah role
   atau channel siapa pun.
 
+### 16. ℹ️ Channel Info Otomatis (`/kanal-info`)
+
+Channel baca-saja berisi **aturan & info penting** yang diperbarui sendiri. Admin menulis isinya
+sekali; bot menerbitkan **satu pesan embed** lalu **mengedit pesan yang sama** setiap kali isi
+berubah — channel tidak penuh pesan lama. **0 kuota AI**, menumpang watcher yang sudah ada.
+
+| Command | Fungsi |
+| :--- | :--- |
+| `/kanal-info atur` | *(Admin)* Pilih channel, sakelar, judul, warna, & interval cek. |
+| `/kanal-info isi` | *(Admin)* Tulis/ganti isi aturan & info (20–3500 huruf, boleh multi-baris). |
+| `/kanal-info segarkan` | *(Admin)* Terbitkan/perbarui pesan sekarang juga. |
+| `/kanal-info status` | Lihat ringkasan setelan + cuplikan isi. |
+
+Cara kerja:
+- Pesan diterbitkan saat isi pertama kali disimpan; setelah itu **hanya diedit** (id pesan
+  disimpan di `data/info_channel.json`).
+- Bila pesan terhapus manual, bot menerbitkannya lagi pada pemeriksaan berikutnya.
+- Interval (5–1440 menit) dipakai untuk **memverifikasi** pesan masih ada, bukan untuk
+  menulis ulang isi.
+- Bot butuh izin **Send Messages**, **Embed Links**, & **Manage Messages** di channel itu.
+- **Panel dashboard:** halaman **🧩 Konten & interaksi** → *ℹ️ Channel info otomatis* —
+  channel, sakelar, judul, warna, interval, kotak isi + tombol simpan & segarkan, plus
+  pratinjau embed. Jalur tulis: `POST /api/konten` (`info-setelan`, `info-isi`, `info-segarkan`).
+- Tombol tes **Channel info otomatis** hanya memeriksa kelengkapan setelan — tidak mengedit
+  pesan di channel.
+
 ## F. Streaming Musik 24/7 (`/musik` + Lavalink)
 
 > ⚠️ **Kenapa Lavalink?** Wispbyte hanya menjalankan **satu proses Python tanpa FFmpeg/yt-dlp**.

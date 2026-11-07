@@ -162,6 +162,12 @@ from achievements import (
     load_achievements_from_disk,
     save_achievements_to_disk,
 )
+from info_channel import (
+    cleanup_info_channel_runtime,
+    load_info_channel_from_disk,
+    run_info_channel_check,
+    save_info_channel_to_disk,
+)
 from voice_link import (
     cleanup_voice_link_runtime,
     load_voice_link_from_disk,
@@ -331,6 +337,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_hl_guilds, loaded_hl_members = load_highlights_from_disk()
         loaded_cf_guilds, loaded_cf_items = load_confessions_from_disk()
         loaded_vl_guilds, loaded_vl_links = load_voice_link_from_disk()
+        loaded_ic_guilds = load_info_channel_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
         loaded_usage_days = load_ai_usage_from_disk()
@@ -433,6 +440,7 @@ class GeminiDiscordBot(commands.Bot):
         logger.info(
             "Voice linking dimuat: %d server, %d channel.", loaded_vl_guilds, loaded_vl_links
         )
+        logger.info("Channel info dimuat: %d server.", loaded_ic_guilds)
         logger.info(
             "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
             loaded_levels,
@@ -544,6 +552,7 @@ class GeminiDiscordBot(commands.Bot):
         await save_highlights_to_disk()
         await save_confessions_to_disk()
         await save_voice_link_to_disk()
+        await save_info_channel_to_disk()
         reset_voice_sessions()
         await save_levels_to_disk()
         await stop_dashboard()
@@ -596,6 +605,7 @@ async def idle_chat_watcher():
             await run_level_season_check(bot)  # reset musim level otomatis (bila diaktifkan)
         await run_engagement_check(bot)  # giveaway berakhir, ucapan ultah, pengumuman terjadwal
         if idle_chat_watcher.current_loop % 4 == 0:
+            await run_info_channel_check(bot)  # segarkan channel info (atur & info, 0 kuota)
             await run_morning_digest_check(bot, http_session=bot.http_session)
             await run_facts_check(bot, http_session=bot.http_session)
             await run_social_check(bot, http_session=bot.http_session)  # YouTube/Twitch/TikTok (0 kuota AI)
@@ -645,6 +655,7 @@ async def idle_chat_watcher():
             cleanup_highlights_runtime()
             cleanup_confessions_runtime()
             cleanup_voice_link_runtime()
+            cleanup_info_channel_runtime()
             cleanup_temp_voice_runtime()
             cleanup_suggestions_runtime()
             cleanup_server_tools_runtime()

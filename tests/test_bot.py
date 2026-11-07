@@ -2251,6 +2251,8 @@ async def test_modular_cogs_help_menu_faq_manager_and_ram_hygiene():
         "lapor", "banding",
         # v1.40.0-beta (Paket C): tag jawaban siap pakai, lencana bertingkat, highlight
         "tag", "lencana", "pantau", "snipe", "curhat",
+        # v1.40.0-beta (Paket D): kanal info yang menyegarkan dirinya sendiri
+        "kanal-info",
     }
     assert len(chat_cmds) <= 100
 
