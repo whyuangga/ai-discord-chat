@@ -104,6 +104,15 @@ UJI: tuple[dict, ...] = (
         "contoh": "Simulasikan keputusan honeypot untuk pemilik server — tanpa tindakan apa pun.",
     },
     {
+        "kunci": "formulir",
+        "label": "Formulir & kotak masuk",
+        "emoji": "📬",
+        "grup": "Konten & interaksi",
+        "cfg": "",
+        "kolom": "",
+        "contoh": "Periksa formulir terdaftar & antrean jawaban tanpa membuat submission baru.",
+    },
+    {
         "kunci": "verifikasi",
         "label": "Gerbang verifikasi & CAPTCHA",
         "emoji": "✅",
@@ -246,6 +255,7 @@ ANCHOR_UJI: dict[str, str] = {
     "voice": "p-voice",
     "info": "p-info",
     "verifikasi": "p-keamanan",
+    "formulir": "p-form-inbox",
     "ai": "p-ai",
     "ekspor": "p-ekspor",
 }
@@ -271,6 +281,7 @@ _HALAMAN_ANCHOR: dict[str, str] = {
     "p-sosial": "**Konten & interaksi**",
     "p-voice": "**Konten & interaksi**",
     "p-info": "**Konten & interaksi**",
+    "p-form-inbox": "**Buat konten**",
     "p-curhat": "**Konten & interaksi**",
 }
 
@@ -631,6 +642,8 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
                     )
                 return _uji_giveaway(guild, member)
             return _uji_giveaway(guild, member)
+        if kunci == "formulir":
+            return _uji_formulir(gid)
         if kunci == "verifikasi":
             return _uji_verifikasi(guild)
         if kunci == "info":
@@ -663,6 +676,26 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
+
+
+def _uji_formulir(guild_id: int) -> tuple[bool, str]:
+    """Simulasi formulir: cek formulir & antrean, tanpa membuat submission."""
+    import modal_forms
+
+    formulir = modal_forms.list_forms(guild_id)
+    antrean = modal_forms.statistik_inbox(guild_id)
+    if not formulir:
+        return False, (
+            "Belum ada formulir di server ini. Buat lewat `/menu form tambah` atau panel "
+            "*➕ Buat konten* (jenis **formulir**)."
+        )
+    contoh = formulir[0]
+    kolom = len(contoh.get("fields") or [])
+    return True, (
+        f"**{len(formulir)}** formulir terdaftar (contoh: **{contoh.get('name')}** · {kolom} kolom) · "
+        f"kotak masuk: {antrean['baru']} baru / {antrean['total']} tersimpan. "
+        "Simulasi saja — tidak ada submission yang dibuat."
+    )
 
 
 def _uji_verifikasi(guild) -> tuple[bool, str]:

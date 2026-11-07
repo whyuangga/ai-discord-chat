@@ -62,6 +62,13 @@ MAX_FIELD_LENGTH = 1000        # panjang jawaban yang diterima per kolom
 MAX_RESULT_TEXT = 3800         # sisakan ruang untuk embed description (4096)
 COOLDOWN_SEC = 10.0
 
+# Antrean submission (kotak masuk dashboard)
+MAKS_ANTREAN = 200             # submission tersimpan per server
+ANTREAN_SIMPAN_HARI = 30       # entri lebih tua dibersihkan otomatis
+MAKS_JAWABAN_SIMPAN = 1000     # panjang jawaban yang disimpan di antrean
+STATUS_BARU = "baru"
+STATUS_SELESAI = "selesai"
+
 STYLE_SHORT = "pendek"
 STYLE_LONG = "panjang"
 
@@ -81,6 +88,9 @@ FORM_TOKEN_RE = re.compile(r"\{form\.([A-Za-z0-9_]+)\}")
 # ------------------------------------------------------------------------------
 forms: dict[int, dict[str, dict]] = {}     # guild_id -> form_id -> form
 _cooldown: dict[str, float] = {}           # "guild:form:user" -> timestamp
+# guild_id -> {nomor: submission}  (antrean kotak masuk dashboard)
+form_inbox: dict[int, dict[int, dict]] = {}
+_inbox_seq: dict[int, int] = {}            # nomor terakhir per server
 
 
 def _to_int(value: object, default: int = 0) -> int:
@@ -408,6 +418,130 @@ def _mark_cooldown(guild_id: int, form_id: str, user_id: int) -> None:
     _cooldown[f"{_to_int(guild_id)}:{form_id}:{_to_int(user_id)}"] = _now()
 
 
+# ------------------------------------------------------------------------------
+# ANTREAN SUBMISSION (KOTAK MASUK DASHBOARD)
+# ------------------------------------------------------------------------------
+def _rapikan_nilai(values: dict | None, form: dict | None = None) -> dict[str, str]:
+    """Jawaban modal memakai id kolom; di antrean kita tampilkan labelnya."""
+    peta = {
+        str(kolom.get("id") or ""): str(kolom.get("label") or "")
+        for kolom in (form or {}).get("fields") or []
+        if isinstance(kolom, dict)
+    }
+    hasil: dict[str, str] = {}
+    for kunci, isi in list((values or {}).items())[:MAX_FIELDS]:
+        mentah = str(kunci or "").strip()
+        nama = (peta.get(mentah) or mentah).strip()[:MAX_LABEL] or "Jawaban"
+        hasil[nama] = str(isi or "").strip()[:MAKS_JAWABAN_SIMPAN]
+    return hasil
+
+
+def catat_submission(
+    guild_id: int,
+    form: dict,
+    *,
+    user_id: int = 0,
+    user_nama: str = "",
+    values: dict | None = None,
+    sekarang: float | None = None,
+) -> dict:
+    """Simpan satu jawaban formulir ke antrean dashboard. Mengembalikan entri barunya."""
+    gid = _to_int(guild_id)
+    if not gid:
+        return {}
+    kumpulan = form_inbox.setdefault(gid, {})
+    nomor = int(_inbox_seq.get(gid, 0)) + 1
+    _inbox_seq[gid] = nomor
+
+    entri = {
+        "nomor": nomor,
+        "form_id": str(form.get("id") or ""),
+        "form_nama": str(form.get("name") or "Formulir")[:MAX_NAME],
+        "user_id": _to_int(user_id),
+        "user_nama": str(user_nama or "")[:100],
+        "dibuat": sekarang if sekarang is not None else _now(),
+        "nilai": _rapikan_nilai(values, form),
+        "status": STATUS_BARU,
+        "oleh": 0,
+        "pada": 0.0,
+    }
+    kumpulan[nomor] = entri
+
+    # buang yang paling tua bila melebihi batas
+    while len(kumpulan) > MAKS_ANTREAN:
+        tertua = min(kumpulan, key=lambda n: kumpulan[n].get("dibuat", 0))
+        kumpulan.pop(tertua, None)
+    return entri
+
+
+def daftar_submission(
+    guild_id: int, *, status: str | None = None, limit: int = 50
+) -> list[dict]:
+    """Submission terbaru lebih dulu; `status` = "baru" / "selesai" (opsional)."""
+    kumpulan = form_inbox.get(_to_int(guild_id)) or {}
+    hasil = [dict(entri) for entri in kumpulan.values()]
+    if status:
+        hasil = [entri for entri in hasil if entri.get("status") == status]
+    hasil.sort(key=lambda entri: entri.get("dibuat", 0), reverse=True)
+    return hasil[: max(1, int(limit))]
+
+
+def ambil_submission(guild_id: int, nomor: int) -> dict | None:
+    return (form_inbox.get(_to_int(guild_id)) or {}).get(_to_int(nomor))
+
+
+def tandai_submission(
+    guild_id: int, nomor: int, *, selesai: bool = True, oleh: int = 0, sekarang: float | None = None
+) -> bool:
+    entri = (form_inbox.get(_to_int(guild_id)) or {}).get(_to_int(nomor))
+    if entri is None:
+        return False
+    entri["status"] = STATUS_SELESAI if selesai else STATUS_BARU
+    entri["oleh"] = _to_int(oleh) if selesai else 0
+    entri["pada"] = (sekarang if sekarang is not None else _now()) if selesai else 0.0
+    return True
+
+
+def hapus_submission(guild_id: int, nomor: int) -> bool:
+    kumpulan = form_inbox.get(_to_int(guild_id)) or {}
+    return kumpulan.pop(_to_int(nomor), None) is not None
+
+
+def statistik_inbox(guild_id: int) -> dict:
+    kumpulan = form_inbox.get(_to_int(guild_id)) or {}
+    baru = sum(1 for entri in kumpulan.values() if entri.get("status") == STATUS_BARU)
+    return {
+        "total": len(kumpulan),
+        "baru": baru,
+        "selesai": len(kumpulan) - baru,
+        "terakhir": max((entri.get("dibuat", 0) for entri in kumpulan.values()), default=0),
+        "maks": MAKS_ANTREAN,
+    }
+
+
+def cleanup_inbox_runtime(limit: int = 500, *, sekarang: float | None = None) -> int:
+    """Buang submission yang lebih tua dari `ANTREAN_SIMPAN_HARI` (hemat disk)."""
+    kini = sekarang if sekarang is not None else _now()
+    batas = kini - ANTREAN_SIMPAN_HARI * 86400
+    dibuang = 0
+    for gid in list(form_inbox):
+        kumpulan = form_inbox[gid]
+        for nomor in list(kumpulan):
+            if dibuang >= limit:
+                break
+            if float((kumpulan.get(nomor) or {}).get("dibuat") or 0) < batas:
+                kumpulan.pop(nomor, None)
+                dibuang += 1
+        if not kumpulan:
+            form_inbox.pop(gid, None)
+    return dibuang
+
+
+def reset_inbox_state() -> None:
+    form_inbox.clear()
+    _inbox_seq.clear()
+
+
 def cleanup_runtime() -> int:
     """Bersihkan catatan cooldown yang sudah kedaluwarsa."""
     batas = _now() - COOLDOWN_SEC
@@ -478,6 +612,14 @@ async def submit_form(
             embed=preview_embed(form, values, member=member, guild=guild), ephemeral=True
         )
         return True
+
+    catat_submission(
+        getattr(guild, "id", 0),
+        form,
+        user_id=getattr(member, "id", 0),
+        user_nama=str(getattr(member, "display_name", "") or getattr(member, "name", "")),
+        values=values,
+    )
 
     channel = None
     if form.get("channel_id"):
@@ -581,6 +723,31 @@ def load_from_disk() -> int:
         logger.warning("Gagal memuat %s: %s", path, exc)
         return 0
 
+    reset_inbox_state()
+    for gid_str, kumpulan in (raw.get("inbox") or {}).items():
+        gid = _to_int(gid_str)
+        if not gid or not isinstance(kumpulan, dict):
+            continue
+        for nomor_str, entri in kumpulan.items():
+            if not isinstance(entri, dict):
+                continue
+            nomor = _to_int(nomor_str)
+            if not nomor:
+                continue
+            form_inbox.setdefault(gid, {})[nomor] = {
+                "nomor": nomor,
+                "form_id": str(entri.get("form_id") or ""),
+                "form_nama": str(entri.get("form_nama") or "Formulir")[:MAX_NAME],
+                "user_id": _to_int(entri.get("user_id")),
+                "user_nama": str(entri.get("user_nama") or "")[:100],
+                "dibuat": float(entri.get("dibuat") or 0),
+                "nilai": _rapikan_nilai(entri.get("nilai")),
+                "status": STATUS_SELESAI if entri.get("status") == STATUS_SELESAI else STATUS_BARU,
+                "oleh": _to_int(entri.get("oleh")),
+                "pada": float(entri.get("pada") or 0),
+            }
+            _inbox_seq[gid] = max(int(_inbox_seq.get(gid, 0)), nomor)
+
     total = 0
     for gid_str, bucket in (raw.get("guilds") or {}).items():
         gid = _to_int(gid_str)
@@ -619,6 +786,11 @@ async def save_to_disk() -> None:
                 "guilds": {
                     str(gid): {fid: _form_payload(form) for fid, form in bucket.items()}
                     for gid, bucket in forms.items()
+                },
+                "inbox": {
+                    str(gid): {str(nomor): entri for nomor, entri in kumpulan.items()}
+                    for gid, kumpulan in form_inbox.items()
+                    if kumpulan
                 },
             }
             sementara = Path(str(FORMS_FILE) + ".tmp")

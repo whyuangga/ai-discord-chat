@@ -163,6 +163,7 @@ from achievements import (
     save_achievements_to_disk,
 )
 from community_tools import cleanup_captcha_runtime
+from modal_forms import cleanup_inbox_runtime as cleanup_form_inbox_runtime
 from info_channel import (
     cleanup_info_channel_runtime,
     load_info_channel_from_disk,
@@ -658,6 +659,7 @@ async def idle_chat_watcher():
             cleanup_voice_link_runtime()
             cleanup_info_channel_runtime()
             cleanup_captcha_runtime()
+            cleanup_form_inbox_runtime()
             cleanup_temp_voice_runtime()
             cleanup_suggestions_runtime()
             cleanup_server_tools_runtime()

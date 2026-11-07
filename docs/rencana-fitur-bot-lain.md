@@ -195,6 +195,10 @@ Sudah ada: `tags.py` + `cogs/tags_cog.py` + `dashboard_tags.py` (C#1),
    `views/community.py` + `/verifikasi pasang … captcha:True` + sakelar *CAPTCHA verifikasi*
    di halaman Keamanan + tombol tes yang tidak memberi role.
 5. **Antrean submission formulir** di dashboard.
+   ✅ **Sudah jalan** (v1.40): `modal_forms.py` menyimpan setiap jawaban ke antrean
+   (`data/forms.json` → `inbox`, maks 200/server, dibersihkan setelah 30 hari, label kolom
+   asli, status baru/selesai + pencatat penanganan) + panel *📬 Kotak masuk formulir* di
+   halaman Buat konten + tombol tes yang tidak membuat submission.
 6. **Statistik channel**: tambah angka tiket & pengikut sosial.
 
 ## 6. Prinsip yang tetap dijaga di semua paket

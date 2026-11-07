@@ -53,6 +53,7 @@ import dashboard_curhat
 import dashboard_giveaway
 import dashboard_keamanan
 import dashboard_highlights
+import dashboard_form_inbox
 import dashboard_info
 import dashboard_lencana
 import dashboard_moderasi
@@ -560,6 +561,8 @@ def _anchor_konten(aksi: str) -> str:
         return "p-konten"
     if kunci.startswith("unggah."):
         return "p-banner"
+    if kunci.startswith("inbox-"):
+        return "p-form-inbox"
     if kunci.startswith("info-"):
         return "p-info"
     if kunci.startswith("voice-"):
@@ -675,8 +678,9 @@ HALAMAN: tuple[dict, ...] = (
         "slug": "buat",
         "menu": "➕ Buat",
         "judul": "➕ Buat konten",
-        "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan.",
-        "panel": ("p-buat", "p-tersimpan"),
+        "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan "
+        "& kotak masuk formulir.",
+        "panel": ("p-buat", "p-form-inbox", "p-tersimpan"),
     },
     {
         "slug": "panel",
@@ -711,6 +715,7 @@ ANCHOR_HALAMAN.update({
     "p-sosial": "konten",
     "p-voice": "konten",
     "p-info": "konten",
+    "p-form-inbox": "buat",
     "p-setelan": "inti",
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
@@ -766,7 +771,7 @@ BAGIAN_SAMBUTAN: tuple[tuple[str, str, str, str], ...] = (
 KARTU_HALAMAN: dict[str, tuple[str, ...]] = {"sambutan": ("welcome", "goodbye", "boost")}
 UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "": ("ai",),
-    "buat": ("pengumuman",),
+    "buat": ("pengumuman", "formulir"),
     "panel": ("panel",),
     "tiket": ("tiket",),
     "konten": ("digest", "tag", "pantau", "curhat", "sosial", "voice", "info"),
@@ -1085,6 +1090,11 @@ PANEL: dict[str, object] = {
         + (d.get("moderasi_block") or '<div class="muted">Panel moderasi tidak tersedia.</div>')
         + "\n  </div>"
     ),
+    "p-form-inbox": lambda d: (
+        '<div class="panel" id="p-form-inbox">\n    '
+        + (d.get("form_inbox_block") or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>')
+        + "\n  </div>"
+    ),
     "p-giveaway": _panel_giveaway,
     "p-tersimpan": _panel_tersimpan,
     "p-riwayat": _panel_riwayat,
@@ -1143,6 +1153,7 @@ def render_dashboard_html(
     sosial_block: str = "",
     voice_block: str = "",
     info_block: str = "",
+    form_inbox_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1234,6 +1245,7 @@ def render_dashboard_html(
         "sosial_block": sosial_block or '<div class="muted">Panel notifikasi sosial tidak tersedia.</div>',
         "voice_block": voice_block or '<div class="muted">Panel voice linking tidak tersedia.</div>',
         "info_block": info_block or '<div class="muted">Panel channel info tidak tersedia.</div>',
+        "form_inbox_block": form_inbox_block or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
         "pantau_block": pantau_block
         or '<div class="muted">Panel highlight tidak tersedia.</div>',
         "lencana_block": lencana_block
@@ -1741,6 +1753,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_curhat.render_curhat_block(bot, gid, token),
             '<div class="muted">Panel curhat tidak tersedia.</div>',
         )
+        form_inbox_block = _blok(
+            lambda: dashboard_form_inbox.render_inbox_block(bot, gid, token),
+            '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
+        )
         info_block = _blok(
             lambda: dashboard_info.render_info_block(bot, gid, token),
             '<div class="muted">Panel channel info tidak tersedia.</div>',
@@ -1836,6 +1852,7 @@ async def start_dashboard(bot) -> bool:
             sosial_block=sosial_block,
             voice_block=voice_block,
             info_block=info_block,
+            form_inbox_block=form_inbox_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -1998,6 +2015,8 @@ async def start_dashboard(bot) -> bool:
                     )
             else:
                 ok, message = False, f"Jenis `{jenis or '-'}` tidak bisa dijeda."
+        elif aksi.startswith("inbox-"):
+            ok, message = await dashboard_form_inbox.aksi_inbox(gid, aksi, payload)
         elif aksi.startswith("info-"):
             ok, message = await dashboard_info.aksi_info(bot, gid, aksi, payload)
         elif aksi.startswith("voice-"):
