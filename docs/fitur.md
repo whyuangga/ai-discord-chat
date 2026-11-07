@@ -1182,7 +1182,7 @@ Admin juga bisa memaksa lewat **`/musik node sambung:True`** tanpa me-restart bo
 
 Satu server web ringan (proses yang sama dengan bot) untuk memantau **dan** mengatur bot
 tanpa membuka Discord: status, pemakaian AI, papan level, peta fitur, **55 setelan server
-dalam 12 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
+dalam 13 halaman** (satu grup fitur = satu halaman), **kirim embed/webhook**, unggah banner
 & kartu sambutan, kotak masuk tiket, kendali giveaway, panel moderasi (antrean laporan &
 banding), serta **13 tombol tes fitur**.
 Template halaman depan ada di [README](../README.md#-dashboard-web-sekilas); rincian tiap
@@ -1193,10 +1193,10 @@ bagian ada di [Dashboard web (panel admin lengkap)](#dashboard-web-panel-admin-l
 | **Cara nyala** | Isi `DASHBOARD_TOKEN` (kata sandi acak) **dan** sediakan port (`DASHBOARD_PORT`, atau otomatis dari `SERVER_PORT`/`PORT` panel). Kosong = dashboard mati. |
 | **Akses** | `http://<ip-server>:<port>/?token=<DASHBOARD_TOKEN>` — token juga bisa lewat header `X-Dashboard-Token` / `Authorization: Bearer` atau field tersembunyi pada form. |
 | **Endpoint baca** | `/` (HTML), `/api/status`, `/api/pemakaian?guild=<id>`, `/api/level?guild=<id>`, `/api/kontrol?guild=<id>`, `/api/fitur?guild=<id>`, `/api/setelan?guild=<id>`, `/healthz` (tanpa token). |
-| **Endpoint tulis** | Sebelas jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
+| **Endpoint tulis** | Tiga belas jalur `POST`, semuanya **wajib token**: `/api/aksi` (setelan), `/api/kirim` (pesan/embed/webhook + pratinjau), `/api/konten` (buat/hapus konten), `/api/unggah` (banner & kartu), `/api/uji` (tes fitur), `/api/tiket` (balas/tutup tiket, panel tiket, topik, catatan staf), `/api/panel` (tombol/dropdown & verifikasi),
 `/api/giveaway` (buat/hentikan/reroll giveaway, template, & setelan bawaan),
 `/api/transkrip` (hapus arsip transkrip tiket),
-`/api/keamanan` (penguji aturan anti-spam),
+`/api/keamanan` (penguji aturan anti-spam), `/api/bangun` (pratinjau tema/AI, terapkan, batal, bongkar tercatat),
 `/api/moderasi` (setelan jalur laporan, status antrean, cari kasus, cabut temp-ban). Aksi lama (`level`, `ekonomi`, `tumbuh`, `antispam`, `antinuke`) tetap didukung. |
 | **Endpoint unduh** | `/api/tren` (tren AI 7 hari), `/api/ekspor?jenis=…` (CSV level/moderasi/tiket/pemakaian), & `/api/transkrip?kode=…` (transkrip HTML satu tiket). |
 | **Arsip transkrip** | Halaman `/transkrip` berisi kotak pencarian (dicari di **isi percakapan**, bukan cuma judul) + tautan buka/hapus. Tanpa JavaScript, tanpa login tambahan. |
@@ -1234,6 +1234,7 @@ semua dari satu layar, **0 kuota AI**, tanpa dependency baru, tetap satu proses.
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
 | **Konten tersimpan** | daftar pengumuman/tautan/panel/formulir/webhook + tombol **Hapus** |
 | **Kotak masuk formulir** | panel *📬 Kotak masuk formulir*: semua jawaban formulir dikumpulkan sebagai **antrean** (nomor, formulir, pengirim, waktu, status **baru/selesai**) — jawaban bisa dibaca langsung, **tandai selesai**, **buka lagi**, atau **hapus**. Batas 200/server, dibersihkan otomatis setelah 30 hari. Jalur tulis: `POST /api/konten` (`inbox-selesai:<nomor>`, `inbox-buka:<nomor>`, `inbox-hapus:<nomor>`). |
+| **Bangun server** | halaman `/bangun`: pilih satu dari 15 tema (0 kuota AI) atau rancang dengan AI; tinjau pratinjau, tekan Terapkan secara eksplisit, lihat riwayat, dan bongkar hanya item tercatat |
 | **Giveaway** | halaman `/giveaway`: buat giveaway dari HP (hadiah, channel, durasi, pemenang, level, umur akun, role bonus), **hentikan**, **undi ulang**, simpan/hapus **template**, dan atur **setelan bawaan** — semua memakai fungsi yang sama dengan command Discord |
 | **Kotak masuk tiket** | daftar tiket aktif (umur, diam, status, SLA) + **balas** & **tutup** langsung dari web, plus **pasang panel tiket** |
 | **Moderasi** | Halaman `/moderasi`: antrean **laporan member** & **banding** (ubah status + catatan), **setelan jalur laporan** (channel, cooldown, DM pelapor), daftar **temp-ban** dengan tombol cabut, **pencarian kasus** (nomor/ID/kata/jenis aksi), **statistik staf** 30 hari, & kasus terbaru |
@@ -2242,6 +2243,8 @@ menekan tombol Terapkan.**
 | `/bangun terapkan` | Terapkan rencana terakhir yang masih menunggu konfirmasi. |
 | `/bangun riwayat` | Apa yang terakhir dibangun (jumlah role/kategori/channel). |
 | `/bangun bongkar` | Hapus **hanya** item yang tercatat dibuat `/bangun` (rollback aman). |
+
+Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan hanya menghapus nama yang tercatat oleh builder. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
 
 Pengaman:
 

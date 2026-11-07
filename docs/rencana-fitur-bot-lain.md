@@ -42,7 +42,7 @@ Kolom **Paket** menunjuk ke roadmap di bagian 5.
 | **Statistik channel** | Member, boost, dll. | Member, role, boost, **tiket**, **pengikut sosial** | Tambah sumber angka tiket & sosial | **D** |
 | **Notifikasi sosial** | YouTube, Twitch, TikTok/RSS | **14 platform** satu mesin | Tambah Reddit & RSS generik (tanpa API key) | **D** |
 | **Formulir (modal)** | Buat & kirim formulir | **Antrean submission** yang direview | Daftar kiriman + status di dashboard | **D** |
-| **Dashboard** | 12 halaman, 55 setelan, 13 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
+| **Dashboard** | 13 halaman, 55 setelan, 13 tes, auto-refresh | Tiap sistem punya **halaman + statistik sistem** ("Caught today", "Cases 30 days") | Kartu statistik per halaman grup | **B** |
 
 ## 3. Fitur BARU yang layak diambil
 
@@ -246,7 +246,7 @@ dashboard:
    ✅ **Sudah jalan** (v1.40): modul `server_builder.py` + command `/bangun
    tema|rancang|terapkan|riwayat|bongkar` (15 tema, perancang AI → JSON tervalidasi, pratinjau,
    eksekusi lewat mesin `backup_restore`, rollback berbasis nama tercatat, riwayat di
-   `data/server_builder.json`). Panel dashboard menyusul di E#1b.
+   `data/server_builder.json`). ✅ **Panel dashboard** `/bangun` + `POST /api/bangun` tersedia: pratinjau, Terapkan, riwayat, dan bongkar item tercatat.
 2. **`/gambar` (`/draw`) & `/gambar edit`** — generasi gambar dari prompt + **5 rasio aspek** dan
    **referensi gambar**. ✅ **Sudah jalan** (v1.40): `cogs/gambar_cog.py` — `/gambar
    buat|edit|pilihan`, `generate_image(style=…, ratio=…)` per panggilan (tanpa mengubah setelan

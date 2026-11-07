@@ -56,6 +56,8 @@ menekan tombol Terapkan.**
 | `/bangun riwayat` | Apa yang terakhir dibangun (jumlah role/kategori/channel). |
 | `/bangun bongkar` | Hapus **hanya** item yang tercatat dibuat `/bangun` (rollback aman). |
 
+Dashboard juga menyediakan halaman **`/bangun`** dan endpoint bertoken `POST /api/bangun`: pilih tema atau kirim deskripsi AI, baca pratinjau, lalu tekan **Terapkan**. Tombol **Bongkar** meminta checkbox konfirmasi dan hanya menghapus nama yang tercatat oleh builder. Pemilihan tema tidak memakai AI; rencana AI tidak membuat struktur sebelum penerapan eksplisit.
+
 Pengaman:
 
 - Rencana divalidasi dulu: maks **8 kategori / 40 channel / 12 role**, nama ≤100 huruf, tipe

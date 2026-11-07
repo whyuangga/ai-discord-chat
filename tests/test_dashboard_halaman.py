@@ -9,6 +9,7 @@ import aiohttp
 
 import dashboard_admin
 import levels
+import server_builder as sb
 import web_dashboard
 
 GID = 1234
@@ -31,7 +32,7 @@ def test_halaman_sesuai_kelompok_fitur():
     # Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
     # Satu halaman per grup setelan — sambutan/pamit/boost digabung.
     assert slug == ["", "sambutan", "inti", "keamanan", "moderasi", "tiket", "konten",
-                    "giveaway", "kirim", "buat", "panel", "ekspor"]
+                    "bangun", "giveaway", "kirim", "buat", "panel", "ekspor"]
     assert "uji" not in slug and "setelan" not in slug
 
     # Semua panel lama tetap punya halaman — tidak ada yang hilang
@@ -80,6 +81,7 @@ def test_url_halaman_dan_pemetaan_anchor():
     assert web_dashboard.halaman_dari_anchor("p-banner") == "kirim"
     assert web_dashboard.halaman_dari_anchor("p-riwayat") == "ekspor"
     assert web_dashboard.halaman_dari_anchor("p-sambutan") == "sambutan"
+    assert web_dashboard.halaman_dari_anchor("p-bangun") == "bangun"
     assert web_dashboard.halaman_dari_anchor("p-konten") == "konten"
     assert web_dashboard.halaman_dari_anchor("p-keamanan") == "keamanan"
     # Bookmark lama tetap nyasar ke tempat yang benar
@@ -126,6 +128,8 @@ async def _jalankan(monkeypatch, bot, fn, tmp_path):
     import dashboard_unggah as du
 
     monkeypatch.setattr(du, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(dashboard_admin, "AUDIT_FILE", tmp_path / "dashboard_audit.json")
+    dashboard_admin.reset_cache()
     monkeypatch.setattr(web_dashboard, "DASHBOARD_HOST", "127.0.0.1")
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -140,6 +144,7 @@ async def _jalankan(monkeypatch, bot, fn, tmp_path):
             return await fn(session, f"http://127.0.0.1:{port}")
     finally:
         await web_dashboard.stop_dashboard()
+        dashboard_admin.reset_cache()
 
 
 async def test_semua_rute_halaman_200_dan_terisolasi(monkeypatch, tmp_path):
@@ -235,3 +240,36 @@ def test_nomor_versi_tidak_berubah():
     assert re.match(r"^\d+\.\d+\.\d+", config.BOT_VERSION)
     # halaman baru tetap ringan: tidak ada berkas statis tambahan
     assert levels.peek_level_config(0) == {}
+
+
+async def test_panel_bangun_bisa_membuat_pratinjau_tanpa_menerapkan(monkeypatch, tmp_path):
+    bot = _Bot()
+    sb.reset_state()
+
+    async def skenario(session, base):
+        async with session.post(
+            f"{base}/api/bangun",
+            data={"token": TOKEN, "guild": str(GID), "action": "tema", "tema": "coding"},
+            allow_redirects=False,
+        ) as resp:
+            assert resp.status == 303
+            assert resp.headers["Location"].startswith(f"/bangun?token={TOKEN}&guild={GID}")
+        assert sb.ambil_siap(GID) is not None
+        audit = dashboard_admin.audit_terakhir(GID, limit=1)[0]
+        assert audit["aksi"] == "bangun.tema" and audit["nilai"] == "tema:coding"
+        async with session.get(f"{base}/bangun?token={TOKEN}&guild={GID}") as resp:
+            body = await resp.text()
+            assert resp.status == 200
+            assert 'id="p-bangun"' in body
+            assert "Pratinjau menunggu keputusan" in body
+            assert "Belum ada struktur yang dibuat" in body
+
+        async with session.post(
+            f"{base}/api/bangun", data={"guild": str(GID), "action": "terapkan"}
+        ) as resp:
+            assert resp.status == 401
+
+    try:
+        await _jalankan(monkeypatch, bot, skenario, tmp_path)
+    finally:
+        sb.reset_state()

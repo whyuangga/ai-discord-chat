@@ -30,6 +30,7 @@ Endpoint:
 | `/api/fitur?guild=<id>` | JSON peta fitur server |
 | `/api/setelan?guild=<id>` | JSON semua setelan (48 fitur) + nilai sekarang |
 | `POST /api/aksi` | Ubah setelan (`action=set.<kunci>`) / sakelar cepat lama |
+| `POST /api/bangun` | Pratinjau tema/AI, terapkan, batal, riwayat & bongkar item `/bangun` tercatat |
 | `POST /api/kirim` | Kirim pesan/embed, opsional lewat webhook identitas |
 | `POST /api/konten` | Buat/hapus pengumuman, tautan, panel, formulir, pemicu; ganti/hapus banner panel |
 | `POST /api/unggah` | Simpan / hapus banner (`data/uploads/`) |
@@ -49,6 +50,7 @@ import time
 from urllib.parse import urlencode
 
 import dashboard_admin
+import dashboard_bangun
 import dashboard_curhat
 import dashboard_giveaway
 import dashboard_keamanan
@@ -664,6 +666,13 @@ HALAMAN: tuple[dict, ...] = (
         "panel": ("p-konten", "p-statistik"),
     },
     {
+        "slug": "bangun",
+        "menu": "🏗️ Bangun server",
+        "judul": "🏗️ Bangun server",
+        "keterangan": "Pilih tema 0 kuota AI atau rancang struktur dengan AI; tinjau sebelum menerapkan.",
+        "panel": ("p-bangun",),
+    },
+    {
         "slug": "giveaway",
         "menu": "🎁 Giveaway",
         "judul": "🎁 Giveaway",
@@ -1032,6 +1041,15 @@ def _panel_riwayat(d: dict) -> str:
     )
 
 
+def _panel_bangun(d: dict) -> str:
+    return (
+        '<div class="panel" id="p-bangun">\n    <h2>🏗️ Bangun server</h2>\n'
+        '    <p class="muted">Bangun dari tema atau rancangan AI, tinjau pratinjau, lalu '
+        'terapkan secara eksplisit. Riwayat rollback hanya berisi item yang dibuat fitur ini.</p>\n'
+        f'    {d["bangun_block"]}\n  </div>'
+    )
+
+
 PANEL: dict[str, object] = {
     "p-status": _panel_status,
     "p-pemakaian": _panel_pemakaian,
@@ -1105,6 +1123,7 @@ PANEL: dict[str, object] = {
         + "\n  </div>"
     ),
     "p-giveaway": _panel_giveaway,
+    "p-bangun": _panel_bangun,
     "p-tersimpan": _panel_tersimpan,
     "p-riwayat": _panel_riwayat,
 }
@@ -1164,6 +1183,7 @@ def render_dashboard_html(
     info_block: str = "",
     form_inbox_block: str = "",
     stats_block: str = "",
+    bangun_block: str = "",
     uji_block: str = "",
     setelan_welcome: str = "",
     setelan_goodbye: str = "",
@@ -1257,6 +1277,7 @@ def render_dashboard_html(
         "info_block": info_block or '<div class="muted">Panel channel info tidak tersedia.</div>',
         "form_inbox_block": form_inbox_block or '<div class="muted">Kotak masuk formulir tidak tersedia.</div>',
         "stats_block": stats_block or '<div class="muted">Panel statistik tidak tersedia.</div>',
+        "bangun_block": bangun_block or '<div class="muted">Panel bangun tidak tersedia.</div>',
         "pantau_block": pantau_block
         or '<div class="muted">Panel highlight tidak tersedia.</div>',
         "lencana_block": lencana_block
@@ -1772,6 +1793,10 @@ async def start_dashboard(bot) -> bool:
             lambda: dashboard_stats.render_stats_block(bot, gid, token),
             '<div class="muted">Panel statistik tidak tersedia.</div>',
         )
+        bangun_block = _blok(
+            lambda: dashboard_bangun.render_bangun_block(bot, gid, token),
+            '<div class="muted">Panel bangun tidak tersedia.</div>',
+        )
         info_block = _blok(
             lambda: dashboard_info.render_info_block(bot, gid, token),
             '<div class="muted">Panel channel info tidak tersedia.</div>',
@@ -1869,6 +1894,7 @@ async def start_dashboard(bot) -> bool:
             info_block=info_block,
             form_inbox_block=form_inbox_block,
             stats_block=stats_block,
+            bangun_block=bangun_block,
             uji_block=uji_block,
             setelan_welcome=setelan_welcome,
             setelan_goodbye=setelan_goodbye,
@@ -2562,6 +2588,43 @@ async def start_dashboard(bot) -> bool:
             }.get(jenis, "p-sambutan")
         return _jawab(gid, ok, message, anchor, request)
 
+    async def handle_bangun(request):
+        """Pratinjau, terapkan, atau bongkar item `/bangun` (token dashboard wajib)."""
+        if request.method != "POST":
+            return web.json_response({"error": "gunakan POST"}, status=405)
+        payload = await _payload(request)
+        galat_body = _galat_payload(payload)
+        if galat_body is not None:
+            return galat_body
+        if not _izin(request, payload):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        raw_guild = str(payload.get("guild") or "").strip()
+        gid = int(raw_guild) if raw_guild.isdigit() else _guild_hint(bot, request)[0]
+        aksi = str(payload.get("action") or payload.get("aksi") or "-").strip().lower()
+        try:
+            ok, message = await dashboard_bangun.proses_aksi(bot, gid, payload)
+        except Exception as exc:  # pragma: no cover - kegagalan Discord/API tak terduga
+            logger.warning("Dashboard bangun %s gagal (server %s): %s", aksi, gid, exc)
+            ok, message = False, f"Aksi gagal ({type(exc).__name__}); pratinjau tetap aman."
+
+        # Catat perubahan tanpa menyimpan deskripsi bebas yang dikirim ke perancang AI.
+        if aksi == "tema":
+            nilai_audit = f"tema:{str(payload.get('tema') or '')[:40]}"
+        elif aksi == "rancang":
+            nilai_audit = f"deskripsi {len(str(payload.get('deskripsi') or ''))} huruf (isi tidak dicatat)"
+        elif aksi == "terapkan":
+            nilai_audit = "rencana pratinjau"
+        elif aksi == "bongkar":
+            nilai_audit = "item tercatat" if str(payload.get("konfirmasi") or "") == "ya" else "konfirmasi belum dicentang"
+        else:
+            nilai_audit = aksi
+        await dashboard_admin.audit_append(
+            gid, f"bangun.{aksi}"[:64], nilai_audit, ok=ok, pesan=message
+        )
+        logger.info("Dashboard bangun aksi %s (server %s): %s", aksi, gid, message)
+        return _jawab(gid, ok, message, "p-bangun", request)
+
     async def handle_uji(request):
         """Jalankan satu tes fitur. Subjek tes opsional — default pemilik server."""
         if request.method != "POST":
@@ -2706,6 +2769,7 @@ async def start_dashboard(bot) -> bool:
     app.router.add_post("/api/konten", handle_konten)
     app.router.add_post("/api/unggah", handle_unggah)
     app.router.add_post("/api/uji", handle_uji)
+    app.router.add_post("/api/bangun", handle_bangun)
     app.router.add_get("/api/kartu/{jenis}", handle_kartu)
     app.router.add_get("/api/rank.png", handle_rank_png)
     app.router.add_get("/api/ekspor", handle_ekspor)
