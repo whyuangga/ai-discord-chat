@@ -14,6 +14,7 @@ karena pemicu sambutan/perpisahan mengabaikan member bot. Kuota AI tetap 1 pangg
 import datetime
 import logging
 import re
+import time
 
 logger = logging.getLogger("gemini_bot.dashboard_uji")
 
@@ -607,7 +608,11 @@ def _uji_pantau(guild_id: int) -> tuple[bool, str]:
     baris = pelanggan[0]
     kata = baris["keywords"][0]
     contoh = f"Contoh simulasi: ada info baru soal {kata} hari ini di server."
-    hasil = highlights.cocok(guild_id, contoh)
+    # Simulasi memakai waktu "setelah jeda" supaya hasilnya tidak terlihat kosong
+    # hanya karena kata itu baru saja memicu DM sungguhan.
+    hasil = highlights.cocok(
+        guild_id, contoh, sekarang=time.time() + highlights.JEDA_SAMA_KATA_DETIK + 1
+    )
     return True, (
         f"Kata `{kata}` milik <@{baris['user_id']}> cocok dengan kalimat contoh → "
         f"{len(hasil)} DM akan dikirim. Simulasi saja — tidak ada DM yang benar-benar "

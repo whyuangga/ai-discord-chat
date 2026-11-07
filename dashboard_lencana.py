@@ -32,7 +32,7 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
     data = achievements.statistik(gid)
     guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
     kanal = list(getattr(guild, "text_channels", []) or [])[:80]
-    roles = [r for r in (getattr(guild, "roles", []) or []) if not r.is_default][:60]
+    roles = [r for r in (getattr(guild, "roles", []) or []) if not getattr(r, "is_default", False)][:60]
 
     lencana = (
         '<span class="lencana on">aktif</span>'
