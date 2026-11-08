@@ -28,6 +28,8 @@ import dashboard_highlights
 import dashboard_info
 import dashboard_keamanan
 import dashboard_lencana
+import dashboard_musik
+import dashboard_sambutan
 import dashboard_moderasi
 import dashboard_panel
 import dashboard_pesan
@@ -311,6 +313,8 @@ class RuteDashboard:
             return await dashboard_info.aksi_info(self.bot, gid, aksi, payload)
         if aksi.startswith("voice-"):
             return await dashboard_voice.aksi_voice(self.bot, gid, aksi, payload)
+        if aksi.startswith("musik-"):
+            return await dashboard_musik.aksi_musik(self.bot, gid, aksi, payload)
         if aksi.startswith("sosial-"):
             return await dashboard_sosial.aksi_sosial(gid, aksi, payload)
         if aksi.startswith("curhat-"):
@@ -1196,6 +1200,8 @@ class HalamanDashboard:
             "ai_privasi_block": dashboard_ai.render_privasi_block,
             "info_block": lambda: dashboard_info.render_info_block(self.bot, gid, token),
             "voice_block": lambda: dashboard_voice.render_voice_block(self.bot, gid, token),
+            "musik_block": lambda: dashboard_musik.render_musik_block(self.bot, gid, token),
+            "tampilan_block": lambda: dashboard_sambutan.render_tampilan_block(self.bot, gid, token),
             "sosial_block": lambda: dashboard_sosial.render_sosial_block(self.bot, gid, token),
             "pantau_block": lambda: dashboard_highlights.render_highlights_block(self.bot, gid, token),
             "lencana_block": lambda: dashboard_lencana.render_lencana_block(self.bot, gid, token),
@@ -1221,6 +1227,8 @@ class HalamanDashboard:
             "ai_privasi_block": "Informasi privasi tidak tersedia.",
             "info_block": "Panel channel info tidak tersedia.",
             "voice_block": "Panel voice linking tidak tersedia.",
+            "musik_block": "Panel musik tidak tersedia.",
+            "tampilan_block": "Panel tampilan sambutan tidak tersedia.",
             "sosial_block": "Panel notifikasi sosial tidak tersedia.",
             "pantau_block": "Panel highlight tidak tersedia.",
             "lencana_block": "Panel lencana tidak tersedia.",
@@ -1247,9 +1255,18 @@ class HalamanDashboard:
             "setelan_goodbye": setelan(SETELAN_PERPISAHAN),
             "setelan_boost": setelan(SETELAN_BOOST),
         }
+        # Panel kartu dilebur menjadi satu pemilih tampilan (Card/Embed/Text/Container).
+        hasil["tampilan_block"] = _blok(
+            lambda: dashboard_sambutan.render_tampilan_block(
+                self.bot, gid, "", hanya=("welcome", "goodbye")
+            ),
+            '<div class="muted">Panel tampilan sambutan tidak tersedia.</div>',
+        )
         for jenis in ("welcome", "goodbye", "boost"):
-            hasil[f"kartu_{jenis}"] = _blok(
-                lambda j=jenis: dashboard_ui.render_kartu_block(gid, "", hanya=(j,)),
+            # Sambutan & perpisahan memakai pemilih tampilan (tidak lagi butuh
+            # slot unggah kartu); ucapan boost tetap punya slot bannernya.
+            hasil[f"kartu_{jenis}"] = () if jenis != "boost" else _blok(
+                lambda: dashboard_ui.render_kartu_block(gid, "", hanya=("boost",)),
                 '<div class="muted">Kartu tidak tersedia.</div>',
             )
             hasil[f"uji_{jenis}"] = _blok(

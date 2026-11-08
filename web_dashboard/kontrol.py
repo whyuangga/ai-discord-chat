@@ -53,6 +53,15 @@ async def apply_dashboard_action(guild_id: int, action: str, value: str) -> tupl
     act = str(action or "").strip().lower()
     val = str(value or "").strip().lower()
 
+    # Panel tampilan sambutan & perpisahan (Card/Embed/Text/Container + template).
+    if act.startswith(("sambutan.", "pamit.")):
+        import dashboard_sambutan
+
+        hasil = await dashboard_sambutan.aksi_sambutan(None, gid, action, value)
+        if hasil is None:  # pragma: no cover - awalan sudah dijaga di atas
+            return False, f"Aksi `{action}` tidak dikenal."
+        return hasil
+
     if act == "level":
         if val not in ("on", "off"):
             return False, "Nilai level harus `on` atau `off`."

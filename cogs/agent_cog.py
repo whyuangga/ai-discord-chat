@@ -22,6 +22,7 @@ from community_agent import (
     goodbye_agent_guilds,
     set_boost_config,
     set_welcome_card_mode,
+    template_greeting,
     set_welcome_dm,
     set_goodbye_config,
     should_process_member_boost,
@@ -48,6 +49,7 @@ from community_agent import (
 import ui_kit
 import ui_theme
 import welcome_media
+import welcome_view
 from config import BOT_TIMEZONE
 from utils import get_realtime_time_context
 from cogs.helpers import get_interaction_http_session
@@ -87,51 +89,65 @@ async def build_greeting_payload(
 ) -> dict:
     """Menyusun isi pesan sambutan sesuai mode tampilan server.
 
-    - `mati`    → teks biasa (tanpa embed, paling hemat)
-    - `statis`  → embed + banner unggahan Admin (`attachment://`)
-    - `dinamis` → kartu PNG (banner + foto profil + nama), mundur ke `statis`
+    Empat mode (lihat `welcome_view.VIEW_MODES`):
+
+    - `card`      → kartu PNG (banner + avatar + nama) sebagai lampiran
+    - `embed`     → embed Discord biasa
+    - `text`      → teks polos; satu-satunya mode yang bisa me-*ping* member
+    - `container` → kartu Components V2 bertema server
+
+    Mode `card` tanpa gambar kartu otomatis mundur ke `embed`, jadi sambutan
+    tidak pernah gagal hanya karena Admin belum mengunggah banner.
     """
     clean_text = str(text or "").strip()
-    if mode == "dinamis":
-        card = await welcome_media.render_card(
-            banner_bytes=welcome_media.read_banner_bytes(guild.id, kind=kind),
-            avatar_bytes=await _avatar_bytes(member),
-            title=getattr(member, "display_name", "Member"),
-            subtitle=f"Member ke-{getattr(guild, 'member_count', 0) or 0}",
-            footer=footer or guild.name,
-        )
-        if card:
-            filename = f"sambutan-{kind}.png"
-            embed = discord.Embed(
-                title=title,
-                description=clean_text[:3900],
-                color=ui_theme.accent_color(guild.id),
-                timestamp=discord.utils.utcnow(),
+    mode = welcome_view.normalisasi_mode(mode)
+
+    if mode == "card":
+        banner_bytes = welcome_media.read_banner_bytes(guild.id, kind=kind)
+        if banner_bytes:
+            card = await welcome_media.render_card(
+                banner_bytes=banner_bytes,
+                avatar_bytes=await _avatar_bytes(member),
+                title=getattr(member, "display_name", "Member"),
+                subtitle=f"Member ke-{getattr(guild, 'member_count', 0) or 0}",
+                footer=footer or guild.name,
             )
-            embed.set_image(url=f"attachment://{filename}")
-            if extra_lines:
-                embed.add_field(name="ℹ️ Info", value="\n".join(extra_lines)[:1024], inline=False)
-            return {"embed": embed, "file": discord.File(io.BytesIO(card), filename=filename)}
+            if card:
+                return welcome_view.payload(
+                    "card",
+                    guild_id=guild.id,
+                    guild=guild,
+                    member=member,
+                    teks=clean_text,
+                    kind=kind,
+                    footer=footer,
+                    kartu_bytes=card,
+                    kartu_nama=f"sambutan-{kind}.png",
+                    ekstra=extra_lines,
+                )
+        # Belum ada gambar kartu → embed (tetap rapi, tanpa lampiran).
+        mode = "embed"
 
-    path = welcome_media.banner_path(guild.id, kind=kind)
-    if path is not None:
-        filename = f"banner-{kind}{path.suffix.lower()}"
-        embed = discord.Embed(
-            title=title,
-            description=clean_text[:3900],
-            color=ui_theme.accent_color(guild.id),
-            timestamp=discord.utils.utcnow(),
-        )
-        embed.set_image(url=f"attachment://{filename}")
-        avatar = getattr(member, "display_avatar", None)
-        if getattr(avatar, "url", None):
-            embed.set_thumbnail(url=avatar.url)
-        if extra_lines:
-            embed.add_field(name="ℹ️ Info", value="\n".join(extra_lines)[:1024], inline=False)
-        embed.set_footer(text=(footer or guild.name)[:100])
-        return {"embed": embed, "file": discord.File(str(path), filename=filename)}
+    banner = welcome_media.banner_path(guild.id, kind=kind)
+    banner_url = None
+    banner_file = None
+    if banner is not None:
+        nama_banner = f"banner-{kind}{banner.suffix.lower()}"
+        banner_url = f"attachment://{nama_banner}"
+        banner_file = discord.File(str(banner), filename=nama_banner)
 
-    return {"content": clean_text[:1900]}
+    return welcome_view.payload(
+        mode,
+        guild_id=guild.id,
+        guild=guild,
+        member=member,
+        teks=clean_text,
+        kind=kind,
+        footer=footer,
+        banner_file=banner_file,
+        banner_url=banner_url,
+        ekstra=extra_lines,
+    )
 
 
 async def trigger_member_welcome(
@@ -177,12 +193,22 @@ async def trigger_member_welcome(
                     http_session=http_session,
                 )
                 if greeting:
+                    # Template Admin (opsional): menggantikan teks AI bila diisi.
+                    template = template_greeting(guild.id, "welcome")
+                    if template:
+                        greeting = welcome_view.isi_variabel(
+                            template,
+                            member=member,
+                            guild=guild,
+                            limit=1900,
+                        )
+
                     async def _kirim_sambutan(ch):
                         payload = await build_greeting_payload(
                             guild,
                             member,
                             greeting,
-                            mode=str(w_cfg.get("card_mode") or "mati"),
+                            mode=str(w_cfg.get("view_mode") or "text"),
                             kind="welcome",
                             title="👋 Selamat Datang!",
                             footer=f"{guild.name} • member ke-{getattr(guild, 'member_count', 0) or 0}",
@@ -263,37 +289,66 @@ async def _kirim_pamit_goodbye(
     member,
     guild: discord.Guild,
     days_in_server: int | None,
+    mode: str = "embed",
 ) -> None:
-    """Kirim kartu perpisahan (lengkap dengan banner) ke satu channel."""
-    embed = discord.Embed(
-        title="👋 Sampai Jumpa Lagi!",
-        description=farewell[:3900],
-        color=discord.Color.dark_grey(),
-        timestamp=discord.utils.utcnow(),
+    """Kirim pesan perpisahan sesuai mode tampilan server (card/embed/text/container)."""
+    ekstra = (
+        [f"📅 Masa kebersamaan: `{days_in_server} hari` bersama {guild.name}"]
+        if days_in_server
+        else None
     )
-    avatar = getattr(member, "display_avatar", None)
-    avatar_url = getattr(avatar, "url", None)
-    if avatar_url:
-        embed.set_thumbnail(url=avatar_url)
-    farewell_file = None
+    mode = welcome_view.normalisasi_mode(mode)
+    footer = f"Terima kasih sudah menjadi bagian dari {guild.name}"
+
+    if mode == "card":
+        kartu = await welcome_media.render_card(
+            banner_bytes=welcome_media.read_banner_bytes(guild.id, kind="goodbye")
+            or welcome_media.read_banner_bytes(guild.id, kind="welcome"),
+            avatar_bytes=await _avatar_bytes(member),
+            title=getattr(member, "display_name", "Member"),
+            subtitle=f"{days_in_server} hari bersama" if days_in_server else "Sampai jumpa!",
+            footer=guild.name,
+        )
+        if kartu:
+            isi = welcome_view.payload(
+                "card",
+                guild_id=guild.id,
+                guild=guild,
+                member=member,
+                teks=farewell,
+                kind="goodbye",
+                footer=footer,
+                kartu_bytes=kartu,
+                kartu_nama="perpisahan-goodbye.png",
+                ekstra=ekstra,
+            )
+            await ch.send(**isi)
+            return
+        mode = "embed"
+
     banner = welcome_media.banner_path(guild.id, kind="goodbye")
     if banner is None:
         banner = welcome_media.banner_path(guild.id, kind="welcome")
+    banner_url = None
+    banner_file = None
     if banner is not None:
-        banner_name = f"banner-goodbye{banner.suffix.lower()}"
-        embed.set_image(url=f"attachment://{banner_name}")
-        farewell_file = discord.File(str(banner), filename=banner_name)
-    if days_in_server:
-        embed.add_field(
-            name="📅 Masa Kebersamaan",
-            value=f"`{days_in_server} hari` bersama {guild.name}",
-            inline=True,
-        )
-    embed.set_footer(text=f"Terima kasih sudah menjadi bagian dari {guild.name}")
-    if farewell_file is not None:
-        await ch.send(embed=embed, file=farewell_file)
-    else:
-        await ch.send(embed=embed)
+        nama_banner = f"banner-goodbye{banner.suffix.lower()}"
+        banner_url = f"attachment://{nama_banner}"
+        banner_file = discord.File(str(banner), filename=nama_banner)
+
+    isi = welcome_view.payload(
+        mode,
+        guild_id=guild.id,
+        guild=guild,
+        member=member,
+        teks=farewell,
+        kind="goodbye",
+        footer=footer,
+        banner_file=banner_file,
+        banner_url=banner_url,
+        ekstra=ekstra,
+    )
+    await ch.send(**isi)
 
 
 async def trigger_member_goodbye(
@@ -357,6 +412,7 @@ async def trigger_member_goodbye(
                         member=member,
                         guild=guild,
                         days_in_server=days_in_server,
+                        mode=str(cfg.get("view_mode") or "embed"),
                     )
 
                 if await channel_targets.sebarkan(bot, ch_ids, _kirim_pamit):
@@ -901,7 +957,7 @@ async def agent_banner_cmd(
         await interaction.response.send_message(
             info
             + f"\n💡 Mode tampilan sekarang: **{ui_theme.emoji(guild_id, 'agent', '⚙️')} "
-            f"{(welcome_agent_guilds.get(guild_id) or {}).get('card_mode', 'mati')}** "
+            f"{welcome_view.label((welcome_agent_guilds.get(guild_id) or {}).get('view_mode'))}** "
             "(ubah lewat `/agent kartu`).",
             ephemeral=True,
         )
@@ -925,9 +981,10 @@ async def agent_banner_cmd(
     preview = discord.Embed(
         title=f"✅ Banner {kind} tersimpan",
         description=(
-            "Gambar dipakai saat mengirim pesan. Aktifkan tampilan lewat `/agent kartu`:\n"
-            "• **statis** — banner + teks sambutan\n"
-            "• **dinamis** — kartu berisi foto profil & nama member"
+            "Gambar dipakai saat mengirim pesan. Pilih tampilan lewat `/agent kartu`:\n"
+            "• **Card** — kartu PNG berisi banner + foto profil + nama\n"
+            "• **Embed** — banner di dalam embed\n"
+            "• **Text** / **Container** — tanpa butuh gambar"
         ),
         color=ui_theme.accent_color(guild_id),
     )
@@ -942,14 +999,15 @@ async def agent_banner_cmd(
 
 @agent_group.command(
     name="kartu",
-    description="Pilih tampilan sambutan: teks saja, banner statis, atau kartu dinamis",
+    description="Pilih tampilan sambutan: Card, Embed, Text, atau Container",
 )
 @app_commands.describe(mode="Mode tampilan sambutan member baru")
 @app_commands.choices(
     mode=[
-        app_commands.Choice(name="💬 Teks saja (paling hemat)", value="mati"),
-        app_commands.Choice(name="🖼️ Banner dari Admin (statis)", value="statis"),
-        app_commands.Choice(name="✨ Kartu dinamis (avatar + nama)", value="dinamis"),
+        app_commands.Choice(name="🖼️ Card — kartu PNG (avatar + nama)", value="card"),
+        app_commands.Choice(name="🧱 Embed — embed bertema server", value="embed"),
+        app_commands.Choice(name="📝 Text — teks biasa (bisa ping member)", value="text"),
+        app_commands.Choice(name="🗂️ Container — kartu Components V2", value="container"),
     ]
 )
 async def agent_kartu_cmd(interaction: discord.Interaction, mode: app_commands.Choice[str]):
@@ -967,23 +1025,24 @@ async def agent_kartu_cmd(interaction: discord.Interaction, mode: app_commands.C
     await save_agent_config_to_disk()
 
     notes = {
-        "mati": "Sambutan dikirim sebagai teks biasa — paling hemat RAM & kuota.",
-        "statis": "Sambutan memakai banner unggahan Admin (`/agent banner`).",
-        "dinamis": "Kartu PNG: banner + foto profil + nama member (butuh Pillow).",
+        "card": "Kartu PNG: banner + foto profil bulat + nama member.",
+        "embed": "Embed bertema server. Mention di dalam embed tidak bisa me-ping.",
+        "text": "Teks biasa — satu-satunya mode yang bisa me-ping member.",
+        "container": "Kartu Components V2 bertema server. Mention tetap jalan lewat baris pembuka.",
     }
     warning = ""
-    if chosen == "dinamis" and not welcome_media.pillow_available():
+    if chosen == "card" and not welcome_media.pillow_available():
         warning = (
-            "\n⚠️ **Pillow belum terpasang** di host — kartu dinamis otomatis mundur ke "
-            "banner statis. Tambahkan `Pillow` ke `requirements.txt` lalu restart."
+            "\n⚠️ **Pillow belum terpasang** di host — mode Card otomatis mundur ke Embed. "
+            "Tambahkan `Pillow` ke `requirements.txt` lalu restart."
         )
-    elif chosen == "dinamis":
+    elif chosen == "card":
         warning = "\n💾 Mode ini memakai +10–15 MB RAM saat merender. Matikan bila host Free Tier sesak."
-    if chosen in {"statis", "dinamis"} and not welcome_media.has_banner(guild_id):
-        warning += "\n🖼️ Belum ada banner — unggah lewat `/agent banner gambar:<file>` agar gambarnya muncul."
+    if chosen == "card" and not welcome_media.has_banner(guild_id):
+        warning += "\n🖼️ Belum ada gambar kartu — unggah lewat `/agent banner gambar:<file>` agar kartunya muncul."
 
     await interaction.response.send_message(
-        f"✅ Tampilan sambutan sekarang: **{welcome_media.CARD_MODES[chosen]['label']}**\n{notes[chosen]}{warning}",
+        f"✅ Tampilan sambutan sekarang: **{welcome_view.label(chosen)}**\n{notes[chosen]}{warning}",
         ephemeral=True,
     )
 

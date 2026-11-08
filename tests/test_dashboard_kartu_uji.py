@@ -95,7 +95,9 @@ def test_panel_kartu_menampilkan_tiga_slot(media):
     assert html.count('class="kartu-slot"') == 3
     assert "kartu.simpan:welcome" in html and "kartu.simpan:goodbye" in html
     assert html.count("Belum ada gambar") == 3
-    assert "set.sambutan.kartu" in html                      # pemilih mode kartu
+    # Pemilih mode kartu dipindah ke panel "Tampilan pesan" (dashboard_sambutan).
+    assert "set.sambutan.kartu" not in html
+    assert "pilihan-mode" not in html
 
     dashboard_unggah.simpan_kartu(GID, _Berkas(PNG, "k.png"), "goodbye")
     html = dashboard_unggah and dashboard_ui.render_kartu_block(GID, TOKEN)
@@ -261,13 +263,16 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
     halaman = f"token={TOKEN}&guild={GID}"
 
     async def skenario(session, base):
-        # Sambutan, pamit, & boost jadi satu halaman: tiga slot ada di sana
+        # Sambutan & pamit satu halaman: slot unggah kartu hanya tersisa untuk boost,
+        # karena sambutan/perpisahan kini memakai pemilih tampilan + pratinjau.
         async with session.get(f"{base}/sambutan?{halaman}") as resp:
             body = await resp.text()
             assert resp.status == 200 and 'id="p-sambutan"' in body
-            for slot in ("welcome", "goodbye", "boost"):
-                assert f"kartu.simpan:{slot}" in body
-                assert f'id="p-{slot}"' in body
+            assert "kartu.simpan:boost" in body
+            assert 'id="p-boost"' in body
+            assert 'id="p-tampilan"' in body
+            for mode in ("card", "embed", "text", "container"):
+                assert f'value="{mode}"' in body
         # Bookmark /perpisahan dialihkan ke halaman gabungan
         async with session.get(f"{base}/perpisahan?{halaman}", allow_redirects=False) as resp:
             assert resp.status == 303 and resp.headers["Location"].startswith("/sambutan?")
@@ -297,10 +302,12 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
         async with session.get(f"{base}/api/kartu/goodbye?{halaman}") as resp:
             assert resp.status == 404
 
-        # Halaman kini menampilkan thumbnail
+        # Slot unggah kini menempel di panel "Tampilan pesan" supaya mode Card
+        # punya jalan mengunggah gambarnya. Pratinjau memakai sesi cookie,
+        # bukan token di URL.
         async with session.get(f"{base}/sambutan?{halaman}") as resp:
-            # Thumbnail tidak lagi membawa token — sesi lewat cookie.
             isi = await resp.text()
+            assert "kartu.simpan:welcome" in isi
             assert "/api/kartu/welcome" in isi and f"token={TOKEN}" not in isi
 
         # Hapus

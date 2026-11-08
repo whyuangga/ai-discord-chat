@@ -25,14 +25,14 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🌐 **AI Agent publik** | `/agent` | Auto-chat dengan **etika anti-nimbrung**, forum auto-tag + `✅ Tandai Selesai`, digest pagi, welcome & goodbye | AI |
 | 🔎 **Pintasan pintar** | `/ringkas`, `/cari`, `/terjemah`, `/faq` | Rekap chat/link/YouTube, info terkini, terjemahan ter-cache, FAQ lokal | AI / 0 |
 | 🎮 **Hiburan** | `/game` | 6 mini-game tongkrongan + papan skor server | AI |
-| 🎵 **Musik 24/7** | `/musik` | Lavalink v4, panel ala Rythm, filter audio, **playlist pribadi** per member | 0 |
+| 🎵 **Musik 24/7** | `/musik` | Lavalink v4, panel **gaya LunaBot** (grid 5×3 + mini-player + rekomendasi lagu), filter audio, **playlist pribadi** per member, setelan dari dashboard | 0 |
 | 🛠️ **Server otomatis** | `/serverstats`, `/autorole`, `/fakta`, `/keamanan` | Channel statistik, auto role, fakta 4× sehari, anti-phishing | 0 |
 | 🧩 **Komunitas** | `/panel-role`, `/menu`, `/poll`, `/saran`, `/embed`, `/tempvoice`, `/starboard`, `/sticky`, `/verifikasi`, `/ingatkan`, `/info` | Reaction role, menu builder, polling, kotak saran, temp voice, sorotan pesan | 0 |
 | 📈 **Retensi & pelayanan** | `/level`, `/tiket` | XP pesan + voice, **musim** & **prestige**; tiket thread + **SLA**, **auto-close**, **rating bintang** | 0 |
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **56 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **57 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **empat tampilan sambutan** (Card/Embed/Text/Container + pratinjau + unggah gambar kartu), **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
 
 > `AI*` berarti kuota hanya terpakai bila operator secara eksplisit menjalankan generator gambar atau rancangan AI `/bangun`; membuka dashboard dan menyimpan prompt server tidak memanggil model.
 
@@ -250,6 +250,30 @@ Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu c
 - `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu slot jadwal).
 - `/fakta status` menampilkan seluruh slot, slot berikutnya, dan slot yang sudah terkirim hari ini.
 - `/keamanan cek link:https://...` bisa dipakai semua member untuk memeriksa link.
+
+---
+
+### 🎵 Panel pemutar musik (gaya LunaBot)
+
+`/musik panel` — dan panel yang diperbarui otomatis setiap ganti lagu — menampilkan satu kartu:
+
+- **Mini-player**: judul, progress bar, `posisi / durasi`, volume, `Requested by`, dan sumber lagu.
+- **Dropdown “Select a suggested song”**: 5 rekomendasi lagu sejenis; tiap opsi berketerangan
+  `artis • sumber • durasi`. Bila node belum tersambung, dropdown tidak dibuat dan panel tetap jalan.
+- **15 tombol dalam grid 5×3**:
+
+| Baris | Tombol |
+| :--- | :--- |
+| 1 | putar/jeda · sebelumnya · berikutnya · berhenti · antrean |
+| 2 | mundur 10 dtk · maju 10 dtk · favorit · radio (autoplay) · filter |
+| 3 | volume − · volume + · loop · acak · tutup panel |
+
+Tombol **favorit** menyimpan lagu yang sedang diputar ke playlist pribadi bernama **Favorit**.
+
+Setelan musik bisa diubah tanpa command dari dashboard web: buka **🧩 Konten & interaksi → 🎵 Musik**
+untuk mengatur volume default, role DJ, filter default, mode loop, batas antrean, pengumuman panel,
+autoplay, sekaligus melihat **status node Lavalink** (tersambung / menyambung / terputus). Perubahan
+langsung berlaku ke pemutar yang sedang aktif. 0 kuota AI.
 
 ---
 
@@ -617,6 +641,7 @@ ai-discord-chat/
 │   ├── dashboard_stats.py  # Channel statistik: angka + ikon per channel
 │   ├── voice_link.py       # Voice linking — role + channel teks privat selama di voice
 │   ├── dashboard_voice.py  # Panel voice linking di halaman Konten & interaksi
+│   ├── dashboard_musik.py  # Panel musik: volume, DJ, filter, loop, batas antrean, status node
 │   ├── confessions.py      # Curhat anonim (`/curhat`) — tanpa menyimpan isi curhat
 │   ├── dashboard_curhat.py # Panel curhat di halaman Konten & interaksi
 │   ├── dashboard_sosial.py # Panel notifikasi sosial (YouTube/Twitch/TikTok/Reddit/RSS)
@@ -661,6 +686,8 @@ ai-discord-chat/
 │   ├── social_notify.py    # Notifikasi YouTube/Twitch/TikTok-RSS (parser feed, template)
 │   ├── voice_activity.py   # Pencatat aktivitas voice untuk XP & statistik
 │   ├── welcome_media.py    # Penyimpanan banner + perender kartu sambutan (Pillow)
+│   ├── welcome_view.py     # Empat mode sambutan/pamit: Card, Embed, Text, Container
+│   ├── dashboard_sambutan.py # Pemilih tampilan + pratinjau + template sambutan/pamit
 │   ├── translate_tools.py  # Mesin terjemahan + rate limit per channel
 │   ├── analytics_export.py # Ekspor CSV (level/moderasi/tiket/pemakaian) & kirim webhook
 │   └── memory_audit.py     # Audit RAM, ukuran data/, & jumlah entri cache
@@ -710,9 +737,12 @@ ai-discord-chat/
 ├── tools/
 │   ├── sync_docs.py        # docs/*.md → site/content/ (juga dipakai tes sinkronisasi)
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
-│   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
+│   ├── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
+│   └── demo/               # Alat bantu pratinjau UI (tidak dipanggil bot)
+│       ├── sambutan_pratinjau.py # Jalankan dashboard mode demo + data contoh sambutan
+│       └── sambutan_gambar.py    # Render panel sambutan jadi PNG (dokumentasi)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 64 berkas pytest → 1251 tes (1246 lulus, 5 dilewati)
+├── tests/                  # 68 berkas pytest → 1337 tes (1332 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

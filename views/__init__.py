@@ -37,6 +37,8 @@ from .music import (  # noqa: F401
     QueuePaginationView,
     MusicPlayerView,
     MUSIC_PANEL_ORDER,
+    build_mini_player,
+    build_music_panel_luna_view,
     build_music_panel_view,
 )
 from .agent import (  # noqa: F401
@@ -98,6 +100,8 @@ __all__ = [
     "build_faq_list_embed",
     "build_help_embed",
     "build_main_panel_embed",
+    "build_mini_player",
+    "build_music_panel_luna_view",
     "build_music_panel_view",
     "can_manage_session",
     "close_and_recap_session",

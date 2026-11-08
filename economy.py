@@ -410,9 +410,20 @@ def load_economy_from_disk() -> tuple[int, int]:
     return len(economy_guilds), len(balances)
 
 
+def _entri(raw: dict, kunci: str):
+    """Iterasi `(k, v)` untuk `raw[kunci]`, aman bila nilainya bukan dict.
+
+    Berkas JSON pengguna bisa berisi apa saja: list, string, atau null di posisi
+    yang seharusnya objek. Tanpa penjaga ini, `.items()` melempar AttributeError
+    dan seluruh pemuatan gagal — bukan hanya satu bagian.
+    """
+    bagian = raw.get(kunci) if isinstance(raw, dict) else None
+    return bagian.items() if isinstance(bagian, dict) else ()
+
+
 def _muat_guild_ekonomi(raw: dict) -> None:
     """Isi economy_guilds dari data mentah."""
-    for gid_str, data in (raw.get("guilds") or {}).items():
+    for gid_str, data in _entri(raw, "guilds"):
         try:
             gid = int(gid_str)
         except (TypeError, ValueError):
@@ -438,7 +449,7 @@ def _muat_guild_ekonomi(raw: dict) -> None:
 
 def _muat_saldo_ekonomi(raw: dict) -> None:
     """Isi balances dari data mentah; hanya saldo positif."""
-    for key, value in (raw.get("balances") or {}).items():
+    for key, value in _entri(raw, "balances"):
         try:
             gid_str, uid_str = str(key).split(":", 1)
             int(gid_str), int(uid_str)
@@ -451,7 +462,7 @@ def _muat_saldo_ekonomi(raw: dict) -> None:
 
 def _muat_meta_ekonomi(raw: dict) -> None:
     """Isi meta (waktu earn/daily dan streak) dari data mentah."""
-    for key, data in (raw.get("meta") or {}).items():
+    for key, data in _entri(raw, "meta"):
         if not isinstance(data, dict):
             continue
         meta[key] = {
@@ -463,7 +474,7 @@ def _muat_meta_ekonomi(raw: dict) -> None:
 
 def _muat_toko_ekonomi(raw: dict) -> None:
     """Isi shop dari data mentah, membuang item tanpa nama."""
-    for gid_str, bucket in (raw.get("shop") or {}).items():
+    for gid_str, bucket in _entri(raw, "shop"):
         try:
             gid = int(gid_str)
         except (TypeError, ValueError):

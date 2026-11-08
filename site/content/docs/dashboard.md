@@ -54,7 +54,7 @@ fitur dibagi ke **14 halaman** per grup, tanpa dependency baru dan tetap satu pr
 | **Setelan server** | **56 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
-| **Kartu sambutan** | **unggah sendiri** tiga gambar kartu (sambutan, pamit, boost) di halaman `/sambutan` — satu bagian per kartu; disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa |
+| **Tampilan sambutan** | pilih **Card / Embed / Text / Container** untuk sambutan & perpisahan di halaman `/sambutan`, lengkap dengan **pratinjau** dan template bervariabel. Gambar kartu disimpan di `data/media/` lalu dikirim ulang sebagai lampiran, jadi tidak kedaluwarsa |
 | **Kartu rank** | Halaman `/inti` → panel **🖼️ Kartu rank (PNG)**: pratinjau `GET /api/rank.png` memakai perender yang **sama** dengan `/level kartu`, sakelar hidup/mati, warna aksen hex, unggah/hapus latar, & tombol tes render. |
 | **Tes fitur** | tombol **Kirim tes** ada di halaman fiturnya (sambutan, perpisahan, boost, pengumuman, panel, tiket, giveaway, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |

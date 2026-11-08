@@ -113,6 +113,8 @@ def default_music_settings() -> dict:
         "last_track": "",
         "filter": "off",
         "autoplay": False,
+        "loop": "mati",
+        "max_queue": MUSIC_MAX_QUEUE,
     }
 
 
@@ -174,6 +176,8 @@ def set_music_settings(
     last_track: str | None = None,
     filter_name: str | None = None,
     autoplay: bool | None = None,
+    loop: str | None = None,
+    max_queue: int | None = None,
 ) -> dict:
     cfg = get_music_settings(guild_id)
     if volume is not None:
@@ -188,6 +192,10 @@ def set_music_settings(
         cfg["filter"] = str(filter_name)
     if autoplay is not None:
         cfg["autoplay"] = bool(autoplay)
+    if loop is not None and str(loop) in LOOP_MODES:
+        cfg["loop"] = str(loop)
+    if max_queue is not None:
+        cfg["max_queue"] = max(1, min(500, int(max_queue)))
     return cfg
 
 
@@ -707,12 +715,25 @@ async def ensure_player(interaction: discord.Interaction):
     return player, None
 
 
+def max_queue_untuk(player) -> int:
+    """Batas antrean server (setelan dashboard), jatuh ke env bila belum diatur."""
+    try:
+        gid = int(getattr(getattr(player, "guild", None), "id", 0) or 0)
+    except (TypeError, ValueError):
+        gid = 0
+    if not gid:
+        return MUSIC_MAX_QUEUE
+    nilai = _to_int(get_music_settings(gid).get("max_queue"), MUSIC_MAX_QUEUE)
+    return nilai if nilai > 0 else MUSIC_MAX_QUEUE
+
+
 async def enqueue_tracks(player, tracks: list, user: discord.abc.User) -> tuple[int, int]:
-    """Menambahkan lagu ke antrean (dibatasi `MUSIC_MAX_QUEUE`). Mengembalikan `(ditambah, dilewati)`."""
+    """Menambahkan lagu ke antrean (dibatasi setelan server). `(ditambah, dilewati)`."""
     added = 0
     skipped = 0
+    batas = max_queue_untuk(player)
     for track in tracks:
-        if len(player.queue) >= MUSIC_MAX_QUEUE:
+        if len(player.queue) >= batas:
             skipped += 1
             continue
         mark_requester(track, user)
@@ -942,11 +963,47 @@ def _refresh_interval(guild_id: int) -> int:
         return 10
 
 
-def _v2_panel(player, guild_id: int, *, filter_name: str | None = "off", autoplay: bool | None = False):
+# Cache rekomendasi per server: pencarian Lavalink mahal, sedangkan panel
+# di-refresh tiap beberapa detik. Kunci = guild, nilai = judul + daftar lagu.
+_REKOMENDASI_CACHE: dict[int, dict] = {}
+REKOMENDASI_COOLDOWN_GAGAL = 300  # detik; jangan spam node yang sedang mati
+
+
+async def rekomendasi_panel(player, guild_id: int) -> list:
+    """Rekomendasi ter-cache untuk lagu yang sedang diputar."""
+    current = getattr(player, "current", None)
+    if current is None:
+        return []
+    judul = str(getattr(current, "title", "") or "")
+    entri = _REKOMENDASI_CACHE.get(guild_id) or {}
+    if entri.get("judul") == judul:
+        if entri.get("daftar"):
+            return list(entri["daftar"])
+        if time.time() - float(entri.get("dicoba") or 0) < REKOMENDASI_COOLDOWN_GAGAL:
+            return []
+    daftar = await rekomendasi_lagu(current)
+    _REKOMENDASI_CACHE[guild_id] = {
+        "judul": judul,
+        "daftar": daftar,
+        "dicoba": time.time(),
+    }
+    return list(daftar)
+
+
+async def _v2_panel(player, guild_id: int, *, filter_name: str | None = "off", autoplay: bool | None = False):
     """Panel pemutar versi kartu (Components V2); `None` bila tidak tersedia."""
     try:
-        from views import build_music_panel_view
+        from views import build_music_panel_luna_view, build_music_panel_view
 
+        daftar = await rekomendasi_panel(player, guild_id)
+        luna = build_music_panel_luna_view(
+            player,
+            guild_id=guild_id,
+            rekomendasi=daftar,
+            filter_name=filter_name,
+        )
+        if luna is not None:
+            return luna
         return build_music_panel_view(
             player,
             guild_id=guild_id,
@@ -954,18 +1011,19 @@ def _v2_panel(player, guild_id: int, *, filter_name: str | None = "off", autopla
             autoplay=autoplay,
         )
     except Exception:  # pragma: no cover - views belum siap
+        logger.debug("Panel V2 gagal dibangun", exc_info=True)
         return None
 
 
 _PANEL_HILANG = object()  # penanda: pesan panel lama sudah tidak ada
 
 
-def _pilih_panel_view(view, player, guild_id: int, filter_name: str, autoplay: bool):
+async def _pilih_panel_view(view, player, guild_id: int, filter_name: str, autoplay: bool):
     """Pakai view yang diberikan, atau bangun view V2 bila tersedia."""
     panel_view = view if view is not None else _panel_view()
     use_v2 = False
     if panel_view is None or type(panel_view).__name__ == "MusicPlayerView":
-        v2_view = _v2_panel(player, guild_id, filter_name=filter_name, autoplay=autoplay)
+        v2_view = await _v2_panel(player, guild_id, filter_name=filter_name, autoplay=autoplay)
         if v2_view is not None:
             panel_view = v2_view
             use_v2 = True
@@ -1039,7 +1097,7 @@ async def send_or_update_panel(
     filter_name = settings.get("filter", "off")
     autoplay = bool(settings.get("autoplay", False))
     embed = build_player_embed(player, filter_name=filter_name, autoplay=autoplay)
-    panel_view, use_v2 = _pilih_panel_view(
+    panel_view, use_v2 = await _pilih_panel_view(
         view, player, guild_id, filter_name, autoplay
     )
     panel = music_panels.get(guild_id)
@@ -1209,3 +1267,84 @@ def set_autoplay(player, enabled: bool) -> bool:
     except Exception as exc:  # pragma: no cover - node lama
         logger.info("Gagal mengubah autoplay: %s", sanitize_error_message(exc))
         return False
+
+
+# ==============================================================================
+# REKOMENDASI LAGU (dropdown "Select a suggested song" gaya LunaBot)
+# ==============================================================================
+JUMLAH_REKOMENDASI = 5
+
+
+def _kunci_artis(track) -> str:
+    """Nama artis yang bisa dipakai sebagai kata kunci pencarian."""
+    for attr in ("author", "artist"):
+        nilai = str(getattr(track, attr, "") or "").strip()
+        if nilai:
+            # Buang embel-embel umum: "Artist - Topic", "- Topic", "(Official Video)"
+            for buang in (" - Topic", "- Topic"):
+                nilai = nilai.replace(buang, "")
+            return nilai.strip()[:80]
+    return ""
+
+
+def _kata_kunci_rekomendasi(track) -> str:
+    """Kata kunci pencarian untuk lagu sejenis (artis dulu, lalu judul)."""
+    artis = _kunci_artis(track)
+    if artis:
+        return artis
+    judul = str(getattr(track, "title", "") or "").strip()
+    # Potong pada pemisah umum supaya pencarian lebih longgar.
+    for pemisah in (" - ", " – ", " | ", " feat", " ft."):
+        if pemisah in judul:
+            judul = judul.split(pemisah)[0]
+            break
+    return judul[:80]
+
+
+async def rekomendasi_lagu(track, *, limit: int = JUMLAH_REKOMENDASI) -> list:
+    """Mencari lagu sejenis untuk dropdown rekomendasi.
+
+    Tidak pernah melempar error: bila node mati / pencarian gagal, kembalikan
+    daftar kosong supaya panel tetap tampil.
+    """
+    kunci = _kata_kunci_rekomendasi(track) if track is not None else ""
+    if not kunci:
+        return []
+    try:
+        hasil, _ = await search_tracks(kunci)
+    except Exception as exc:  # pragma: no cover - node mati
+        logger.info("Rekomendasi lagu gagal: %s", sanitize_error_message(exc))
+        return []
+
+    judul_sekarang = str(getattr(track, "title", "") or "").strip().casefold()
+    dipakai: set[str] = set()
+    pilihan = []
+    for lagu in hasil:
+        if getattr(lagu, "is_stream", False):
+            continue
+        judul = str(getattr(lagu, "title", "") or "").strip()
+        if not judul or judul.casefold() == judul_sekarang or judul.casefold() in dipakai:
+            continue
+        if not str(getattr(lagu, "uri", "") or ""):
+            continue
+        dipakai.add(judul.casefold())
+        pilihan.append(lagu)
+        if len(pilihan) >= max(1, int(limit)):
+            break
+    return pilihan
+
+
+def deskripsi_rekomendasi(track) -> str:
+    """Baris keterangan gaya LunaBot: `channel • source • durasi`."""
+    bagian = []
+    artis = _kunci_artis(track)
+    if artis:
+        bagian.append(artis)
+    sumber = str(getattr(track, "source", "") or "").strip().lower()
+    if sumber:
+        bagian.append(sumber)
+    if getattr(track, "is_stream", False):
+        bagian.append("LIVE")
+    else:
+        bagian.append(format_duration(_to_int(getattr(track, "length", 0))))
+    return " • ".join(bagian)[:100]

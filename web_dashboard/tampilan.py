@@ -240,8 +240,10 @@ def _panel_sambutan(d: dict) -> str:
     return (
         '<div class="panel" id="p-sambutan">\n    <h2>👋 Sambutan &amp; pamit</h2>\n'
         '    <p class="muted">Tiga pesan otomatis dalam satu tempat: sambutan member baru, '
-        'pesan perpisahan, dan ucapan saat server di-boost. Tiap bagian punya setelan, '
-        'gambar kartu, dan tombol tesnya sendiri.</p>\n'
+        'pesan perpisahan, dan ucapan saat server di-boost. Untuk sambutan &amp; perpisahan, '
+        'pilih tampilan <b>Card</b>, <b>Embed</b>, <b>Text</b>, atau <b>Container</b> lalu '
+        'lihat pratinjaunya.</p>\n'
+        f'    {d.get("tampilan_block", "")}'
         f"    {bagian}  </div>"
     )
 def _panel_grup(anchor: str, judul: str, ket: str, *extra: str) -> object:
@@ -321,6 +323,7 @@ PANEL: dict[str, object] = {
         "curhat",
         "sosial",
         "voice",
+        "musik",
         "info",
         "starboard",
         "uji",
@@ -406,6 +409,8 @@ _BAWAAN_BLOK: dict[str, str] = {
     "curhat_block": "Panel curhat tidak tersedia.",
     "sosial_block": "Panel notifikasi sosial tidak tersedia.",
     "voice_block": "Panel voice linking tidak tersedia.",
+    "tampilan_block": "Panel tampilan sambutan tidak tersedia.",
+    "musik_block": "Panel musik tidak tersedia.",
     "info_block": "Panel channel info tidak tersedia.",
     "form_inbox_block": "Kotak masuk formulir tidak tersedia.",
     "stats_block": "Panel statistik tidak tersedia.",
@@ -573,6 +578,8 @@ _BAWAAN_PARAM_BLOK: dict[str, str] = {
     'curhat_block': '',
     'sosial_block': '',
     'voice_block': '',
+    'tampilan_block': '',
+    'musik_block': '',
     'info_block': '',
     'form_inbox_block': '',
     'stats_block': '',

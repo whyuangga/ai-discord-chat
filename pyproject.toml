@@ -72,6 +72,8 @@ py-modules = [
     "dashboard_keamanan",
     "dashboard_lencana",
     "dashboard_moderasi",
+    "dashboard_musik",
+    "dashboard_sambutan",
     "dashboard_panel",
     "dashboard_pesan",
     "dashboard_security",
@@ -132,6 +134,7 @@ py-modules = [
     "voice_link",
     "webhook_identity",
     "welcome_media",
+    "welcome_view",
 ]
 packages = ["cogs", "views", "web_dashboard"]
 

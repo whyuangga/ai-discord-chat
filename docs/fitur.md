@@ -168,18 +168,24 @@ Fitur ini membuat bot berbaur di channel publik server — baik di **Text Channe
 - Kalimat perpisahannya **juga tetap ditulis AI** (1 panggilan per member keluar, dengan konteks lama bergabung & anti-monoton); kode hanya memilih kata perpisahan lalu menempelkan huruf latin + artinya.
 - Anti-dobel: tetap ramah kuota karena hanya 1 pesan per member keluar dan ada deduplikasi otomatis.
 
-### 8. 🖼️ Banner Gambar & Kartu Sambutan Dinamis (`/agent banner`, `/agent kartu`)
+### 8. 🖼️ Banner Gambar & Empat Tampilan Sambutan (`/agent banner`, `/agent kartu`)
 
 Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboard, cukup lewat Discord.
 
 - **`/agent banner gambar:<file> jenis:Sambutan`** — unggah gambar (PNG/JPG/WEBP/GIF, maks 8 MB) sebagai
   banner sambutan, perpisahan, atau pesan boost. Berkas disimpan di **`data/media/`**, **bukan** URL.
-- **`/agent kartu mode:<pilihan>`** — tiga tampilan sambutan:
+- **`/agent kartu mode:<pilihan>`** — empat tampilan sambutan (dan perpisahan):
   | Mode | Hasil | Biaya |
   | :--- | :--- | :--- |
-  | 💬 Teks | sambutan polos seperti sebelumnya | paling hemat |
-  | 🖼️ Statis | embed: banner + teks sambutan + foto profil kecil | ringan |
-  | ✨ Dinamis | **kartu PNG**: banner + foto profil bulat + nama + jumlah member | +10–15 MB RAM saat render |
+  | 📝 Text | teks polos — **satu-satunya mode yang bisa me-ping member** | paling hemat |
+  | 🧱 Embed | embed bertema server, banner + foto profil kecil | ringan |
+  | 🖼️ Card | **kartu PNG**: banner + foto profil bulat + nama + jumlah member | +10–15 MB RAM saat render |
+  | 🗂️ Container | kartu Components V2 bertema server | ringan |
+
+  Setelan di dashboard: halaman **👋 Sambutan & pamit → 🎨 Tampilan pesan** — pilih mode, isi
+  template (`{user_mention}`, `{user_name}`, `{server}`, `{member_count}`), lalu lihat
+  **pratinjau** bentuk pesannya sebelum menyimpan. Di panel yang sama ada slot
+  **unggah gambar kartu** untuk mode Card (+ tombol hapus), jadi tidak perlu command.
 - **`/agent dm aktif:True`** — kirim juga salinan sambutan lewat DM ke member baru
   (gagal senyap bila DM member ditutup).
 - **`/agent boost channel:#umum`** — pesan terima kasih otomatis saat ada member **nge-boost** server,
@@ -190,8 +196,12 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 > ±24 jam**. Kalau hanya URL yang disimpan, banner hilang besok. Karena itu berkasnya disimpan lokal lalu
 > dikirim ulang sebagai lampiran (`attachment://`) setiap kali sambutan dikirim.
 >
-> Mode **dinamis** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang,
-> bot otomatis mundur ke mode banner statis — tidak ada error.
+> Mode **Card** membutuhkan **Pillow** (sudah ada di `requirements.txt`). Bila Pillow tidak terpasang
+> **atau** gambar kartu belum diunggah, bot otomatis mundur ke mode **Embed** — tidak ada error.
+
+> **Kenapa mention hanya jalan di Text & Container?** Di dalam embed (dan lampiran kartu), `@nama`
+> hanyalah teks biasa — Discord tidak memicu notifikasi. Karena itu mode yang mendukung ping
+> mengirim mention lewat `content` terpisah, di luar embed/kartu.
 
 ### 9. 🔔 Notifikasi Sosial: YouTube, Twitch, TikTok, Reddit & RSS/Atom (`/sosial`)
 
@@ -1236,7 +1246,7 @@ fitur dibagi ke **14 halaman** per grup, tanpa dependency baru dan tetap satu pr
 | **Setelan server** | **56 setelan** dalam 5 grup (lihat tabel di bawah) |
 | **Kirim pesan & embed** | kirim pengumuman sekali jalan, atau lewat **identitas webhook** (nama & avatar sendiri), lengkap dengan **pratinjau sebelum kirim** |
 | **Banner & gambar** | **unggah banner** (PNG/JPG/GIF/WEBP) lalu pakai untuk banner panel atau gambar embed, tanpa perlu URL publik |
-| **Kartu sambutan** | **unggah sendiri** tiga gambar kartu (sambutan, pamit, boost) di halaman `/sambutan` — satu bagian per kartu; disimpan di `data/media/`, dikirim ulang sebagai lampiran jadi tidak kedaluwarsa |
+| **Tampilan sambutan** | pilih **Card / Embed / Text / Container** untuk sambutan & perpisahan di halaman `/sambutan`, lengkap dengan **pratinjau** dan template bervariabel. Gambar kartu disimpan di `data/media/` lalu dikirim ulang sebagai lampiran, jadi tidak kedaluwarsa |
 | **Kartu rank** | Halaman `/inti` → panel **🖼️ Kartu rank (PNG)**: pratinjau `GET /api/rank.png` memakai perender yang **sama** dengan `/level kartu`, sakelar hidup/mati, warna aksen hex, unggah/hapus latar, & tombol tes render. |
 | **Tes fitur** | tombol **Kirim tes** ada di halaman fiturnya (sambutan, perpisahan, boost, pengumuman, panel, tiket, giveaway, koran pagi, koneksi AI, ekspor). Subjek tes **tidak perlu ID**: kosongkan saja → bot memakai **pemilik server** |
 | **Buat konten** | pengumuman terjadwal, tautan embed `/l/<kode>`, panel menu (+ langsung terkirim), **formulir (modal)**, **pemicu saat member bergabung** |
