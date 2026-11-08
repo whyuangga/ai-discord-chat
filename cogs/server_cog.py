@@ -1080,6 +1080,58 @@ async def keamanan_spam_cmd(
     )
 
 
+async def _tampilkan_status_honeypot(interaction: discord.Interaction, gid: int) -> None:
+    """Tampilkan status honeypot (tanpa perubahan apa pun)."""
+    data = status_honeypot(gid)
+    if not data["aktif"]:
+        await interaction.response.send_message(
+            "ℹ️ Honeypot belum aktif. Pilih channel jebakan dulu:\n"
+            "`/keamanan honeypot channel:#promo-gratis aksi:timeout`.",
+            ephemeral=True,
+        )
+        return
+    daftar = ", ".join(f"<#{cid}>" for cid in data["channel_ids"]) or "-"
+    terakhir = data.get("terakhir") or {}
+    jejak = (
+        f"\n• **Terakhir:** <@{int(terakhir.get('user_id') or 0)}> di "
+        f"<#{int(terakhir.get('channel_id') or 0)}> (`{terakhir.get('aksi')}`)"
+        if terakhir
+        else ""
+    )
+    await interaction.response.send_message(
+        "🪤 **Status Honeypot**\n"
+        f"• **Channel jebakan:** {daftar}\n"
+        f"• **Tindakan:** {data['label_aksi']}\n"
+        f"• **Abaikan staf:** {'ya' if data['abaikan_staf'] else 'tidak'}\n"
+        f"• **Total tertangkap:** `{data['tangkap']}`"
+        f"{jejak}\nKosongkan channel untuk mematikan? Pakai `/keamanan honeypot aktif:False`.",
+        ephemeral=True,
+    )
+    return
+
+
+async def _matikan_honeypot(interaction: discord.Interaction, gid: int) -> None:
+    """Matikan honeypot; channel jebakan tetap tersimpan."""
+    set_honeypot(gid, enabled=False)
+    await save_honeypot_to_disk()
+    await interaction.response.send_message(
+        "🛑 **Honeypot dimatikan.** Channel jebakan tetap tersimpan, jadi bisa "
+        "dinyalakan lagi kapan pun.",
+        ephemeral=True,
+    )
+    return
+
+
+def _catatan_honeypot(data: dict, abaikan_staf: bool) -> str:
+    """Peringatan tambahan sesuai tindakan yang dipilih."""
+    catatan = ""
+    if data["aksi"] in ("kick", "ban") and not abaikan_staf:
+        catatan = "\n⚠️ **Abaikan staf dimatikan** — Admin/pengurus juga bisa tertangkap!"
+    elif data["aksi"] == "lapor":
+        catatan = "\nℹ️ Mode **lapor** belum menindak apa pun. Pilih `aksi:hapus`/`timeout` bila sudah yakin."
+    return catatan
+
+
 @keamanan_group.command(
     name="honeypot",
     description="Channel jebakan: siapa pun yang menulis di sana langsung ditindak (self-bot & skrip raid)",
@@ -1114,42 +1166,13 @@ async def keamanan_honeypot_cmd(
         return
 
     gid = interaction.guild.id
+
     if not aktif:
-        set_honeypot(gid, enabled=False)
-        await save_honeypot_to_disk()
-        await interaction.response.send_message(
-            "🛑 **Honeypot dimatikan.** Channel jebakan tetap tersimpan, jadi bisa "
-            "dinyalakan lagi kapan pun.",
-            ephemeral=True,
-        )
+        await _matikan_honeypot(interaction, gid)
         return
 
     if channel is None and aksi is None and not timeout_detik and log_channel is None:
-        data = status_honeypot(gid)
-        if not data["aktif"]:
-            await interaction.response.send_message(
-                "ℹ️ Honeypot belum aktif. Pilih channel jebakan dulu:\n"
-                "`/keamanan honeypot channel:#promo-gratis aksi:timeout`.",
-                ephemeral=True,
-            )
-            return
-        daftar = ", ".join(f"<#{cid}>" for cid in data["channel_ids"]) or "-"
-        terakhir = data.get("terakhir") or {}
-        jejak = (
-            f"\n• **Terakhir:** <@{int(terakhir.get('user_id') or 0)}> di "
-            f"<#{int(terakhir.get('channel_id') or 0)}> (`{terakhir.get('aksi')}`)"
-            if terakhir
-            else ""
-        )
-        await interaction.response.send_message(
-            "🪤 **Status Honeypot**\n"
-            f"• **Channel jebakan:** {daftar}\n"
-            f"• **Tindakan:** {data['label_aksi']}\n"
-            f"• **Abaikan staf:** {'ya' if data['abaikan_staf'] else 'tidak'}\n"
-            f"• **Total tertangkap:** `{data['tangkap']}`"
-            f"{jejak}\nKosongkan channel untuk mematikan? Pakai `/keamanan honeypot aktif:False`.",
-            ephemeral=True,
-        )
+        await _tampilkan_status_honeypot(interaction, gid)
         return
 
     lama = status_honeypot(gid)
@@ -1168,11 +1191,7 @@ async def keamanan_honeypot_cmd(
     assert cfg is not None
     data = status_honeypot(gid)
     log_tujuan = f"<#{data['log_channel_id']}>" if data["log_channel_id"] else "belum diatur"
-    catatan = ""
-    if data["aksi"] in ("kick", "ban") and not abaikan_staf:
-        catatan = "\n⚠️ **Abaikan staf dimatikan** — Admin/pengurus juga bisa tertangkap!"
-    elif data["aksi"] == "lapor":
-        catatan = "\nℹ️ Mode **lapor** belum menindak apa pun. Pilih `aksi:hapus`/`timeout` bila sudah yakin."
+    catatan = _catatan_honeypot(data, abaikan_staf)
     await interaction.response.send_message(
         "🪤 **Honeypot aktif**\n"
         f"• **Channel jebakan:** {', '.join(f'<#{cid}>' for cid in data['channel_ids'])}\n"
