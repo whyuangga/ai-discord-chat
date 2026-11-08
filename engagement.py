@@ -1313,6 +1313,60 @@ def match_auto_reply(channel_id: int, content: str, *, now: float | None = None)
 # ==============================================================================
 # 4. PENGUMUMAN TERJADWAL (/pengumuman)
 # ==============================================================================
+def _jadwal_interval(teks: str) -> dict | None:
+    """Parse `setiap 3 jam` / `tiap 90 menit` jadi jadwal interval."""
+
+    teks = re.sub(r"^(setiap|tiap|interval)\s*", "", teks).strip()
+
+    cocok = re.search(r"(\d{1,4})\s*(menit|mnt|min|jam|j|hr|hours?)", teks)
+
+    if not cocok:
+        return None
+
+    jumlah = int(cocok.group(1))
+
+    satuan = cocok.group(2)
+
+    menit = jumlah if satuan in ("menit", "mnt", "min") else jumlah * 60
+
+    if not (MIN_INTERVAL_MINUTES <= menit <= MAX_INTERVAL_MINUTES):
+        return None
+
+    return {
+        "kind": "interval",
+        "interval_minutes": menit,
+        "hour": 0,
+        "minute": 0,
+        "weekday": 0,
+    }
+
+
+def _jadwal_sekali(teks: str, hour: int | None, minute: int | None) -> dict | None:
+    """Parse `sekali 31-12-2026 23:59` jadi jadwal satu kali."""
+    date_match = re.search(r"(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})", teks)
+
+    if not date_match or hour is None:
+        return None
+
+    day, month, year = (int(g) for g in date_match.groups())
+
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return None
+
+    try:
+        once_dt = datetime(year, month, day, hour, minute or 0)
+    except ValueError:
+        return None
+
+    return {
+        "kind": "sekali",
+        "hour": hour,
+        "minute": minute or 0,
+        "weekday": 0,
+        "once_at": once_dt,
+    }
+
+
 def parse_announcement_schedule(raw: str | None) -> dict | None:
     """Membaca jadwal pengumuman.
 
@@ -1328,26 +1382,10 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     if not text:
         return None
     text = re.sub(r"\s+", " ", text)
-
     kind = "harian"
+
     if text.startswith(("setiap", "tiap", "interval")):
-        kind = "interval"
-        text = re.sub(r"^(setiap|tiap|interval)\s*", "", text).strip()
-        cocok = re.search(r"(\d{1,4})\s*(menit|mnt|min|jam|j|hr|hours?)", text)
-        if not cocok:
-            return None
-        jumlah = int(cocok.group(1))
-        satuan = cocok.group(2)
-        menit = jumlah if satuan in ("menit", "mnt", "min") else jumlah * 60
-        if not (MIN_INTERVAL_MINUTES <= menit <= MAX_INTERVAL_MINUTES):
-            return None
-        return {
-            "kind": "interval",
-            "interval_minutes": menit,
-            "hour": 0,
-            "minute": 0,
-            "weekday": 0,
-        }
+        return _jadwal_interval(text)
     if text.startswith("sekali"):
         kind = "sekali"
         text = text[len("sekali"):].strip()
@@ -1357,7 +1395,6 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     elif text.startswith("harian"):
         kind = "harian"
         text = text[len("harian"):].strip()
-
     time_match = re.search(r"(\d{1,2})\s*[:.]\s*(\d{2})", text)
     hour = minute = None
     if time_match:
@@ -1366,29 +1403,10 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
             return None
 
     if kind == "sekali":
-        date_match = re.search(r"(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})", text)
-        if not date_match or hour is None:
-            return None
-        day, month, year = (int(g) for g in date_match.groups())
-        if not (1 <= day <= 31 and 1 <= month <= 12):
-            return None
-        try:
-            once_dt = datetime(year, month, day, hour, minute or 0)
-        except ValueError:
-            return None
-        return {
-            "kind": "sekali",
-            "hour": hour,
-            "minute": minute or 0,
-            "weekday": 0,
-            "once_at": once_dt,
-        }
+        return _jadwal_sekali(text, hour, minute)
 
     if hour is None:
         return None
-
-    # "senin 19:00" tanpa kata "mingguan" tetap dianggap mingguan — dulu nama hari
-    # diabaikan sehingga jadwalnya berjalan SETIAP HARI.
     weekday = 0
     ada_hari = False
     for idx, name in enumerate(_WEEKDAYS):
@@ -1396,12 +1414,10 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
             weekday = idx
             ada_hari = True
             break
-
     if kind == "harian" and ada_hari:
         kind = "mingguan"
     if kind == "mingguan" and not ada_hari:
         return None
-
     return {
         "kind": kind,
         "hour": hour,
