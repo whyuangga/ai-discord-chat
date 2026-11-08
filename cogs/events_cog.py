@@ -1,3 +1,4 @@
+import functools
 import logging
 import platform
 import discord
@@ -81,32 +82,52 @@ from server_features import (
 logger = logging.getLogger("gemini_bot.events")
 
 
+def _dengan_bot(fungsi, bot):
+    """Bungkus listener ber-`(bot, ...)` agar menerima argumen event saja.
+
+    discord.py memanggil listener dengan argumen event saja — objek `bot` tidak
+    pernah disisipkan otomatis (lihat `commands.Bot.dispatch`, yang meneruskan
+    `*args` mentah ke `_run_event`). Karena `bot` adalah parameter POSISIONAL
+    pertama, ia tidak bisa diikat lewat `functools.partial(fungsi, bot=bot)`
+    (argumen event akan bentrok: "got multiple values for argument 'bot'").
+    Pembungkus ini menyisipkannya sebagai argumen posisional pertama.
+    """
+
+    @functools.wraps(fungsi)
+    async def pembungkus(*args, **kwargs):
+        return await fungsi(bot, *args, **kwargs)
+
+    return pembungkus
+
+
 def register_events_cog(bot: commands.Bot) -> None:
     """Mendaftarkan seluruh event listener Discord (startup, memori, sambutan, perutean).
 
-    Tiap event adalah fungsi tingkat modul yang menerima `bot`, jadi bisa diuji
-    langsung (`await on_message(bot_uji, pesan)`) tanpa harus menyalakan bot.
+    Tiap event adalah fungsi tingkat modul yang menerima `bot` sebagai argumen
+    pertama, jadi bisa diuji langsung (`await on_message(bot_uji, pesan)`) tanpa
+    menyalakan bot. Pengikatan `bot` dilakukan `_dengan_bot` saat pendaftaran.
     """
-    bot.add_listener(on_ready, "on_ready")
-    bot.add_listener(on_raw_thread_delete, "on_raw_thread_delete")
-    bot.add_listener(on_guild_role_create, "on_guild_role_create")
-    bot.add_listener(on_guild_role_delete, "on_guild_role_delete")
-    bot.add_listener(on_guild_channel_create, "on_guild_channel_create")
-    bot.add_listener(on_guild_channel_delete, "on_guild_channel_delete")
-    bot.add_listener(on_raw_reaction_add, "on_raw_reaction_add")
-    bot.add_listener(on_raw_reaction_remove, "on_raw_reaction_remove")
-    bot.add_listener(on_message_delete, "on_message_delete")
-    bot.add_listener(on_bulk_message_delete, "on_bulk_message_delete")
-    bot.add_listener(on_message_edit, "on_message_edit")
-    bot.add_listener(on_audit_log_entry_create, "on_audit_log_entry_create")
-    bot.add_listener(on_guild_join, "on_guild_join")
-    bot.add_listener(on_invite_create, "on_invite_create")
-    bot.add_listener(on_invite_delete, "on_invite_delete")
-    bot.add_listener(on_member_join, "on_member_join")
-    bot.add_listener(on_member_update, "on_member_update")
-    bot.add_listener(on_voice_state_update, "on_voice_state_update")
-    bot.add_listener(on_member_remove, "on_member_remove")
-    bot.add_listener(on_message, "on_message")
+    _ikat = _dengan_bot
+    bot.add_listener(_ikat(on_ready, bot), "on_ready")
+    bot.add_listener(_ikat(on_raw_thread_delete, bot), "on_raw_thread_delete")
+    bot.add_listener(_ikat(on_guild_role_create, bot), "on_guild_role_create")
+    bot.add_listener(_ikat(on_guild_role_delete, bot), "on_guild_role_delete")
+    bot.add_listener(_ikat(on_guild_channel_create, bot), "on_guild_channel_create")
+    bot.add_listener(_ikat(on_guild_channel_delete, bot), "on_guild_channel_delete")
+    bot.add_listener(_ikat(on_raw_reaction_add, bot), "on_raw_reaction_add")
+    bot.add_listener(_ikat(on_raw_reaction_remove, bot), "on_raw_reaction_remove")
+    bot.add_listener(_ikat(on_message_delete, bot), "on_message_delete")
+    bot.add_listener(_ikat(on_bulk_message_delete, bot), "on_bulk_message_delete")
+    bot.add_listener(_ikat(on_message_edit, bot), "on_message_edit")
+    bot.add_listener(_ikat(on_audit_log_entry_create, bot), "on_audit_log_entry_create")
+    bot.add_listener(_ikat(on_guild_join, bot), "on_guild_join")
+    bot.add_listener(_ikat(on_invite_create, bot), "on_invite_create")
+    bot.add_listener(_ikat(on_invite_delete, bot), "on_invite_delete")
+    bot.add_listener(_ikat(on_member_join, bot), "on_member_join")
+    bot.add_listener(_ikat(on_member_update, bot), "on_member_update")
+    bot.add_listener(_ikat(on_voice_state_update, bot), "on_voice_state_update")
+    bot.add_listener(_ikat(on_member_remove, bot), "on_member_remove")
+    bot.add_listener(_ikat(on_message, bot), "on_message")
 
 
 async def on_ready(bot):

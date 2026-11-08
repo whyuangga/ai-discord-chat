@@ -7377,7 +7377,9 @@ async def test_new_guild_gets_instant_commands_and_checklist():
     register_events_cog(bot)
 
     assert "on_guild_join" in bot.handlers
-    await bot.handlers["on_guild_join"](bot, _Guild())   # handler menerima bot sebagai arg pertama
+    # discord.py memanggil listener dengan argumen EVENT saja (tanpa bot);
+    # register_events_cog mengikat `bot` lewat pembungkus.
+    await bot.handlers["on_guild_join"](_Guild())
 
     # Command langsung disinkronkan ke server baru itu saja
     assert bot.tree.synced_guilds == [987]
