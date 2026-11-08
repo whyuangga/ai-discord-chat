@@ -1076,6 +1076,58 @@ async def mod_role_cmd(
     )
 
 
+def _pilih_target_role_massal(
+    guild: discord.Guild,
+    role: discord.Role,
+    mode: str,
+    filter_role: discord.Role | None,
+    batas: int,
+    me: discord.Member,
+) -> list[discord.Member]:
+    """Member yang perlu diberi/dicabut role, dipotong sesuai batas."""
+    targets: list[discord.Member] = []
+    for member in guild.members:
+        if member.bot or member.id == guild.owner_id or member.id == me.id:
+            continue
+        if filter_role is not None and filter_role not in member.roles:
+            continue
+        has_role = role in member.roles
+        if (mode == "beri" and has_role) or (mode == "cabut" and not has_role):
+            continue
+        targets.append(member)
+        if len(targets) >= int(batas):
+            break
+    return targets
+
+
+async def _laporkan_role_massal(
+    interaction: discord.Interaction,
+    guild_id: int,
+    role: discord.Role,
+    mode: str,
+    berhasil: int,
+    gagal: int,
+) -> None:
+    """Catat kasus moderasi lalu perbarui pesan konfirmasi."""
+    case = mod.add_case(
+        guild_id,
+        0,
+        interaction.user.id,
+        "note",
+        f"Role massal {'+' if mode == 'beri' else '-'}{role.name}: {berhasil} berhasil, {gagal} gagal",
+    )
+    await mod.save_moderation_to_disk()
+    await interaction.edit_original_response(
+        embed=ui_theme.status_embed(
+            guild_id,
+            "ok" if berhasil else "warn",
+            "Role massal selesai",
+            f"{'✅ Diberi' if mode == 'beri' else '🗑️ Dicabut'}: {role.mention}\n"
+            f"• Berhasil: **{berhasil}** • Gagal: **{gagal}**\n• Kasus: `#{case['id']}`",
+        )
+    )
+
+
 @mod_group.command(name="role-massal", description="Beri/cabut satu role ke banyak member sekaligus (dengan konfirmasi)")
 @app_commands.describe(
     role="Role yang diberikan/dicabut",
@@ -1100,7 +1152,6 @@ async def mod_role_massal_cmd(
         return
     if not _is_staff(interaction):
         return await _reject(interaction)
-
     guild = interaction.guild
     me = guild.me
     if me is None or role >= me.top_role:
@@ -1113,21 +1164,9 @@ async def mod_role_massal_cmd(
             "⚠️ Role `@everyone` atau role yang dikelola integrasi tidak bisa diubah massal.", ephemeral=True
         )
         return
-
     mode = aksi.value
-    targets: list[discord.Member] = []
-    for member in guild.members:
-        if member.bot or member.id == guild.owner_id or member.id == me.id:
-            continue
-        if filter_role is not None and filter_role not in member.roles:
-            continue
-        has_role = role in member.roles
-        if (mode == "beri" and has_role) or (mode == "cabut" and not has_role):
-            continue
-        targets.append(member)
-        if len(targets) >= int(batas):
-            break
 
+    targets = _pilih_target_role_massal(guild, role, mode, filter_role, int(batas), me)
     if not targets:
         await interaction.response.send_message(
             "ℹ️ Tidak ada member yang perlu diubah (semua sudah sesuai).", ephemeral=True
@@ -1148,23 +1187,7 @@ async def mod_role_massal_cmd(
             except (discord.Forbidden, discord.HTTPException):
                 gagal += 1
 
-        case = mod.add_case(
-            guild.id,
-            0,
-            interaction.user.id,
-            "note",
-            f"Role massal {'+' if mode == 'beri' else '-'}{role.name}: {berhasil} berhasil, {gagal} gagal",
-        )
-        await mod.save_moderation_to_disk()
-        await interaction.edit_original_response(
-            embed=ui_theme.status_embed(
-                guild.id,
-                "ok" if berhasil else "warn",
-                "Role massal selesai",
-                f"{'✅ Diberi' if mode == 'beri' else '🗑️ Dicabut'}: {role.mention}\n"
-                f"• Berhasil: **{berhasil}** • Gagal: **{gagal}**\n• Kasus: `#{case['id']}`",
-            )
-        )
+        await _laporkan_role_massal(interaction, guild.id, role, mode, berhasil, gagal)
 
     view = await ui_kit.ask_confirm(
         interaction,
@@ -1177,6 +1200,7 @@ async def mod_role_massal_cmd(
         confirm_label="Ya, jalankan",
         on_confirm=_run,
     )
+
     if view is None:  # tema server mematikan konfirmasi → langsung jalankan
         await interaction.response.defer(ephemeral=True)
         await _run()
