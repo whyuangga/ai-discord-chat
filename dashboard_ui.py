@@ -694,6 +694,69 @@ def render_honeypot_block(bot, guild_id: int, token: str) -> str:
     )
 
 
+def _tabel_statistik_aturan(stat: dict) -> str:
+    """Tabel jumlah tangkapan per aturan, atau pesan kosong."""
+    baris_stat = ""
+
+    for item in stat.get("aturan") or []:
+        baris_stat += (
+            f'<tr><td>{_esc(item.get("label"))}</td>'
+            f'<td class="angka">{int(item.get("hari_ini") or 0)}</td>'
+            f'<td class="angka">{int(item.get("total") or 0)}</td></tr>'
+        )
+
+    tabel_stat = (
+        '<table><thead><tr><th>Aturan</th><th class="angka">Hari ini</th>'
+        f'<th class="angka">Total</th></tr></thead><tbody>{baris_stat}</tbody></table>'
+        if baris_stat
+        else '<div class="muted">Belum ada statistik.</div>'
+    )
+
+    return tabel_stat
+
+
+def _panel_hasil_uji(uji: dict, label_mode: str) -> str:
+    """Panel hasil uji aturan terakhir (apa yang kena + detailnya)."""
+    baris_uji = ""
+
+    kena = set(uji.get("kena") or [])
+
+    for item in uji.get("aturan") or []:
+        tanda = "⚠️" if item.get("kena") else ("✅" if item.get("aktif") else "⏸️")
+        status = (
+            "<b>kena</b>"
+            if item.get("kena")
+            else ("aman" if item.get("aktif") else "nonaktif")
+        )
+        baris_uji += (
+            f'<tr><td>{tanda} {_esc(item.get("label"))}</td>'
+            f'<td>{status}</td>'
+            f'<td class="muted">{_esc(item.get("detail"))}</td></tr>'
+        )
+
+    ringkas = (
+        f"⚠️ <b>{len(kena)} aturan kena</b>: "
+        + ", ".join(sorted(kena))
+        if kena
+        else "✅ <b>Tidak ada aturan yang kena</b> untuk teks ini."
+    )
+
+    contoh = _esc(str(uji.get("teks") or ""))[:400]
+
+    hasil = (
+        '<div class="subpanel"><h3>Hasil uji terakhir</h3>'
+        f'<p>{ringkas} · simulasi dikirim <b>{int(uji.get("ulang") or 1)}×</b> · '
+        f'mode tindakan sekarang: <b>{_esc(label_mode)}</b></p>'
+        f'<p class="muted">Teks: <code>{contoh}</code></p>'
+        '<table><thead><tr><th>Aturan</th><th>Status</th><th>Detail</th></tr></thead>'
+        f"<tbody>{baris_uji}</tbody></table>"
+        '<p class="muted">Penguji tidak menghapus pesan, tidak me-time-out siapa pun, '
+        "dan tidak mengubah riwayat anti-spam.</p></div>"
+    )
+
+    return hasil
+
+
 def render_aturan_block(guild_id: int, token: str, data: dict) -> str:
     """Penguji aturan + statistik per aturan di halaman Keamanan."""
     import antispam
@@ -708,54 +771,8 @@ def render_aturan_block(guild_id: int, token: str, data: dict) -> str:
         "timeout": "⏳ hapus + time-out",
     }.get(mode, antispam.SPAM_MODES.get(mode, mode))
 
-    baris_stat = ""
-    for item in stat.get("aturan") or []:
-        baris_stat += (
-            f'<tr><td>{_esc(item.get("label"))}</td>'
-            f'<td class="angka">{int(item.get("hari_ini") or 0)}</td>'
-            f'<td class="angka">{int(item.get("total") or 0)}</td></tr>'
-        )
-    tabel_stat = (
-        '<table><thead><tr><th>Aturan</th><th class="angka">Hari ini</th>'
-        f'<th class="angka">Total</th></tr></thead><tbody>{baris_stat}</tbody></table>'
-        if baris_stat
-        else '<div class="muted">Belum ada statistik.</div>'
-    )
-
-    hasil = ""
-    if uji:
-        baris_uji = ""
-        kena = set(uji.get("kena") or [])
-        for item in uji.get("aturan") or []:
-            tanda = "⚠️" if item.get("kena") else ("✅" if item.get("aktif") else "⏸️")
-            status = (
-                "<b>kena</b>"
-                if item.get("kena")
-                else ("aman" if item.get("aktif") else "nonaktif")
-            )
-            baris_uji += (
-                f'<tr><td>{tanda} {_esc(item.get("label"))}</td>'
-                f'<td>{status}</td>'
-                f'<td class="muted">{_esc(item.get("detail"))}</td></tr>'
-            )
-        ringkas = (
-            f"⚠️ <b>{len(kena)} aturan kena</b>: "
-            + ", ".join(sorted(kena))
-            if kena
-            else "✅ <b>Tidak ada aturan yang kena</b> untuk teks ini."
-        )
-        contoh = _esc(str(uji.get("teks") or ""))[:400]
-        hasil = (
-            '<div class="subpanel"><h3>Hasil uji terakhir</h3>'
-            f'<p>{ringkas} · simulasi dikirim <b>{int(uji.get("ulang") or 1)}×</b> · '
-            f'mode tindakan sekarang: <b>{_esc(label_mode)}</b></p>'
-            f'<p class="muted">Teks: <code>{contoh}</code></p>'
-            '<table><thead><tr><th>Aturan</th><th>Status</th><th>Detail</th></tr></thead>'
-            f"<tbody>{baris_uji}</tbody></table>"
-            '<p class="muted">Penguji tidak menghapus pesan, tidak me-time-out siapa pun, '
-            "dan tidak mengubah riwayat anti-spam.</p></div>"
-        )
-
+    tabel_stat = _tabel_statistik_aturan(stat)
+    hasil = _panel_hasil_uji(uji, label_mode) if uji else ""
     form = (
         '<form method="post" action="/api/keamanan" class="formgrid">'
         + _hidden(gid, token, "uji-aturan")
