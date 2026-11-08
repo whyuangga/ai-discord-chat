@@ -297,29 +297,9 @@ def _prune(values: list, now: float, window: float) -> list:
     return [item for item in values if (item[0] if isinstance(item, tuple) else item) >= cutoff]
 
 
-def detect_spam(message, *, now: float | None = None) -> dict | None:
-    """Memeriksa satu pesan & mencatat riwayatnya. `None` berarti pesan wajar.
-
-    Mengembalikan `{"reason", "label", "count", "detail"}` bila terdeteksi.
+def _spam_mention(message, cfg: dict) -> dict | None:
+    """1. Mention massal.
     """
-    guild = getattr(message, "guild", None)
-    channel = getattr(message, "channel", None)
-    author = getattr(message, "author", None)
-    if guild is None or channel is None or author is None:
-        return None
-
-    gid = _to_int(getattr(guild, "id", 0))
-    cfg = spam_guilds.get(gid)
-    if not cfg or not cfg.get("enabled") or is_exempt(message, cfg):
-        return None
-
-    current = time.time() if now is None else float(now)
-    uid = _to_int(getattr(author, "id", 0))
-    cid = _to_int(getattr(channel, "id", 0))
-    content = str(getattr(message, "content", "") or "")
-    key = (gid, uid, cid)
-
-    # 1. Mention massal (paling jelas & paling cepat dikenali)
     mentions = len(getattr(message, "mentions", None) or [])
     mention_limit = int(cfg.get("mention_limit") or SPAM_MENTION_LIMIT)
     if mentions >= mention_limit:
@@ -330,7 +310,9 @@ def detect_spam(message, *, now: float | None = None) -> dict | None:
             "detail": f"`{mentions}` mention dalam satu pesan (batas `{mention_limit}`).",
         }
 
-    # 2. Link beruntun (banyak link sekaligus atau link sama berulang)
+
+def _spam_link(gid: int, uid: int, content: str, cfg: dict, current: float) -> dict | None:
+    """2. Link beruntun (banyak link sekaligus atau link sama berulang)."""
     links = extract_links(content)
     link_limit = int(cfg.get("link_limit") or SPAM_LINK_LIMIT)
     link_store = _recent_links.setdefault((gid, uid), [])
@@ -354,7 +336,9 @@ def detect_spam(message, *, now: float | None = None) -> dict | None:
             ),
         }
 
-    # 3. Banjir pesan (flood)
+
+def _spam_flood(key: tuple, cfg: dict, current: float) -> dict | None:
+    """3. Banjir pesan (flood)."""
     flood_store = _recent_messages.setdefault(key, [])
     flood_store[:] = _prune(flood_store, current, float(cfg.get("flood_window") or 10))
     flood_store.append(current)
@@ -368,7 +352,9 @@ def detect_spam(message, *, now: float | None = None) -> dict | None:
             "detail": f"`{len(flood_store)}` pesan dalam `{window}` detik (batas `{flood_count}`).",
         }
 
-    # 4. Pesan berulang (isi sama, mis. copy-paste spam)
+
+def _spam_duplikat(key: tuple, content: str, cfg: dict, current: float) -> dict | None:
+    """4. Pesan berulang (isi sama, mis. copy-paste spam)."""
     normalized = normalize_text(content)
     text_store = _recent_texts.setdefault(key, [])
     text_store[:] = _prune(text_store, current, float(cfg.get("duplicate_window") or 30))
@@ -384,18 +370,52 @@ def detect_spam(message, *, now: float | None = None) -> dict | None:
                 "detail": f"Pesan yang sama dikirim `{same}` kali (batas `{duplicate_count}`).",
             }
 
-    # 5. Huruf kapital berlebihan (opsional, default NONAKTIF)
-    if cfg.get("caps_enabled"):
-        min_len = int(cfg.get("caps_min_length") or SPAM_CAPS_MIN_LENGTH)
-        ratio = caps_ratio(content)
-        if len(content) >= min_len and ratio >= 0.7:
-            return {
-                "reason": "caps",
-                "label": SPAM_REASONS["caps"],
-                "count": int(ratio * 100),
-                "detail": f"`{int(ratio * 100)}%` huruf kapital pada `{len(content)}` karakter.",
-            }
 
+def _spam_caps(content: str, cfg: dict) -> dict | None:
+    """5. Huruf kapital berlebihan (opsional, default NONAKTIF)."""
+    min_len = int(cfg.get("caps_min_length") or SPAM_CAPS_MIN_LENGTH)
+    ratio = caps_ratio(content)
+    if len(content) >= min_len and ratio >= 0.7:
+        return {
+            "reason": "caps",
+            "label": SPAM_REASONS["caps"],
+            "count": int(ratio * 100),
+            "detail": f"`{int(ratio * 100)}%` huruf kapital pada `{len(content)}` karakter.",
+        }
+
+
+def detect_spam(message, *, now: float | None = None) -> dict | None:
+    """Memeriksa satu pesan & mencatat riwayatnya. `None` berarti pesan wajar.
+    Mengembalikan `{"reason", "label", "count", "detail"}` bila terdeteksi.
+    """
+    guild = getattr(message, "guild", None)
+    channel = getattr(message, "channel", None)
+    author = getattr(message, "author", None)
+    if guild is None or channel is None or author is None:
+        return None
+    gid = _to_int(getattr(guild, "id", 0))
+    cfg = spam_guilds.get(gid)
+    if not cfg or not cfg.get("enabled") or is_exempt(message, cfg):
+        return None
+    current = time.time() if now is None else float(now)
+    uid = _to_int(getattr(author, "id", 0))
+    cid = _to_int(getattr(channel, "id", 0))
+    content = str(getattr(message, "content", "") or "")
+    key = (gid, uid, cid)
+    hasil = _spam_mention(message, cfg)
+    if hasil:
+        return hasil
+    hasil = _spam_link(gid, uid, content, cfg, current)
+    if hasil:
+        return hasil
+    hasil = _spam_flood(key, cfg, current)
+    if hasil:
+        return hasil
+    hasil = _spam_duplikat(key, content, cfg, current)
+    if hasil:
+        return hasil
+    if cfg.get("caps_enabled"):
+        return _spam_caps(content, cfg)
     return None
 
 
