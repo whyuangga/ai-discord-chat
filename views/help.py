@@ -257,6 +257,71 @@ def _field_perkakas(embed: discord.Embed) -> None:
     return embed
 
 
+_FIELD_KOMUNITAS: list[tuple[str, str]] = [
+    (
+        '🎭 Self Roles (`/panel-role`) + 🧱 Menu Builder (`/menu`)',
+        (
+            '• `/panel-role pasang … gaya:campuran banner:<gambar>` — panel **Self Roles** ala Discohook: **banner + tombol + dropdown** (klik = ambil role, klik lagi = lepas). Gaya lain: `reaksi` (lama), `tombol`, `dropdown`.\n'
+            '• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel reaksi.\n'
+            '• `/menu buat judul:Pusat Info [banner]` — panel sendiri berisi **tombol role, tombol link, & tombol command**.\n'
+            '• `/menu tombol-command aksi:serverstats` — tombol yang **menjalankan command**, mis. `/serverstats lihat`, `/level lihat`, `/tumbuh ringkas`, `/bantuan`. Visibilitas: `auto`/`ephemeral`/`publik`.\n'
+            '• `/menu tombol-role`, `/menu tombol-link`, `/menu dropdown-role`, `/menu hapus-item`, `/menu daftar`.'
+        ),
+    ),
+    (
+        '📊 Polling & Pengingat (`/poll`, `/ingatkan`)',
+        (
+            '• `/poll pertanyaan:... opsi:Jam 8, Jam 9, Jam 10` — polling native Discord, suara dihitung otomatis.\n'
+            '• `/ingatkan pasang waktu:2j pesan:mabar` — bot mengingatkan kamu saat waktunya tiba (tahan restart).\n'
+            '• `/ingatkan daftar` & `/ingatkan batal nomor:3` — kelola pengingat aktifmu.'
+        ),
+    ),
+    (
+        '⭐ Starboard (`/starboard`)',
+        (
+            '• `/starboard atur channel:#starboard batas:3` — pesan yang mendapat 3 bintang otomatis disalin ke channel sorotan.\n'
+            '• `/starboard status` — lihat konfigurasi & jumlah pesan tersorot.'
+        ),
+    ),
+    (
+        '✅ Verifikasi & Sticky (`/verifikasi`, `/sticky`)',
+        (
+            '• `/verifikasi pasang channel:#verifikasi role:@Member` — member baru klik **✅ Verifikasi Saya** untuk membuka akses (atau pasang panelnya dari **dashboard web** → Editor panel).\n'
+            '• `/sticky pasang isi:... channel:#umum` — pesan petunjuk yang otomatis tetap di bawah channel.'
+        ),
+    ),
+    (
+        '💡 Kotak Saran & 📝 Pembuat Embed (`/saran`, `/embed`)',
+        (
+            '• `/saran pasang channel:#saran` *(Admin)* lalu member memakai `/saran kirim teks:...`.\n'
+            '• Saran tampil dengan tombol **👍/👎** (tahan restart), satu member satu suara.\n'
+            '• `/saran status id:3 status:diterima` *(Staff)* — pengusul otomatis diberi tahu.\n'
+            '• `/embed buat channel:#pengumuman` — formulir pengumuman; `/embed cepat` untuk kirim langsung.\n'
+            '• Warna: `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. **0 kuota AI.**'
+        ),
+    ),
+    (
+        '🔔 Notifikasi Sosial (`/sosial`)',
+        (
+            '• `/sosial tambah platform:🎬 YouTube target:@NamaChannel channel:#info` — beri tahu warga tiap ada video baru (pakai RSS YouTube, **tanpa API key**).\n'
+            '• `/sosial tambah platform:🟣 Twitch target:ninja channel:#live` — notifikasi saat streamer **mulai live** (butuh `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET`).\n'
+            '• `/sosial tambah platform:🎵 TikTok target:<URL feed RSS>` — TikTok tidak punya API feed gratis resmi, jadi dipakai jalur RSS.\n'
+            '• `/sosial daftar`, `/sosial hapus id:...`, `/sosial tes id:...` — kelola & uji langganan.\n'
+            '• `/sosial status` — cek kredensial Twitch & token (sekalian panduan mengisinya).\n'
+            '• Semua pesan memakai template → **0 kuota AI**.'
+        ),
+    ),
+    (
+        '👤 Profil & Perawatan (`/info`, `/perawatan`)',
+        (
+            '• `/info user` & `/info server` — kartu profil member (umur akun & tanggal join) dan ringkasan server.\n'
+            '• `/perawatan atur backup_channel:#bot-backup log_channel:#bot-log` — backup konfigurasi otomatis tiap 7 hari.\n'
+            '• `/perawatan backup` — kirim berkas backup sekarang; `/perawatan status` — cek ukuran data & RAM.'
+        ),
+    ),
+]
+
+
 def _embed_komunitas() -> discord.Embed:
     """Panduan fitur komunitas: role, tiket, saran, dan moderasi."""
     embed = discord.Embed(
@@ -267,80 +332,8 @@ def _embed_komunitas() -> discord.Embed:
         ),
         color=discord.Color.purple(),
     )
-    embed.add_field(
-        name="🎭 Self Roles (`/panel-role`) + 🧱 Menu Builder (`/menu`)",
-        value=(
-            "• `/panel-role pasang … gaya:campuran banner:<gambar>` — panel **Self Roles** ala Discohook: "
-            "**banner + tombol + dropdown** (klik = ambil role, klik lagi = lepas). Gaya lain: `reaksi` (lama), `tombol`, `dropdown`.\n"
-            "• `/panel-role tambah` & `/panel-role hapus` — kelola role pada panel reaksi.\n"
-            "• `/menu buat judul:Pusat Info [banner]` — panel sendiri berisi **tombol role, tombol link, & tombol command**.\n"
-            "• `/menu tombol-command aksi:serverstats` — tombol yang **menjalankan command**, mis. `/serverstats lihat`, "
-            "`/level lihat`, `/tumbuh ringkas`, `/bantuan`. Visibilitas: `auto`/`ephemeral`/`publik`.\n"
-            "• `/menu tombol-role`, `/menu tombol-link`, `/menu dropdown-role`, `/menu hapus-item`, `/menu daftar`."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="📊 Polling & Pengingat (`/poll`, `/ingatkan`)",
-        value=(
-            "• `/poll pertanyaan:... opsi:Jam 8, Jam 9, Jam 10` — polling native Discord, suara dihitung otomatis.\n"
-            "• `/ingatkan pasang waktu:2j pesan:mabar` — bot mengingatkan kamu saat waktunya tiba (tahan restart).\n"
-            "• `/ingatkan daftar` & `/ingatkan batal nomor:3` — kelola pengingat aktifmu."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="⭐ Starboard (`/starboard`)",
-        value=(
-            "• `/starboard atur channel:#starboard batas:3` — pesan yang mendapat 3 bintang otomatis disalin ke channel sorotan.\n"
-            "• `/starboard status` — lihat konfigurasi & jumlah pesan tersorot."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="✅ Verifikasi & Sticky (`/verifikasi`, `/sticky`)",
-        value=(
-            "• `/verifikasi pasang channel:#verifikasi role:@Member` — member baru klik **✅ Verifikasi Saya** untuk membuka akses "
-            "(atau pasang panelnya dari **dashboard web** → Editor panel).\n"
-            "• `/sticky pasang isi:... channel:#umum` — pesan petunjuk yang otomatis tetap di bawah channel."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="💡 Kotak Saran & 📝 Pembuat Embed (`/saran`, `/embed`)",
-        value=(
-            "• `/saran pasang channel:#saran` *(Admin)* lalu member memakai `/saran kirim teks:...`.\n"
-            "• Saran tampil dengan tombol **👍/👎** (tahan restart), satu member satu suara.\n"
-            "• `/saran status id:3 status:diterima` *(Staff)* — pengusul otomatis diberi tahu.\n"
-            "• `/embed buat channel:#pengumuman` — formulir pengumuman; `/embed cepat` untuk kirim langsung.\n"
-            "• Warna: `#9B59B6`, `ungu`, `biru`, `merah`, `hijau`, `emas`, `abu`. **0 kuota AI.**"
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🔔 Notifikasi Sosial (`/sosial`)",
-        value=(
-            "• `/sosial tambah platform:🎬 YouTube target:@NamaChannel channel:#info` — beri tahu warga "
-            "tiap ada video baru (pakai RSS YouTube, **tanpa API key**).\n"
-            "• `/sosial tambah platform:🟣 Twitch target:ninja channel:#live` — notifikasi saat streamer "
-            "**mulai live** (butuh `TWITCH_CLIENT_ID` & `TWITCH_CLIENT_SECRET`).\n"
-            "• `/sosial tambah platform:🎵 TikTok target:<URL feed RSS>` — TikTok tidak punya API feed "
-            "gratis resmi, jadi dipakai jalur RSS.\n"
-            "• `/sosial daftar`, `/sosial hapus id:...`, `/sosial tes id:...` — kelola & uji langganan.\n"
-            "• `/sosial status` — cek kredensial Twitch & token (sekalian panduan mengisinya).\n"
-            "• Semua pesan memakai template → **0 kuota AI**."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="👤 Profil & Perawatan (`/info`, `/perawatan`)",
-        value=(
-            "• `/info user` & `/info server` — kartu profil member (umur akun & tanggal join) dan ringkasan server.\n"
-            "• `/perawatan atur backup_channel:#bot-backup log_channel:#bot-log` — backup konfigurasi otomatis tiap 7 hari.\n"
-            "• `/perawatan backup` — kirim berkas backup sekarang; `/perawatan status` — cek ukuran data & RAM."
-        ),
-        inline=False,
-    )
+    for nama, nilai in _FIELD_KOMUNITAS:
+        embed.add_field(name=nama, value=nilai, inline=False)
     return embed
 
 def _embed_growth() -> discord.Embed:
