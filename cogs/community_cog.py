@@ -327,6 +327,51 @@ async def _panelrole_v2(
             logger.debug("Efek samping opsional gagal: %s", exc)
 
 
+async def _pasang_panel_reaksi(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    *,
+    judul: str,
+    deskripsi: str | None,
+    usable: list[tuple[discord.Role, str]],
+) -> tuple[discord.Message | None, list[str]]:
+    """Kirim embed panel lalu tempel reaksi; None bila pengiriman gagal."""
+    embed = discord.Embed(
+        title=judul[:256],
+        description=(
+            (deskripsi or "Klik reaksi emoji di bawah pesan ini untuk mengambil atau melepas role.")
+            + "\n\n"
+            + "\n".join(f"{emoji} → {role.mention}" for role, emoji in usable)
+        )[:4000],
+        color=discord.Color.blurple(),
+    ).set_footer(text="Reaction Role • klik emoji sekali lagi untuk melepas role")
+    try:
+        message = await channel.send(embed=embed)
+    except (discord.Forbidden, discord.HTTPException):
+        await interaction.followup.send(
+            f"⚠️ Gagal mengirim panel ke {channel.mention}. Cek izin **Send Messages** bot.",
+            ephemeral=True,
+        )
+        return None, []
+
+    create_reaction_role_panel(
+        interaction.guild.id,
+        channel.id,
+        message.id,
+        title=judul,
+        description=deskripsi or "",
+    )
+    failed_emoji: list[str] = []
+    for role, emoji in usable:
+        add_reaction_role_option(message.id, emoji, role.id, role.name)
+        try:
+            await message.add_reaction(emoji)
+        except (discord.Forbidden, discord.HTTPException, discord.InvalidArgument):
+            failed_emoji.append(emoji)
+    await save_community_tools_to_disk()
+    return message, failed_emoji
+
+
 @panelrole_group.command(
     name="pasang",
     description="Pasang panel role (emoji reaction, tombol, dropdown, atau campuran + banner)",
@@ -373,7 +418,6 @@ async def panelrole_pasang_cmd(
     if role3 is not None and emoji3:
         pairs.append((role3, emoji3))
 
-    # Self Roles v2 (tombol/dropdown/campuran + banner) memakai mesin menu_builder
     if gaya is not None and gaya.value != "reaksi":
         await _panelrole_v2(interaction, channel, judul, deskripsi, pairs, gaya.value, banner, banner_url)
         return
@@ -381,6 +425,7 @@ async def panelrole_pasang_cmd(
     bot_member = interaction.guild.me
     ignored = [r.mention for r, _ in pairs if bot_member and r >= bot_member.top_role]
     usable = [(r, e) for r, e in pairs if not (bot_member and r >= bot_member.top_role)]
+
     if not usable:
         await interaction.response.send_message(
             "⚠️ Semua role berada **di atas role bot**, jadi tidak bisa diberikan. "
@@ -391,40 +436,11 @@ async def panelrole_pasang_cmd(
 
     await interaction.response.defer(ephemeral=True)
 
-    embed = discord.Embed(
-        title=judul[:256],
-        description=(
-            (deskripsi or "Klik reaksi emoji di bawah pesan ini untuk mengambil atau melepas role.")
-            + "\n\n"
-            + "\n".join(f"{emoji} → {role.mention}" for role, emoji in usable)
-        )[:4000],
-        color=discord.Color.blurple(),
-    ).set_footer(text="Reaction Role • klik emoji sekali lagi untuk melepas role")
-
-    try:
-        message = await channel.send(embed=embed)
-    except (discord.Forbidden, discord.HTTPException):
-        await interaction.followup.send(
-            f"⚠️ Gagal mengirim panel ke {channel.mention}. Cek izin **Send Messages** bot.",
-            ephemeral=True,
-        )
-        return
-
-    create_reaction_role_panel(
-        interaction.guild.id,
-        channel.id,
-        message.id,
-        title=judul,
-        description=deskripsi or "",
+    message, failed_emoji = await _pasang_panel_reaksi(
+        interaction, channel, judul=judul, deskripsi=deskripsi, usable=usable
     )
-    failed_emoji: list[str] = []
-    for role, emoji in usable:
-        add_reaction_role_option(message.id, emoji, role.id, role.name)
-        try:
-            await message.add_reaction(emoji)
-        except (discord.Forbidden, discord.HTTPException, discord.InvalidArgument):
-            failed_emoji.append(emoji)
-    await save_community_tools_to_disk()
+    if message is None:
+        return
 
     note = ""
     if ignored:
