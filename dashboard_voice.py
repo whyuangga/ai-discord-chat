@@ -24,14 +24,8 @@ def _opsi_ya_tidak(nilai: bool) -> str:
     )
 
 
-def render_voice_block(bot, guild_id: int, token: str) -> str:
-    """Panel voice linking untuk halaman 🧩 Konten & interaksi."""
-    import voice_link
-
-    gid = int(guild_id or 0)
-    data = voice_link.statistik(gid)
-    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
-
+def _opsi_voice(guild, data: dict) -> tuple[list[str], list[str]]:
+    """Opsi <option> untuk role dan kategori channel."""
     role_opsi = ['<option value="0">— belum dipilih —</option>']
     kategori_opsi = ['<option value="0">— ikut kategori voice —</option>']
     for role in list(getattr(guild, "roles", []) or [])[:80]:
@@ -48,24 +42,11 @@ def render_voice_block(bot, guild_id: int, token: str) -> str:
             f'<option value="{cid}"{" selected" if cid == data["kategori_id"] else ""}>'
             f'{dashboard_ui._esc(getattr(kanal, "name", "-"))}</option>'
         )
+    return role_opsi, kategori_opsi
 
-    setelan = (
-        '<form method="post" action="/api/konten" class="formgrid">'
-        + dashboard_ui._hidden(gid, token, "voice-setelan")
-        + '<div class="medan"><label>Voice linking</label><select name="enabled">'
-        f'{_opsi_ya_tidak(data["enabled"])}</select></div>'
-        '<div class="medan"><label>Role selama di voice</label>'
-        f'<select name="role_id">{"".join(role_opsi)}</select></div>'
-        '<div class="medan"><label>Channel teks privat</label>'
-        f'<select name="channel_privat">{_opsi_ya_tidak(data["channel_privat"])}</select></div>'
-        '<div class="medan"><label>Hapus channel saat kosong</label>'
-        f'<select name="hapus_kosong">{_opsi_ya_tidak(data["hapus_kosong"])}</select></div>'
-        '<div class="medan"><label>Kategori channel privat</label>'
-        f'<select name="kategori_id">{"".join(kategori_opsi)}</select></div>'
-        '<button type="submit">Simpan setelan voice linking</button></form>'
-    )
 
-    daftar = voice_link.daftar_link(gid)
+def _tabel_voice(daftar, gid: int, token: str) -> str:
+    """Tabel channel privat, atau catatan kosong bila belum ada."""
     if daftar:
         baris = "".join(
             "<tr>"
@@ -88,7 +69,11 @@ def render_voice_block(bot, guild_id: int, token: str) -> str:
             '<p class="muted">Belum ada channel privat. Channel dibuat otomatis saat ada '
             "member masuk voice (butuh izin *Manage Channels*).</p>"
         )
+    return tabel
 
+
+def _status_voice(data: dict) -> str:
+    """Baris ringkasan status voice linking."""
     status = (
         f'<p class="muted">Status: <b>{"aktif" if data["aktif"] else "nonaktif"}</b> · '
         f'<b>{data["jumlah_channel"]}</b> / {data["maks_channel"]} channel privat · '
@@ -99,6 +84,35 @@ def render_voice_block(bot, guild_id: int, token: str) -> str:
             '<p class="muted">⚠️ Sudah dinyalakan, tapi belum ada efek: pilih **role** '
             "atau nyalakan **channel teks privat**.</p>"
         )
+    return status
+
+
+def render_voice_block(bot, guild_id: int, token: str) -> str:
+    """Panel voice linking untuk halaman 🧩 Konten & interaksi."""
+    import voice_link
+    gid = int(guild_id or 0)
+    data = voice_link.statistik(gid)
+    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+
+    role_opsi, kategori_opsi = _opsi_voice(guild, data)
+    setelan = (
+        '<form method="post" action="/api/konten" class="formgrid">'
+        + dashboard_ui._hidden(gid, token, "voice-setelan")
+        + '<div class="medan"><label>Voice linking</label><select name="enabled">'
+        f'{_opsi_ya_tidak(data["enabled"])}</select></div>'
+        '<div class="medan"><label>Role selama di voice</label>'
+        f'<select name="role_id">{"".join(role_opsi)}</select></div>'
+        '<div class="medan"><label>Channel teks privat</label>'
+        f'<select name="channel_privat">{_opsi_ya_tidak(data["channel_privat"])}</select></div>'
+        '<div class="medan"><label>Hapus channel saat kosong</label>'
+        f'<select name="hapus_kosong">{_opsi_ya_tidak(data["hapus_kosong"])}</select></div>'
+        '<div class="medan"><label>Kategori channel privat</label>'
+        f'<select name="kategori_id">{"".join(kategori_opsi)}</select></div>'
+        '<button type="submit">Simpan setelan voice linking</button></form>'
+    )
+    tabel = _tabel_voice(voice_link.daftar_link(gid), gid, token)
+
+    status = _status_voice(data)
 
     return (
         '<div class="subpanel" id="p-voice"><h3>🔗 Voice linking</h3>'
