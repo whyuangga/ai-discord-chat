@@ -654,6 +654,81 @@ def build_starboard_embed(
     return embed
 
 
+async def _kirim_sorotan(
+    channel,
+    message,
+    board: dict,
+    payload,
+    *,
+    count: int,
+    emoji_str: str,
+    nama: str,
+) -> int | None:
+    """Kirim pesan sorotan baru; id pesannya, atau None bila gagal."""
+    try:
+        posted = await channel.send(
+            content=(
+                f"{emoji_str} **{count}** • <#{payload.channel_id}>"
+                + (f" · **{nama}**" if nama and nama.lower() != "starboard" else "")
+            ),
+            embed=build_starboard_embed(
+                message, count, emoji_str, nama=nama, warna=str(board.get("warna") or "")
+            ),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.info("Gagal kirim starboard: %s", sanitize_error_message(exc))
+        return None
+    return posted.id
+
+
+async def _ubah_sorotan(
+    channel,
+    message,
+    board: dict,
+    payload,
+    entry: dict,
+    *,
+    count: int,
+    emoji_str: str,
+) -> None:
+    """Perbarui angka reaksi pada pesan sorotan (abaikan kegagalan)."""
+    starboard_id = _to_int(entry.get("starboard_id"))
+    if channel is None or not starboard_id:
+        return
+    try:
+        partial = channel.get_partial_message(starboard_id)
+        await partial.edit(
+            content=(
+                f"{emoji_str} **{count}** • <#{payload.channel_id}>"
+                + (
+                    f" · **{board.get('nama')}**"
+                    if board.get("nama") and str(board["nama"]).lower() != "starboard"
+                    else ""
+                )
+            ),
+            embed=build_starboard_embed(
+                message,
+                count,
+                emoji_str,
+                nama=str(board.get("nama") or ""),
+                warna=str(board.get("warna") or ""),
+            ),
+        )
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+
+
+async def _hapus_sorotan(channel, entry: dict) -> None:
+    """Hapus pesan sorotan bila masih ada (abaikan kegagalan)."""
+    starboard_id = _to_int(entry.get("starboard_id"))
+    if channel is None or not starboard_id:
+        return
+    try:
+        await channel.get_partial_message(starboard_id).delete()
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+
+
 async def _sync_board(
     bot: discord.Client,
     message,
@@ -671,7 +746,6 @@ async def _sync_board(
         return False
     channel = bot.get_channel(channel_id)
     threshold = max(1, _to_int(board.get("threshold"), STARBOARD_DEFAULT_THRESHOLD))
-
     count = 0
     for reaction in message.reactions:
         if _emoji_matches(emoji_str, str(reaction.emoji)):
@@ -682,62 +756,28 @@ async def _sync_board(
         if channel is None:
             return False
         nama = str(board.get("nama") or "")
-        try:
-            posted = await channel.send(
-                content=(
-                    f"{emoji_str} **{count}** • <#{payload.channel_id}>"
-                    + (f" · **{nama}**" if nama and nama.lower() != "starboard" else "")
-                ),
-                embed=build_starboard_embed(
-                    message, count, emoji_str, nama=nama, warna=str(board.get("warna") or "")
-                ),
-            )
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            logger.info("Gagal kirim starboard: %s", sanitize_error_message(exc))
+        posted_id = await _kirim_sorotan(
+            channel, message, board, payload,
+            count=count, emoji_str=emoji_str, nama=nama,
+        )
+        if posted_id is None:
             return False
-        entries[kunci] = {"starboard_id": posted.id, "count": count}
+        entries[kunci] = {"starboard_id": posted_id, "count": count}
         await save_community_tools_to_disk()
         return True
 
     if count >= threshold and entry:
-        # Jumlah reaksi berubah → perbarui angka di pesan sorotan (tanpa spam pesan baru).
         if _to_int(entry.get("count")) == count:
             return False
         entry["count"] = count
-        starboard_id = _to_int(entry.get("starboard_id"))
-        if channel is not None and starboard_id:
-            try:
-                partial = channel.get_partial_message(starboard_id)
-                await partial.edit(
-                    content=(
-                        f"{emoji_str} **{count}** • <#{payload.channel_id}>"
-                        + (
-                            f" · **{board.get('nama')}**"
-                            if board.get("nama") and str(board["nama"]).lower() != "starboard"
-                            else ""
-                        )
-                    ),
-                    embed=build_starboard_embed(
-                        message,
-                        count,
-                        emoji_str,
-                        nama=str(board.get("nama") or ""),
-                        warna=str(board.get("warna") or ""),
-                    ),
-                )
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
-                pass
+        await _ubah_sorotan(
+            channel, message, board, payload, entry, count=count, emoji_str=emoji_str
+        )
         await save_community_tools_to_disk()
         return True
 
     if entry:
-        # Reaksi turun di bawah ambang → hapus jejak sorotan papan ini.
-        starboard_id = _to_int(entry.get("starboard_id"))
-        if channel is not None and starboard_id:
-            try:
-                await channel.get_partial_message(starboard_id).delete()
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
-                pass
+        await _hapus_sorotan(channel, entry)
         entries.pop(kunci, None)
         await save_community_tools_to_disk()
         return True
