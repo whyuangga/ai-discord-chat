@@ -632,29 +632,8 @@ def _status_teks_error() -> str:
     )
 
 
-def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
-    """Embed diagnostik klasik (jalur mundur bila panel V2 gagal)."""
-    ping_ms = metrik["ping_ms"]
-    ram_mb = metrik["ram_mb"]
-    hours = metrik["hours"]
-    minutes = metrik["minutes"]
-    seconds = metrik["seconds"]
-    gemini_ready = metrik["gemini_ready"]
-    time_ctx = metrik["time_ctx"]
-    embed = discord.Embed(
-        title=f"📊 Diagnostik Bot Gemini AI (`v{BOT_VERSION}`)",
-        color=discord.Color.green() if ai_handler.is_gemini_key_configured() else discord.Color.orange(),
-        timestamp=discord.utils.utcnow(),
-    )
-    embed.add_field(name="📡 Latensi Discord", value=f"`{ping_ms} ms`", inline=True)
-    embed.add_field(name="💾 Pemakaian RAM", value=f"`{ram_mb} MB`", inline=True)
-    embed.add_field(name="⏱️ Uptime", value=f"`{hours}j {minutes}m {seconds}d`", inline=True)
-    embed.add_field(name="🔑 Gemini API Key", value=gemini_ready, inline=True)
-    embed.add_field(
-        name="🔒 Ruang Privat Aktif",
-        value=f"`{len(thread_chats)}` chat | `{len(image_thread_settings)}` gambar",
-        inline=True,
-    )
+def _field_statistik_komunitas(embed: discord.Embed) -> None:
+    """Empat field ringkasan jumlah fitur yang aktif di memori."""
     embed.add_field(
         name="🌐 Agent & Game",
         value=(
@@ -689,6 +668,10 @@ def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
         ),
         inline=False,
     )
+
+
+def _field_musik(embed: discord.Embed, music_player) -> None:
+    """Field status pemutar musik beserta channel dan panjang antrean."""
     embed.add_field(
         name="🎵 Streaming Musik",
         value=(
@@ -698,8 +681,10 @@ def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
         )[:1024],
         inline=False,
     )
-    embed.add_field(name="🩺 Error Terakhir", value=error_text[:1024], inline=False)
-    embed.add_field(name="🕒 Jam Lokal Server", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
+
+
+def _field_mesin_model(embed: discord.Embed) -> None:
+    """Field mesin/model aktif (teks, gambar, pencarian)."""
     img_engine_info = (
         f"`{GEMINI_IMAGE_MODEL}` (Paid)"
         if GEMINI_PAID_IMAGE_ENABLED
@@ -720,6 +705,39 @@ def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
         ),
         inline=False,
     )
+
+
+def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
+    """Embed diagnostik klasik (jalur mundur bila panel V2 gagal)."""
+    ping_ms = metrik["ping_ms"]
+    ram_mb = metrik["ram_mb"]
+    hours = metrik["hours"]
+    minutes = metrik["minutes"]
+    seconds = metrik["seconds"]
+    gemini_ready = metrik["gemini_ready"]
+    time_ctx = metrik["time_ctx"]
+    embed = discord.Embed(
+        title=f"📊 Diagnostik Bot Gemini AI (`v{BOT_VERSION}`)",
+        color=discord.Color.green() if ai_handler.is_gemini_key_configured() else discord.Color.orange(),
+        timestamp=discord.utils.utcnow(),
+    )
+
+    embed.add_field(name="📡 Latensi Discord", value=f"`{ping_ms} ms`", inline=True)
+    embed.add_field(name="💾 Pemakaian RAM", value=f"`{ram_mb} MB`", inline=True)
+    embed.add_field(name="⏱️ Uptime", value=f"`{hours}j {minutes}m {seconds}d`", inline=True)
+    embed.add_field(name="🔑 Gemini API Key", value=gemini_ready, inline=True)
+    embed.add_field(
+        name="🔒 Ruang Privat Aktif",
+        value=f"`{len(thread_chats)}` chat | `{len(image_thread_settings)}` gambar",
+        inline=True,
+    )
+
+    _field_statistik_komunitas(embed)
+    _field_musik(embed, music_player)
+    embed.add_field(name="🩺 Error Terakhir", value=error_text[:1024], inline=False)
+    embed.add_field(name="🕒 Jam Lokal Server", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
+
+    _field_mesin_model(embed)
     return embed
 
 
