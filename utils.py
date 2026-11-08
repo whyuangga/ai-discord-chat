@@ -1304,6 +1304,114 @@ async def _search_wikipedia_api(
     return results
 
 
+async def _cari_dengan_sesi(
+    clean_q: str, sess: aiohttp.ClientSession, max_results: int
+) -> tuple[str, list[dict]]:
+    """Cari lewat DuckDuckGo + Google News RSS, lalu susun blok konteks."""
+    ddg_task = _search_duckduckgo_html(clean_q, sess, max_items=4)
+
+    news_task = _search_google_news_rss(clean_q, sess, max_items=4)
+
+    ddg_res, news_res = await asyncio.gather(ddg_task, news_task)
+
+    combined = await _gabung_hasil_pencarian(
+        clean_q, sess, ddg_res, news_res, max_results
+    )
+    if not combined:
+        return "", []
+
+    top_web_excerpt = await _kutipan_halaman_teratas(ddg_res, sess)
+    return _susun_blok_konteks(clean_q, combined, max_results, top_web_excerpt)
+
+
+async def _gabung_hasil_pencarian(
+    clean_q: str,
+    sess: aiohttp.ClientSession,
+    ddg_res: list[dict],
+    news_res: list[dict],
+    max_results: int,
+) -> list[dict]:
+    """Selang-seling hasil berita & web, tambal Wikipedia bila kurang dari dua."""
+    combined: list[dict] = []
+
+    seen_urls: set[str] = set()
+
+    for bucket in (news_res, ddg_res):
+        for item in bucket:
+            u = item.get("url") or ""
+            if not u or u in seen_urls:
+                continue
+            seen_urls.add(u)
+            combined.append(item)
+            if len(combined) >= max_results:
+                break
+        if len(combined) >= max_results:
+            break
+
+    if len(combined) < 2:
+        wiki_res = await _search_wikipedia_api(clean_q, sess, max_items=3)
+        for item in wiki_res:
+            u = item.get("url") or ""
+            if u and u not in seen_urls:
+                seen_urls.add(u)
+                combined.append(item)
+
+    return combined
+
+
+async def _kutipan_halaman_teratas(
+    ddg_res: list[dict], sess: aiohttp.ClientSession
+) -> str:
+    """Ambil kutipan satu halaman web teratas agar angka/fakta lebih presisi."""
+    top_web_excerpt = ""
+
+    for item in ddg_res[:2]:
+        candidate_url = item.get("url") or ""
+        if candidate_url and is_safe_public_url(candidate_url):
+            try:
+                _, body = await asyncio.wait_for(
+                    fetch_webpage_text(candidate_url, http_session=sess),
+                    timeout=4.5,
+                )
+                if body:
+                    top_web_excerpt = (
+                        f"\n\n[Kutipan Isi Halaman Teratas ({item['title']})]:\n{body[:1800]}"
+                    )
+                    break
+            except Exception:
+                continue
+
+    return top_web_excerpt
+
+
+def _susun_blok_konteks(
+    clean_q: str,
+    combined: list[dict],
+    max_results: int,
+    top_web_excerpt: str,
+) -> tuple[str, list[dict]]:
+    """Rangkai blok konteks untuk Gemini beserta daftar tautan sumber."""
+    lines: list[str] = []
+
+    sources: list[dict] = []
+
+    for idx, item in enumerate(combined[:max_results], start=1):
+        date_tag = f" ({item['date']})" if item.get("date") else ""
+        snip_tag = f"\n   Ringkasan: {item['snippet']}" if item.get("snippet") else ""
+        lines.append(f"{idx}. **{item['title']}**{date_tag}{snip_tag}\n   URL: {item['url']}")
+        if len(sources) < 4 and item.get("url"):
+            short_label = item.get("source_label") or item["title"]
+            sources.append({"title": short_label[:55], "url": item["url"]})
+
+    context_block = (
+        f"Hasil Pencarian Web & Berita Terkini untuk `{clean_q}`:\n"
+        + "\n".join(lines)
+        + top_web_excerpt
+    )
+
+    return context_block, sources
+
+
 async def free_live_web_search(
     query: str,
     *,
@@ -1319,78 +1427,11 @@ async def free_live_web_search(
     if not clean_q:
         return "", []
 
-    async def _run_with_session(sess: aiohttp.ClientSession) -> tuple[str, list[dict]]:
-        ddg_task = _search_duckduckgo_html(clean_q, sess, max_items=4)
-        news_task = _search_google_news_rss(clean_q, sess, max_items=4)
-        ddg_res, news_res = await asyncio.gather(ddg_task, news_task)
-
-        combined: list[dict] = []
-        seen_urls: set[str] = set()
-
-        # Selang-seling hasil web umum & berita terbaru agar cakupan lengkap
-        for bucket in (news_res, ddg_res):
-            for item in bucket:
-                u = item.get("url") or ""
-                if not u or u in seen_urls:
-                    continue
-                seen_urls.add(u)
-                combined.append(item)
-                if len(combined) >= max_results:
-                    break
-            if len(combined) >= max_results:
-                break
-
-        if len(combined) < 2:
-            wiki_res = await _search_wikipedia_api(clean_q, sess, max_items=3)
-            for item in wiki_res:
-                u = item.get("url") or ""
-                if u and u not in seen_urls:
-                    seen_urls.add(u)
-                    combined.append(item)
-
-        if not combined:
-            return "", []
-
-        # Perkaya 1 halaman web langsung teratas (bukan redirect RSS) bila tersedia agar detail angka/fakta presisi
-        top_web_excerpt = ""
-        for item in ddg_res[:2]:
-            candidate_url = item.get("url") or ""
-            if candidate_url and is_safe_public_url(candidate_url):
-                try:
-                    _, body = await asyncio.wait_for(
-                        fetch_webpage_text(candidate_url, http_session=sess),
-                        timeout=4.5,
-                    )
-                    if body:
-                        top_web_excerpt = (
-                            f"\n\n[Kutipan Isi Halaman Teratas ({item['title']})]:\n{body[:1800]}"
-                        )
-                        break
-                except Exception:
-                    continue
-
-        lines: list[str] = []
-        sources: list[dict] = []
-        for idx, item in enumerate(combined[:max_results], start=1):
-            date_tag = f" ({item['date']})" if item.get("date") else ""
-            snip_tag = f"\n   Ringkasan: {item['snippet']}" if item.get("snippet") else ""
-            lines.append(f"{idx}. **{item['title']}**{date_tag}{snip_tag}\n   URL: {item['url']}")
-            if len(sources) < 4 and item.get("url"):
-                short_label = item.get("source_label") or item["title"]
-                sources.append({"title": short_label[:55], "url": item["url"]})
-
-        context_block = (
-            f"Hasil Pencarian Web & Berita Terkini untuk `{clean_q}`:\n"
-            + "\n".join(lines)
-            + top_web_excerpt
-        )
-        return context_block, sources
-
     timeout = aiohttp.ClientTimeout(total=10, connect=5)
     if http_session is not None and not http_session.closed:
-        return await _run_with_session(http_session)
+        return await _cari_dengan_sesi(clean_q, http_session, max_results)
     async with aiohttp.ClientSession(timeout=timeout) as temp_sess:
-        return await _run_with_session(temp_sess)
+        return await _cari_dengan_sesi(clean_q, temp_sess, max_results)
 
 
 def extract_message_text_for_context(message: discord.Message) -> str:
