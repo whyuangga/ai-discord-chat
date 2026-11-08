@@ -154,6 +154,79 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
     )
 
 
+async def _terapkan_setelan_ikon(
+    guild_id: int,
+    *,
+    reset: bool,
+    anggota: str | None,
+    manusia: str | None,
+    bot: str | None,
+    online: str | None,
+    boost: str | None,
+    tiket: str | None,
+    sosial: str | None,
+    kategori: str | None,
+) -> None:
+    """Reset seluruh ikon, atau simpan emoji/kategori yang dikirim lalu flush."""
+    if reset:
+        reset_serverstats_appearance(guild_id)
+    else:
+        set_serverstats_emojis(
+            guild_id,
+            {
+                "members": anggota,
+                "humans": manusia,
+                "bots": bot,
+                "online": online,
+                "boosts": boost,
+                "tickets": tiket,
+                "social": sosial,
+            },
+        )
+        if kategori is not None:
+            set_serverstats_category_name(guild_id, kategori)
+
+    await save_server_features_to_disk()
+
+
+async def _kirim_panel_ikon(
+    interaction: discord.Interaction,
+    guild_id: int,
+    *,
+    body: str,
+    note: str,
+    changed: int,
+) -> None:
+    """Kirim panel & embed ringkasan ikon server stats."""
+    import ui_kit
+
+    import ui_theme
+
+
+    await ui_kit.follow_panel(
+        interaction,
+        ui_kit.build_view(
+            guild_id,
+            ui_kit.card(
+                guild_id,
+                ui_kit.text(body[:3900]),
+                ui_kit.text(note[:1200]),
+            ),
+            timeout=None,
+        ),
+        embed=ui_theme.apply_embed_theme(
+            discord.Embed(
+                title="🎨 Ikon Server Stats",
+                description=(body + note)[:4000],
+                color=discord.Color.blurple(),
+            ),
+            guild_id,
+            footer="Ikon voice channel tidak bisa diubah oleh bot",
+        ),
+        ephemeral=True,
+    )
+
+
 @serverstats_group.command(
     name="ikon",
     description="Ganti emoji ikon tiap channel statistik tiket & sosial (atau hapus ikonnya)",
@@ -183,37 +256,35 @@ async def serverstats_ikon_cmd(
 ):
     if interaction.guild is None:
         return
+
     if not _ensure_admin(interaction):
         await _reject_non_admin(interaction)
         return
 
     guild_id = interaction.guild.id
-    if reset:
-        reset_serverstats_appearance(guild_id)
-    else:
-        set_serverstats_emojis(
-            guild_id,
-            {
-                "members": anggota,
-                "humans": manusia,
-                "bots": bot,
-                "online": online,
-                "boosts": boost,
-                "tickets": tiket,
-                "social": sosial,
-            },
-        )
-        if kategori is not None:
-            set_serverstats_category_name(guild_id, kategori)
 
-    await save_server_features_to_disk()
+    await _terapkan_setelan_ikon(
+        guild_id,
+        reset=reset,
+        anggota=anggota,
+        manusia=manusia,
+        bot=bot,
+        online=online,
+        boost=boost,
+        tiket=tiket,
+        sosial=sosial,
+        kategori=kategori,
+    )
     await interaction.response.defer(ephemeral=True)
+
 
     changed = await update_serverstats_channels(
         interaction.guild, force=True, bot=getattr(interaction, "client", None)
     )
 
+
     emojis = stats_emojis(guild_id)
+
     lines = [
         f"• {emojis['members']} Total Member".replace("•  ", "• "),
         f"• {emojis['humans']} Manusia".replace("•  ", "• "),
@@ -221,46 +292,28 @@ async def serverstats_ikon_cmd(
         f"• {emojis['online']} Online".replace("•  ", "• "),
         f"• {emojis['boosts']} Boost".replace("•  ", "• "),
     ]
+
     body = (
         "### 🎨 Ikon Server Stats\n"
         + "\n".join(lines)
         + f"\n\n`{changed}` channel diperbarui."
     )
+
     note = (
         "\n\n**Catatan:** ikon 🔊 di sisi kiri nama channel mengikuti **tipe channel**. "
         "Kalau ingin ikon lain (`#`, 📢, 🎤), ganti tipenya lewat `/serverstats tipe`. "
         "Yang diatur di sini adalah emoji di dalam nama channel dan nama kategorinya."
     )
+
     if not serverstats_guilds.get(guild_id, {}).get("enabled"):
         note = (
             "\n\n⚠️ Server Stats otomatis sedang **nonaktif**. Aktifkan dengan "
             "`/serverstats otomatis aktif:True` agar channel dibuat/diperbarui." + note
         )
 
-    import ui_kit
-    import ui_theme
 
-    await ui_kit.follow_panel(
-        interaction,
-        ui_kit.build_view(
-            guild_id,
-            ui_kit.card(
-                guild_id,
-                ui_kit.text(body[:3900]),
-                ui_kit.text(note[:1200]),
-            ),
-            timeout=None,
-        ),
-        embed=ui_theme.apply_embed_theme(
-            discord.Embed(
-                title="🎨 Ikon Server Stats",
-                description=(body + note)[:4000],
-                color=discord.Color.blurple(),
-            ),
-            guild_id,
-            footer="Ikon voice channel tidak bisa diubah oleh bot",
-        ),
-        ephemeral=True,
+    await _kirim_panel_ikon(
+        interaction, guild_id, body=body, note=note, changed=changed
     )
 
 
