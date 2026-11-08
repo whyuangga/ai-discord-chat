@@ -135,11 +135,81 @@ def _role_id(value: str) -> int:
     return int(bersih) if bersih.isdigit() else 0
 
 
+def _parse_satu_bagian(
+    posisi: int,
+    bagian: str,
+    langkah: list[dict],
+    galat: list[str],
+) -> None:
+    """Urai satu potongan teks alur; hasilnya ditambahkan ke langkah/galat."""
+    nama, _, argumen = bagian.partition(":")
+    nama = nama.strip().lower()
+    argumen = argumen.strip()
+    aksi = _PREFIX.get(nama)
+    if aksi is None:
+        galat.append(f"Langkah {posisi}: `{nama}` tidak dikenal — cek `/menu alur-bantuan`.")
+        return
+    if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE, ACTION_REQUIRE_ROLE):
+        role_id = _role_id(argumen)
+        if not role_id:
+            galat.append(f"Langkah {posisi}: `{nama}` butuh ID role angka, mis. `{nama}:123456789`.")
+            return
+        langkah.append({"action": aksi, "role_id": role_id})
+        return
+    if aksi == ACTION_SAY:
+        if not argumen:
+            galat.append(f"Langkah {posisi}: `{nama}` butuh teks pesan.")
+            return
+        langkah.append(
+            {
+                "action": ACTION_SAY,
+                "text": argumen[:MAX_TEXT],
+                "ephemeral": nama == "pesan",
+            }
+        )
+        return
+    if aksi == ACTION_THREAD:
+        if not argumen:
+            galat.append(f"Langkah {posisi}: `thread` butuh nama thread.")
+            return
+        langkah.append({"action": ACTION_THREAD, "name": argumen[:MAX_THREAD_NAME]})
+        return
+    if aksi == ACTION_WAIT:
+        try:
+            detik = float(argumen.replace(",", "."))
+        except ValueError:
+            galat.append(f"Langkah {posisi}: `tunggu` butuh angka detik, mis. `tunggu:3`.")
+            return
+        if detik <= 0 or detik > MAX_WAIT_SECONDS:
+            galat.append(f"Langkah {posisi}: `tunggu` harus antara 1–{int(MAX_WAIT_SECONDS)} detik.")
+            return
+        langkah.append({"action": ACTION_WAIT, "seconds": round(detik, 2)})
+        return
+    if aksi == ACTION_STOP:
+        langkah.append({"action": ACTION_STOP, "text": argumen[:MAX_TEXT]})
+        return
+    if aksi == ACTION_WEBHOOK:
+        identitas, _, teks = argumen.partition("|")
+        identitas = identitas.strip()[:80]
+        teks = teks.strip()
+        if not identitas or not teks:
+            galat.append(
+                f"Langkah {posisi}: `webhook` butuh format `webhook:<nama>|<teks>`."
+            )
+            return
+        langkah.append(
+            {"action": ACTION_WEBHOOK, "name": identitas, "text": teks[:MAX_TEXT]}
+        )
+        return
+    if aksi == ACTION_DELETE:
+        langkah.append({"action": ACTION_DELETE})
+        return
+
+
 def parse(text: str) -> tuple[list[dict], list[str]]:
     """Ubah teks alur menjadi daftar langkah. Kembalikan `(langkah, galat)`."""
     langkah: list[dict] = []
     galat: list[str] = []
-
     mentah = [bagian.strip() for bagian in split_steps(text)]
     mentah = [bagian for bagian in mentah if bagian]
     if not mentah:
@@ -148,75 +218,7 @@ def parse(text: str) -> tuple[list[dict], list[str]]:
         return [], [f"Terlalu banyak langkah ({len(mentah)}), maksimal {MAX_STEPS}."]
 
     for posisi, bagian in enumerate(mentah, start=1):
-        nama, _, argumen = bagian.partition(":")
-        nama = nama.strip().lower()
-        argumen = argumen.strip()
-        aksi = _PREFIX.get(nama)
-        if aksi is None:
-            galat.append(f"Langkah {posisi}: `{nama}` tidak dikenal — cek `/menu alur-bantuan`.")
-            continue
-
-        if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE, ACTION_REQUIRE_ROLE):
-            role_id = _role_id(argumen)
-            if not role_id:
-                galat.append(f"Langkah {posisi}: `{nama}` butuh ID role angka, mis. `{nama}:123456789`.")
-                continue
-            langkah.append({"action": aksi, "role_id": role_id})
-            continue
-
-        if aksi == ACTION_SAY:
-            if not argumen:
-                galat.append(f"Langkah {posisi}: `{nama}` butuh teks pesan.")
-                continue
-            langkah.append(
-                {
-                    "action": ACTION_SAY,
-                    "text": argumen[:MAX_TEXT],
-                    "ephemeral": nama == "pesan",
-                }
-            )
-            continue
-
-        if aksi == ACTION_THREAD:
-            if not argumen:
-                galat.append(f"Langkah {posisi}: `thread` butuh nama thread.")
-                continue
-            langkah.append({"action": ACTION_THREAD, "name": argumen[:MAX_THREAD_NAME]})
-            continue
-
-        if aksi == ACTION_WAIT:
-            try:
-                detik = float(argumen.replace(",", "."))
-            except ValueError:
-                galat.append(f"Langkah {posisi}: `tunggu` butuh angka detik, mis. `tunggu:3`.")
-                continue
-            if detik <= 0 or detik > MAX_WAIT_SECONDS:
-                galat.append(f"Langkah {posisi}: `tunggu` harus antara 1–{int(MAX_WAIT_SECONDS)} detik.")
-                continue
-            langkah.append({"action": ACTION_WAIT, "seconds": round(detik, 2)})
-            continue
-
-        if aksi == ACTION_STOP:
-            langkah.append({"action": ACTION_STOP, "text": argumen[:MAX_TEXT]})
-            continue
-
-        if aksi == ACTION_WEBHOOK:
-            identitas, _, teks = argumen.partition("|")
-            identitas = identitas.strip()[:80]
-            teks = teks.strip()
-            if not identitas or not teks:
-                galat.append(
-                    f"Langkah {posisi}: `webhook` butuh format `webhook:<nama>|<teks>`."
-                )
-                continue
-            langkah.append(
-                {"action": ACTION_WEBHOOK, "name": identitas, "text": teks[:MAX_TEXT]}
-            )
-            continue
-
-        if aksi == ACTION_DELETE:
-            langkah.append({"action": ACTION_DELETE})
-            continue
+        _parse_satu_bagian(posisi, bagian, langkah, galat)
 
     return langkah, galat
 
