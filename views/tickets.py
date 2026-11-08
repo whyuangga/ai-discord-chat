@@ -33,32 +33,10 @@ def _slug(nama: str) -> str:
     return "-".join(bagian for bagian in bersih.split("-") if bagian)[:30]
 
 
-async def handle_ticket_open(interaction: discord.Interaction, topik: dict | None = None) -> None:
-    """Logika bersama tombol "Buat Tiket" & dropdown topik (panel V2 maupun embed)."""
-    if interaction.guild is None:
-        await interaction.response.send_message("⚠️ Tiket hanya bisa dibuat di dalam server.", ephemeral=True)
-        return
-
-    allowed, reason = tickets.can_open_ticket(interaction.guild.id, interaction.user.id)
-    if not allowed:
-        await interaction.response.send_message(reason, ephemeral=True)
-        return
-
-    cfg = tickets.get_ticket_config(interaction.guild.id)
-    channel = interaction.channel
-    if channel is None or not hasattr(channel, "create_thread"):
-        await interaction.response.send_message(
-            "⚠️ Panel tiket harus dipasang di **text channel** agar bisa membuat thread.",
-            ephemeral=True,
-        )
-        return
-
-    await interaction.response.defer(ephemeral=True)
-    nama_topik = str((topik or {}).get("nama") or "").strip()
-    topic = f"Bantuan dari {interaction.user.display_name}"[:100]
-    if nama_topik:
-        topic = f"{nama_topik} — {interaction.user.display_name}"[:100]
+async def _buat_thread_tiket(channel, interaction, nama_topik: str):
+    """Buat private thread tiket, fallback ke thread publik bila tidak diizinkan."""
     thread = None
+
     try:
         dasar_nama = f"tiket-{_slug(nama_topik)}-{interaction.user.name}" if nama_topik else f"tiket-{interaction.user.name}"
         thread = await channel.create_thread(
@@ -81,19 +59,16 @@ async def handle_ticket_open(interaction: discord.Interaction, topik: dict | Non
             logger.warning("Gagal membuat thread tiket: %s", sanitize_error_message(exc2))
             thread = None
 
-    if thread is None:
-        await interaction.followup.send(
-            "⚠️ Bot tidak bisa membuat thread di channel ini. "
-            "Pastikan izin **Create Private Threads** & **Send Messages in Threads** aktif.",
-            ephemeral=True,
-        )
-        return
+    return thread
 
-    # Tambahkan pembuat tiket (+ staf) ke private thread
+
+async def _tambah_peserta_tiket(interaction, thread, cfg: dict, topik: dict | None) -> int | None:
+    """Tambahkan pembuat tiket + staf ke thread; kembalikan id role staf."""
     try:
         await thread.add_user(interaction.user)
     except (discord.Forbidden, discord.HTTPException):
         pass
+
     # Topik boleh punya role staf sendiri; bila tidak, pakai role staf umum.
     staff_role_id = _id((topik or {}).get("staff_role_id")) or cfg.get("staff_role_id")
     if staff_role_id:
@@ -106,16 +81,15 @@ async def handle_ticket_open(interaction: discord.Interaction, topik: dict | Non
             except (discord.Forbidden, discord.HTTPException):
                 continue
 
-    data = tickets.register_ticket(
-        thread.id,
-        interaction.guild.id,
-        interaction.user.id,
-        topic=topic,
-        topik=nama_topik,
-    )
-    await tickets.save_tickets_to_disk()
+    return staff_role_id
 
+
+async def _kirim_pesan_tiket(
+    interaction, thread, data: dict, staff_role_id, cfg: dict
+) -> None:
+    """Kirim pesan pembuka tiket dengan embed + tombol aksi."""
     mention = f"<@&{staff_role_id}> " if staff_role_id and cfg.get("ping_staff", True) else ""
+
     try:
         await thread.send(
             content=f"{mention}<@{interaction.user.id}> tiketmu sudah dibuat.",
@@ -125,6 +99,55 @@ async def handle_ticket_open(interaction: discord.Interaction, topik: dict | Non
         )
     except (discord.Forbidden, discord.HTTPException):
         pass
+
+
+async def handle_ticket_open(interaction: discord.Interaction, topik: dict | None = None) -> None:
+    """Logika bersama tombol "Buat Tiket" & dropdown topik (panel V2 maupun embed)."""
+    if interaction.guild is None:
+        await interaction.response.send_message("⚠️ Tiket hanya bisa dibuat di dalam server.", ephemeral=True)
+        return
+    allowed, reason = tickets.can_open_ticket(interaction.guild.id, interaction.user.id)
+    if not allowed:
+        await interaction.response.send_message(reason, ephemeral=True)
+        return
+    cfg = tickets.get_ticket_config(interaction.guild.id)
+    channel = interaction.channel
+    if channel is None or not hasattr(channel, "create_thread"):
+        await interaction.response.send_message(
+            "⚠️ Panel tiket harus dipasang di **text channel** agar bisa membuat thread.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.defer(ephemeral=True)
+    nama_topik = str((topik or {}).get("nama") or "").strip()
+    topic = f"Bantuan dari {interaction.user.display_name}"[:100]
+    if nama_topik:
+        topic = f"{nama_topik} — {interaction.user.display_name}"[:100]
+
+    thread = await _buat_thread_tiket(channel, interaction, nama_topik)
+    if thread is None:
+        await interaction.followup.send(
+            "⚠️ Bot tidak bisa membuat thread di channel ini. "
+            "Pastikan izin **Create Private Threads** & **Send Messages in Threads** aktif.",
+            ephemeral=True,
+        )
+        return
+
+    staff_role_id = await _tambah_peserta_tiket(interaction, thread, cfg, topik)
+
+    staff_role_id = _id((topik or {}).get("staff_role_id")) or cfg.get("staff_role_id")
+
+    data = tickets.register_ticket(
+        thread.id,
+        interaction.guild.id,
+        interaction.user.id,
+        topic=topic,
+        topik=nama_topik,
+    )
+
+    await tickets.save_tickets_to_disk()
+
+    await _kirim_pesan_tiket(interaction, thread, data, staff_role_id, cfg)
 
     await interaction.followup.send(
         f"✅ Tiket dibuat: {thread.mention}\nStaf akan segera merespons di sana.",
