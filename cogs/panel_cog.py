@@ -647,37 +647,23 @@ def make_theme_editor(guild: discord.Guild, requester_id: int) -> ui.LayoutView:
         new_view = make_theme_editor(interaction.guild, requester_id)
         await ui_kit.edit_panel(interaction, new_view, embed=theme_embed(interaction.guild))
 
-    async def on_accent(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, accent=sel_accent.values[0])
-        await persist(interaction)
+    def _buat_ganti(nama: str, nilai):
+        """Buat handler: set satu field tema lalu simpan + refresh panel."""
 
-    async def on_pack(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, emoji_pack=sel_pack.values[0])
-        await persist(interaction)
+        async def handler(interaction: discord.Interaction) -> None:
+            ui_theme.set_theme(gid, **{nama: nilai()})
+            await persist(interaction)
 
-    async def on_density(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, density=sel_density.values[0])
-        await persist(interaction)
+        return handler
 
-    async def on_thumb(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, thumbnail=sel_thumb.values[0])
-        await persist(interaction)
-
-    async def on_nav(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, nav=sel_nav.values[0])
-        await persist(interaction)
-
-    async def on_refresh(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, refresh=int(sel_refresh.values[0]))
-        await persist(interaction)
-
-    async def on_footer(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, footer=not ui_theme.get_theme(gid)["footer"])
-        await persist(interaction)
-
-    async def on_confirm(interaction: discord.Interaction) -> None:
-        ui_theme.set_theme(gid, confirm=not ui_theme.get_theme(gid)["confirm"])
-        await persist(interaction)
+    on_accent = _buat_ganti("accent", lambda: sel_accent.values[0])
+    on_pack = _buat_ganti("emoji_pack", lambda: sel_pack.values[0])
+    on_density = _buat_ganti("density", lambda: sel_density.values[0])
+    on_thumb = _buat_ganti("thumbnail", lambda: sel_thumb.values[0])
+    on_nav = _buat_ganti("nav", lambda: sel_nav.values[0])
+    on_refresh = _buat_ganti("refresh", lambda: int(sel_refresh.values[0]))
+    on_footer = _buat_ganti("footer", lambda: not ui_theme.get_theme(gid)["footer"])
+    on_confirm = _buat_ganti("confirm", lambda: not ui_theme.get_theme(gid)["confirm"])
 
     async def on_reset(interaction: discord.Interaction) -> None:
         ui_theme.reset_theme(gid)
