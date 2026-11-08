@@ -778,6 +778,63 @@ async def _reply(interaction: discord.Interaction, guild_id: int | None, kind: s
         logger.debug("Balasan menu gagal dikirim: %s", exc)
 
 
+async def _cooldown_masih_aktif(interaction: discord.Interaction, guild, member) -> bool:
+    """True bila member masih dalam masa tunggu (setelah membalas ke pengguna)."""
+    left = _cooldown_left(guild.id, member.id)
+    if left <= 0:
+        return False
+    await _reply(
+        interaction,
+        guild.id,
+        "warn",
+        "Sabar sedikit",
+        f"Tunggu `{left:.0f}` detik lagi sebelum mengganti role lagi.",
+    )
+    return True
+
+
+async def _lepas_role_eksklusif(
+    guild,
+    member,
+    role_id: int,
+    exclusive_role_ids: list[int] | None,
+    has_role: bool,
+) -> list[str]:
+    """Lepas role lain di grup eksklusif; kembalikan daftar mention yang dilepas."""
+    released: list[str] = []
+    if not exclusive_role_ids or has_role:
+        return released
+    others = [
+        guild.get_role(_to_int(rid))
+        for rid in exclusive_role_ids
+        if _to_int(rid) != _to_int(role_id)
+    ]
+    removable = [r for r in others if r is not None and r in getattr(member, "roles", [])]
+    if removable:
+        try:
+            await member.remove_roles(*removable, reason="Self role eksklusif (menu)")
+            released = [r.mention for r in removable]
+        except (discord.Forbidden, discord.HTTPException):
+            pass  # diabaikan (opsional)
+    return released
+
+
+async def _catat_audit_role(interaction, guild, member, role, has_role: bool) -> None:
+    """Catat perubahan self role ke audit log (opsional, gagal = diam)."""
+    try:
+        import audit_log
+
+        await audit_log.log_event(
+            interaction.client,
+            guild,
+            "role",
+            "🎭 Self role dilepas" if has_role else "🎭 Self role diberikan",
+            f"{getattr(member, 'mention', member)} — **{role.name}**",
+        )
+    except Exception as exc:  # pragma: no cover - audit opsional
+        logger.debug("Efek samping opsional gagal: %s", exc)
+
+
 async def toggle_role(
     interaction: discord.Interaction,
     role_id: int,
@@ -795,15 +852,7 @@ async def toggle_role(
         await _reply(interaction, guild.id, "error", "Role tidak bisa diberikan", reason)
         return False
 
-    left = _cooldown_left(guild.id, member.id)
-    if left > 0:
-        await _reply(
-            interaction,
-            guild.id,
-            "warn",
-            "Sabar sedikit",
-            f"Tunggu `{left:.0f}` detik lagi sebelum mengganti role lagi.",
-        )
+    if await _cooldown_masih_aktif(interaction, guild, member):
         return False
 
     role = guild.get_role(_to_int(role_id))
@@ -827,33 +876,11 @@ async def toggle_role(
     _mark_cooldown(guild.id, member.id)
 
     # Mode eksklusif: lepas role lain di grup yang sama
-    released: list[str] = []
-    if exclusive_role_ids and not has_role:
-        others = [
-            guild.get_role(_to_int(rid))
-            for rid in exclusive_role_ids
-            if _to_int(rid) != _to_int(role_id)
-        ]
-        removable = [r for r in others if r is not None and r in getattr(member, "roles", [])]
-        if removable:
-            try:
-                await member.remove_roles(*removable, reason="Self role eksklusif (menu)")
-                released = [r.mention for r in removable]
-            except (discord.Forbidden, discord.HTTPException):
-                pass  # diabaikan (opsional)
+    released = await _lepas_role_eksklusif(
+        guild, member, role_id, exclusive_role_ids, has_role
+    )
 
-    try:
-        import audit_log
-
-        await audit_log.log_event(
-            interaction.client,
-            guild,
-            "role",
-            "🎭 Self role dilepas" if has_role else "🎭 Self role diberikan",
-            f"{getattr(member, 'mention', member)} — **{role.name}**",
-        )
-    except Exception as exc:  # pragma: no cover - audit opsional
-        logger.debug("Efek samping opsional gagal: %s", exc)
+    await _catat_audit_role(interaction, guild, member, role, has_role)
 
     extra = f"\nRole lain dilepas: {', '.join(released)}" if released else ""
     await _reply(
