@@ -154,6 +154,76 @@ musik_group = app_commands.Group(
 )
 
 
+async def _antre_lagu(
+    interaction: discord.Interaction,
+    player,
+    tracks: list,
+    berikutnya: bool,
+) -> tuple[str | None, bool, int, int, list]:
+    """Mulai/antrekan lagu. (pesan_galat, started, added, skipped, remaining)."""
+    remaining: list = tracks if berikutnya else []
+    try:
+        started = False
+        if not berikutnya:
+            started = await play_first_if_idle(player, tracks, interaction.user)
+            remaining = tracks if not started else tracks[1:]
+        else:
+            remaining = tracks
+
+        added, skipped = await enqueue_tracks(player, remaining, interaction.user)
+    except Exception as exc:  # pragma: no cover - node mati
+        detail = str(exc)
+        if "CONNECTED state" in detail or "Node" in detail or "node" in detail.lower():
+            pesan = "🎵 **Gagal memutar** — koneksi ke node musik terputus.\n" + node_diagnosis()
+        else:
+            pesan = f"⚠️ Gagal memutar lagu: `{detail[:200]}`"
+        return pesan, False, 0, 0, tracks
+    return None, started, added, skipped, remaining
+
+
+async def _lapor_mulai_atau_playlist(
+    interaction: discord.Interaction,
+    tracks: list,
+    playlist_name: str | None,
+    started: bool,
+    added: int,
+    skipped: int,
+) -> bool:
+    """Kirim pesan playlist/putar. True bila sudah dilaporkan."""
+    if playlist_name:
+        await interaction.followup.send(
+            f"📥 **Playlist `{playlist_name[:80]}`** dimasukkan — "
+            f"`{added + (1 if started else 0)}` lagu ditambahkan"
+            + (f", `{skipped}` dilewati karena antrean penuh." if skipped else "."),
+            ephemeral=True,
+        )
+        return True
+    if started:
+        await interaction.followup.send(
+            f"▶️ Memutar **{track_title(tracks[0], 80)}** — kontrol lewat panel di channel ini.",
+            ephemeral=True,
+        )
+        return True
+    return False
+
+
+async def _lapor_tambahan_antrean(
+    interaction: discord.Interaction,
+    player,
+    added: int,
+    skipped: int,
+    remaining: list,
+) -> None:
+    """Ringkasan saat lagu hanya ditambahkan ke antrean."""
+    total_ms = sum(int(getattr(t, "length", 0) or 0) for t in remaining)
+    await interaction.followup.send(
+        f"➕ **{added} lagu** ditambahkan ke antrean (`{format_duration(total_ms)}`), "
+        f"posisi setelah `{len(player.queue) - added}` lagu lain."
+        + (f"\n⚠️ `{skipped}` lagu dilewati karena batas antrean **{MUSIC_MAX_QUEUE}**." if skipped else ""),
+        ephemeral=True,
+    )
+
+
 @musik_group.command(name="putar", description="Putar lagu atau playlist (judul, link YouTube, atau URL Spotify)")
 @app_commands.describe(
     query="Judul lagu atau tautan (YouTube/Spotify/SoundCloud)",
@@ -187,31 +257,15 @@ async def musik_putar_cmd(
         await interaction.followup.send(error, ephemeral=True)
         return
 
-    try:
-        started = False
-        if not berikutnya:
-            started = await play_first_if_idle(player, tracks, interaction.user)
-            remaining = tracks if not started else tracks[1:]
-        else:
-            remaining = tracks
-
-        added, skipped = await enqueue_tracks(player, remaining, interaction.user)
-    except Exception as exc:  # pragma: no cover - node mati
-        detail = str(exc)
-        if "CONNECTED state" in detail or "Node" in detail or "node" in detail.lower():
-            await interaction.followup.send(
-                "🎵 **Gagal memutar** — koneksi ke node musik terputus.\n" + node_diagnosis(),
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                f"⚠️ Gagal memutar lagu: `{detail[:200]}`", ephemeral=True
-            )
+    pesan_galat, started, added, skipped, remaining = await _antre_lagu(
+        interaction, player, tracks, berikutnya
+    )
+    if pesan_galat:
+        await interaction.followup.send(pesan_galat, ephemeral=True)
         return
 
     remember_announce_channel(interaction.guild.id, interaction.channel_id)
 
-    # Panel pemutar ala Rythm (satu pesan yang di-edit, bukan pesan baru tiap lagu)
     if get_music_settings(interaction.guild.id).get("announce", True):
         await send_or_update_panel(
             interaction.client,
@@ -220,29 +274,12 @@ async def musik_putar_cmd(
             view=MusicPlayerView(),
         )
 
-    if playlist_name:
-        await interaction.followup.send(
-            f"📥 **Playlist `{playlist_name[:80]}`** dimasukkan — "
-            f"`{added + (1 if started else 0)}` lagu ditambahkan"
-            + (f", `{skipped}` dilewati karena antrean penuh." if skipped else "."),
-            ephemeral=True,
-        )
+    if await _lapor_mulai_atau_playlist(
+        interaction, tracks, playlist_name, started, added, skipped
+    ):
         return
 
-    if started:
-        await interaction.followup.send(
-            f"▶️ Memutar **{track_title(tracks[0], 80)}** — kontrol lewat panel di channel ini.",
-            ephemeral=True,
-        )
-        return
-
-    total_ms = sum(int(getattr(t, "length", 0) or 0) for t in remaining)
-    await interaction.followup.send(
-        f"➕ **{added} lagu** ditambahkan ke antrean (`{format_duration(total_ms)}`), "
-        f"posisi setelah `{len(player.queue) - added}` lagu lain."
-        + (f"\n⚠️ `{skipped}` lagu dilewati karena batas antrean **{MUSIC_MAX_QUEUE}**." if skipped else ""),
-        ephemeral=True,
-    )
+    await _lapor_tambahan_antrean(interaction, player, added, skipped, remaining)
 
 
 @musik_group.command(name="cari", description="Cari lagu lalu pilih dari dropdown (tanpa harus tempel link)")
