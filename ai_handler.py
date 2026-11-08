@@ -1586,24 +1586,8 @@ async def analyze_link_with_gemini(
     return None, f"⚠️ Gagal menganalisis link: {last_err}"
 
 
-async def transform_message_with_gemini(
-    mode: str,
-    message_text: str,
-    *,
-    media_parts: list[dict] | None = None,
-    text_blocks: list[str] | None = None,
-    http_session: aiohttp.ClientSession | None = None,
-) -> tuple[str | None, str | None]:
-    """Memproses aksi cepat Context Menu (Terjemahkan ke Indonesia / Jelaskan Pesan Ini)."""
-    if not is_gemini_key_configured():
-        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
-
-    combined_text_parts = [p for p in [message_text.strip(), *(text_blocks or [])] if p]
-    full_text = "\n\n".join(combined_text_parts).strip()
-
-    if not full_text and not media_parts:
-        return None, "⚠️ Pesan tersebut kosong dan tidak memiliki gambar/suara/teks yang bisa diproses."
-
+def _prompt_transformasi(mode: str, full_text: str) -> tuple[str, str]:
+    """Prompt sistem & pengguna untuk aksi Terjemahkan / Jelaskan."""
     if mode in ("translate_id", "translate_en"):
         target_lang = "Bahasa Indonesia" if mode == "translate_id" else "Bahasa Inggris (English)"
         system_prompt = (
@@ -1623,6 +1607,79 @@ async def transform_message_with_gemini(
             "meme/gambar, maupun pesan suara) dalam Bahasa Indonesia yang ringkas, jelas, dan langsung ke intinya!"
         )
         user_prompt = full_text or "Jelaskan maksud isi gambar atau pesan suara lampiran ini dengan jelas dalam Bahasa Indonesia."
+    return system_prompt, user_prompt
+
+
+def _payload_transformasi(system_prompt: str, parts: list[dict], model_id: str) -> dict:
+    """Badan permintaan generateContent beserta konfigurasi generasinya."""
+    gen_config: dict = {"temperature": 0.35, "maxOutputTokens": 3072}
+    t_cfg = build_thinking_config(model_id, "low")
+    if t_cfg:
+        gen_config["thinkingConfig"] = t_cfg
+
+    return {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": gen_config,
+    }
+
+
+async def _coba_transformasi_model(
+    session,
+    model_id: str,
+    api_key: str,
+    system_prompt: str,
+    parts: list[dict],
+    req_timeout: int,
+) -> tuple[str | None, str | None, str | None]:
+    """Coba satu model. (balasan, pesan_blokir, last_err_baru)."""
+    payload = _payload_transformasi(system_prompt, parts, model_id)
+    url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+    try:
+        async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
+            data = await resp.json(content_type=None)
+            if resp.status == 200 and isinstance(data, dict):
+                _record_token_usage(data)
+                reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                if reply_text:
+                    return reply_text, None, None
+                if block_msg and not should_retry:
+                    return None, block_msg, None
+                return None, None, None
+
+            if resp.status in (500, 502, 503, 504):
+                mark_model_unhealthy(model_id)
+            err_detail = (
+                data.get("error", {}).get("message", f"HTTP {resp.status}")
+                if isinstance(data, dict)
+                else f"HTTP {resp.status}"
+            )
+            return None, None, sanitize_error_message(err_detail)
+    except (asyncio.TimeoutError, aiohttp.ClientError):
+        mark_model_unhealthy(model_id)
+        return None, None, None
+
+
+async def transform_message_with_gemini(
+    mode: str,
+    message_text: str,
+    *,
+    media_parts: list[dict] | None = None,
+    text_blocks: list[str] | None = None,
+    http_session: aiohttp.ClientSession | None = None,
+) -> tuple[str | None, str | None]:
+    """Memproses aksi cepat Context Menu (Terjemahkan ke Indonesia / Jelaskan Pesan Ini)."""
+    if not is_gemini_key_configured():
+        return None, "⚠️ `GEMINI_API_KEY` belum dikonfigurasi oleh Admin."
+
+    combined_text_parts = [p for p in [message_text.strip(), *(text_blocks or [])] if p]
+    full_text = "\n\n".join(combined_text_parts).strip()
+    if not full_text and not media_parts:
+        return None, "⚠️ Pesan tersebut kosong dan tidak memiliki gambar/suara/teks yang bisa diproses."
+
+    system_prompt, user_prompt = _prompt_transformasi(mode, full_text)
 
     parts: list[dict] = [*(media_parts or []), {"text": user_prompt}]
     req_timeout = CHAT_TIMEOUT if media_parts else FAST_TEXT_TIMEOUT
@@ -1632,43 +1689,21 @@ async def transform_message_with_gemini(
 
     async with _borrow_session(http_session, req_timeout) as session:
         for idx, model_id in enumerate(models_to_try):
-            gen_config: dict = {"temperature": 0.35, "maxOutputTokens": 3072}
-            t_cfg = build_thinking_config(model_id, "low")
-            if t_cfg:
-                gen_config["thinkingConfig"] = t_cfg
-
-            payload = {
-                "systemInstruction": {"parts": [{"text": system_prompt}]},
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": gen_config,
-            }
             api_key = active_keys[idx % len(active_keys)]
-            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-
-            try:
-                async with session.post(url, headers=headers, json=payload, timeout=req_timeout) as resp:
-                    data = await resp.json(content_type=None)
-                    if resp.status == 200 and isinstance(data, dict):
-                        _record_token_usage(data)
-                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                        if reply_text:
-                            return reply_text, None
-                        if block_msg and not should_retry:
-                            return None, block_msg
-                        continue
-
-                    if resp.status in (500, 502, 503, 504):
-                        mark_model_unhealthy(model_id)
-                    err_detail = (
-                        data.get("error", {}).get("message", f"HTTP {resp.status}")
-                        if isinstance(data, dict)
-                        else f"HTTP {resp.status}"
-                    )
-                    last_err = sanitize_error_message(err_detail)
-            except (asyncio.TimeoutError, aiohttp.ClientError):
-                mark_model_unhealthy(model_id)
-                continue
+            reply, block_msg, last_err_baru = await _coba_transformasi_model(
+                session,
+                model_id,
+                api_key,
+                system_prompt,
+                parts,
+                req_timeout,
+            )
+            if reply:
+                return reply, None
+            if block_msg:
+                return None, block_msg
+            if last_err_baru is not None:
+                last_err = last_err_baru
 
     return None, f"⚠️ Gagal memproses pesan: {last_err}"
 
