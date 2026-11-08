@@ -879,6 +879,67 @@ async def menu_tombol_command_cmd(
     )
 
 
+def _saring_role_dropdown(guild, pairs: list) -> tuple[list[dict], list[str]]:
+    """Bangun opsi dropdown dari pasangan (role, emoji); kumpulkan yang ditolak."""
+    options: list[dict] = []
+
+    rejected: list[str] = []
+
+    for role, emoji in pairs:
+        if role is None:
+            continue
+        ok, _reason = menu_builder.check_role_usable(guild, role.id)
+        if not ok:
+            rejected.append(role.name)
+            continue
+        options.append({"role_id": role.id, "label": role.name, "emoji": emoji})
+
+    return options, rejected
+
+
+async def _lapor_dropdown_ditambah(
+    interaction: discord.Interaction,
+    gid: int,
+    dropdown: dict,
+    rejected: list[str],
+    refreshed: bool,
+) -> None:
+    """Laporkan hasil penambahan dropdown (termasuk role yang dilewati)."""
+    extra = f"\n⚠️ Dilewati (tidak bisa diberikan): {', '.join(rejected)}" if rejected else ""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok",
+            "Dropdown role ditambahkan",
+            f"**{len(dropdown['options'])} role** masuk ke dropdown "
+            f"({'eksklusif — pilih satu' if dropdown['exclusive'] else 'bisa pilih bergantian'}).{extra}\n"
+            + (
+                "Panel langsung diperbarui."
+                if refreshed
+                else "Gunakan `/menu kirim` untuk menampilkan panel."
+            ),
+        ),
+        follow=True,
+        ephemeral=True,
+    )
+
+
+async def _tolak_dropdown(
+    interaction: discord.Interaction,
+    gid: int,
+    status: str,
+    judul: str,
+    detail: str,
+) -> None:
+    """Kirim status galat ephemeral (tanpa follow-up)."""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(gid, status, judul, detail),
+        ephemeral=True,
+    )
+
+
 @menu_group.command(name="dropdown-role", description="Tambah dropdown role (maks 25 role, bisa eksklusif) (Admin)")
 @app_commands.describe(
     menu="ID panel atau judulnya",
@@ -913,34 +974,28 @@ async def menu_dropdown_role_cmd(
         return
 
     record = _menu_or_error(interaction, gid, menu)
+
     if record is None:
-        await ui_kit.send_status(
+        await _tolak_dropdown(
             interaction,
-            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Buat dulu lewat `/menu buat`."),
-            ephemeral=True,
+            gid,
+            "warn",
+            "Panel tidak ditemukan",
+            "Buat dulu lewat `/menu buat`.",
         )
         return
 
     pairs = [(role1, emoji1), (role2, emoji2), (role3, emoji3), (role4, emoji4), (role5, emoji5)]
-    options: list[dict] = []
-    rejected: list[str] = []
-    for role, emoji in pairs:
-        if role is None:
-            continue
-        ok, _reason = menu_builder.check_role_usable(interaction.guild, role.id)
-        if not ok:
-            rejected.append(role.name)
-            continue
-        options.append({"role_id": role.id, "label": role.name, "emoji": emoji})
+
+    options, rejected = _saring_role_dropdown(interaction.guild, pairs)
 
     if not options:
-        await ui_kit.send_status(
+        await _tolak_dropdown(
             interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Tidak ada role valid",
-                ("Ditolak: " + ", ".join(rejected)) if rejected else "Pilih minimal satu role.",
-            ),
-            ephemeral=True,
+            gid,
+            "error",
+            "Tidak ada role valid",
+            ("Ditolak: " + ", ".join(rejected)) if rejected else "Pilih minimal satu role.",
         )
         return
 
@@ -950,32 +1005,21 @@ async def menu_dropdown_role_cmd(
         options,
         exclusive=bool(eksklusif),
     )
+
     if dropdown is None:
-        await ui_kit.send_status(
+        await _tolak_dropdown(
             interaction,
-            embed=ui_theme.status_embed(
-                gid, "warn", "Dropdown tidak ditambahkan",
-                f"Batas **{menu_builder.MAX_DROPDOWNS} dropdown** per panel.",
-            ),
-            ephemeral=True,
+            gid,
+            "warn",
+            "Dropdown tidak ditambahkan",
+            f"Batas **{menu_builder.MAX_DROPDOWNS} dropdown** per panel.",
         )
         return
 
     await interaction.response.defer(ephemeral=True, thinking=True)
     await menu_builder.save_menus_to_disk()
     refreshed = await menu_builder.refresh_panel(interaction.client, record)
-    extra = f"\n⚠️ Dilewati (tidak bisa diberikan): {', '.join(rejected)}" if rejected else ""
-    await ui_kit.send_status(
-        interaction,
-        embed=ui_theme.status_embed(
-            gid, "ok", "Dropdown role ditambahkan",
-            f"**{len(dropdown['options'])} role** masuk ke dropdown "
-            f"({'eksklusif — pilih satu' if dropdown['exclusive'] else 'bisa pilih bergantian'}).{extra}\n"
-            + ("Panel langsung diperbarui." if refreshed else "Gunakan `/menu kirim` untuk menampilkan panel."),
-        ),
-        follow=True,
-        ephemeral=True,
-    )
+    await _lapor_dropdown_ditambah(interaction, gid, dropdown, rejected, refreshed)
 
 
 # ==============================================================================
