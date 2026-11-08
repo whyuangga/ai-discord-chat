@@ -518,6 +518,109 @@ async def _fetch_small_media_bytes(
             return data if len(data) <= max_bytes else None
 
 
+async def _proses_gambar(
+    att, img_mime: str, media_parts: list, descriptions: list, warnings: list
+) -> None:
+    """Tambahkan gambar sebagai inlineData (batas jumlah & ukuran)."""
+    if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
+        return
+
+    if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
+        warnings.append(f"Gambar `{att.filename}` terlalu besar (> {MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)} MB).")
+        return
+
+    try:
+        raw = await att.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        media_parts.append({"inlineData": {"mimeType": img_mime, "data": b64}})
+        descriptions.append(f"[Mengirim foto/gambar: {att.filename}]")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_audio(
+    att, audio_mime: str, media_parts: list, descriptions: list, warnings: list
+) -> None:
+    """Tambahkan voice note / audio sebagai inlineData."""
+    if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
+        return
+
+    if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
+        warnings.append(
+            f"Audio `{att.filename}` melebihi batas {MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)} MB."
+        )
+        return
+
+    try:
+        raw = await att.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        media_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
+        dur = getattr(att, "duration", None)
+        dur_info = f" ({dur:.0f} detik)" if isinstance(dur, (int, float)) and dur > 0 else ""
+        if is_discord_voice_attachment(att):
+            descriptions.append(
+                f"[Mengirim Voice Note / Pesan Suara{dur_info} — dengarkan isi ucapannya dan balas langsung!]"
+            )
+        else:
+            descriptions.append(f"[Mengirim file audio: {att.filename}{dur_info} — dengarkan isinya!]")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_video(
+    att, vid_mime: str, media_parts: list, descriptions: list, warnings: list
+) -> None:
+    """Tambahkan video pendek sebagai inlineData."""
+    if att.size > MAX_VIDEO_ATTACHMENT_BYTES:
+        warnings.append(
+            f"Video `{att.filename}` melebihi batas {MAX_VIDEO_ATTACHMENT_BYTES // (1024 * 1024)} MB untuk di-scan AI."
+        )
+        return
+
+    try:
+        raw = await att.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        media_parts.append({"inlineData": {"mimeType": vid_mime, "data": b64}})
+        descriptions.append(f"[Mengirim video: {att.filename}]")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca video `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_pdf(att, media_parts: list, descriptions: list, warnings: list) -> None:
+    """Tambahkan dokumen PDF sebagai inlineData."""
+    if len(media_parts) < MAX_IMAGES_PER_MESSAGE and att.size <= MAX_PDF_ATTACHMENT_BYTES:
+        try:
+            raw_pdf = await att.read()
+            b64_pdf = base64.b64encode(raw_pdf).decode("ascii")
+            media_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}})
+            descriptions.append(f"[Melampirkan dokumen PDF: {att.filename} — baca & pahami isi dokumennya!]")
+        except Exception as exc:
+            warnings.append(f"Gagal membaca PDF `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_teks(att, ext: str, descriptions: list) -> None:
+    """Sisipkan isi berkas teks (maks. 3500 huruf) ke deskripsi lampiran."""
+    if att.size <= MAX_TEXT_ATTACHMENT_BYTES:
+        try:
+            raw_txt = await att.read()
+            decoded = raw_txt.decode("utf-8", errors="replace").strip()
+            if decoded:
+                lang_hint = ext.lstrip(".")
+                descriptions.append(
+                    f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
+                )
+        except Exception as exc:  # pragma: no cover - media tak terbaca
+            logger.debug("Media opsional tidak terbaca: %s", exc)
+
+
 async def _kumpulkan_lampiran(
     message: discord.Message,
     http_session: aiohttp.ClientSession | None,
@@ -536,84 +639,25 @@ async def _kumpulkan_lampiran(
 
         img_mime = content_type if content_type in SUPPORTED_IMAGE_MIMES else IMAGE_MIME_BY_EXT.get(ext)
         if img_mime:
-            if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
-                continue
-            if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
-                warnings.append(f"Gambar `{att.filename}` terlalu besar (> {MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)} MB).")
-                continue
-            try:
-                raw = await att.read()
-                b64 = base64.b64encode(raw).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": img_mime, "data": b64}})
-                descriptions.append(f"[Mengirim foto/gambar: {att.filename}]")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
+            await _proses_gambar(att, img_mime, media_parts, descriptions, warnings)
             continue
 
         audio_mime = resolve_audio_mime(att)
         if include_audio and audio_mime:
-            if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
-                continue
-            if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
-                warnings.append(
-                    f"Audio `{att.filename}` melebihi batas {MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)} MB."
-                )
-                continue
-            try:
-                raw = await att.read()
-                b64 = base64.b64encode(raw).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
-                dur = getattr(att, "duration", None)
-                dur_info = f" ({dur:.0f} detik)" if isinstance(dur, (int, float)) and dur > 0 else ""
-                if is_discord_voice_attachment(att):
-                    descriptions.append(
-                        f"[Mengirim Voice Note / Pesan Suara{dur_info} — dengarkan isi ucapannya dan balas langsung!]"
-                    )
-                else:
-                    descriptions.append(f"[Mengirim file audio: {att.filename}{dur_info} — dengarkan isinya!]")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
+            await _proses_audio(att, audio_mime, media_parts, descriptions, warnings)
             continue
 
         vid_mime = content_type if content_type in SUPPORTED_VIDEO_MIMES else VIDEO_MIME_BY_EXT.get(ext)
         if include_video and vid_mime:
-            if att.size > MAX_VIDEO_ATTACHMENT_BYTES:
-                warnings.append(
-                    f"Video `{att.filename}` melebihi batas {MAX_VIDEO_ATTACHMENT_BYTES // (1024 * 1024)} MB untuk di-scan AI."
-                )
-                continue
-            try:
-                raw = await att.read()
-                b64 = base64.b64encode(raw).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": vid_mime, "data": b64}})
-                descriptions.append(f"[Mengirim video: {att.filename}]")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca video `{att.filename}`: {sanitize_error_message(exc)}")
+            await _proses_video(att, vid_mime, media_parts, descriptions, warnings)
             continue
 
         if include_text_files and (ext == ".pdf" or content_type == "application/pdf"):
-            if len(media_parts) < MAX_IMAGES_PER_MESSAGE and att.size <= MAX_PDF_ATTACHMENT_BYTES:
-                try:
-                    raw_pdf = await att.read()
-                    b64_pdf = base64.b64encode(raw_pdf).decode("ascii")
-                    media_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}})
-                    descriptions.append(f"[Melampirkan dokumen PDF: {att.filename} — baca & pahami isi dokumennya!]")
-                except Exception as exc:
-                    warnings.append(f"Gagal membaca PDF `{att.filename}`: {sanitize_error_message(exc)}")
+            await _proses_pdf(att, media_parts, descriptions, warnings)
             continue
 
         if include_text_files and (ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/")):
-            if att.size <= MAX_TEXT_ATTACHMENT_BYTES:
-                try:
-                    raw_txt = await att.read()
-                    decoded = raw_txt.decode("utf-8", errors="replace").strip()
-                    if decoded:
-                        lang_hint = ext.lstrip(".")
-                        descriptions.append(
-                            f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
-                        )
-                except Exception as exc:  # pragma: no cover - media tak terbaca
-                    logger.debug("Media opsional tidak terbaca: %s", exc)
+            await _proses_teks(att, ext, descriptions)
 
 
 async def _kumpulkan_stiker(
