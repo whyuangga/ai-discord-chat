@@ -441,6 +441,83 @@ async def _aksi_webhook(
     return
 
 
+async def _siapkan_defer(interaction, langkah: list[dict]) -> bool:
+    """Defer respons bila ada langkah yang butuh waktu. True bila sudah dibalas."""
+    butuh_defer = any(step["action"] in (ACTION_WAIT, ACTION_THREAD) for step in langkah)
+    if butuh_defer and not interaction.response.is_done():
+        try:
+            await interaction.response.defer(ephemeral=False, thinking=True)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Defer alur dilewati: %s", exc)
+    return bool(interaction.response.is_done())
+
+
+async def _jalankan_langkah(
+    interaction,
+    step: dict,
+    hasil: FlowResult,
+    konteks: dict,
+    guild,
+    member,
+    channel,
+    sudah_balas: bool,
+) -> tuple[bool, bool]:
+    """Proses satu langkah. Kembalikan (sudah_balas, harus_berhenti)."""
+    aksi = step["action"]
+    if aksi == ACTION_REQUIRE_ROLE:
+        role = guild.get_role(step["role_id"]) if guild is not None else None
+        punya = role is not None and role in getattr(member, "roles", [])
+        if role is None or not punya:
+            hasil["stopped"] = True
+            return sudah_balas, True
+        return sudah_balas, False
+    if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE):
+        sudah_balas = await _aksi_ubah_role(
+            interaction, guild, member, aksi, step, hasil, sudah_balas
+        )
+        return sudah_balas, False
+    if aksi == ACTION_SAY:
+        teks = message_template.render(str(step.get("text") or ""), **konteks)
+        if not teks.strip():
+            return sudah_balas, False
+        await _kirim(
+            interaction,
+            teks,
+            ephemeral=bool(step.get("ephemeral", True)),
+            sudah_balas=sudah_balas,
+        )
+        sudah_balas = True
+        hasil["sent"] += 1
+        return sudah_balas, False
+    if aksi == ACTION_THREAD:
+        await _aksi_thread(channel, step, hasil, konteks)
+        return sudah_balas, False
+    if aksi == ACTION_WAIT:
+        await asyncio.sleep(float(step.get("seconds") or 0))
+        return sudah_balas, False
+    if aksi == ACTION_WEBHOOK:
+        await _aksi_webhook(channel, step, hasil, konteks)
+        return sudah_balas, False
+    if aksi == ACTION_DELETE:
+        try:
+            pesan = await interaction.original_response()
+            await pesan.delete()
+        except Exception as exc:  # pragma: no cover - pesan sudah hilang
+            logger.debug("Alur gagal menghapus balasan: %s", exc)
+            hasil["errors"].append("balasan tidak bisa dihapus")
+        return sudah_balas, False
+    if aksi == ACTION_STOP:
+        teks = message_template.render(str(step.get("text") or ""), **konteks)
+        if teks.strip():
+            await _kirim(interaction, teks, ephemeral=True, sudah_balas=sudah_balas)
+            sudah_balas = True
+            hasil["sent"] += 1
+        hasil["stopped"] = True
+        return sudah_balas, True
+
+    return sudah_balas, False
+
+
 async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, channel=None) -> FlowResult:
     """Jalankan langkah alur atas nama member yang mengklik tombol."""
     langkah = sanitize_steps(steps)
@@ -448,80 +525,18 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
     guild = guild if guild is not None else getattr(interaction, "guild", None)
     member = member if member is not None else getattr(interaction, "user", None)
     channel = channel if channel is not None else getattr(interaction, "channel", None)
-
     if not langkah:
         hasil["errors"].append("alur kosong")
         return hasil
 
-    butuh_defer = any(step["action"] in (ACTION_WAIT, ACTION_THREAD) for step in langkah)
-    if butuh_defer and not interaction.response.is_done():
-        try:
-            await interaction.response.defer(ephemeral=False, thinking=True)
-        except Exception as exc:  # pragma: no cover
-            logger.debug("Defer alur dilewati: %s", exc)
-
-    sudah_balas = bool(interaction.response.is_done())
+    sudah_balas = await _siapkan_defer(interaction, langkah)
     konteks = {"guild": guild, "member": member, "channel": channel}
 
     for step in langkah:
-        aksi = step["action"]
-
-        if aksi == ACTION_REQUIRE_ROLE:
-            role = guild.get_role(step["role_id"]) if guild is not None else None
-            punya = role is not None and role in getattr(member, "roles", [])
-            if role is None or not punya:
-                hasil["stopped"] = True
-                return hasil
-            continue
-
-        if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE):
-            sudah_balas = await _aksi_ubah_role(
-                interaction, guild, member, aksi, step, hasil, sudah_balas
-            )
-            continue
-
-        if aksi == ACTION_SAY:
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if not teks.strip():
-                continue
-            await _kirim(
-                interaction,
-                teks,
-                ephemeral=bool(step.get("ephemeral", True)),
-                sudah_balas=sudah_balas,
-            )
-            sudah_balas = True
-            hasil["sent"] += 1
-            continue
-
-        if aksi == ACTION_THREAD:
-            await _aksi_thread(channel, step, hasil, konteks)
-            continue
-
-        if aksi == ACTION_WAIT:
-            await asyncio.sleep(float(step.get("seconds") or 0))
-            continue
-
-        if aksi == ACTION_WEBHOOK:
-            await _aksi_webhook(channel, step, hasil, konteks)
-            continue
-
-        if aksi == ACTION_DELETE:
-            try:
-                pesan = await interaction.original_response()
-                await pesan.delete()
-            except Exception as exc:  # pragma: no cover - pesan sudah hilang
-                logger.debug("Alur gagal menghapus balasan: %s", exc)
-                hasil["errors"].append("balasan tidak bisa dihapus")
-            continue
-
-        if aksi == ACTION_STOP:
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if teks.strip():
-                await _kirim(interaction, teks, ephemeral=True, sudah_balas=sudah_balas)
-                sudah_balas = True
-                hasil["sent"] += 1
-            hasil["stopped"] = True
+        sudah_balas, berhenti = await _jalankan_langkah(
+            interaction, step, hasil, konteks, guild, member, channel, sudah_balas
+        )
+        if berhenti:
             return hasil
 
     return hasil
