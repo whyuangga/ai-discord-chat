@@ -406,9 +406,8 @@ class GeminiDiscordBot(commands.Bot):
         await self._muat_data_operasional()
         await self._muat_media_dan_ringkasan()
 
-    async def _muat_data_inti(self) -> None:
-        """Sesi AI, game, fitur server, perkakas komunitas, dan pelanggaran."""
-        # 2. Muat kembali sesi privat, konfigurasi AI Agent, & papan skor game dari disk
+    async def _muat_dari_disk(self) -> dict:
+        """Muat semua data inti dari disk; kembalikan angka untuk ringkasan log."""
         loaded_chats, loaded_imgs = load_sessions_from_disk()
         loaded_agent_chats, loaded_galleries = load_agent_config_from_disk()
         loaded_score_guilds = load_game_scores_from_disk()
@@ -431,6 +430,7 @@ class GeminiDiscordBot(commands.Bot):
         loaded_ic_guilds = load_info_channel_from_disk()
         loaded_levels = load_levels_from_disk()
         loaded_tickets = load_tickets_from_disk()
+
         try:
             arsip_dibersihkan = await asyncio.to_thread(ticket_archive.rapikan_arsip)
             logger.info(
@@ -442,69 +442,76 @@ class GeminiDiscordBot(commands.Bot):
         except Exception as exc:  # Arsip bukan alasan untuk menggagalkan startup bot.
             logger.warning("Pembersihan retensi arsip tiket gagal: %s", exc)
 
+
+        return locals()
+
+
+    def _log_ringkasan_muat(self, m: dict) -> None:
+        """Ringkas isi memori yang berhasil dimuat (empat baris per kategori)."""
         logger.info(
-            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, %d YouTube, %d Cari, %d papan skor server.",
-            loaded_chats,
-            loaded_imgs,
-            loaded_agent_chats,
-            loaded_galleries,
+            "Memori dimuat: %d chat privat, %d gambar, %d Auto-Chat, %d Galeri, "
+            "%d YouTube, %d Cari, %d papan skor server.",
+            m["loaded_chats"],
+            m["loaded_imgs"],
+            m["loaded_agent_chats"],
+            m["loaded_galleries"],
             len(youtube_agent_channels),
             len(search_agent_channels),
-            loaded_score_guilds,
+            m["loaded_score_guilds"],
         )
         logger.info(
-            "Fitur server dimuat: %d Server Stats, %d Auto Role, %d Fakta Harian, %d Anti-Phishing.",
-            loaded_stats,
-            loaded_autorole,
-            loaded_facts,
-            loaded_security,
+            "Fitur server dimuat: %d Server Stats, %d Auto Role, %d Fakta Harian, "
+            "%d Anti-Phishing, %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
+            m["loaded_stats"],
+            m["loaded_autorole"],
+            m["loaded_facts"],
+            m["loaded_security"],
+            m["loaded_panels"],
+            m["loaded_reminders_count"],
+            m["loaded_starboard"],
+            m["loaded_sticky"],
+            m["loaded_verify"],
         )
         logger.info(
-            "Musik dimuat: %d server dengan pengaturan tersimpan | %s",
-            loaded_music,
+            "Engagement & moderasi dimuat: %d Giveaway, %d Ulang Tahun, %d Auto-Responder, "
+            "%d Pengumuman, %d server Anti-Spam/Raid, %d Honeypot, %d server laporan (%d antrean), "
+            "%d server tag (%d tag).",
+            m["loaded_giveaways"],
+            m["loaded_birthdays"],
+            m["loaded_autoreply"],
+            m["loaded_announcements"],
+            m["loaded_antispam"],
+            m["loaded_honeypot"],
+            m["loaded_report_guilds"],
+            m["loaded_report_entries"],
+            m["loaded_tag_guilds"],
+            m["loaded_tags"],
+        )
+        logger.info(
+            "Komunitas dimuat: %d lencana (%d member), %d highlight (%d pelanggan), "
+            "%d curhat (%d item), %d voice link (%d channel), %d info channel, "
+            "%d leveling, %d tiket, %d server musik | %s",
+            m["loaded_ach_guilds"],
+            m["loaded_ach_members"],
+            m["loaded_hl_guilds"],
+            m["loaded_hl_members"],
+            m["loaded_cf_guilds"],
+            m["loaded_cf_items"],
+            m["loaded_vl_guilds"],
+            m["loaded_vl_links"],
+            m["loaded_ic_guilds"],
+            m["loaded_levels"],
+            m["loaded_tickets"],
+            m["loaded_music"],
             music_status(),
         )
-        logger.info(
-            "Fitur engagement dimuat: %d Giveaway, %d Ulang Tahun, %d Auto-Responder, %d Pengumuman Terjadwal.",
-            loaded_giveaways,
-            loaded_birthdays,
-            loaded_autoreply,
-            loaded_announcements,
-        )
-        logger.info("Anti-Spam & Anti-Raid dimuat: %d server aktif.", loaded_antispam)
-        logger.info("Honeypot dimuat: %d server.", loaded_honeypot)
-        logger.info(
-            "Laporan & banding dimuat: %d server, %d entri antrean.",
-            loaded_report_guilds, loaded_report_entries,
-        )
-        logger.info("Tag dimuat: %d server, %d tag.", loaded_tag_guilds, loaded_tags)
-        logger.info(
-            "Lencana dimuat: %d server, %d member terdata.", loaded_ach_guilds, loaded_ach_members
-        )
-        logger.info(
-            "Highlight dimuat: %d server, %d pelanggan.", loaded_hl_guilds, loaded_hl_members
-        )
-        logger.info(
-            "Curhat dimuat: %d server, %d curhat.", loaded_cf_guilds, loaded_cf_items
-        )
-        logger.info(
-            "Voice linking dimuat: %d server, %d channel.", loaded_vl_guilds, loaded_vl_links
-        )
-        logger.info("Channel info dimuat: %d server.", loaded_ic_guilds)
-        logger.info(
-            "Leveling & Tiket dimuat: %d server leveling, %d server tiket.",
-            loaded_levels,
-            loaded_tickets,
-        )
-        # Ringkasan komunitas sengaja di akhir: butuh nilai dari blok di atas.
-        logger.info(
-            "Fitur komunitas dimuat: %d Panel Role, %d Pengingat, %d Starboard, %d Sticky, %d Verifikasi.",
-            loaded_panels,
-            loaded_reminders_count,
-            loaded_starboard,
-            loaded_sticky,
-            loaded_verify,
-        )
+
+
+    async def _muat_data_inti(self) -> None:
+        """Sesi AI, game, fitur server, perkakas komunitas, dan pelanggaran."""
+        # 2. Muat kembali sesi privat, konfigurasi AI Agent, & papan skor game dari disk
+        angka = await self._muat_dari_disk()
+        self._log_ringkasan_muat(angka)
 
     async def _muat_data_operasional(self) -> None:
         """Pemakaian AI, moderasi, ekonomi, tema, dan perkakas server harian."""
