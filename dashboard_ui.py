@@ -1905,27 +1905,10 @@ def _waktu_arsip(nilai: object) -> str:
         return "-"
 
 
-def render_halaman_arsip(
-    guild_id: int,
-    token: str,
-    *,
-    kata: str = "",
-    hasil: list[dict] | None = None,
-    stat: dict | None = None,
-    nama_server: str = "",
-) -> str:
-    """Halaman mandiri `/transkrip`: pencarian arsip + daftar hasil (tanpa JS)."""
-    import dashboard_tema as tema
-
-    gid = int(guild_id or 0)
-    daftar = hasil or []
-    stat = stat or {}
-    retensi_hari = int(stat.get("retensi_hari") or 0)
-    retensi = f"hapus setelah {retensi_hari} hari" if retensi_hari else "tanpa batas umur"
-    kueri = str(kata or "").strip()
-
+def _daftar_arsip_html(daftar: list[dict], kueri: str, token: str, gid: int) -> str:
+    """Baris hasil pencarian arsip, atau pesan kosong bila tak ada yang cocok."""
     if daftar:
-        baris = "".join(
+        return "".join(
             '<div class="hasil"><div>'
             f'<b>#{_esc(item.get("kode"))}</b> — {_esc(item.get("topik") or "-")}'
             f'<div class="redup">Pembuat <code>{_esc(item.get("user_id") or "-")}</code> · '
@@ -1946,13 +1929,35 @@ def render_halaman_arsip(
             for item in daftar
         )
     else:
-        baris = (
+        return (
             f'<p class="redup">Tidak ada arsip yang cocok dengan '
             f"<b>{_esc(kueri)}</b>.</p>" if kueri
             else '<p class="redup">Belum ada transkrip tersimpan di server ini.</p>'
         )
 
+
+def render_halaman_arsip(
+    guild_id: int,
+    token: str,
+    *,
+    kata: str = "",
+    hasil: list[dict] | None = None,
+    stat: dict | None = None,
+    nama_server: str = "",
+) -> str:
+    """Halaman mandiri `/transkrip`: pencarian arsip + daftar hasil (tanpa JS)."""
+    import dashboard_tema as tema
+
+
+    gid = int(guild_id or 0)
+    daftar = hasil or []
+    stat = stat or {}
+    retensi_hari = int(stat.get("retensi_hari") or 0)
+    retensi = f"hapus setelah {retensi_hari} hari" if retensi_hari else "tanpa batas umur"
+    kueri = str(kata or "").strip()
+    baris = _daftar_arsip_html(daftar, kueri, token, gid)
     kembali = f"/tiket?token={_esc(token)}&amp;guild={gid}"
+
     return f"""<!doctype html>
 <html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
