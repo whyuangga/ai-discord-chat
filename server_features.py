@@ -497,13 +497,8 @@ def _hitung_aktivitas_fitur(gid: int) -> tuple[int, int]:
     return tiket_terbuka, langganan_sosial
 
 
-def build_serverstats_embed(
-    guild: discord.Guild,
-    *,
-    presence_count: int | None = None,
-) -> discord.Embed:
-    """Menyusun kartu statistik server yang cantik & informatif (tanpa API berbayar)."""
-    stat = _hitung_statistik_server(guild, presence_count)
+def _tambah_field_utama(embed: discord.Embed, stat: dict) -> None:
+    """Empat field pertama: anggota, aktivitas, kanal, dan lainnya."""
     total_members = stat["total_members"]
     humans = stat["humans"]
     bots = stat["bots"]
@@ -514,20 +509,7 @@ def build_serverstats_embed(
     stickers = stat["stickers"]
     boost_count = stat["boost_count"]
     boost_tier = stat["boost_tier"]
-    created_txt = stat["created_txt"]
-    owner_txt = stat["owner_txt"]
     verify_level = stat["verify_level"]
-
-    embed = discord.Embed(
-        title=f"📊 Statistik Server — {getattr(guild, 'name', 'Server')}",
-        description=(
-            getattr(guild, "description", None)
-            or "_Ringkasan lengkap kondisi server saat ini._"
-        ),
-        color=discord.Color.brand_green(),
-        timestamp=discord.utils.utcnow(),
-    )
-
     embed.add_field(
         name="👥 Anggota",
         value=(
@@ -564,9 +546,14 @@ def build_serverstats_embed(
         ),
         inline=True,
     )
-    gid = int(getattr(guild, "id", 0) or 0)
-    tiket_terbuka, langganan_sosial = _hitung_aktivitas_fitur(gid)
 
+
+def _tambah_field_fitur(
+    embed: discord.Embed, stat: dict, tiket_terbuka: int, langganan_sosial: int
+) -> None:
+    """Dua field terakhir: aktivitas fitur dan informasi server."""
+    created_txt = stat["created_txt"]
+    owner_txt = stat["owner_txt"]
     embed.add_field(
         name="📈 Aktivitas Fitur",
         value=(
@@ -583,6 +570,32 @@ def build_serverstats_embed(
         ),
         inline=True,
     )
+
+
+def build_serverstats_embed(
+    guild: discord.Guild,
+    *,
+    presence_count: int | None = None,
+) -> discord.Embed:
+    """Menyusun kartu statistik server yang cantik & informatif (tanpa API berbayar)."""
+    stat = _hitung_statistik_server(guild, presence_count)
+
+    embed = discord.Embed(
+        title=f"📊 Statistik Server — {getattr(guild, 'name', 'Server')}",
+        description=(
+            getattr(guild, "description", None)
+            or "_Ringkasan lengkap kondisi server saat ini._"
+        ),
+        color=discord.Color.brand_green(),
+        timestamp=discord.utils.utcnow(),
+    )
+
+    _tambah_field_utama(embed, stat)
+    gid = int(getattr(guild, "id", 0) or 0)
+
+    tiket_terbuka, langganan_sosial = _hitung_aktivitas_fitur(gid)
+
+    _tambah_field_fitur(embed, stat, tiket_terbuka, langganan_sosial)
 
     icon = getattr(guild, "icon", None)
     if icon:
