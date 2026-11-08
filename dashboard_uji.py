@@ -12,6 +12,7 @@ karena pemicu sambutan/perpisahan mengabaikan member bot. Kuota AI tetap 1 pangg
 """
 
 import datetime
+import inspect
 import logging
 import re
 import time
@@ -589,6 +590,73 @@ def _diagnosa_agent(bot, guild, status: dict, kunci: str) -> str:
     return f"Pemicu {label.lower()} tidak mengirim apa pun. Cek log bot untuk detailnya."
 
 
+async def _uji_kanal_agent(
+    bot, guild, gid: int, kunci: str, item: dict, status: dict, member, opsi: str
+) -> tuple[bool, str]:
+    """Kirim contoh untuk fitur sapaan/goodbye/boost ke channel tujuan."""
+    sumber = "pilihanmu"
+    if member is None:
+        member, sumber = await ambil_subjek(guild, opsi)
+        if member is None:
+            dicari = str(opsi or "").strip()
+            if dicari:
+                return False, (
+                    f"Member `{dicari}` tidak ditemukan di server ini. Kosongkan kolom "
+                    "subjek untuk memakai **pemilik server** secara otomatis."
+                )
+            return False, (
+                "Belum ada member yang bisa dijadikan contoh: pemilik server tidak "
+                "ada di daftar member dan server ini belum punya member manusia. "
+                "Undang dulu satu member, lalu jalankan tes lagi."
+            )
+    ok, _ = await _uji_agent(bot, guild, member, kunci)
+    tujuan = f"<#{status.get('channel_id')}>" if status.get("channel_id") else "channel tujuan"
+    if ok:
+        return True, (
+            f"Contoh {item['label'].lower()} atas nama **{_nama_member(member)}** "
+            f"({sumber}) terkirim ke {tujuan}."
+        )
+    return False, f"Tidak ada yang terkirim ke {tujuan}. {_diagnosa_agent(bot, guild, status, kunci)}"
+
+
+async def _uji_giveaway_subjek(guild, gid: int, member, opsi: str) -> tuple[bool, str]:
+    """Uji fitur giveaway, memilih subjek otomatis bila belum ada."""
+    if member is None:
+        member, sumber = await ambil_subjek(guild, opsi)
+        if member is None:
+            return False, (
+                "Belum ada member yang bisa diuji: pemilik server tidak ada di daftar "
+                "member dan server ini belum punya member manusia."
+            )
+        return _uji_giveaway(guild, member)
+    return _uji_giveaway(guild, member)
+
+
+# Pelaksana uji sederhana: `kunci -> pemanggil(bot, guild, gid, guild_id, member, opsi)`.
+_UJI_SEDERHANA = {
+    "pengumuman": lambda bot, guild, gid, gid_asli, member, opsi: _uji_pengumuman(bot, gid, opsi),
+    "panel": lambda bot, guild, gid, gid_asli, member, opsi: _uji_panel(bot, gid, opsi),
+    "digest": lambda bot, guild, gid, gid_asli, member, opsi: _uji_digest(bot, gid),
+    "tiket": lambda bot, guild, gid, gid_asli, member, opsi: _uji_tiket(bot, gid, opsi),
+    "formulir": lambda bot, guild, gid, gid_asli, member, opsi: _uji_formulir(gid),
+    "verifikasi": lambda bot, guild, gid, gid_asli, member, opsi: _uji_verifikasi(guild),
+    "info": lambda bot, guild, gid, gid_asli, member, opsi: _uji_info(gid),
+    "voice": lambda bot, guild, gid, gid_asli, member, opsi: _uji_voice(bot, guild),
+    "sosial": lambda bot, guild, gid, gid_asli, member, opsi: _uji_sosial(gid),
+    "statistik": lambda bot, guild, gid, gid_asli, member, opsi: _uji_statistik(guild),
+    "curhat": lambda bot, guild, gid, gid_asli, member, opsi: _uji_curhat(gid),
+    "snipe": lambda bot, guild, gid, gid_asli, member, opsi: _uji_snipe(gid),
+    "pantau": lambda bot, guild, gid, gid_asli, member, opsi: _uji_pantau(gid),
+    "lencana": lambda bot, guild, gid, gid_asli, member, opsi: _uji_lencana(gid_asli, member),
+    "tag": lambda bot, guild, gid, gid_asli, member, opsi: _uji_tag(gid_asli),
+    "moderasi": lambda bot, guild, gid, gid_asli, member, opsi: _uji_moderasi(gid_asli),
+    "honeypot": lambda bot, guild, gid, gid_asli, member, opsi: _uji_honeypot(guild, gid, member, opsi),
+    "kartu": lambda bot, guild, gid, gid_asli, member, opsi: _uji_kartu(guild, gid, member, opsi),
+    "ai": lambda bot, guild, gid, gid_asli, member, opsi: _uji_ai(gid),
+    "ekspor": lambda bot, guild, gid, gid_asli, member, opsi: _uji_ekspor(gid),
+}
+
+
 async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = "") -> tuple[bool, str]:
     """Kirim satu contoh untuk fitur `kunci`. Kembalikan `(berhasil, pesan)`."""
     kunci = str(kunci or "").strip().lower().removeprefix("uji.")
@@ -598,96 +666,30 @@ async def jalankan_uji(bot, guild_id: int, kunci: str, member=None, opsi: str = 
     gid = _to_int(guild_id)
     if gid <= 0:
         return False, "Server tidak dikenali."
-
     status = status_uji(gid).get(kunci) or {}
     if item.get("cfg") and not status.get("aktif"):
         return False, (
             f"{item['label']} belum aktif — atur channel-nya dulu di {halaman_uji(kunci)}."
         )
-
     ambil_guild = getattr(bot, "get_guild", None)
     guild = ambil_guild(gid) if callable(ambil_guild) else None
     if guild is None and kunci not in ("ai", "ekspor"):
         return False, "Server tidak ditemukan di cache bot."
-
     try:
         if kunci in ("welcome", "goodbye", "boost"):
-            sumber = "pilihanmu"
-            if member is None:
-                member, sumber = await ambil_subjek(guild, opsi)
-                if member is None:
-                    dicari = str(opsi or "").strip()
-                    if dicari:
-                        return False, (
-                            f"Member `{dicari}` tidak ditemukan di server ini. Kosongkan kolom "
-                            "subjek untuk memakai **pemilik server** secara otomatis."
-                        )
-                    return False, (
-                        "Belum ada member yang bisa dijadikan contoh: pemilik server tidak "
-                        "ada di daftar member dan server ini belum punya member manusia. "
-                        "Undang dulu satu member, lalu jalankan tes lagi."
-                    )
-            ok, _ = await _uji_agent(bot, guild, member, kunci)
-            tujuan = f"<#{status.get('channel_id')}>" if status.get("channel_id") else "channel tujuan"
-            if ok:
-                return True, (
-                    f"Contoh {item['label'].lower()} atas nama **{_nama_member(member)}** "
-                    f"({sumber}) terkirim ke {tujuan}."
-                )
-            return False, f"Tidak ada yang terkirim ke {tujuan}. {_diagnosa_agent(bot, guild, status, kunci)}"
-        if kunci == "pengumuman":
-            return await _uji_pengumuman(bot, gid, opsi)
-        if kunci == "panel":
-            return await _uji_panel(bot, gid, opsi)
-        if kunci == "digest":
-            return await _uji_digest(bot, gid)
-        if kunci == "tiket":
-            return await _uji_tiket(bot, gid, opsi)
+            return await _uji_kanal_agent(
+                bot, guild, gid, kunci, item, status, member, opsi
+            )
         if kunci == "giveaway":
-            if member is None:
-                member, sumber = await ambil_subjek(guild, opsi)
-                if member is None:
-                    return False, (
-                        "Belum ada member yang bisa diuji: pemilik server tidak ada di daftar "
-                        "member dan server ini belum punya member manusia."
-                    )
-                return _uji_giveaway(guild, member)
-            return _uji_giveaway(guild, member)
-        if kunci == "formulir":
-            return _uji_formulir(gid)
-        if kunci == "verifikasi":
-            return _uji_verifikasi(guild)
-        if kunci == "info":
-            return _uji_info(gid)
-        if kunci == "voice":
-            return _uji_voice(bot, guild)
-        if kunci == "sosial":
-            return _uji_sosial(gid)
-        if kunci == "statistik":
-            return _uji_statistik(guild)
-        if kunci == "curhat":
-            return _uji_curhat(gid)
-        if kunci == "snipe":
-            return _uji_snipe(gid)
-        if kunci == "pantau":
-            return _uji_pantau(gid)
-        if kunci == "lencana":
-            return _uji_lencana(guild_id, member)
-        if kunci == "tag":
-            return _uji_tag(guild_id)
-        if kunci == "moderasi":
-            return _uji_moderasi(guild_id)
-        if kunci == "honeypot":
-            return _uji_honeypot(guild, gid, member, opsi)
-        if kunci == "kartu":
-            return await _uji_kartu(guild, gid, member, opsi)
-        if kunci == "ai":
-            return await _uji_ai(gid)
-        if kunci == "ekspor":
-            return _uji_ekspor(gid)
+            return await _uji_giveaway_subjek(guild, gid, member, opsi)
+        pelaksana = _UJI_SEDERHANA.get(kunci)
+        if pelaksana is not None:
+            hasil = pelaksana(bot, guild, gid, guild_id, member, opsi)
+            return await hasil if inspect.isawaitable(hasil) else hasil
     except Exception as exc:  # pragma: no cover - jaring aman
         logger.warning("Tes %s gagal: %s", kunci, exc)
         return False, f"Tes gagal dijalankan ({type(exc).__name__})."
+
     return False, f"Fitur uji `{kunci}` belum punya pelaksana."
 
 
