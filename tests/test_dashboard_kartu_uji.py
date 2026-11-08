@@ -302,11 +302,13 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
         async with session.get(f"{base}/api/kartu/goodbye?{halaman}") as resp:
             assert resp.status == 404
 
-        # Slot unggah kartu sambutan sudah tidak ada di halaman; API-nya tetap
-        # hidup untuk kompatibilitas. Thumbnail boost tetap tampil tanpa token.
+        # Slot unggah kini menempel di panel "Tampilan pesan" supaya mode Card
+        # punya jalan mengunggah gambarnya. Pratinjau memakai sesi cookie,
+        # bukan token di URL.
         async with session.get(f"{base}/sambutan?{halaman}") as resp:
             isi = await resp.text()
-            assert "/api/kartu/welcome" not in isi and f"token={TOKEN}" not in isi
+            assert "kartu.simpan:welcome" in isi
+            assert "/api/kartu/welcome" in isi and f"token={TOKEN}" not in isi
 
         # Hapus
         async with session.post(

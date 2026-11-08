@@ -9,10 +9,15 @@ lalu buka http://127.0.0.1:8080/sambutan?token=demo&guild=1
 """
 
 import asyncio
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
-import community_agent
-import web_dashboard
+# Skrip ini ada di tools/demo/, jadi root repo (tempat modul bot) perlu ditambahkan.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import community_agent  # noqa: E402
+import web_dashboard  # noqa: E402
 
 GID = 1
 

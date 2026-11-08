@@ -336,6 +336,16 @@ CSS_HALAMAN = f"""
     margin: 8px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--redup);
   }}
   .daftar-variabel code {{ font-size: 11px; }}
+  /* Slot unggah gambar di dalam panel tampilan */
+  .kartu-slot.banner-card {{
+    margin: 4px 0 12px; border-style: dashed;
+  }}
+  .kartu-slot.banner-card h5 {{
+    margin: 0; font-size: 12.5px; font-weight: 600; color: var(--teks);
+  }}
+  .kartu-slot.banner-card .muted {{ margin: 0; font-size: 11.5px; }}
+  .sebaris {{ margin: 0; }}
+  .sebaris button {{ margin-top: 6px; }}
   .lebar-penuh {{ grid-column: 1 / -1; }}
   .lebar-penuh textarea {{ width: 100%; font-family: inherit; }}
 

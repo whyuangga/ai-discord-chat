@@ -89,7 +89,7 @@ def gambar():
             "template": "Sampai jumpa, **{user_name}**. Terima kasih sudah di **{server}**",
         },
     }
-    tinggi_total = 850
+    tinggi_total = 1030
     img = Image.new("RGB", (LEBAR, tinggi_total), LATAR)
     d = ImageDraw.Draw(img)
 
@@ -109,7 +109,7 @@ def gambar():
     y += 14
 
     # ---- kartu panel tampilan ----
-    akhir = 800
+    akhir = 980
     _kotak(d, (PAD - 8, y, LEBAR - PAD + 8, akhir))
     y += 18
     d.text((PAD, y), tanpa_emoji("🎨 Tampilan pesan"), font=F_TEBAL, fill=TEKS)
@@ -173,6 +173,21 @@ def gambar():
             d.text((isi_x + 16, isi_y + 108), tanpa_emoji("Whyu Test"), font=F_KECIL2, fill=REDUP2)
 
         y = kotak_y + 166
+        # slot unggah gambar (untuk mode Card)
+        _kotak(d, (pad_dalam, y, LEBAR - PAD - 14, y + 62), radius=9, fill=KARTU, outline=GARIS)
+        d.text((pad_dalam + 12, y + 8), "Gambar kartu (untuk mode Card)", font=F_KECIL, fill=TEKS)
+        _kotak(d, (pad_dalam + 12, y + 28, pad_dalam + 210, y + 54), radius=6, fill=LATAR, outline=GARIS)
+        d.text((pad_dalam + 22, y + 34), "Pilih berkas…", font=F_KECIL2, fill=REDUP2)
+        _kotak(d, (pad_dalam + 220, y + 28, pad_dalam + 322, y + 54), radius=6, fill=AKSEN2, outline=AKSEN2)
+        lebar_tombol_unggah = d.textlength("Unggah gambar", font=F_KECIL2)
+        d.text(
+            (pad_dalam + 220 + (102 - lebar_tombol_unggah) / 2, y + 34),
+            "Unggah gambar",
+            font=F_KECIL2,
+            fill=(255, 255, 255),
+        )
+        d.text((pad_dalam + 334, y + 35), "1024x420 px - maks 8 MB", font=F_KECIL2, fill=REDUP2)
+        y += 76
         # textarea template
         _kotak(d, (pad_dalam, y, LEBAR - PAD - 14, y + 46), radius=9, fill=LATAR)
         d.text(

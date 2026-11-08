@@ -143,6 +143,51 @@ def _judul(kind: str) -> str:
     return "👣 Sampai Jumpa!" if kind == "goodbye" else "👋 Selamat Datang!"
 
 
+def _slot_banner(kind: str, gid: int, token: str) -> str:
+    """Unggah / hapus gambar kartu untuk mode **Card**.
+
+    Hanya ditampilkan untuk sambutan & perpisahan — mode Card memakai gambar ini
+    sebagai latar kartu PNG. Pratinjau memakai `/api/kartu/<jenis>` yang butuh
+    sesi (cookie), bukan token di URL.
+    """
+    import dashboard_unggah
+
+    info = dashboard_unggah.kartu_info(gid).get(kind)
+    if info:
+        url = f"/api/kartu/{kind}?guild={int(gid)}"
+        pratinjau = (
+            f'<img src="{url}" alt="{dashboard_ui._esc(info["nama"])}" loading="lazy">'
+            f'<div class="muted">{int(info["ukuran_kb"])} KB · {dashboard_ui._esc(info["dibuat"])}</div>'
+        )
+        hapus = (
+            '<form method="post" action="/api/unggah" class="sebaris">'
+            + dashboard_ui._hidden(gid, token, f"kartu.hapus:{kind}")
+            + '<button type="submit" class="danger">Hapus gambar</button></form>'
+        )
+    else:
+        pratinjau = (
+            '<div class="kosong">Belum ada gambar</div>'
+            '<div class="muted">Tanpa gambar, mode Card otomatis mengirim Embed.</div>'
+        )
+        hapus = ""
+
+    return (
+        '<div class="kartu-slot banner-card">'
+        "<h5>🖼️ Gambar kartu (untuk mode Card)</h5>"
+        f"{pratinjau}"
+        '<form method="post" action="/api/unggah" class="formgrid" '
+        'enctype="multipart/form-data">'
+        + dashboard_ui._hidden(gid, token, f"kartu.simpan:{kind}")
+        + dashboard_ui._medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")
+        + '<button type="submit">Unggah gambar</button></form>'
+        + f"{hapus}"
+        '<p class="muted">Ukuran ideal <b>1024×420 px</b>, maksimal '
+        f"{dashboard_unggah.batas_mb()} MB. Disimpan di server bot, jadi tidak "
+        "kedaluwarsa seperti tautan CDN Discord.</p>"
+        "</div>"
+    )
+
+
 def render_tampilan_block(bot, guild_id: int, token: str, *, hanya: tuple[str, ...] | None = None) -> str:
     """Panel tampilan sambutan/perpisahan untuk halaman 👋 Sambutan & pamit."""
     gid = int(guild_id or 0)
@@ -196,7 +241,7 @@ def render_tampilan_block(bot, guild_id: int, token: str, *, hanya: tuple[str, .
             f"<h4>{judul}</h4>"
             '<p class="muted">Pilih tampilan, isi template, lalu simpan. '
             "Pratinjau di bawah langsung menunjukkan bentuk pesannya.</p>"
-            f"{form_mode}{pratinjau}{form}"
+            f"{form_mode}{pratinjau}{_slot_banner(kind, gid, token)}{form}"
             f'<ul class="daftar-variabel">{opsi_var}</ul>'
             "</div>"
         )

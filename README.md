@@ -32,7 +32,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **57 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **empat tampilan sambutan** (Card/Embed/Text/Container + pratinjau), **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **57 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **empat tampilan sambutan** (Card/Embed/Text/Container + pratinjau + unggah gambar kartu), **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
 
 > `AI*` berarti kuota hanya terpakai bila operator secara eksplisit menjalankan generator gambar atau rancangan AI `/bangun`; membuka dashboard dan menyimpan prompt server tidak memanggil model.
 
@@ -742,7 +742,7 @@ ai-discord-chat/
 │       ├── sambutan_pratinjau.py # Jalankan dashboard mode demo + data contoh sambutan
 │       └── sambutan_gambar.py    # Render panel sambutan jadi PNG (dokumentasi)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 68 berkas pytest → 1334 tes (1329 lulus, 5 dilewati)
+├── tests/                  # 68 berkas pytest → 1337 tes (1332 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

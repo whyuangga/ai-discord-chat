@@ -332,3 +332,54 @@ async def test_aksi_sambutan_mengembalikan_none_untuk_aksi_lain():
 async def test_aksi_sambutan_menolak_subaksi_asing():
     ok, pesan = await dashboard_sambutan.aksi_sambutan(None, GID, "sambutan.hapus", "x")
     assert ok is False and "tidak dikenal" in pesan
+
+
+# --------------------------------------------------------------------------- #
+# Unggah banner untuk mode Card
+# --------------------------------------------------------------------------- #
+def test_panel_menyediakan_unggah_banner_untuk_card(tmp_path, monkeypatch):
+    """Mode Card butuh gambar — panelnya wajib punya jalan mengunggahnya."""
+    import welcome_media
+
+    monkeypatch.setattr(welcome_media, "MEDIA_DIR", tmp_path / "media")
+    community_agent.set_welcome_config(GID, 600, enabled=True)
+
+    html = dashboard_sambutan.render_tampilan_block(_bot(), GID, TOKEN)
+
+    assert 'action="/api/unggah"' in html
+    assert "kartu.simpan:welcome" in html
+    assert "kartu.simpan:goodbye" in html
+    assert "Gambar kartu (untuk mode Card)" in html
+    # belum ada gambar → dijelaskan bahwa bot akan mengirim Embed
+    assert "Belum ada gambar" in html
+    assert "Tanpa gambar, mode Card otomatis mengirim Embed" in html
+
+
+def test_slot_banner_menampilkan_pratinjau_dan_tombol_hapus(tmp_path, monkeypatch):
+    import io
+
+    import welcome_media
+
+    monkeypatch.setattr(welcome_media, "MEDIA_DIR", tmp_path / "media")
+    community_agent.set_welcome_config(GID, 600, enabled=True)
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1024, 420), (120, 60, 200)).save(buf, format="PNG")
+    welcome_media.save_banner(GID, buf.getvalue(), kind="welcome")
+
+    html = dashboard_sambutan.render_tampilan_block(_bot(), GID, TOKEN)
+
+    assert f"/api/kartu/welcome?guild={GID}" in html
+    assert "kartu.hapus:welcome" in html
+    # Bagian perpisahan belum punya gambar, jadi catatannya masih muncul di sana.
+    assert html.count("Belum ada gambar") == 1
+
+
+def test_slot_banner_hanya_untuk_sambutan_dan_perpisahan():
+    """Boost punya slot sendiri; panel tampilan tidak boleh menduplikasinya."""
+    community_agent.set_welcome_config(GID, 600, enabled=True)
+    html = dashboard_sambutan.render_tampilan_block(_bot(), GID, TOKEN)
+    assert "kartu.simpan:boost" not in html
+    assert "kartu.simpan:rank" not in html

@@ -184,7 +184,8 @@ Sapphire punya welcome berbasis gambar; sekarang bot ini juga — tanpa dashboar
 
   Setelan di dashboard: halaman **👋 Sambutan & pamit → 🎨 Tampilan pesan** — pilih mode, isi
   template (`{user_mention}`, `{user_name}`, `{server}`, `{member_count}`), lalu lihat
-  **pratinjau** bentuk pesannya sebelum menyimpan.
+  **pratinjau** bentuk pesannya sebelum menyimpan. Di panel yang sama ada slot
+  **unggah gambar kartu** untuk mode Card (+ tombol hapus), jadi tidak perlu command.
 - **`/agent dm aktif:True`** — kirim juga salinan sambutan lewat DM ke member baru
   (gagal senyap bila DM member ditutup).
 - **`/agent boost channel:#umum`** — pesan terima kasih otomatis saat ada member **nge-boost** server,
