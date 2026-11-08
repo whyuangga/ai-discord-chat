@@ -188,19 +188,35 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
     action = str(payload.get("action") or payload.get("aksi") or "").strip().lower()
 
     if action == "prompt-server":
-        prompt = str(payload.get("prompt_server") or "")
-        if len(prompt) > aus.MAKS_PROMPT_SERVER:
-            return False, f"Prompt server maksimal {aus.MAKS_PROMPT_SERVER} huruf."
-        hasil = aus.set_server_prompt(gid, prompt, oleh=0)
-        await aus.save_to_disk()
-        return True, (
-            f"Kepribadian AI server disimpan ({len(hasil)} huruf)." if hasil
-            else "Kepribadian AI server dihapus; kembali ke setelan bawaan."
-        )
+        return await _simpan_prompt_server(gid, payload)
 
     if action != "gambar":
         return False, "Aksi AI tidak dikenal."
 
+    return await _buat_gambar_dashboard(bot, guild, gid, payload)
+
+
+async def _simpan_prompt_server(gid: int, payload: dict) -> tuple[bool, str]:
+    """Simpan atau hapus kepribadian AI server dari dashboard."""
+    prompt = str(payload.get("prompt_server") or "")
+
+    if len(prompt) > aus.MAKS_PROMPT_SERVER:
+        return False, f"Prompt server maksimal {aus.MAKS_PROMPT_SERVER} huruf."
+
+    hasil = aus.set_server_prompt(gid, prompt, oleh=0)
+
+    await aus.save_to_disk()
+
+    return True, (
+        f"Kepribadian AI server disimpan ({len(hasil)} huruf)." if hasil
+        else "Kepribadian AI server dihapus; kembali ke setelan bawaan."
+    )
+
+
+async def _buat_gambar_dashboard(
+    bot, guild, gid: int, payload: dict
+) -> tuple[bool, str]:
+    """Validasi lalu buat serta kirim gambar AI dari dashboard."""
     prompt = " ".join(str(payload.get("prompt") or "").split())
     if len(prompt) < 3:
         return False, "Prompt gambar minimal 3 huruf."
@@ -210,14 +226,12 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
     channel = _channel(guild, channel_id)
     if channel is None:
         return False, "Pilih channel teks tujuan yang ada di server ini."
-
     style = str(payload.get("style") or "").strip()
     ratio = str(payload.get("ratio") or "").strip()
     if style and style not in config.STYLE_OPTIONS:
         return False, "Pilihan gaya gambar tidak valid."
     if ratio and ratio not in config.RATIO_OPTIONS:
         return False, "Pilihan rasio gambar tidak valid."
-
     terakhir = _JEDA_GAMBAR.get(gid)
     if terakhir is not None:
         sisa = terakhir + JEDA_GAMBAR_DETIK - time.monotonic()
@@ -225,11 +239,9 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
             return False, (
                 f"Tunggu {max(1, math.ceil(sisa))} detik sebelum permintaan gambar berikutnya di dashboard."
             )
-
     reference, galat = _reference(payload)
     if galat:
         return False, galat
-
     izin = None
     me = getattr(guild, "me", None)
     periksa_izin = getattr(channel, "permissions_for", None)
@@ -239,10 +251,8 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
         return False, "Bot tidak punya izin **Send Messages** di channel itu."
     if izin is not None and not bool(getattr(izin, "attach_files", False)):
         return False, "Bot tidak punya izin **Attach Files** di channel itu."
-
     _JEDA_GAMBAR[gid] = time.monotonic()
     import ai_handler
-
     engine, berkas, galat = await ai_handler.generate_image(
         channel_id,
         prompt,
@@ -253,7 +263,6 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
     )
     if berkas is None:
         return False, f"Gambar gagal dibuat: {galat or 'tidak ada detail.'}"
-
     _ingat_gambar(channel_id, berkas)
     try:
         await channel.send(content=f"🎨 Gambar AI dari dashboard · `{_esc(engine or 'AI')}`", file=berkas)
