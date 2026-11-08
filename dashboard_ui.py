@@ -509,6 +509,61 @@ banner per server. Semua berkas diperiksa isinya (bukan hanya ekstensi).</p>
     return unggah + f'<div class="galeri">{kartu}</div>'
 
 
+def _slot_kartu(
+    guild_id: int,
+    token: str,
+    jenis: str,
+    data: dict | None,
+    label: str,
+    tampilkan_judul: bool,
+) -> str:
+    """HTML satu slot kartu (pratinjau, form unggah, dan tombol hapus)."""
+    if data:
+        url = f"/api/kartu/{jenis}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
+        pratinjau = f'<img src="{url}" alt="{_esc(data["nama"])}" loading="lazy">'
+        keterangan = (
+            f'<div class="muted">{int(data["ukuran_kb"])} KB · {_esc(data["dibuat"])}</div>'
+            f'<code class="kecil">{_esc(data["nama"])}</code>'
+        )
+        hapus = (
+            '<form method="post" action="/api/unggah">'
+            f'{_hidden(guild_id, token, "kartu.hapus:" + jenis)}'
+            '<button type="submit" class="danger">Hapus kartu</button></form>'
+        )
+    else:
+        pratinjau = '<div class="kosong">Belum ada gambar</div>'
+        keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
+        hapus = ""
+
+    judul = f"<h4>{_esc(label.capitalize())}</h4>" if tampilkan_judul else ""
+    return (
+        '<div class="kartu-slot">'
+        f"{judul}{pratinjau}{keterangan}"
+        '<form method="post" action="/api/unggah" class="formgrid" '
+        'enctype="multipart/form-data">'
+        f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
+        f'{_medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")}'
+        f'<button type="submit">Unggah kartu {_esc(label)}</button>'
+        "</form>"
+        f"{hapus}"
+        "</div>"
+    )
+
+
+def _mode_kartu_sambutan(guild_id: int) -> str:
+    """Mode tampilan kartu sambutan tersimpan (mati/statis/dinamis)."""
+    try:
+        import community_agent
+
+        return str(
+            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
+            .get("card_mode")
+            or "mati"
+        )
+    except Exception:  # pragma: no cover - jaring aman
+        return "statis"
+
+
 def render_kartu_block(
     guild_id: int,
     token: str,
@@ -520,8 +575,6 @@ def render_kartu_block(
     sambutan, halaman Perpisahan hanya kartu perpisahan, dan seterusnya.
     """
     info = dashboard_unggah.kartu_info(guild_id)
-    # Tanpa `hanya`, panel ini menampilkan tiga slot agen sambutan/perpisahan/boost.
-    # Kartu rank punya panelnya sendiri (`render_kartu_rank_block`).
     jenis_dipakai = tuple(
         j
         for j in dashboard_unggah.JENIS_KARTU
@@ -531,57 +584,24 @@ def render_kartu_block(
         return ""
     slot = ""
     for jenis in jenis_dipakai:
-        data = info.get(jenis)
-        label = dashboard_unggah.LABEL_KARTU[jenis]
-        if data:
-            url = f"/api/kartu/{jenis}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
-            pratinjau = f'<img src="{url}" alt="{_esc(data["nama"])}" loading="lazy">'
-            keterangan = (
-                f'<div class="muted">{int(data["ukuran_kb"])} KB · {_esc(data["dibuat"])}</div>'
-                f'<code class="kecil">{_esc(data["nama"])}</code>'
-            )
-            hapus = (
-                '<form method="post" action="/api/unggah">'
-                f'{_hidden(guild_id, token, "kartu.hapus:" + jenis)}'
-                '<button type="submit" class="danger">Hapus kartu</button></form>'
-            )
-        else:
-            pratinjau = '<div class="kosong">Belum ada gambar</div>'
-            keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
-            hapus = ""
-        judul = f'<h4>{_esc(label.capitalize())}</h4>' if len(jenis_dipakai) > 1 else ""
-        slot += (
-            '<div class="kartu-slot">'
-            f"{judul}{pratinjau}{keterangan}"
-            '<form method="post" action="/api/unggah" class="formgrid" '
-            'enctype="multipart/form-data">'
-            f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
-            f'{_medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")}'
-            f'<button type="submit">Unggah kartu {_esc(label)}</button>'
-            "</form>"
-            f"{hapus}"
-            "</div>"
+        slot += _slot_kartu(
+            guild_id,
+            token,
+            jenis,
+            info.get(jenis),
+            dashboard_unggah.LABEL_KARTU[jenis],
+            len(jenis_dipakai) > 1,
         )
-
     catatan_ukuran = (
         '<p class="muted">Ukuran ideal <b>1024×420 px</b>, maksimal '
         f"{dashboard_unggah.batas_mb()} MB (PNG/JPG/GIF/WEBP). Gambar disimpan di server bot, "
         "jadi tidak pernah kedaluwarsa seperti tautan CDN Discord.</p>"
     )
+
     if "welcome" not in jenis_dipakai:
         return f'<div class="kartu-sambutan tunggal">{slot}</div>' + catatan_ukuran
 
-    mode = "statis"
-    try:
-        import community_agent
-
-        mode = str(
-            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
-            .get("card_mode")
-            or "mati"
-        )
-    except Exception:  # pragma: no cover - jaring aman
-        mode = "statis"
+    mode = _mode_kartu_sambutan(guild_id)
     opsi = "".join(
         f'<option value="{nilai}"{" selected" if nilai == mode else ""}>{teks}</option>'
         for nilai, teks in (("mati", "💬 Teks saja"), ("statis", "🖼️ Kartu statis"),
