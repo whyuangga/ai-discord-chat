@@ -2925,6 +2925,73 @@ def _finalize_greeting_text(
     return re.sub(r"[ \t]{2,}", " ", text).strip()[:900]
 
 
+def _susun_prompt_goodbye(
+    *,
+    member_display_name: str,
+    member_mention: str,
+    time_ctx: dict,
+    persona: dict,
+    farewell: dict,
+    g_cfg: dict,
+    guild_name: str,
+    days_in_server: int | None,
+    recent_goodbyes: list,
+) -> str:
+    """Rangkai prompt perpisahan lengkap untuk Gemini."""
+    avoid_block = ""
+    if recent_goodbyes:
+        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_goodbyes)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Pesan perpisahan sebelumnya: [{joined_prev}]. "
+            "Buat variasi kalimat baru yang berbeda dari itu."
+        )
+    extra_note = str(g_cfg.get("extra_note") or "").strip()
+    note_instruction = (
+        f"\nSelipkan juga pesan ini secara natural: \"{extra_note}\""
+        if extra_note
+        else ""
+    )
+    duration_info = (
+        f" Dia sudah menjadi warga server selama sekitar {days_in_server} hari."
+        if days_in_server and days_in_server > 0
+        else ""
+    )
+    server_label = f" dari server '{guild_name}'" if guild_name else ""
+    angle = random.choice(_GOODBYE_ANGLES)
+
+    return (
+        f"(Instruksi situasi: Member bernama '{member_display_name}' baru saja keluar{server_label} "
+        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']}.{duration_info}\n"
+        f"Persona perpisahan: {persona['label']}\n"
+        f"KATA PERPISAHAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan, "
+        f"jangan tambahkan huruf latin atau artinya): {format_greeting_word(farewell, dengan_arti=False)}\n"
+        f"Gaya perpisahan kali ini: {angle}\n"
+        f"Sertakan tag persis {member_mention} satu kali. Tulis 1–2 kalimat pendek yang hangat, "
+        "tulus, dan tetap positif. Sisa kalimat WAJIB Bahasa Indonesia!)"
+        f"{note_instruction}{avoid_block}"
+    )
+
+
+async def _simpan_balasan_goodbye(
+    reply: str,
+    *,
+    farewell: dict,
+    member_mention: str,
+    g_cfg: dict,
+    recent_goodbyes: list,
+    recent_farewells: list,
+) -> str:
+    """Rapikan teks balasan lalu simpan riwayat agar tidak monoton."""
+    reply = _finalize_greeting_text(
+        reply, farewell, member_mention, dengan_arti=bool(g_cfg.get("arti", True))
+    )
+    recent_goodbyes.append(reply)
+    g_cfg["recent_goodbyes"] = recent_goodbyes[-5:]
+    g_cfg["recent_farewells"] = (recent_farewells + [farewell["word"]])[-8:]
+    await save_agent_config_to_disk()
+    return reply
+
+
 async def generate_goodbye_message(
     guild_id: int,
     member_display_name: str,
@@ -2944,54 +3011,30 @@ async def generate_goodbye_message(
     guild_cfg = get_guild_settings(guild_id)
     time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
     agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
-
     persona_key = persona_override if persona_override in GREETING_PERSONAS else str(g_cfg.get("persona") or "hangat")
     persona = GREETING_PERSONAS.get(persona_key, GREETING_PERSONAS["hangat"])
-
     recent_farewells = list(g_cfg.get("recent_farewells") or [])[-8:]
     farewell = pick_greeting_word(
         ASIAN_FAREWELLS,
         language=str(g_cfg.get("hello_language") or "auto"),
         recent_words=recent_farewells,
     )
-
     system_prompt = _build_greeting_system_prompt(
         agent_name, persona, guild_name=guild_name, mode="goodbye"
     )
 
     recent_goodbyes = list(g_cfg.get("recent_goodbyes") or [])[-5:]
-    avoid_block = ""
-    if recent_goodbyes:
-        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_goodbyes)
-        avoid_block = (
-            f"\nPENTING ANTI-MONOTON: Pesan perpisahan sebelumnya: [{joined_prev}]. "
-            "Buat variasi kalimat baru yang berbeda dari itu."
-        )
 
-    extra_note = str(g_cfg.get("extra_note") or "").strip()
-    note_instruction = (
-        f"\nSelipkan juga pesan ini secara natural: \"{extra_note}\""
-        if extra_note
-        else ""
-    )
-    duration_info = (
-        f" Dia sudah menjadi warga server selama sekitar {days_in_server} hari."
-        if days_in_server and days_in_server > 0
-        else ""
-    )
-    server_label = f" dari server '{guild_name}'" if guild_name else ""
-    angle = random.choice(_GOODBYE_ANGLES)
-
-    goodbye_prompt = (
-        f"(Instruksi situasi: Member bernama '{member_display_name}' baru saja keluar{server_label} "
-        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']}.{duration_info}\n"
-        f"Persona perpisahan: {persona['label']}\n"
-        f"KATA PERPISAHAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan, "
-        f"jangan tambahkan huruf latin atau artinya): {format_greeting_word(farewell, dengan_arti=False)}\n"
-        f"Gaya perpisahan kali ini: {angle}\n"
-        f"Sertakan tag persis {member_mention} satu kali. Tulis 1–2 kalimat pendek yang hangat, "
-        "tulus, dan tetap positif. Sisa kalimat WAJIB Bahasa Indonesia!)"
-        f"{note_instruction}{avoid_block}"
+    goodbye_prompt = _susun_prompt_goodbye(
+        member_display_name=member_display_name,
+        member_mention=member_mention,
+        time_ctx=time_ctx,
+        persona=persona,
+        farewell=farewell,
+        g_cfg=g_cfg,
+        guild_name=guild_name,
+        days_in_server=days_in_server,
+        recent_goodbyes=recent_goodbyes,
     )
 
     reply = await _call_gemini_agent(
@@ -3007,14 +3050,16 @@ async def generate_goodbye_message(
         safety_level=get_guild_safety_level(guild_id),
     )
 
+
     if reply:
-        reply = _finalize_greeting_text(
-            reply, farewell, member_mention, dengan_arti=bool(g_cfg.get("arti", True))
+        reply = await _simpan_balasan_goodbye(
+            reply,
+            farewell=farewell,
+            member_mention=member_mention,
+            g_cfg=g_cfg,
+            recent_goodbyes=recent_goodbyes,
+            recent_farewells=recent_farewells,
         )
-        recent_goodbyes.append(reply)
-        g_cfg["recent_goodbyes"] = recent_goodbyes[-5:]
-        g_cfg["recent_farewells"] = (recent_farewells + [farewell["word"]])[-8:]
-        await save_agent_config_to_disk()
 
     return reply
 
