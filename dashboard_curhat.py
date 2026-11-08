@@ -35,18 +35,41 @@ def render_curhat_block(bot, guild_id: int, token: str) -> str:
     guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
     kanal = list(getattr(guild, "text_channels", []) or [])[:80]
 
+    opsi_channel = _opsi_channel_curhat(kanal, data["channel_id"])
+    setelan = _setelan_curhat(gid, token, data, opsi_channel)
+    tabel = _tabel_curhat(gid, token, daftar)
+    status = _status_curhat(data)
+
+    return (
+        '<div class="subpanel" id="p-curhat"><h3>💌 Curhat anonim</h3>'
+        '<p class="muted">Satu channel khusus untuk curhat tanpa nama. Bot hanya menyimpan '
+        "<b>nomor, waktu, dan penanda hash</b> penulis (bukan ID, bukan isi pesan) — jadi staf "
+        "bisa melihat apakah satu orang membanjiri channel tanpa tahu siapa.</p>"
+        f"{status}{setelan}<h4>Curhat terakhir</h4>{tabel}</div>"
+    )
+
+
+def _opsi_channel_curhat(kanal, dipilih: int) -> str:
+    """Daftar <option> channel curhat dengan satu yang terpilih."""
     opsi_channel = '<option value="0">— belum dipilih —</option>' + "".join(
         '<option value="{0}"{1}>#{2}</option>'.format(
             int(getattr(ch, "id", 0)),
-            " selected" if int(getattr(ch, "id", 0)) == data["channel_id"] else "",
+            " selected" if int(getattr(ch, "id", 0)) == dipilih else "",
             dashboard_ui._esc(str(getattr(ch, "name", "-"))),
         )
         for ch in kanal
     )
+
+    return opsi_channel
+
+
+def _setelan_curhat(gid: int, token: str, data: dict, opsi_channel: str) -> str:
+    """Form setelan curhat."""
     opsi_ya_tidak = lambda nilai: (
         f'<option value="1"{" selected" if nilai else ""}>Ya</option>'
         f'<option value="0"{" selected" if not nilai else ""}>Tidak</option>'
     )  # noqa: E731
+
 
     setelan = (
         '<form method="post" action="/api/konten" class="formgrid">'
@@ -63,6 +86,11 @@ def render_curhat_block(bot, guild_id: int, token: str) -> str:
         '<button type="submit">Simpan setelan curhat</button></form>'
     )
 
+    return setelan
+
+
+def _tabel_curhat(gid: int, token: str, daftar: list) -> str:
+    """Tabel curhat terakhir atau ajakan kosong."""
     if daftar:
         baris = "".join(
             "<tr>"
@@ -89,24 +117,24 @@ def render_curhat_block(bot, guild_id: int, token: str) -> str:
             "<code>/curhat kirim teks:…</code> dan bot memposting tanpa nama.</p>"
         )
 
+    return tabel
+
+
+def _status_curhat(data: dict) -> str:
+    """Baris status + peringatan channel belum dipilih."""
     status = (
         f'<p class="muted">Status: <b>{"aktif" if data["aktif"] else "nonaktif"}</b> · '
         f'<b>{data["total"]}</b> curhat tercatat · <b>{data["penulis_unik"]}</b> penanda penulis '
         f'unik · nomor terakhir <b>#{data["nomor_terakhir"]}</b></p>'
     )
+
     if not data["channel_id"]:
         status += (
             '<p class="muted">⚠️ Channel curhat belum dipilih — fitur belum bisa dipakai '
             "walau sakelarnya aktif.</p>"
         )
 
-    return (
-        '<div class="subpanel" id="p-curhat"><h3>💌 Curhat anonim</h3>'
-        '<p class="muted">Satu channel khusus untuk curhat tanpa nama. Bot hanya menyimpan '
-        "<b>nomor, waktu, dan penanda hash</b> penulis (bukan ID, bukan isi pesan) — jadi staf "
-        "bisa melihat apakah satu orang membanjiri channel tanpa tahu siapa.</p>"
-        f"{status}{setelan}<h4>Curhat terakhir</h4>{tabel}</div>"
-    )
+    return status
 
 
 # ==============================================================================
