@@ -652,19 +652,7 @@ def _embed_admin() -> discord.Embed:
     )
     return embed
 
-def _embed_overview() -> discord.Embed:
-    """Ringkasan seluruh fitur & pintasan tanpa mengetik command."""
-    embed = discord.Embed(
-        title=f"📚 Pusat Panduan Bot Gemini AI (`v{BOT_VERSION}`)",
-        description=(
-            "Semua fitur telah disusun rapi agar mudah dipakai seluruh member maupun Admin.\n"
-            "Pilih **kategori di menu dropdown bawah** untuk melihat detail lengkapnya!"
-        ),
-        color=discord.Color.blurple(),
-    )
-    embed.add_field(
-        name=f"⚡ AI, Server & Hiburan ({TOP_LEVEL_COUNT} Menu Utama)",
-        value=(
+_TEKS_OVERVIEW_AI_SERVER = (
             "**🤖 AI & Hiburan**\n"
             "• **`/sesi`** — Ruang privat AI: panel, ganti mode, reset, tutup sesi.\n"
             "• **`/ringkas`** — Rangkum obrolan (`chat`), per periode (`channel`), atau link/YouTube (`link`).\n"
@@ -681,12 +669,11 @@ def _embed_overview() -> discord.Embed:
             "• **`/fakta`** — Fakta Unik Dunia 4x sehari (08/12/16/20).\n"
             "• **`/keamanan`**, **`/nuke`**, **`/raid`** — anti-phishing, anti-spam, anti-nuke, "
             "& mode darurat (0 kuota)."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
-        value=(
+
+)
+
+
+_TEKS_OVERVIEW_TERBARU = (
             "**🏷️ Tag, Lencana & Pantau**\n"
             "• **`/lencana`** — lencana + role.\n"
             "• **`/pantau`** — kata kunci → DM.\n"
@@ -712,12 +699,11 @@ def _embed_overview() -> discord.Embed:
             "**🧰 Admin & Diagnosa**\n"
             "• **`/bahasa`**, **`/prefix`**, **`/analitik`**, **`/perawatan memori`**.\n"
             "• **Dashboard web** — semua fitur lewat browser."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
-        value=(
+
+)
+
+
+_TEKS_OVERVIEW_RETENSI = (
             "**📈 Retensi & Pelayanan**\n"
             "• **`/level`** — kartu level, papan, role, XP voice.\n"
             "• **`/tiket`** — tiket bantuan lewat private thread + transkrip.\n"
@@ -735,19 +721,48 @@ def _embed_overview() -> discord.Embed:
             "**🧩 Komunitas & Lain-lain**\n"
             "• **`/panel-role`**, **`/poll`**, **`/ingatkan`**, **`/starboard`**, **`/sticky`**.\n"
             "• **`/info`**, **`/perawatan`**, **`/status`**, **`/bantuan`**."
+
+)
+
+
+_TEKS_OVERVIEW_PINTASAN = (
+            "• **Tekan-Tahan / Klik-Kanan Pesan ➔ Apps:** `🌐 Terjemahkan`, `💡 Jelaskan`, `🔍 Cek Fakta`\n"
+            "• **Panggil Nama Bot di Channel Aktif:** Tanya langsung, kirim Voice Note `🎤`, PDF, foto, atau link!"
+
+)
+
+
+def _embed_overview() -> discord.Embed:
+    """Ringkasan seluruh fitur & pintasan tanpa mengetik command."""
+    embed = discord.Embed(
+        title=f"📚 Pusat Panduan Bot Gemini AI (`v{BOT_VERSION}`)",
+        description=(
+            "Semua fitur telah disusun rapi agar mudah dipakai seluruh member maupun Admin.\n"
+            "Pilih **kategori di menu dropdown bawah** untuk melihat detail lengkapnya!"
         ),
+        color=discord.Color.blurple(),
+    )
+
+    embed.add_field(
+        name=f"⚡ AI, Server & Hiburan ({TOP_LEVEL_COUNT} Menu Utama)",
+        value=_TEKS_OVERVIEW_AI_SERVER,
+        inline=False,
+    )
+    embed.add_field(
+        name="🆕 Terbaru (v1.28 → v1.40) — Cek Cepat",
+        value=_TEKS_OVERVIEW_TERBARU,
+        inline=False,
+    )
+    embed.add_field(
+        name="📊 Retensi, Komunitas & Hemat Kuota (Gratis)",
+        value=_TEKS_OVERVIEW_RETENSI,
         inline=False,
     )
     embed.add_field(
         name="💡 Pintasan Favorit Tanpa Ketik Command",
-        value=(
-            "• **Tekan-Tahan / Klik-Kanan Pesan ➔ Apps:** `🌐 Terjemahkan`, `💡 Jelaskan`, `🔍 Cek Fakta`\n"
-            "• **Panggil Nama Bot di Channel Aktif:** Tanya langsung, kirim Voice Note `🎤`, PDF, foto, atau link!"
-        ),
+        value=_TEKS_OVERVIEW_PINTASAN,
         inline=False,
     )
-
-
 
     return embed
 
