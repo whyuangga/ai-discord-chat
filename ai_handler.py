@@ -1108,6 +1108,89 @@ async def generate_image(
     return None, None, detail
 
 
+def _prompt_ringkasan(
+    messages_log: list[str], channel_name: str, timezone_name: str
+) -> tuple[str, str]:
+    """System prompt + user prompt untuk perangkum obrolan."""
+    time_ctx = get_realtime_time_context(timezone_name)
+    system_prompt = (
+        "Kamu adalah perangkum obrolan komunitas Discord yang cerdas, ringkas, asik, dan akurat.\n"
+        f"Waktu saat ini: {time_ctx['summary']}.\n\n"
+        "TUGASMU:\n"
+        "Buat ringkasan cepat (TL;DR) dalam bahasa Indonesia yang santai namun rapi agar member yang baru buka HP "
+        "langsung paham apa saja yang barusan dibahas warga tanpa harus scroll panjang.\n"
+        "Gunakan struktur singkat berikut:\n"
+        "**📌 Topik Utama yang Dibahas**\n"
+        "- Sebutkan 2–5 poin inti obrolan beserta nama member yang membahasnya.\n\n"
+        "**🔥 Info / Momen Penting**\n"
+        "- Sebutkan jika ada ajakan mabar, kesepakatan, pengumuman, link/karya menarik, atau pertanyaan yang belum terjawab "
+        "(jika tidak ada yang khusus, tulis singkat suasana obrolannya)."
+    )
+    joined_transcript = "\n".join(messages_log)[-24000:]
+    user_prompt = (
+        f"Berikut adalah {len(messages_log)} pesan terakhir di channel #{channel_name}:\n\n"
+        f"{joined_transcript}\n\n"
+        "Rangkumkan isi obrolan di atas sekarang!"
+    )
+    return system_prompt, user_prompt
+
+
+async def _coba_ringkas_model(
+    session,
+    model_id: str,
+    api_key: str,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[str | None, str | None, str]:
+    """Coba satu model.
+
+    Kembalikan `(teks, pesan_galat, err)`. Bila teks dan galat sama-sama None,
+    pemanggil lanjut ke model berikutnya; `err` adalah galat terbaru ("" bila
+    tidak berubah).
+    """
+    gen_config: dict = {"temperature": 0.4, "maxOutputTokens": 2048}
+    t_cfg = build_thinking_config(model_id, "low")
+    if t_cfg:
+        gen_config["thinkingConfig"] = t_cfg
+
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": gen_config,
+    }
+    url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+    try:
+        async with session.post(
+            url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT
+        ) as resp:
+            data = await resp.json(content_type=None)
+            if resp.status == 200:
+                reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                if reply_text:
+                    return reply_text, None, ""
+                if not should_retry and block_msg:
+                    return None, block_msg, ""
+                return None, None, ""
+
+            if resp.status in (500, 502, 503, 504):
+                mark_model_unhealthy(model_id)
+                return None, None, ""
+            if resp.status == 429:
+                return None, None, ""
+            err_detail = (
+                data.get("error", {}).get("message", f"HTTP {resp.status}")
+                if isinstance(data, dict)
+                else f"HTTP {resp.status}"
+            )
+            return None, None, sanitize_error_message(err_detail)
+    except (asyncio.TimeoutError, aiohttp.ClientError):
+        mark_model_unhealthy(model_id)
+        return None, None, ""
+
+
 async def summarize_channel_messages(
     messages_log: list[str],
     channel_name: str,
@@ -1126,26 +1209,8 @@ async def summarize_channel_messages(
     if not messages_log:
         return None, "Belum ada percakapan teks yang cukup di channel ini untuk dirangkum."
 
-    time_ctx = get_realtime_time_context(timezone_name)
-    system_prompt = (
-        "Kamu adalah perangkum obrolan komunitas Discord yang cerdas, ringkas, asik, dan akurat.\n"
-        f"Waktu saat ini: {time_ctx['summary']}.\n\n"
-        "TUGASMU:\n"
-        "Buat ringkasan cepat (TL;DR) dalam bahasa Indonesia yang santai namun rapi agar member yang baru buka HP "
-        "langsung paham apa saja yang barusan dibahas warga tanpa harus scroll panjang.\n"
-        "Gunakan struktur singkat berikut:\n"
-        "**📌 Topik Utama yang Dibahas**\n"
-        "- Sebutkan 2–5 poin inti obrolan beserta nama member yang membahasnya.\n\n"
-        "**🔥 Info / Momen Penting**\n"
-        "- Sebutkan jika ada ajakan mabar, kesepakatan, pengumuman, link/karya menarik, atau pertanyaan yang belum terjawab "
-        "(jika tidak ada yang khusus, tulis singkat suasana obrolannya)."
-    )
-
-    joined_transcript = "\n".join(messages_log)[-24000:]
-    user_prompt = (
-        f"Berikut adalah {len(messages_log)} pesan terakhir di channel #{channel_name}:\n\n"
-        f"{joined_transcript}\n\n"
-        "Rangkumkan isi obrolan di atas sekarang!"
+    system_prompt, user_prompt = _prompt_ringkasan(
+        messages_log, channel_name, timezone_name
     )
 
     active_keys = get_gemini_keys_rotated()
@@ -1154,45 +1219,20 @@ async def summarize_channel_messages(
 
     async with _borrow_session(http_session, FAST_TEXT_TIMEOUT) as session:
         for idx, model_id in enumerate(models_to_try):
-            gen_config: dict = {"temperature": 0.4, "maxOutputTokens": 2048}
-            t_cfg = build_thinking_config(model_id, "low")
-            if t_cfg:
-                gen_config["thinkingConfig"] = t_cfg
-
-            payload = {
-                "systemInstruction": {"parts": [{"text": system_prompt}]},
-                "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-                "generationConfig": gen_config,
-            }
             api_key = active_keys[idx % len(active_keys)]
-            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-
-            try:
-                async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
-                    data = await resp.json(content_type=None)
-                    if resp.status == 200:
-                        reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                        if reply_text:
-                            return reply_text, None
-                        if not should_retry and block_msg:
-                            return None, block_msg
-                        continue
-
-                    if resp.status in (500, 502, 503, 504):
-                        mark_model_unhealthy(model_id)
-                        continue
-                    if resp.status == 429:
-                        continue
-                    err_detail = (
-                        data.get("error", {}).get("message", f"HTTP {resp.status}")
-                        if isinstance(data, dict)
-                        else f"HTTP {resp.status}"
-                    )
-                    last_err = sanitize_error_message(err_detail)
-            except (asyncio.TimeoutError, aiohttp.ClientError):
-                mark_model_unhealthy(model_id)
-                continue
+            teks, galat, err = await _coba_ringkas_model(
+                session,
+                model_id,
+                api_key,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+            if err:
+                last_err = err
+            if teks:
+                return teks, None
+            if galat:
+                return None, galat
 
     return None, f"⚠️ Gagal merangkum obrolan: {last_err}"
 
