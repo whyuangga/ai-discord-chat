@@ -490,6 +490,72 @@ def _embed_engagement() -> discord.Embed:
     embed.set_footer(text="Semua data disimpan lokal di data/engagement.json — tanpa database eksternal.")
     return embed
 
+_FIELD_MUSIK: list[tuple[str, str]] = [
+    (
+        '▶️ Memutar Lagu',
+        (
+            '• `/musik putar query:judul lagu` — cari & langsung putar (bot join voice channel kamu).\n'
+            '• `/musik putar query:https://youtu.be/xxxx` — tempel tautan YouTube/Spotify/playlist.\n'
+            '• `/musik cari query:...` — lihat 5 hasil lalu pilih dari dropdown.\n'
+            '• `/musik putar query:... berikutnya:True` — selalu antrekan tanpa memotong lagu berjalan.'
+        ),
+    ),
+    (
+        '💾 Playlist Pribadi (0 kuota AI)',
+        (
+            '• `/musik playlist simpan nama:Favorit` — simpan **antrean** (atau `dari:sekarang` untuk lagu yang sedang diputar) jadi playlist milikmu.\n'
+            '• `/musik playlist daftar` & `/musik playlist lihat nama:...` — cek koleksimu.\n'
+            '• `/musik playlist putar nama:Favorit` — mainkan lagi kapan saja (bisa `berikutnya:True`).\n'
+            '• `/musik playlist hapus-lagu`, `ganti-nama`, `hapus` — kelola isinya.\n'
+            '• Batas ramah Free Tier: **5 playlist/member**, **50 lagu/playlist**.'
+        ),
+    ),
+    (
+        '🎛️ Kontrol Pemutaran',
+        (
+            '• `/musik sekarang` — lagu aktif + progres bar & volume.\n'
+            '• `/musik antrean halaman:2` — antrean berhalaman (◀ ▶), 10 lagu/halaman.\n'
+            '• `/musik jeda` / `/musik lanjut` — jeda & lanjutkan.\n'
+            '• `/musik lewati jumlah:2` — lewati lagu (bisa beberapa sekaligus).\n'
+            '• `/musik sebelumnya` — putar lagi lagu sebelumnya dari riwayat.\n'
+            '• `/musik seek posisi:1:30` — lompat ke menit/detik tertentu.\n'
+            '• `/musik acak` — acak antrean, `/musik ulang mode:satu|semua|mati`.\n'
+            '• `/musik volume level:70` — atur volume (disimpan sebagai default server).\n'
+            '• `/musik hentikan` — stop, kosongkan antrean, & keluar dari voice.'
+        ),
+    ),
+    (
+        '🎚️ Panel Ala Rythm + Efek Audio',
+        (
+            '• Panel pemutar **satu pesan** muncul otomatis saat memutar lagu: progress bar `▬▬🔘▬▬` yang bergerak tiap ±10 detik + **9 tombol** (⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊).\n'
+            '• `/musik panel` — kirim ulang panel bila pesan lamanya terhapus.\n'
+            '• `/musik filter jenis:bassboost|nightcore|vaporwave|8d|karaoke|treble|off`.\n'
+            '• `/musik autoplay aktif:True` — putar rekomendasi otomatis saat antrean habis.\n'
+            '• Filter & autoplay **tersimpan per server** dan dipulihkan saat bot join lagi.'
+        ),
+    ),
+    (
+        '⚙️ Admin, Status & Diagnosa Node',
+        (
+            '• `/musik status` — kondisi **nyata** node Lavalink (✅ Tersambung / ⏳ Menyambung / ⚠️ Belum tersambung), antrean, volume, & role DJ.\n'
+            '• `/musik node sambung:True` *(Admin)* — diagnosa per node + **sambung ulang tanpa restart**.\n'
+            '• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n'
+            '• **Role DJ bukan syarat memutar lagu** — cukup masuk voice channel. DJ hanya mengunci tombol kontrol untuk member di luar VC.\n'
+            '• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di `docs/fitur.md` bagian F.'
+        ),
+    ),
+    (
+        '🔊 Voice Room Sementara (`/tempvoice`)',
+        (
+            '• Admin: buat voice channel **➕ Buat Voice**, lalu `/tempvoice atur hub:#➕ Buat Voice`.\n'
+            '• Member masuk hub → langsung dapat room sendiri & jadi pemiliknya.\n'
+            '• Pemilik room: `/tempvoice kunci`, `/tempvoice nama`, `/tempvoice limit`, `/tempvoice tendang`.\n'
+            '• Room terhapus otomatis saat kosong (maks 30 room/server, aman restart).'
+        ),
+    ),
+]
+
+
 def _embed_musik() -> discord.Embed:
     """Panduan pemutar musik & playlist."""
     embed = discord.Embed(
@@ -500,79 +566,8 @@ def _embed_musik() -> discord.Embed:
         ),
         color=discord.Color.dark_purple(),
     )
-    embed.add_field(
-        name="▶️ Memutar Lagu",
-        value=(
-            "• `/musik putar query:judul lagu` — cari & langsung putar (bot join voice channel kamu).\n"
-            "• `/musik putar query:https://youtu.be/xxxx` — tempel tautan YouTube/Spotify/playlist.\n"
-            "• `/musik cari query:...` — lihat 5 hasil lalu pilih dari dropdown.\n"
-            "• `/musik putar query:... berikutnya:True` — selalu antrekan tanpa memotong lagu berjalan."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="💾 Playlist Pribadi (0 kuota AI)",
-        value=(
-            "• `/musik playlist simpan nama:Favorit` — simpan **antrean** (atau `dari:sekarang` untuk "
-            "lagu yang sedang diputar) jadi playlist milikmu.\n"
-            "• `/musik playlist daftar` & `/musik playlist lihat nama:...` — cek koleksimu.\n"
-            "• `/musik playlist putar nama:Favorit` — mainkan lagi kapan saja (bisa `berikutnya:True`).\n"
-            "• `/musik playlist hapus-lagu`, `ganti-nama`, `hapus` — kelola isinya.\n"
-            "• Batas ramah Free Tier: **5 playlist/member**, **50 lagu/playlist**."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🎛️ Kontrol Pemutaran",
-        value=(
-            "• `/musik sekarang` — lagu aktif + progres bar & volume.\n"
-            "• `/musik antrean halaman:2` — antrean berhalaman (◀ ▶), 10 lagu/halaman.\n"
-            "• `/musik jeda` / `/musik lanjut` — jeda & lanjutkan.\n"
-            "• `/musik lewati jumlah:2` — lewati lagu (bisa beberapa sekaligus).\n"
-            "• `/musik sebelumnya` — putar lagi lagu sebelumnya dari riwayat.\n"
-            "• `/musik seek posisi:1:30` — lompat ke menit/detik tertentu.\n"
-            "• `/musik acak` — acak antrean, `/musik ulang mode:satu|semua|mati`.\n"
-            "• `/musik volume level:70` — atur volume (disimpan sebagai default server).\n"
-            "• `/musik hentikan` — stop, kosongkan antrean, & keluar dari voice."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🎚️ Panel Ala Rythm + Efek Audio",
-        value=(
-            "• Panel pemutar **satu pesan** muncul otomatis saat memutar lagu: progress bar "
-            "`▬▬🔘▬▬` yang bergerak tiap ±10 detik + **9 tombol** "
-            "(⏯️ ⏭️ ⏮️ ⏹️ 📜 🔁 🔀 🔉 🔊).\n"
-            "• `/musik panel` — kirim ulang panel bila pesan lamanya terhapus.\n"
-            "• `/musik filter jenis:bassboost|nightcore|vaporwave|8d|karaoke|treble|off`.\n"
-            "• `/musik autoplay aktif:True` — putar rekomendasi otomatis saat antrean habis.\n"
-            "• Filter & autoplay **tersimpan per server** dan dipulihkan saat bot join lagi."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="⚙️ Admin, Status & Diagnosa Node",
-        value=(
-            "• `/musik status` — kondisi **nyata** node Lavalink (✅ Tersambung / ⏳ Menyambung / "
-            "⚠️ Belum tersambung), antrean, volume, & role DJ.\n"
-            "• `/musik node sambung:True` *(Admin)* — diagnosa per node + **sambung ulang tanpa restart**.\n"
-            "• `/musik pengaturan` — pengumuman Now Playing, role DJ, & volume default.\n"
-            "• **Role DJ bukan syarat memutar lagu** — cukup masuk voice channel. DJ hanya mengunci "
-            "tombol kontrol untuk member di luar VC.\n"
-            "• Butuh **Lavalink v4** (`LAVALINK_URI` + `LAVALINK_PASSWORD`). Troubleshooting lengkap ada di `docs/fitur.md` bagian F."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🔊 Voice Room Sementara (`/tempvoice`)",
-        value=(
-            "• Admin: buat voice channel **➕ Buat Voice**, lalu `/tempvoice atur hub:#➕ Buat Voice`.\n"
-            "• Member masuk hub → langsung dapat room sendiri & jadi pemiliknya.\n"
-            "• Pemilik room: `/tempvoice kunci`, `/tempvoice nama`, `/tempvoice limit`, `/tempvoice tendang`.\n"
-            "• Room terhapus otomatis saat kosong (maks 30 room/server, aman restart)."
-        ),
-        inline=False,
-    )
+    for nama, nilai in _FIELD_MUSIK:
+        embed.add_field(name=nama, value=nilai, inline=False)
     return embed
 
 def _embed_admin() -> discord.Embed:
