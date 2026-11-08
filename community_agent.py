@@ -1936,6 +1936,78 @@ def _catat_model_gagal(model_id: str, key_for_attempt: str, resp) -> None:
         )
 
 
+_GEMINI_BATAL = object()  # penanda: jangan coba model lain
+
+
+async def _coba_model_gemini(
+    session,
+    model_id: str,
+    idx: int,
+    active_keys: list[str],
+    system_prompt: str,
+    contents: list[dict],
+    *,
+    temperature: float,
+    max_tokens: int,
+    thinking_level: str,
+    safety_level: str | None,
+    req_timeout: float,
+) -> "str | None | object":
+    """Satu percobaan ke satu model.
+
+    Teks = berhasil, None = lanjut ke model berikutnya, `_GEMINI_BATAL` = berhenti.
+    """
+    payload = _siapkan_payload_teks(
+        system_prompt,
+        contents,
+        model_id=model_id,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        thinking_level=thinking_level,
+        safety_level=safety_level,
+    )
+
+    key_for_attempt = active_keys[idx % len(active_keys)]
+
+    headers = {
+        "x-goog-api-key": key_for_attempt,
+        "Content-Type": "application/json",
+    }
+
+    url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+
+    try:
+        async with session.post(
+            url, headers=headers, json=payload, timeout=req_timeout
+        ) as resp:
+            data = await resp.json(content_type=None)
+            if resp.status == 200 and isinstance(data, dict):
+                _record_token_usage(data)
+                reply_text, _, should_retry = _extract_text_from_gemini_response(data)
+                if reply_text:
+                    return reply_text.strip()
+                if not should_retry:
+                    return _GEMINI_BATAL
+                return None
+
+            if resp.status in (400, 403):
+                # Jika gagal karena fileData YouTube privat/terkunci, buang part fileData
+                # agar teks chat tetap dibalas
+                if _buang_part_file_data(contents):
+                    return None
+
+            _catat_model_gagal(model_id, key_for_attempt, resp)
+    except asyncio.TimeoutError:
+        mark_model_unhealthy(model_id)
+        logger.warning(
+            "Agent Gemini model %s timeout, pindah instan ke cadangan...", model_id
+        )
+    except Exception as exc:
+        logger.warning(
+            "Agent Gemini (%s) gagal: %s", model_id, sanitize_error_message(exc)
+        )
+
+
 async def _call_gemini_agent(
     system_prompt: str,
     contents: list[dict],
@@ -1955,16 +2027,18 @@ async def _call_gemini_agent(
     safety_level: str | None = None,
 ) -> str | None:
     active_keys = get_gemini_keys_rotated()
+
     if not active_keys:
         return None
+
 
     req_timeout = (
         VIDEO_LINK_TIMEOUT
         if has_youtube
         else (CHAT_TIMEOUT if (has_media or use_google_search) else FAST_TEXT_TIMEOUT)
     )
+
     async with _borrow_session(http_session, req_timeout) as session:
-        # Opsional Paid Tier: Native Google Search tool hanya bila GEMINI_PAID_SEARCH_ENABLED=true
         if use_google_search and GEMINI_PAID_SEARCH_ENABLED:
             hasil_paid = await _cari_lewat_paid_search(
                 session,
@@ -1980,55 +2054,30 @@ async def _call_gemini_agent(
             if hasil_paid:
                 return hasil_paid
 
+
         primary_model = GEMINI_FAST_MODEL if prefer_fast else GEMINI_DEFAULT_MODEL
+
         models_to_try = _build_model_chain(primary_model, GEMINI_TEXT_FALLBACK_CHAIN)
+
         for idx, model_id in enumerate(models_to_try):
-            payload = _siapkan_payload_teks(
+            hasil = await _coba_model_gemini(
+                session,
+                model_id,
+                idx,
+                active_keys,
                 system_prompt,
                 contents,
-                model_id=model_id,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 thinking_level=thinking_level,
                 safety_level=safety_level,
+                req_timeout=req_timeout,
             )
-            key_for_attempt = active_keys[idx % len(active_keys)]
-            headers = {
-                "x-goog-api-key": key_for_attempt,
-                "Content-Type": "application/json",
-            }
-            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            if hasil is _GEMINI_BATAL:
+                return None
+            if hasil:
+                return hasil
 
-            try:
-                async with session.post(
-                    url, headers=headers, json=payload, timeout=req_timeout
-                ) as resp:
-                    data = await resp.json(content_type=None)
-                    if resp.status == 200 and isinstance(data, dict):
-                        _record_token_usage(data)
-                        reply_text, _, should_retry = _extract_text_from_gemini_response(data)
-                        if reply_text:
-                            return reply_text.strip()
-                        if not should_retry:
-                            return None
-                        continue
-
-                    if resp.status in (400, 403):
-                        # Jika gagal karena fileData YouTube privat/terkunci, buang part fileData
-                        # agar teks chat tetap dibalas
-                        if _buang_part_file_data(contents):
-                            continue
-
-                    _catat_model_gagal(model_id, key_for_attempt, resp)
-            except asyncio.TimeoutError:
-                mark_model_unhealthy(model_id)
-                logger.warning(
-                    "Agent Gemini model %s timeout, pindah instan ke cadangan...", model_id
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Agent Gemini (%s) gagal: %s", model_id, sanitize_error_message(exc)
-                )
     return None
 
 
