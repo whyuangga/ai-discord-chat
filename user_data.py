@@ -208,88 +208,105 @@ def ringkas(data: dict) -> str:
 # ==============================================================================
 
 
-def hapus(user_id: int) -> dict:
-    """Hapus seluruh data pribadi user. Mengembalikan jumlah per modul."""
-    uid = _to_int(user_id)
-    dihapus: dict[str, int] = {}
-
-    def _hitung(nama: str, jumlah: int) -> None:
-        dihapus[nama] = dihapus.get(nama, 0) + int(jumlah)
-
-    # 1. Level
+def _hapus_level(uid: int, hitung) -> None:
+    """Bersihkan data level milik satu user."""
     try:
         import levels
-
         for kunci in [k for k in levels.levels if _to_int(k.partition(":")[2]) == uid]:
             levels.levels.pop(kunci, None)
-            _hitung("level", 1)
+            hitung("level", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data level gagal: %s", exc)
 
-    # 2. Ekonomi
+
+def _hapus_ekonomi(uid: int, hitung) -> None:
+    """Bersihkan data ekonomi milik satu user."""
     try:
         import economy
-
         for kunci in [k for k in economy.balances if _to_int(k.partition(":")[2]) == uid]:
             economy.balances.pop(kunci, None)
             economy.meta.pop(kunci, None)
-            _hitung("ekonomi", 1)
+            hitung("ekonomi", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data ekonomi gagal: %s", exc)
 
-    # 3. Lencana
+
+def _hapus_lencana(uid: int, hitung) -> None:
+    """Bersihkan data lencana milik satu user."""
     try:
         import achievements
-
         for gid, anggota in list(achievements.ach_members.items()):
             if isinstance(anggota, dict) and anggota.pop(uid, None) is not None:
-                _hitung("lencana", 1)
+                hitung("lencana", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data lencana gagal: %s", exc)
 
-    # 4. Highlight
+
+def _hapus_highlight(uid: int, hitung) -> None:
+    """Bersihkan data highlight milik satu user."""
     try:
         import highlights
-
         for gid, anggota in list(highlights.hl_members.items()):
             if isinstance(anggota, dict) and anggota.pop(uid, None) is not None:
                 highlights._index.pop(gid, None)  # paksa indeks dibangun ulang
-                _hitung("highlight", 1)
+                hitung("highlight", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data highlight gagal: %s", exc)
 
-    # 5. Ulang tahun
+
+def _hapus_ultah(uid: int, hitung) -> None:
+    """Bersihkan data ulang tahun milik satu user."""
     try:
         import engagement
-
         for kunci in [k for k in engagement.birthdays if _to_int(k.partition(":")[2]) == uid]:
             engagement.birthdays.pop(kunci, None)
-            _hitung("ultah", 1)
+            hitung("ultah", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data ulang tahun gagal: %s", exc)
 
-    # 6. Skor game
+
+def _hapus_game(uid: int, hitung) -> None:
+    """Bersihkan data game milik satu user."""
     try:
         import games
-
         for gid, papan in list(games.guild_game_scores.items()):
             for nama_game, isi in list((papan or {}).items()):
                 if isinstance(isi, dict) and isi.pop(uid, None) is not None:
-                    _hitung("game", 1)
+                    hitung("game", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data game gagal: %s", exc)
 
-    # 7. Formulir (antrean dashboard)
+
+def _hapus_formulir(uid: int, hitung) -> None:
+    """Bersihkan data formulir milik satu user."""
     try:
         import modal_forms
-
         for gid, isi in list((modal_forms.form_inbox or {}).items()):
             for nomor, entri in list((isi or {}).items()):
                 if _to_int(entri.get("user_id")) == uid:
                     isi.pop(nomor, None)
-                    _hitung("formulir", 1)
+                    hitung("formulir", 1)
     except Exception as exc:  # pragma: no cover - modul lain bisa berubah bentuk
         logger.warning("Hapus data formulir gagal: %s", exc)
+
+
+def hapus(user_id: int) -> dict:
+    """Hapus seluruh data pribadi user. Mengembalikan jumlah per modul."""
+    uid = _to_int(user_id)
+    dihapus: dict[str, int] = {}
+    def _hitung(nama: str, jumlah: int) -> None:
+        dihapus[nama] = dihapus.get(nama, 0) + int(jumlah)
+
+    for bersihkan in (
+        _hapus_level,
+        _hapus_ekonomi,
+        _hapus_lencana,
+        _hapus_highlight,
+        _hapus_ultah,
+        _hapus_game,
+        _hapus_formulir,
+    ):
+        bersihkan(uid, _hitung)
 
     return dihapus
 
