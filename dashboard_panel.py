@@ -156,6 +156,137 @@ def _role_label(guild, role_id: int) -> str:
     return str(getattr(role, "name", "") or f"role {role_id}")[:100]
 
 
+async def _tambah_peran(bot, guild, gid: int, menu: dict, data: dict, label: str, emoji, gaya: str, catatan: list[str]):
+    """Tambah tombol role ke panel (cek role bisa dipakai bot).
+
+    Mengembalikan `(pesan, None)` bila berhasil atau `(None, galat)` bila ditolak.
+    """
+    import menu_builder
+
+    role_id = _to_int(data.get("role"))
+    if role_id <= 0:
+        return None, "Pilih role yang mau dijadikan tombol."
+    if guild is not None:
+        boleh, alasan = menu_builder.check_role_usable(guild, role_id)
+        if not boleh:
+            return None, alasan
+    label = label or (_role_label(guild, role_id) if guild is not None else "Role")
+    item = menu_builder.add_role_button(menu, role_id, label, emoji=emoji, style=gaya)
+    if item is None:
+        return None, "Gagal menambah tombol role (batas 5 tombol atau role sudah ada)."
+    return (f"Tombol role **{item['label']}** ditambahkan ke panel **{menu.get('title')}**.", None)
+
+
+async def _tambah_tautan(bot, guild, gid: int, menu: dict, data: dict, label: str, emoji, gaya: str, catatan: list[str]):
+    """Tambah tombol tautan (`http://`/`https://`).
+
+    Mengembalikan `(pesan, None)` bila berhasil atau `(None, galat)` bila ditolak.
+    """
+    import menu_builder
+
+    url = _bersih(data, "url", 400)
+    if not url.startswith(("http://", "https://")):
+        return None, "URL tombol tautan harus diawali `http://` atau `https://`."
+    item = menu_builder.add_link_button(menu, label or "Buka", url, emoji=emoji)
+    if item is None:
+        return None, "Gagal menambah tombol tautan (batas 5 tombol atau URL tidak valid)."
+    return (f"Tombol tautan **{item['label']}** ditambahkan ke panel **{menu.get('title')}**.", None)
+
+
+async def _tambah_perintah(bot, guild, gid: int, menu: dict, data: dict, label: str, emoji, gaya: str, catatan: list[str]):
+    """Tambah tombol perintah aman (hanya `SAFE_COMMANDS`).
+
+    Mengembalikan `(pesan, None)` bila berhasil atau `(None, galat)` bila ditolak.
+    """
+    import menu_builder
+
+    kunci = _bersih(data, "perintah", 60)
+    if kunci not in menu_builder.SAFE_COMMANDS:
+        return None, "Perintah itu tidak ada di daftar aman (hanya perintah info)."
+    item = menu_builder.add_command_button(
+        menu, kunci, label=label or None, emoji=emoji, style=gaya,
+        visibility=_bersih(data, "visibilitas", 12) or "auto",
+    )
+    if item is None:
+        return None, "Gagal menambah tombol perintah (batas 5 tombol)."
+    return (f"Tombol perintah **{item['label']}** ditambahkan ke panel **{menu.get('title')}**.", None)
+
+
+async def _tambah_alur(bot, guild, gid: int, menu: dict, data: dict, label: str, emoji, gaya: str, catatan: list[str]):
+    """Tambah tombol alur dari teks langkah buatan pengguna.
+
+    Mengembalikan `(pesan, None)` bila berhasil atau `(None, galat)` bila ditolak.
+    """
+    import menu_builder
+
+    import flows
+
+    langkah, galat = flows.parse(_bersih(data, "alur", 900))
+    if not langkah:
+        return None, " ".join(galat) or "Alur tidak valid."
+    item = menu_builder.add_flow_button(menu, label or "Aksi", langkah, emoji=emoji, style=gaya)
+    if item is None:
+        return None, "Gagal menambah tombol alur (batas 5 tombol atau langkah kosong)."
+    catatan.extend(galat)
+    return (f"Tombol alur **{item['label']}** ditambahkan ke panel **{menu.get('title')}**.", None)
+
+
+async def _tambah_formulir(bot, guild, gid: int, menu: dict, data: dict, label: str, emoji, gaya: str, catatan: list[str]):
+    """Tambah tombol pembuka formulir tersimpan.
+
+    Mengembalikan `(pesan, None)` bila berhasil atau `(None, galat)` bila ditolak.
+    """
+    import menu_builder
+
+    import modal_forms
+
+    form = modal_forms.get_form(gid, _bersih(data, "formulir", 60))
+    if form is None:
+        return None, "Formulir tidak ditemukan — buat dulu di bagian **Buat konten**."
+    item = menu_builder.add_form_button(menu, form, label=label or None, emoji=emoji, style=gaya)
+    if item is None:
+        return None, "Gagal menambah tombol formulir (batas 5 tombol)."
+    return (f"Tombol formulir **{item['label']}** ditambahkan ke panel **{menu.get('title')}**.", None)
+
+
+async def _tambah_dropdown(bot, guild, gid: int, menu: dict, data: dict, label: str, emoji, gaya: str, catatan: list[str]):
+    """Tambah dropdown role (hingga 3 role, bisa eksklusif).
+
+    Mengembalikan `(pesan, None)` bila berhasil atau `(None, galat)` bila ditolak.
+    """
+    import menu_builder
+
+    role_ids: list[int] = []
+    for kunci in ("role", "role2", "role3"):
+        rid = _to_int(data.get(kunci))
+        if rid > 0 and rid not in role_ids:
+            role_ids.append(rid)
+    if not role_ids:
+        return None, "Pilih minimal satu role untuk dropdown."
+    if guild is not None:
+        for rid in role_ids:
+            boleh, alasan = menu_builder.check_role_usable(guild, rid)
+            if not boleh:
+                return None, alasan
+    opsi = [
+        {
+            "role_id": rid,
+            "label": _role_label(guild, rid) if guild is not None else f"Role {rid}",
+        }
+        for rid in role_ids
+    ]
+    grup = menu_builder.add_dropdown(
+        menu, _bersih(data, "label", 150) or "Pilih role…", opsi,
+        exclusive=_bersih(data, "eksklusif", 12).lower() in ("on", "1", "ya", "true"),
+    )
+    if grup is None:
+        return None, "Gagal menambah dropdown (batas 5 dropdown per panel)."
+    return ((
+        f"Dropdown **{grup['placeholder']}** ({len(grup['options'])} opsi) "
+        f"ditambahkan ke panel **{menu.get('title')}**."
+    ), None)
+
+
 async def tambah_item(bot, guild_id: int, data: dict) -> tuple[bool, str]:
     """Tambah satu tombol/dropdown ke panel dari dashboard."""
     import menu_builder
@@ -171,92 +302,20 @@ async def tambah_item(bot, guild_id: int, data: dict) -> tuple[bool, str]:
     emoji = _bersih(data, "emoji", 32) or None
     gaya = _bersih(data, "gaya", 12).lower() or "biru"
     catatan: list[str] = []
-
-    if jenis == "peran":
-        role_id = _to_int(data.get("role"))
-        if role_id <= 0:
-            return False, "Pilih role yang mau dijadikan tombol."
-        if guild is not None:
-            boleh, alasan = menu_builder.check_role_usable(guild, role_id)
-            if not boleh:
-                return False, alasan
-        label = label or (_role_label(guild, role_id) if guild is not None else "Role")
-        item = menu_builder.add_role_button(menu, role_id, label, emoji=emoji, style=gaya)
-        if item is None:
-            return False, "Gagal menambah tombol role (batas 5 tombol atau role sudah ada)."
-        pesan = f"Tombol role **{item['label']}** ditambahkan ke panel **{menu.get('title')}**."
-    elif jenis == "tautan":
-        url = _bersih(data, "url", 400)
-        if not url.startswith(("http://", "https://")):
-            return False, "URL tombol tautan harus diawali `http://` atau `https://`."
-        item = menu_builder.add_link_button(menu, label or "Buka", url, emoji=emoji)
-        if item is None:
-            return False, "Gagal menambah tombol tautan (batas 5 tombol atau URL tidak valid)."
-        pesan = f"Tombol tautan **{item['label']}** ditambahkan ke panel **{menu.get('title')}**."
-    elif jenis == "perintah":
-        kunci = _bersih(data, "perintah", 60)
-        if kunci not in menu_builder.SAFE_COMMANDS:
-            return False, "Perintah itu tidak ada di daftar aman (hanya perintah info)."
-        item = menu_builder.add_command_button(
-            menu, kunci, label=label or None, emoji=emoji, style=gaya,
-            visibility=_bersih(data, "visibilitas", 12) or "auto",
-        )
-        if item is None:
-            return False, "Gagal menambah tombol perintah (batas 5 tombol)."
-        pesan = f"Tombol perintah **{item['label']}** ditambahkan ke panel **{menu.get('title')}**."
-    elif jenis == "alur":
-        import flows
-
-        langkah, galat = flows.parse(_bersih(data, "alur", 900))
-        if not langkah:
-            return False, " ".join(galat) or "Alur tidak valid."
-        item = menu_builder.add_flow_button(menu, label or "Aksi", langkah, emoji=emoji, style=gaya)
-        if item is None:
-            return False, "Gagal menambah tombol alur (batas 5 tombol atau langkah kosong)."
-        catatan.extend(galat)
-        pesan = f"Tombol alur **{item['label']}** ditambahkan ke panel **{menu.get('title')}**."
-    elif jenis == "formulir":
-        import modal_forms
-
-        form = modal_forms.get_form(gid, _bersih(data, "formulir", 60))
-        if form is None:
-            return False, "Formulir tidak ditemukan — buat dulu di bagian **Buat konten**."
-        item = menu_builder.add_form_button(menu, form, label=label or None, emoji=emoji, style=gaya)
-        if item is None:
-            return False, "Gagal menambah tombol formulir (batas 5 tombol)."
-        pesan = f"Tombol formulir **{item['label']}** ditambahkan ke panel **{menu.get('title')}**."
-    elif jenis == "dropdown":
-        role_ids: list[int] = []
-        for kunci in ("role", "role2", "role3"):
-            rid = _to_int(data.get(kunci))
-            if rid > 0 and rid not in role_ids:
-                role_ids.append(rid)
-        if not role_ids:
-            return False, "Pilih minimal satu role untuk dropdown."
-        if guild is not None:
-            for rid in role_ids:
-                boleh, alasan = menu_builder.check_role_usable(guild, rid)
-                if not boleh:
-                    return False, alasan
-        opsi = [
-            {
-                "role_id": rid,
-                "label": _role_label(guild, rid) if guild is not None else f"Role {rid}",
-            }
-            for rid in role_ids
-        ]
-        grup = menu_builder.add_dropdown(
-            menu, _bersih(data, "label", 150) or "Pilih role…", opsi,
-            exclusive=_bersih(data, "eksklusif", 12).lower() in ("on", "1", "ya", "true"),
-        )
-        if grup is None:
-            return False, "Gagal menambah dropdown (batas 5 dropdown per panel)."
-        pesan = (
-            f"Dropdown **{grup['placeholder']}** ({len(grup['options'])} opsi) "
-            f"ditambahkan ke panel **{menu.get('title')}**."
-        )
-    else:
+    penambah = {
+        "peran": _tambah_peran,
+        "tautan": _tambah_tautan,
+        "perintah": _tambah_perintah,
+        "alur": _tambah_alur,
+        "formulir": _tambah_formulir,
+        "dropdown": _tambah_dropdown,
+    }.get(jenis)
+    if penambah is None:
         return False, f"Jenis `{jenis}` tidak dikenal. Pilih: {', '.join(JENIS_ITEM)}."
+
+    pesan, galat = await penambah(bot, guild, gid, menu, data, label, emoji, gaya, catatan)
+    if galat:
+        return False, galat
 
     await menu_builder.save_menus_to_disk()
     tersegar = await menu_builder.refresh_panel(bot, menu)

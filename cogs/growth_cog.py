@@ -643,7 +643,7 @@ async def run_voice_xp_check(bot: commands.Bot) -> int:
             )
             announced += 1
         except (discord.Forbidden, discord.HTTPException):
-            pass
+            pass  # diabaikan (opsional)
     return announced
 
 
@@ -716,7 +716,7 @@ async def handle_message_xp(bot: commands.Bot, message) -> None:
             allowed_mentions=discord.AllowedMentions(users=True, roles=True),
         )
     except (discord.Forbidden, discord.HTTPException):
-        pass
+        pass  # diabaikan (opsional)
 
 
 # ==============================================================================
@@ -849,8 +849,8 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
 
         guild_name = getattr(interaction.guild, "name", "") or ""
         ticket_archive.simpan(closed, messages, guild_name=guild_name, teks=text)
-    except Exception:  # pragma: no cover - arsip opsional
-        pass
+    except Exception as exc:  # pragma: no cover - arsip opsional
+        logger.debug("Efek samping opsional gagal: %s", exc)
     sent = await tickets.send_transcript(interaction.client, closed, text, filename)
     # Kartu rating bintang dikirim SEBELUM thread dikunci
     await send_rating_prompt(interaction.channel, interaction.guild.id, closed)
@@ -863,7 +863,7 @@ async def tiket_tutup_cmd(interaction: discord.Interaction):
             reason=f"Tiket ditutup lewat /tiket tutup oleh {interaction.user}",
         )
     except (discord.Forbidden, discord.HTTPException):
-        pass
+        pass  # diabaikan (opsional)
 
     await interaction.followup.send(
         f"🔒 Tiket **#{int(closed.get('number') or 0):04d}** ditutup."

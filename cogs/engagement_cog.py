@@ -110,6 +110,100 @@ def _susun_syarat(
     return jumlah, syarat, engagement.normalize_bonus_roles(bonus)
 
 
+async def _validasi_giveaway(
+    interaction: discord.Interaction,
+    hadiah: str,
+    durasi: str,
+    channel,
+    jumlah: dict,
+    gid: int,
+    templat: str | None,
+):
+    """Validasi masukan `/giveaway mulai`.
+
+    Mengembalikan `(prize, seconds, target)`; `None` bila sudah dibalas ke pengguna.
+    """
+    prize = str(hadiah or "").strip()
+    if not prize:
+        await interaction.response.send_message("⚠️ Nama hadiah tidak boleh kosong.", ephemeral=True)
+        return
+
+    gid = interaction.guild.id
+    if templat and engagement.get_giveaway_template(gid, templat) is None:
+        await interaction.response.send_message(
+            f"⚠️ Template `{templat}` belum ada. Lihat daftarnya di `/giveaway template-daftar`.",
+            ephemeral=True,
+        )
+        return
+    target_durasi = str(durasi or "").strip()
+    seconds = engagement.parse_giveaway_duration(target_durasi) if target_durasi else jumlah["seconds"]
+    if not seconds:
+        await interaction.response.send_message(
+            "⚠️ Format durasi tidak valid. Contoh: `30m`, `2 jam`, `1j30m`, `2 hari`.",
+            ephemeral=True,
+        )
+        return
+    if seconds < 60:
+        await interaction.response.send_message(
+            "⚠️ Minimal **1 menit** agar member sempat ikut.", ephemeral=True
+        )
+        return
+
+    target = _resolve_text_channel(interaction, channel)
+    if target is None:
+        await interaction.response.send_message("⚠️ Pilih `channel` tempat giveaway dipasang.", ephemeral=True)
+        return
+    return prize, seconds, target
+
+
+def _siapkan_cfg_giveaway(
+    interaction: discord.Interaction,
+    prize: str,
+    target,
+    pemenang: int,
+    syarat: dict,
+    bonus: dict,
+    gid: int,
+    jumlah: dict,
+) -> dict:
+    """Rakit `cfg` sementara untuk embed & nama channel tujuan."""
+    cfg = {
+        "message_id": 0,
+        "guild_id": gid,
+        "channel_id": target.id,
+        "prize": prize[:200],
+        "host_id": interaction.user.id,
+        "winner_count": max(1, min(20, int(pemenang) if int(pemenang) > 0 else jumlah["winner_count"])),
+        "ends_at": 0.0,
+        "ended": False,
+        "role_id": syarat["roles"][0] if syarat["roles"] else None,
+        "requirements": syarat,
+        "bonus_roles": bonus,
+        "entries": [],
+        "winners": [],
+    }
+    return cfg
+
+
+async def _kirim_giveaway(interaction: discord.Interaction, target, cfg: dict, gid: int):
+    """Kirim pesan giveaway ke channel tujuan; `None` bila gagal (sudah dibalas)."""
+    ping = engagement.default_giveaway_config(gid).get("ping_everyone") and interaction.guild is not None
+    try:
+        message = await target.send(
+            "@everyone 🎉 **Giveaway baru!**" if ping else None,
+            embed=engagement.build_giveaway_embed(cfg),
+            view=GiveawayJoinView(),
+            allowed_mentions=discord.AllowedMentions(everyone=True) if ping else discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        await interaction.followup.send(
+            f"⚠️ Gagal mengirim giveaway ke {target.mention}. Cek izin **Kirim Pesan** & **Embed Links**.",
+            ephemeral=True,
+        )
+        return
+    return message
+
+
 @giveaway_group.command(
     name="mulai", description="Mulai giveaway baru (bisa disyaratkan level/umur akun/role & bonus booster)"
 )
@@ -145,20 +239,7 @@ async def giveaway_mulai_cmd(
     if not _ensure_admin(interaction):
         await _reject_non_admin(interaction)
         return
-
-    prize = str(hadiah or "").strip()
-    if not prize:
-        await interaction.response.send_message("⚠️ Nama hadiah tidak boleh kosong.", ephemeral=True)
-        return
-
     gid = interaction.guild.id
-    if templat and engagement.get_giveaway_template(gid, templat) is None:
-        await interaction.response.send_message(
-            f"⚠️ Template `{templat}` belum ada. Lihat daftarnya di `/giveaway template-daftar`.",
-            ephemeral=True,
-        )
-        return
-
     role_ids = [r.id for r in (syarat_role, syarat_role_2) if r is not None]
     jumlah, syarat, bonus = _susun_syarat(
         gid,
@@ -170,55 +251,20 @@ async def giveaway_mulai_cmd(
         bobot_bonus=max(1, min(5, int(bobot_bonus))),
     )
 
-    target_durasi = str(durasi or "").strip()
-    seconds = engagement.parse_giveaway_duration(target_durasi) if target_durasi else jumlah["seconds"]
-    if not seconds:
-        await interaction.response.send_message(
-            "⚠️ Format durasi tidak valid. Contoh: `30m`, `2 jam`, `1j30m`, `2 hari`.",
-            ephemeral=True,
-        )
+    hasil = await _validasi_giveaway(
+        interaction, hadiah, durasi, channel, jumlah, gid, templat
+    )
+    if hasil is None:
         return
-    if seconds < 60:
-        await interaction.response.send_message(
-            "⚠️ Minimal **1 menit** agar member sempat ikut.", ephemeral=True
-        )
-        return
-
-    target = _resolve_text_channel(interaction, channel)
-    if target is None:
-        await interaction.response.send_message("⚠️ Pilih `channel` tempat giveaway dipasang.", ephemeral=True)
-        return
+    prize, seconds, target = hasil
 
     await interaction.response.defer(ephemeral=True)
 
-    cfg = {
-        "message_id": 0,
-        "guild_id": gid,
-        "channel_id": target.id,
-        "prize": prize[:200],
-        "host_id": interaction.user.id,
-        "winner_count": max(1, min(20, int(pemenang) if int(pemenang) > 0 else jumlah["winner_count"])),
-        "ends_at": 0.0,
-        "ended": False,
-        "role_id": syarat["roles"][0] if syarat["roles"] else None,
-        "requirements": syarat,
-        "bonus_roles": bonus,
-        "entries": [],
-        "winners": [],
-    }
-    ping = engagement.default_giveaway_config(gid).get("ping_everyone") and interaction.guild is not None
-    try:
-        message = await target.send(
-            "@everyone 🎉 **Giveaway baru!**" if ping else None,
-            embed=engagement.build_giveaway_embed(cfg),
-            view=GiveawayJoinView(),
-            allowed_mentions=discord.AllowedMentions(everyone=True) if ping else discord.AllowedMentions.none(),
-        )
-    except (discord.Forbidden, discord.HTTPException):
-        await interaction.followup.send(
-            f"⚠️ Gagal mengirim giveaway ke {target.mention}. Cek izin **Kirim Pesan** & **Embed Links**.",
-            ephemeral=True,
-        )
+    cfg = _siapkan_cfg_giveaway(
+        interaction, prize, target, pemenang, syarat, bonus, gid, jumlah
+    )
+    message = await _kirim_giveaway(interaction, target, cfg, gid)
+    if message is None:
         return
 
     cfg = engagement.create_giveaway(

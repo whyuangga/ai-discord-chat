@@ -76,26 +76,8 @@ def _to_int(value: object, default: int = 0) -> int:
 # ==============================================================================
 # PERSISTENSI
 # ==============================================================================
-def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
-    """Memuat seluruh konfigurasi fitur komunitas. Mengembalikan jumlah tiap fitur."""
-    global _reminder_seq
-    reaction_role_panels.clear()
-    reminders.clear()
-    starboard_guilds.clear()
-    sticky_channels.clear()
-    verification_guilds.clear()
-    maintenance_guilds.clear()
-    _reminder_seq = 0
-
-    if not COMMUNITY_TOOLS_FILE.exists():
-        return 0, 0, 0, 0, 0
-
-    try:
-        raw = json.loads(COMMUNITY_TOOLS_FILE.read_text(encoding="utf-8"))
-    except Exception as exc:  # pragma: no cover - berkas rusak
-        logger.warning("Gagal memuat %s: %s", COMMUNITY_TOOLS_FILE, exc)
-        return 0, 0, 0, 0, 0
-
+def _muat_reaction_roles(raw: dict) -> None:
+    """Panel reaction role (pesan → pilihan emoji/role)."""
     for mid_str, data in (raw.get("reaction_roles") or {}).items():
         try:
             options = []
@@ -123,6 +105,11 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_reminders(raw: dict) -> None:
+    """Pengingat terjadwal per pengguna."""
+    global _reminder_seq
     for rid_str, data in (raw.get("reminders") or {}).items():
         try:
             rid = int(rid_str)
@@ -141,6 +128,10 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
         }
         _reminder_seq = max(_reminder_seq, rid)
 
+
+
+def _muat_starboard(raw: dict) -> None:
+    """Papan sorotan: konfigurasi server + daftar board."""
     for gid_str, data in (raw.get("starboard") or {}).items():
         try:
             entries = {
@@ -188,6 +179,10 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_sticky_dan_lainnya(raw: dict) -> None:
+    """Sticky, verifikasi, dan mode maintenance."""
     for cid_str, data in (raw.get("sticky") or {}).items():
         try:
             content = str(data.get("content") or "").strip()
@@ -237,6 +232,52 @@ def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
     )
 
 
+
+def load_community_tools_from_disk() -> tuple[int, int, int, int, int]:
+    """Memuat seluruh konfigurasi fitur komunitas. Mengembalikan jumlah tiap fitur.
+
+    Pembacaan dipecah per kelompok (reaction role, pengingat, starboard, sticky &
+    lain-lain) supaya tiap bagian bisa dibaca dan diuji sendiri. Satu kelompok
+    yang rusak dilewati tanpa menghentikan kelompok lain.
+    """
+    global _reminder_seq
+    reaction_role_panels.clear()
+    reminders.clear()
+    starboard_guilds.clear()
+    sticky_channels.clear()
+    verification_guilds.clear()
+    maintenance_guilds.clear()
+    _reminder_seq = 0
+
+    if not COMMUNITY_TOOLS_FILE.exists():
+        return 0, 0, 0, 0, 0
+
+    try:
+        raw = json.loads(COMMUNITY_TOOLS_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - berkas rusak
+        logger.warning("Gagal memuat %s: %s", COMMUNITY_TOOLS_FILE, exc)
+        return 0, 0, 0, 0, 0
+
+    _muat_reaction_roles(raw)
+    _muat_reminders(raw)
+    _muat_starboard(raw)
+    _muat_sticky_dan_lainnya(raw)
+
+    return (
+        len(reaction_role_panels),
+        len(reminders),
+        len(starboard_guilds),
+        len(sticky_channels),
+        len(verification_guilds),
+    )
+
+
+def _pesan_galat(exc: Exception) -> str:
+    """Pesan galat yang aman dicatat (token/URL sudah disaring)."""
+    from utils import sanitize_error_message
+
+    return sanitize_error_message(exc)
+
 async def save_community_tools_to_disk() -> None:
     """Menyimpan seluruh konfigurasi fitur komunitas secara atomik."""
     async with _tools_lock:
@@ -255,7 +296,7 @@ async def save_community_tools_to_disk() -> None:
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, COMMUNITY_TOOLS_FILE)
         except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan community_tools.json: %s", sanitize_error_message(exc))
+            logger.exception("Gagal menyimpan community_tools.json: %s", _pesan_galat(exc))
 
 
 # ==============================================================================
@@ -613,6 +654,81 @@ def build_starboard_embed(
     return embed
 
 
+async def _kirim_sorotan(
+    channel,
+    message,
+    board: dict,
+    payload,
+    *,
+    count: int,
+    emoji_str: str,
+    nama: str,
+) -> int | None:
+    """Kirim pesan sorotan baru; id pesannya, atau None bila gagal."""
+    try:
+        posted = await channel.send(
+            content=(
+                f"{emoji_str} **{count}** • <#{payload.channel_id}>"
+                + (f" · **{nama}**" if nama and nama.lower() != "starboard" else "")
+            ),
+            embed=build_starboard_embed(
+                message, count, emoji_str, nama=nama, warna=str(board.get("warna") or "")
+            ),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.info("Gagal kirim starboard: %s", sanitize_error_message(exc))
+        return None
+    return posted.id
+
+
+async def _ubah_sorotan(
+    channel,
+    message,
+    board: dict,
+    payload,
+    entry: dict,
+    *,
+    count: int,
+    emoji_str: str,
+) -> None:
+    """Perbarui angka reaksi pada pesan sorotan (abaikan kegagalan)."""
+    starboard_id = _to_int(entry.get("starboard_id"))
+    if channel is None or not starboard_id:
+        return
+    try:
+        partial = channel.get_partial_message(starboard_id)
+        await partial.edit(
+            content=(
+                f"{emoji_str} **{count}** • <#{payload.channel_id}>"
+                + (
+                    f" · **{board.get('nama')}**"
+                    if board.get("nama") and str(board["nama"]).lower() != "starboard"
+                    else ""
+                )
+            ),
+            embed=build_starboard_embed(
+                message,
+                count,
+                emoji_str,
+                nama=str(board.get("nama") or ""),
+                warna=str(board.get("warna") or ""),
+            ),
+        )
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+
+
+async def _hapus_sorotan(channel, entry: dict) -> None:
+    """Hapus pesan sorotan bila masih ada (abaikan kegagalan)."""
+    starboard_id = _to_int(entry.get("starboard_id"))
+    if channel is None or not starboard_id:
+        return
+    try:
+        await channel.get_partial_message(starboard_id).delete()
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+
+
 async def _sync_board(
     bot: discord.Client,
     message,
@@ -630,7 +746,6 @@ async def _sync_board(
         return False
     channel = bot.get_channel(channel_id)
     threshold = max(1, _to_int(board.get("threshold"), STARBOARD_DEFAULT_THRESHOLD))
-
     count = 0
     for reaction in message.reactions:
         if _emoji_matches(emoji_str, str(reaction.emoji)):
@@ -641,62 +756,28 @@ async def _sync_board(
         if channel is None:
             return False
         nama = str(board.get("nama") or "")
-        try:
-            posted = await channel.send(
-                content=(
-                    f"{emoji_str} **{count}** • <#{payload.channel_id}>"
-                    + (f" · **{nama}**" if nama and nama.lower() != "starboard" else "")
-                ),
-                embed=build_starboard_embed(
-                    message, count, emoji_str, nama=nama, warna=str(board.get("warna") or "")
-                ),
-            )
-        except (discord.Forbidden, discord.HTTPException) as exc:
-            logger.info("Gagal kirim starboard: %s", sanitize_error_message(exc))
+        posted_id = await _kirim_sorotan(
+            channel, message, board, payload,
+            count=count, emoji_str=emoji_str, nama=nama,
+        )
+        if posted_id is None:
             return False
-        entries[kunci] = {"starboard_id": posted.id, "count": count}
+        entries[kunci] = {"starboard_id": posted_id, "count": count}
         await save_community_tools_to_disk()
         return True
 
     if count >= threshold and entry:
-        # Jumlah reaksi berubah → perbarui angka di pesan sorotan (tanpa spam pesan baru).
         if _to_int(entry.get("count")) == count:
             return False
         entry["count"] = count
-        starboard_id = _to_int(entry.get("starboard_id"))
-        if channel is not None and starboard_id:
-            try:
-                partial = channel.get_partial_message(starboard_id)
-                await partial.edit(
-                    content=(
-                        f"{emoji_str} **{count}** • <#{payload.channel_id}>"
-                        + (
-                            f" · **{board.get('nama')}**"
-                            if board.get("nama") and str(board["nama"]).lower() != "starboard"
-                            else ""
-                        )
-                    ),
-                    embed=build_starboard_embed(
-                        message,
-                        count,
-                        emoji_str,
-                        nama=str(board.get("nama") or ""),
-                        warna=str(board.get("warna") or ""),
-                    ),
-                )
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
-                pass
+        await _ubah_sorotan(
+            channel, message, board, payload, entry, count=count, emoji_str=emoji_str
+        )
         await save_community_tools_to_disk()
         return True
 
     if entry:
-        # Reaksi turun di bawah ambang → hapus jejak sorotan papan ini.
-        starboard_id = _to_int(entry.get("starboard_id"))
-        if channel is not None and starboard_id:
-            try:
-                await channel.get_partial_message(starboard_id).delete()
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
-                pass
+        await _hapus_sorotan(channel, entry)
         entries.pop(kunci, None)
         await save_community_tools_to_disk()
         return True

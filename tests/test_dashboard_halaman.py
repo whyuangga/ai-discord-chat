@@ -143,7 +143,7 @@ async def _jalankan(monkeypatch, bot, fn, tmp_path):
 
     assert await web_dashboard.start_dashboard(bot) is True
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             return await fn(session, f"http://127.0.0.1:{port}")
     finally:
         await web_dashboard.stop_dashboard()
@@ -165,9 +165,13 @@ async def test_semua_rute_halaman_200_dan_terisolasi(monkeypatch, tmp_path):
             for anchor in lain:
                 assert not _panel(body, anchor), (halaman["slug"], anchor)
 
-        # Tanpa token tetap 401 (termasuk halaman baru)
+        # Cookie sesi yang sama dipakai halaman mana pun…
         async with session.get(f"{base}/inti?guild={GID}") as resp:
-            assert resp.status == 401
+            assert resp.status == 200
+        # …tetapi tanpa sesi sama sekali tetap 401 (termasuk halaman baru)
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+            async with anon.get(f"{base}/inti?guild={GID}") as resp:
+                assert resp.status == 401
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 
@@ -176,22 +180,28 @@ async def test_bookmark_lama_dialihkan_ke_halaman_baru(monkeypatch, tmp_path):
     bot = _Bot()
 
     async def skenario(session, base):
+        # Redirect internal tidak lagi membawa token: sesi sudah di cookie.
         async with session.get(
             f"{base}/?token={TOKEN}&guild={GID}&halaman=setelan", allow_redirects=False
         ) as resp:
             assert resp.status == 303
-            assert resp.headers["Location"] == f"/inti?token={TOKEN}&guild={GID}"
+            assert resp.headers["Location"] == f"/inti?guild={GID}"
 
         async with session.get(
             f"{base}/uji?token={TOKEN}&guild={GID}", allow_redirects=False
         ) as resp:
             assert resp.status == 303
-            assert resp.headers["Location"] == f"/ai?token={TOKEN}&guild={GID}"
+            assert resp.headers["Location"] == f"/ai?guild={GID}"
 
-        # Halaman yang sama tidak me-redirect terus-menerus
+        # Halaman yang sama tidak me-redirect terus-menerus: kunjungan dengan
+        # `?token=` sekali dialihkan (token dibuang), lalu 200 tanpa redirect.
         async with session.get(
             f"{base}/inti?token={TOKEN}&guild={GID}&halaman=inti", allow_redirects=False
         ) as resp:
+            assert resp.status == 303
+            tujuan = resp.headers["Location"]
+            assert "token=" not in tujuan
+        async with session.get(f"{base}/inti?guild={GID}", allow_redirects=False) as resp:
             assert resp.status == 200
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
@@ -262,7 +272,7 @@ async def test_panel_bangun_bisa_membuat_pratinjau_tanpa_menerapkan(monkeypatch,
             allow_redirects=False,
         ) as resp:
             assert resp.status == 303
-            assert resp.headers["Location"].startswith(f"/bangun?token={TOKEN}&guild={GID}")
+            assert resp.headers["Location"].startswith(f"/bangun?guild={GID}")
         assert sb.ambil_siap(GID) is not None
         audit = dashboard_admin.audit_terakhir(GID, limit=1)[0]
         assert audit["aksi"] == "bangun.tema" and audit["nilai"] == "tema:coding"
@@ -273,10 +283,13 @@ async def test_panel_bangun_bisa_membuat_pratinjau_tanpa_menerapkan(monkeypatch,
             assert "Pratinjau menunggu keputusan" in body
             assert "Belum ada struktur yang dibuat" in body
 
-        async with session.post(
-            f"{base}/api/bangun", data={"guild": str(GID), "action": "terapkan"}
-        ) as resp:
-            assert resp.status == 401
+        # Tanpa token di body, cookie sesi dipakai → tetap terautentikasi.
+        # Penolakan tanpa kredensial apa pun diuji di klien anonim.
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+            async with anon.post(
+                f"{base}/api/bangun", data={"guild": str(GID), "action": "terapkan"}
+            ) as resp:
+                assert resp.status == 401
 
     try:
         await _jalankan(monkeypatch, bot, skenario, tmp_path)

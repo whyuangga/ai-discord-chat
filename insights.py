@@ -32,7 +32,6 @@ from config import (
     REKAP_CACHE_TTL_SEC,
     REKAP_MAX_MESSAGES,
 )
-from utils import sanitize_error_message
 
 logger = logging.getLogger("gemini_bot.insights")
 
@@ -151,14 +150,14 @@ async def save_ai_usage_to_disk() -> None:
                 import ai_guard
 
                 payload["guild_days"] = ai_guard.guild_usage_payload()
-            except Exception:  # pragma: no cover - jaring aman
-                pass
+            except Exception as exc:  # pragma: no cover - jaring aman
+                logger.debug("Efek samping opsional gagal: %s", exc)
             tmp_file = Path(str(AI_USAGE_FILE) + ".tmp")
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, AI_USAGE_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan ai_usage.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan ai_usage.json")
 
 
 def _prune_days() -> None:
@@ -207,8 +206,8 @@ def record_ai_usage(
             import ai_guard
 
             ai_guard.record_guild_usage(int(guild_id))
-        except Exception:  # pragma: no cover - jaring aman
-            pass
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Efek samping opsional gagal: %s", exc)
     return bucket
 
 
@@ -338,38 +337,8 @@ def _top_items(mapping: dict, limit: int = 5) -> list[tuple[str, int]]:
     return rows[:limit]
 
 
-def build_usage_embed(
-    *, day: str | None = None, now: float | None = None, guild_id: int = 0
-) -> discord.Embed:
-    """Embed laporan pemakaian AI hari ini (tanpa memanggil Gemini).
-
-    Bila `guild_id` diisi, ikut ditampilkan pemakaian & sisa kuota harian server
-    serta penghematan dari FAQ lokal + cache jawaban.
-    """
-    key = day or today_key(now=now)
-    bucket = ai_usage.get(key) or _empty_bucket()
-    total = int(bucket.get("total") or 0)
-    hits = int(bucket.get("cache_hits") or 0)
-    tokens_in = int(bucket.get("tokens_in") or 0)
-    tokens_out = int(bucket.get("tokens_out") or 0)
-
-    token_line = (
-        f"Token: **{tokens_in + tokens_out:,}** (masuk {tokens_in:,} • keluar {tokens_out:,})\n"
-        if (tokens_in or tokens_out)
-        else "Token: _belum tercatat hari ini_\n"
-    )
-
-    embed = discord.Embed(
-        title="📊 Pemakaian AI Hari Ini",
-        color=discord.Color.blurple(),
-        description=(
-            f"**{total}** operasi AI • **{hits}** cache hit (hemat kuota)\n"
-            f"{token_line}"
-            f"Tanggal: `{key}` • batas per member: "
-            + (f"`{AI_DAILY_CAP_PER_USER}` operasi/hari" if AI_DAILY_CAP_PER_USER > 0 else "_tanpa batas_")
-        ),
-    )
-
+def _tambah_field_kuota(embed: discord.Embed, guild_id: int) -> None:
+    """Field kuota harian server + penghematan FAQ/cache."""
     if guild_id:
         try:
             import ai_guard
@@ -391,10 +360,14 @@ def build_usage_embed(
                 )[:1024],
                 inline=False,
             )
-        except Exception:  # pragma: no cover - laporan tidak boleh gagal
-            pass
+        except Exception as exc:  # pragma: no cover - laporan tidak boleh gagal
+            logger.debug("Efek samping opsional gagal: %s", exc)
 
+
+def _tambah_field_jenis(embed: discord.Embed, bucket: dict) -> None:
+    """Field sebaran jenis operasi AI."""
     kinds = _top_items(bucket.get("kinds") or {}, limit=8)
+
     if kinds:
         embed.add_field(
             name="🧩 Jenis Operasi",
@@ -406,7 +379,11 @@ def build_usage_embed(
     else:
         embed.add_field(name="🧩 Jenis Operasi", value="_belum ada pemakaian AI hari ini_", inline=False)
 
+
+def _tambah_field_aktivitas(embed: discord.Embed, bucket: dict) -> None:
+    """Field member dan channel paling aktif memakai AI."""
     users = _top_items(bucket.get("users") or {}, limit=5)
+
     if users:
         embed.add_field(
             name="👥 Member Paling Aktif",
@@ -415,6 +392,7 @@ def build_usage_embed(
         )
 
     channels = _top_items(bucket.get("channels") or {}, limit=5)
+
     if channels:
         embed.add_field(
             name="📍 Channel Paling Ramai AI",
@@ -422,12 +400,48 @@ def build_usage_embed(
             inline=False,
         )
 
+
+def build_usage_embed(
+    *, day: str | None = None, now: float | None = None, guild_id: int = 0
+) -> discord.Embed:
+    """Embed laporan pemakaian AI hari ini (tanpa memanggil Gemini).
+
+    Bila `guild_id` diisi, ikut ditampilkan pemakaian & sisa kuota harian server
+    serta penghematan dari FAQ lokal + cache jawaban.
+    """
+    key = day or today_key(now=now)
+    bucket = ai_usage.get(key) or _empty_bucket()
+    total = int(bucket.get("total") or 0)
+    hits = int(bucket.get("cache_hits") or 0)
+    tokens_in = int(bucket.get("tokens_in") or 0)
+    tokens_out = int(bucket.get("tokens_out") or 0)
+    token_line = (
+        f"Token: **{tokens_in + tokens_out:,}** (masuk {tokens_in:,} • keluar {tokens_out:,})\n"
+        if (tokens_in or tokens_out)
+        else "Token: _belum tercatat hari ini_\n"
+    )
+    embed = discord.Embed(
+        title="📊 Pemakaian AI Hari Ini",
+        color=discord.Color.blurple(),
+        description=(
+            f"**{total}** operasi AI • **{hits}** cache hit (hemat kuota)\n"
+            f"{token_line}"
+            f"Tanggal: `{key}` • batas per member: "
+            + (f"`{AI_DAILY_CAP_PER_USER}` operasi/hari" if AI_DAILY_CAP_PER_USER > 0 else "_tanpa batas_")
+        ),
+    )
+
+    _tambah_field_kuota(embed, guild_id)
+    _tambah_field_jenis(embed, bucket)
+    _tambah_field_aktivitas(embed, bucket)
+
     embed.set_footer(
         text=(
             "Hemat kuota: FAQ lokal & cache jawaban otomatis dipakai lebih dulu • "
             "/faq tanya menjawab tanpa AI"
         )
     )
+
     return embed
 
 

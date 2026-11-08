@@ -74,6 +74,71 @@ def _menu_or_error(interaction: discord.Interaction, gid: int, ref: str | None) 
 # ==============================================================================
 # MEMBUAT & MENGIRIM PANEL
 # ==============================================================================
+async def _validasi_banner_menu(
+    interaction: discord.Interaction,
+    gid: int,
+    banner,
+    banner_url: str | None,
+) -> bool:
+    """Pastikan banner berupa gambar valid; kirim status bila tidak."""
+    if banner is not None and not menu_builder.is_image_attachment(banner):
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Banner tidak valid",
+                "Unggah gambar **PNG/JPG/WebP** maksimal **8 MB**.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    if banner_url and not str(banner_url).startswith(("http://", "https://")):
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "error", "URL banner tidak valid", "Harus diawali `http://` atau `https://`."),
+            ephemeral=True,
+        )
+        return
+
+    return True
+
+
+async def _kirim_panel_baru(
+    interaction: discord.Interaction, gid: int, menu: dict, target, banner
+) -> bool:
+    """Kirim panel baru + banner; hapus menu & beri status bila gagal."""
+    file = None
+
+    ref = None
+
+    if banner is not None:
+        try:
+            data = await banner.read()
+            file, ref = menu_builder.banner_file_from_attachment(banner, data)
+        except (discord.HTTPException, AttributeError) as exc:
+            logger.warning("Gagal membaca banner menu: %s", exc)
+
+
+    message = await menu_builder.send_panel(interaction.client, menu, target, banner_file=file, banner_ref=ref)
+
+    if message is None:
+        menu_builder.delete_menu(gid, menu["id"])
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Gagal mengirim panel",
+                f"Cek izin **Send Messages** & **Embed Links** di {getattr(target, 'mention', 'channel itu')}.",
+            ),
+            follow=True,
+            ephemeral=True,
+        )
+        return
+
+
+    await menu_builder.save_menus_to_disk()
+    return True
+
+
 @menu_group.command(name="buat", description="Buat panel menu baru & kirim ke channel (Admin)")
 @app_commands.describe(
     judul="Judul panel, misal: Pusat Info Server",
@@ -96,22 +161,7 @@ async def menu_buat_cmd(
     if not await _guard(interaction, gid):
         return
 
-    if banner is not None and not menu_builder.is_image_attachment(banner):
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Banner tidak valid",
-                "Unggah gambar **PNG/JPG/WebP** maksimal **8 MB**.",
-            ),
-            ephemeral=True,
-        )
-        return
-    if banner_url and not str(banner_url).startswith(("http://", "https://")):
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(gid, "error", "URL banner tidak valid", "Harus diawali `http://` atau `https://`."),
-            ephemeral=True,
-        )
+    if not await _validasi_banner_menu(interaction, gid, banner, banner_url):
         return
 
     menu = menu_builder.create_menu(
@@ -122,6 +172,7 @@ async def menu_buat_cmd(
         banner_url=str(banner_url) if banner_url else None,
         channel_id=(channel or interaction.channel).id if (channel or interaction.channel) else None,
     )
+
     if menu is None:
         await ui_kit.send_status(
             interaction,
@@ -135,32 +186,13 @@ async def menu_buat_cmd(
         return
 
     await interaction.response.defer(ephemeral=True, thinking=True)
+
     target = channel or interaction.channel
 
-    file = None
-    ref = None
-    if banner is not None:
-        try:
-            data = await banner.read()
-            file, ref = menu_builder.banner_file_from_attachment(banner, data)
-        except (discord.HTTPException, AttributeError) as exc:
-            logger.warning("Gagal membaca banner menu: %s", exc)
-
-    message = await menu_builder.send_panel(interaction.client, menu, target, banner_file=file, banner_ref=ref)
-    if message is None:
-        menu_builder.delete_menu(gid, menu["id"])
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Gagal mengirim panel",
-                f"Cek izin **Send Messages** & **Embed Links** di {getattr(target, 'mention', 'channel itu')}.",
-            ),
-            follow=True,
-            ephemeral=True,
-        )
+    if not await _kirim_panel_baru(interaction, gid, menu, target, banner):
         return
-
     await menu_builder.save_menus_to_disk()
+
     await ui_kit.send_status(
         interaction,
         embed=ui_theme.status_embed(
@@ -310,71 +342,40 @@ async def menu_bagikan_cmd(interaction: discord.Interaction, menu: str):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@menu_group.command(name="impor", description="Buat panel dari berkas JSON atau tautan bagikan (Admin)")
-@app_commands.describe(
-    berkas="Berkas .json hasil `/menu ekspor`",
-    judul="Judul baru (opsional — bawaan: judul di berkas)",
-    kode="Tautan bagikan dari `/menu bagikan` (bisa URL lengkap atau kodenya saja)",
-)
-async def menu_impor_cmd(
-    interaction: discord.Interaction,
-    berkas: discord.Attachment | None = None,
-    judul: str | None = None,
-    kode: str | None = None,
-):
-    if interaction.guild is None:
-        return
-    gid = interaction.guild.id
-    if not await _guard(interaction, gid):
-        return
-
-    if berkas is None:
-        if not kode:
-            await ui_kit.send_status(
-                interaction,
-                embed=ui_theme.status_embed(
-                    gid, "info", "Pilih sumber panel",
-                    "Lampirkan `berkas` hasil `/menu ekspor`, atau tempel `kode` dari `/menu bagikan`.",
-                ),
-                ephemeral=True,
-            )
-            return
-        payload, galat_kode = menu_builder.decode_share(kode)
-        if payload is None:
-            await ui_kit.send_status(
-                interaction,
-                embed=ui_theme.status_embed(
-                    gid, "error", "Kode tidak bisa dibaca",
-                    "\n".join(f"• {g}" for g in galat_kode)[:1500],
-                ),
-                ephemeral=True,
-            )
-            return
-        record, galat = menu_builder.import_menu(gid, payload, title=judul)
-        if record is None:
-            await ui_kit.send_status(
-                interaction,
-                embed=ui_theme.status_embed(
-                    gid, "error", "Impor gagal",
-                    "\n".join(galat)[:1500] or "Kode tidak berisi panel.",
-                ),
-                ephemeral=True,
-            )
-            return
-        await menu_builder.save_menus_to_disk()
-        catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
+async def _impor_dari_kode(
+    interaction: discord.Interaction, gid: int, kode: str, judul: str | None
+) -> None:
+    """Impor panel dari kode/tautan bagikan, lalu kirim status hasilnya."""
+    payload, galat_kode = menu_builder.decode_share(kode)
+    if payload is None:
         await ui_kit.send_status(
             interaction,
             embed=ui_theme.status_embed(
-                gid, "ok", "Panel diimpor dari tautan",
-                f"**{record['title']}** (`{record['id']}`) siap — "
-                f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
-                f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
+                gid, "error", "Kode tidak bisa dibaca",
+                "\n".join(f"• {g}" for g in galat_kode)[:1500],
             ),
             ephemeral=True,
         )
         return
+    record, galat = menu_builder.import_menu(gid, payload, title=judul)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Impor gagal",
+                "\n".join(galat)[:1500] or "Kode tidak berisi panel.",
+            ),
+            ephemeral=True,
+        )
+        return
+    await menu_builder.save_menus_to_disk()
+    await _kirim_hasil_impor(interaction, gid, record, galat, dari_berkas=False)
 
+
+async def _muat_payload_berkas(
+    interaction: discord.Interaction, gid: int, berkas: discord.Attachment
+) -> dict | None:
+    """Baca & parse JSON lampiran; `None` bila ditolak (status sudah dikirim)."""
     ukuran = int(getattr(berkas, "size", 0) or 0)
     if ukuran > menu_builder.MAX_IMPORT_BYTES:
         await ui_kit.send_status(
@@ -397,7 +398,62 @@ async def menu_impor_cmd(
             ephemeral=True,
         )
         return
+    return payload
 
+
+async def _kirim_hasil_impor(
+    interaction: discord.Interaction, gid: int, record: dict, galat: list[str],
+    *, dari_berkas: bool,
+) -> None:
+    """Laporkan panel hasil impor: judul, jumlah tombol/dropdown, dan catatan."""
+    catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid, "ok", "Panel diimpor" if dari_berkas else "Panel diimpor dari tautan",
+            f"**{record['title']}** (`{record['id']}`) siap — "
+            f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
+            f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
+        ),
+        follow=dari_berkas,
+        ephemeral=True,
+    )
+
+
+@menu_group.command(name="impor", description="Buat panel dari berkas JSON atau tautan bagikan (Admin)")
+@app_commands.describe(
+    berkas="Berkas .json hasil `/menu ekspor`",
+    judul="Judul baru (opsional — bawaan: judul di berkas)",
+    kode="Tautan bagikan dari `/menu bagikan` (bisa URL lengkap atau kodenya saja)",
+)
+async def menu_impor_cmd(
+    interaction: discord.Interaction,
+    berkas: discord.Attachment | None = None,
+    judul: str | None = None,
+    kode: str | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+    if berkas is None:
+        if not kode:
+            await ui_kit.send_status(
+                interaction,
+                embed=ui_theme.status_embed(
+                    gid, "info", "Pilih sumber panel",
+                    "Lampirkan `berkas` hasil `/menu ekspor`, atau tempel `kode` dari `/menu bagikan`.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await _impor_dari_kode(interaction, gid, kode, judul)
+        return
+    payload = await _muat_payload_berkas(interaction, gid, berkas)
+    if payload is None:
+        return
     record, galat = menu_builder.import_menu(gid, payload, title=judul)
     if record is None:
         await ui_kit.send_status(
@@ -411,18 +467,7 @@ async def menu_impor_cmd(
 
     await interaction.response.defer(ephemeral=True, thinking=True)
     await menu_builder.save_menus_to_disk()
-    catatan = ("\n-# ⚠️ " + "\n-# ⚠️ ".join(galat)) if galat else ""
-    await ui_kit.send_status(
-        interaction,
-        embed=ui_theme.status_embed(
-            gid, "ok", "Panel diimpor",
-            f"**{record['title']}** (`{record['id']}`) siap — "
-            f"{len(record['buttons'])} tombol, {len(record['dropdowns'])} dropdown.\n"
-            f"Kirim ke channel dengan `/menu kirim menu:{record['id']}`.{catatan}",
-        ),
-        follow=True,
-        ephemeral=True,
-    )
+    await _kirim_hasil_impor(interaction, gid, record, galat, dari_berkas=True)
 
 
 @menu_group.command(name="ubah", description="Ubah judul/deskripsi panel yang sudah terkirim (Admin)")
@@ -519,50 +564,8 @@ async def menu_alur_bantuan_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@menu_group.command(name="alur", description="Tambah tombol yang menjalankan alur aksi (Admin)")
-@app_commands.describe(
-    aksi="Alur, mis. `+role:123 > pesan:Halo {member.mention} > thread:tiket`",
-    menu="ID panel atau judulnya",
-    label="Teks tombol",
-    emoji="Emoji tombol (opsional)",
-    gaya="Warna tombol",
-)
-@app_commands.choices(gaya=_GAYA_CHOICES)
-async def menu_alur_cmd(
-    interaction: discord.Interaction,
-    aksi: str,
-    menu: str | None = None,
-    label: str | None = None,
-    emoji: str | None = None,
-    gaya: app_commands.Choice[str] | None = None,
-):
-    if interaction.guild is None:
-        return
-    gid = interaction.guild.id
-    if not await _guard(interaction, gid):
-        return
-
-    record = _menu_or_error(interaction, gid, menu)
-    if record is None:
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Buat dulu lewat `/menu buat`."),
-            ephemeral=True,
-        )
-        return
-
-    langkah, galat = flows.parse(aksi)
-    if galat:
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Alur belum valid", "\n".join(f"• {g}" for g in galat)[:1500]
-            ),
-            ephemeral=True,
-        )
-        return
-
-    # Role pada alur harus bisa diberikan bot
+async def _validasi_role_alur(interaction: discord.Interaction, gid: int, langkah: list) -> bool:
+    """Pastikan setiap role di alur ada & bisa diberikan bot; kirim status bila gagal."""
     for step in langkah:
         if step.get("action") in (
             flows.ACTION_ROLE_TOGGLE,
@@ -592,6 +595,53 @@ async def menu_alur_cmd(
                 )
                 return
 
+    return True
+
+
+@menu_group.command(name="alur", description="Tambah tombol yang menjalankan alur aksi (Admin)")
+@app_commands.describe(
+    aksi="Alur, mis. `+role:123 > pesan:Halo {member.mention} > thread:tiket`",
+    menu="ID panel atau judulnya",
+    label="Teks tombol",
+    emoji="Emoji tombol (opsional)",
+    gaya="Warna tombol",
+)
+@app_commands.choices(gaya=_GAYA_CHOICES)
+async def menu_alur_cmd(
+    interaction: discord.Interaction,
+    aksi: str,
+    menu: str | None = None,
+    label: str | None = None,
+    emoji: str | None = None,
+    gaya: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+    record = _menu_or_error(interaction, gid, menu)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Buat dulu lewat `/menu buat`."),
+            ephemeral=True,
+        )
+        return
+    langkah, galat = flows.parse(aksi)
+    if galat:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Alur belum valid", "\n".join(f"• {g}" for g in galat)[:1500]
+            ),
+            ephemeral=True,
+        )
+        return
+
+    if not await _validasi_role_alur(interaction, gid, langkah):
+        return
+
     nama_tombol = (label or "").strip() or "Aksi"
     item = menu_builder.add_flow_button(
         record,
@@ -610,7 +660,6 @@ async def menu_alur_cmd(
             ephemeral=True,
         )
         return
-
     await interaction.response.defer(ephemeral=True, thinking=True)
     await menu_builder.save_menus_to_disk()
     refreshed = await menu_builder.refresh_panel(interaction.client, record)
@@ -830,6 +879,67 @@ async def menu_tombol_command_cmd(
     )
 
 
+def _saring_role_dropdown(guild, pairs: list) -> tuple[list[dict], list[str]]:
+    """Bangun opsi dropdown dari pasangan (role, emoji); kumpulkan yang ditolak."""
+    options: list[dict] = []
+
+    rejected: list[str] = []
+
+    for role, emoji in pairs:
+        if role is None:
+            continue
+        ok, _reason = menu_builder.check_role_usable(guild, role.id)
+        if not ok:
+            rejected.append(role.name)
+            continue
+        options.append({"role_id": role.id, "label": role.name, "emoji": emoji})
+
+    return options, rejected
+
+
+async def _lapor_dropdown_ditambah(
+    interaction: discord.Interaction,
+    gid: int,
+    dropdown: dict,
+    rejected: list[str],
+    refreshed: bool,
+) -> None:
+    """Laporkan hasil penambahan dropdown (termasuk role yang dilewati)."""
+    extra = f"\n⚠️ Dilewati (tidak bisa diberikan): {', '.join(rejected)}" if rejected else ""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid,
+            "ok",
+            "Dropdown role ditambahkan",
+            f"**{len(dropdown['options'])} role** masuk ke dropdown "
+            f"({'eksklusif — pilih satu' if dropdown['exclusive'] else 'bisa pilih bergantian'}).{extra}\n"
+            + (
+                "Panel langsung diperbarui."
+                if refreshed
+                else "Gunakan `/menu kirim` untuk menampilkan panel."
+            ),
+        ),
+        follow=True,
+        ephemeral=True,
+    )
+
+
+async def _tolak_dropdown(
+    interaction: discord.Interaction,
+    gid: int,
+    status: str,
+    judul: str,
+    detail: str,
+) -> None:
+    """Kirim status galat ephemeral (tanpa follow-up)."""
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(gid, status, judul, detail),
+        ephemeral=True,
+    )
+
+
 @menu_group.command(name="dropdown-role", description="Tambah dropdown role (maks 25 role, bisa eksklusif) (Admin)")
 @app_commands.describe(
     menu="ID panel atau judulnya",
@@ -864,34 +974,28 @@ async def menu_dropdown_role_cmd(
         return
 
     record = _menu_or_error(interaction, gid, menu)
+
     if record is None:
-        await ui_kit.send_status(
+        await _tolak_dropdown(
             interaction,
-            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Buat dulu lewat `/menu buat`."),
-            ephemeral=True,
+            gid,
+            "warn",
+            "Panel tidak ditemukan",
+            "Buat dulu lewat `/menu buat`.",
         )
         return
 
     pairs = [(role1, emoji1), (role2, emoji2), (role3, emoji3), (role4, emoji4), (role5, emoji5)]
-    options: list[dict] = []
-    rejected: list[str] = []
-    for role, emoji in pairs:
-        if role is None:
-            continue
-        ok, _reason = menu_builder.check_role_usable(interaction.guild, role.id)
-        if not ok:
-            rejected.append(role.name)
-            continue
-        options.append({"role_id": role.id, "label": role.name, "emoji": emoji})
+
+    options, rejected = _saring_role_dropdown(interaction.guild, pairs)
 
     if not options:
-        await ui_kit.send_status(
+        await _tolak_dropdown(
             interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Tidak ada role valid",
-                ("Ditolak: " + ", ".join(rejected)) if rejected else "Pilih minimal satu role.",
-            ),
-            ephemeral=True,
+            gid,
+            "error",
+            "Tidak ada role valid",
+            ("Ditolak: " + ", ".join(rejected)) if rejected else "Pilih minimal satu role.",
         )
         return
 
@@ -901,32 +1005,21 @@ async def menu_dropdown_role_cmd(
         options,
         exclusive=bool(eksklusif),
     )
+
     if dropdown is None:
-        await ui_kit.send_status(
+        await _tolak_dropdown(
             interaction,
-            embed=ui_theme.status_embed(
-                gid, "warn", "Dropdown tidak ditambahkan",
-                f"Batas **{menu_builder.MAX_DROPDOWNS} dropdown** per panel.",
-            ),
-            ephemeral=True,
+            gid,
+            "warn",
+            "Dropdown tidak ditambahkan",
+            f"Batas **{menu_builder.MAX_DROPDOWNS} dropdown** per panel.",
         )
         return
 
     await interaction.response.defer(ephemeral=True, thinking=True)
     await menu_builder.save_menus_to_disk()
     refreshed = await menu_builder.refresh_panel(interaction.client, record)
-    extra = f"\n⚠️ Dilewati (tidak bisa diberikan): {', '.join(rejected)}" if rejected else ""
-    await ui_kit.send_status(
-        interaction,
-        embed=ui_theme.status_embed(
-            gid, "ok", "Dropdown role ditambahkan",
-            f"**{len(dropdown['options'])} role** masuk ke dropdown "
-            f"({'eksklusif — pilih satu' if dropdown['exclusive'] else 'bisa pilih bergantian'}).{extra}\n"
-            + ("Panel langsung diperbarui." if refreshed else "Gunakan `/menu kirim` untuk menampilkan panel."),
-        ),
-        follow=True,
-        ephemeral=True,
-    )
+    await _lapor_dropdown_ditambah(interaction, gid, dropdown, rejected, refreshed)
 
 
 # ==============================================================================

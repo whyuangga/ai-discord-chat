@@ -420,8 +420,8 @@ async def save_voice_link_to_disk() -> None:
             sementara = VOICE_LINK_FILE.with_suffix(".tmp")
             sementara.write_text(teks, encoding="utf-8")
             os.replace(sementara, VOICE_LINK_FILE)
-        except OSError as exc:  # pragma: no cover - disk penuh/izin
-            logger.warning("Gagal menyimpan voice link: %s", exc)
+        except OSError:  # pragma: no cover - disk penuh/izin
+            logger.exception("Gagal menyimpan voice link")
 
     await asyncio.to_thread(_tulis)
 

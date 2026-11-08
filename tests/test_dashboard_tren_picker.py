@@ -196,7 +196,7 @@ async def test_http_pratinjau_tidak_mengirim_lalu_kirim(tmp_path, monkeypatch):
     assert await web_dashboard.start_dashboard(bot) is True
     base = f"http://127.0.0.1:{port}"
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             async with session.post(
                 f"{base}/api/kirim",
                 data={"token": "tok-prev", "guild": "1234", "action": "kirim",
@@ -242,12 +242,16 @@ async def test_http_tren_dan_pemilih_server(tmp_path, monkeypatch):
     assert await web_dashboard.start_dashboard(bot) is True
     base = f"http://127.0.0.1:{port}"
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             async with session.get(f"{base}/api/tren?hari=7", headers={"X-Dashboard-Token": "tok-tren"}) as resp:
                 data = await resp.json()
                 assert resp.status == 200 and len(data["rows"]) == 7
+            # Klien ini kini punya sesi → tanpa header tetap boleh
             async with session.get(f"{base}/api/tren?hari=7") as resp:
-                assert resp.status == 401
+                assert resp.status == 200
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+                async with anon.get(f"{base}/api/tren?hari=7") as resp:
+                    assert resp.status == 401
 
             async with session.get(f"{base}/?token=tok-tren&guild=2") as resp:
                 body = await resp.text()

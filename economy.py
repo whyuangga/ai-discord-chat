@@ -399,6 +399,19 @@ def load_economy_from_disk() -> tuple[int, int]:
         logger.warning("Gagal memuat %s: %s", path, exc)
         return 0, 0
 
+    _muat_guild_ekonomi(raw)
+
+    _muat_saldo_ekonomi(raw)
+
+    _muat_meta_ekonomi(raw)
+
+    _muat_toko_ekonomi(raw)
+
+    return len(economy_guilds), len(balances)
+
+
+def _muat_guild_ekonomi(raw: dict) -> None:
+    """Isi economy_guilds dari data mentah."""
     for gid_str, data in (raw.get("guilds") or {}).items():
         try:
             gid = int(gid_str)
@@ -422,6 +435,9 @@ def load_economy_from_disk() -> tuple[int, int]:
         )
         economy_guilds[gid] = cfg
 
+
+def _muat_saldo_ekonomi(raw: dict) -> None:
+    """Isi balances dari data mentah; hanya saldo positif."""
     for key, value in (raw.get("balances") or {}).items():
         try:
             gid_str, uid_str = str(key).split(":", 1)
@@ -432,6 +448,9 @@ def load_economy_from_disk() -> tuple[int, int]:
         if amount > 0:
             balances[str(key)] = amount
 
+
+def _muat_meta_ekonomi(raw: dict) -> None:
+    """Isi meta (waktu earn/daily dan streak) dari data mentah."""
     for key, data in (raw.get("meta") or {}).items():
         if not isinstance(data, dict):
             continue
@@ -441,6 +460,9 @@ def load_economy_from_disk() -> tuple[int, int]:
             "daily_streak": max(0, _to_int(data.get("daily_streak"))),
         }
 
+
+def _muat_toko_ekonomi(raw: dict) -> None:
+    """Isi shop dari data mentah, membuang item tanpa nama."""
     for gid_str, bucket in (raw.get("shop") or {}).items():
         try:
             gid = int(gid_str)
@@ -464,8 +486,6 @@ def load_economy_from_disk() -> tuple[int, int]:
             }
         shop[gid] = clean
 
-    return len(economy_guilds), len(balances)
-
 
 async def save_economy_to_disk() -> None:
     """Menyimpan seluruh data ekonomi secara atomik (setelah dipangkas)."""
@@ -483,8 +503,8 @@ async def save_economy_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, ECONOMY_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan economy.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan economy.json")
 
 
 def cleanup_economy_runtime(max_guilds: int = 200) -> int:

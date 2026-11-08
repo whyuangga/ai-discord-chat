@@ -249,8 +249,8 @@ async def save_levels_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, LEVELS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan levels.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan levels.json")
 
 
 # ==============================================================================
@@ -831,8 +831,8 @@ def build_level_embed(member, data: dict, cfg: dict | None = None) -> discord.Em
     if avatar is not None:
         try:
             embed.set_thumbnail(url=avatar.url)
-        except Exception:  # pragma: no cover - avatar tiruan
-            pass
+        except Exception as exc:  # pragma: no cover - avatar tiruan
+            logger.debug("Efek samping opsional gagal: %s", exc)
     embed.set_footer(text="XP dari pesan (ada jeda anti-spam) & dari menit di voice channel")
     return embed
 

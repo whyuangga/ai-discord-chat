@@ -335,5 +335,5 @@ async def save_confessions_to_disk() -> None:
                 sementara.write_text, json.dumps(payload, ensure_ascii=False, indent=2), "utf-8"
             )
             await asyncio.to_thread(os.replace, sementara, CONFESSIONS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan confessions.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan confessions.json")

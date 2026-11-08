@@ -250,5 +250,5 @@ async def save_translate_to_disk() -> None:
         serialized = json.dumps(payload, ensure_ascii=False, indent=2)
         await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
         await asyncio.to_thread(os.replace, tmp_file, TRANSLATE_FILE)
-    except Exception as exc:  # pragma: no cover - I/O gagal
-        logger.warning("Gagal menyimpan translate.json: %s", exc)
+    except Exception:  # pragma: no cover - I/O gagal
+        logger.exception("Gagal menyimpan translate.json")

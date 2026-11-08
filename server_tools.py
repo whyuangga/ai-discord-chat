@@ -388,8 +388,8 @@ async def save_server_tools_to_disk() -> None:
             import os
 
             await asyncio.to_thread(os.replace, tmp, AFK_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan afk.json: %s", exc)
+        except Exception:
+            logger.exception("Gagal menyimpan afk.json")
 
 
 def cleanup_server_tools_runtime(limit: int = 200) -> int:

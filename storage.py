@@ -148,8 +148,8 @@ def append_conversation_turn(thread_id: int, user_text: str, model_reply: str) -
             session["history_summary"] = ai_guard.merge_history_summary(
                 str(session.get("history_summary") or ""), dropped
             )
-        except Exception:  # pragma: no cover - ringkasan tidak boleh menggagalkan chat
-            pass
+        except Exception as exc:  # pragma: no cover - ringkasan tidak boleh menggagalkan chat
+            logger.debug("Efek samping opsional gagal: %s", exc)
     session["updated_at"] = time.time()
 
 
@@ -278,8 +278,8 @@ async def save_sessions_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, SESSIONS_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan sesi ke disk: %s", exc)
+        except Exception:
+            logger.exception("Gagal menyimpan sesi ke disk")
 
 
 async def recover_session_from_thread(

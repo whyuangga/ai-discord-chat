@@ -5,7 +5,7 @@ Bot Discord modular berbasis **Google Gemini** dengan arsitektur **`cogs/`** yan
 **Free Tier** (±53 MB RAM saat diam). Fitur AI memakai kuota Gemini seminimal mungkin, dan
 sebagian besar fitur komunitas berjalan **tanpa AI sama sekali (0 kuota)**.
 
-> **Versi `v1.40.0-beta`** · **67 command utama** (292 subcommand) · **1058 tes otomatis**
+> **Versi `v1.40.0-beta`** · **67 command utama** (292 subcommand) · **1251 tes otomatis**
 > (5 dilewati) · tanpa dependency baru sejak v1.20 · detail tiap fitur ada di
 > [daftar isi](#-daftar-isi) atau situs dokumentasi (`site/`, cara deploy di
 > [`site/README.md`](site/README.md)).
@@ -584,7 +584,16 @@ ai-discord-chat/
 │   └── help.py            # Menu /bantuan klasik & panel panduan V2 (11 kategori)
 │
 ├── ← DASHBOARD WEB (satu proses, tanpa JavaScript; AI hanya saat diminta) →
-│   ├── web_dashboard.py    # Server aiohttp: 14 halaman, endpoint /api/*, redirect bookmark lama
+│   ├── web_dashboard/      # Paket server aiohttp: halaman, endpoint /api/*, redirect bookmark lama
+│   │   ├── __init__.py     # konfigurasi, token, data, start/stop server
+│   │   ├── halaman.py      # konstanta halaman/anchor/auto-refresh, URL, menu
+│   │   ├── tampilan.py     # template HTML + panel per fitur
+│   │   ├── kontrol.py      # blok kontrol on/off
+│   │   ├── bersama.py      # HelperRespons (payload, izin, redirect, sesi)
+│   │   ├── middleware.py   # MiddlewareKeamanan (anti brute-force, header)
+│   │   ├── rute.py         # semua handler HTTP
+│   │   └── tabel_rute.py   # daftar rute sebagai data
+│   ├── dashboard_security.py # Token (compare_digest), sesi cookie HttpOnly, header CSP, anti brute-force
 │   ├── dashboard_admin.py  # Registry 56 setelan + grup, audit perubahan, & penulisan config
 │   ├── dashboard_bangun.py # Pratinjau, Terapkan, riwayat & bongkar aman /bangun
 │   ├── dashboard_ai.py     # Generator gambar, prompt server & petunjuk privasi owner-only
@@ -684,7 +693,7 @@ ai-discord-chat/
 │   ├── games.py            # Mesin 6 mode mini-game tongkrongan AI & papan skor server
 │   └── utils.py            # Pemotong kode Markdown, live web/news search, SSRF guard, jam lokal
 │
-├── requirements.txt        # Dependensi Python (discord.py, aiohttp, wavelink, Pillow, PyNaCl, devey)
+├── requirements.txt        # Dependensi Python (discord.py, aiohttp, wavelink, Pillow, PyNaCl, davey)
 ├── pyproject.toml          # Metadata paket, versi, & konfigurasi pytest
 ├── .env.example            # Template variabel .env (75 kunci, semua berkomentar)
 ├── .gitignore              # Mengabaikan .env, /data/, bytecode, & hasil build situs
@@ -703,7 +712,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 60 berkas pytest → 1058 tes (1053 lulus, 5 dilewati)
+├── tests/                  # 64 berkas pytest → 1251 tes (1246 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

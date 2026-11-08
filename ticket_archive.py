@@ -146,8 +146,8 @@ def _tema() -> dict[str, str]:
                 "font_link": tema.FONT_LINK,
             }
         )
-    except Exception:  # pragma: no cover - tema opsional
-        pass
+    except Exception as exc:  # pragma: no cover - tema opsional
+        logger.debug("Efek samping opsional gagal: %s", exc)
     return bawaan
 
 

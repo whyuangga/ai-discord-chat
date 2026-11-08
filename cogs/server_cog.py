@@ -154,6 +154,79 @@ async def serverstats_otomatis_cmd(interaction: discord.Interaction, aktif: bool
     )
 
 
+async def _terapkan_setelan_ikon(
+    guild_id: int,
+    *,
+    reset: bool,
+    anggota: str | None,
+    manusia: str | None,
+    bot: str | None,
+    online: str | None,
+    boost: str | None,
+    tiket: str | None,
+    sosial: str | None,
+    kategori: str | None,
+) -> None:
+    """Reset seluruh ikon, atau simpan emoji/kategori yang dikirim lalu flush."""
+    if reset:
+        reset_serverstats_appearance(guild_id)
+    else:
+        set_serverstats_emojis(
+            guild_id,
+            {
+                "members": anggota,
+                "humans": manusia,
+                "bots": bot,
+                "online": online,
+                "boosts": boost,
+                "tickets": tiket,
+                "social": sosial,
+            },
+        )
+        if kategori is not None:
+            set_serverstats_category_name(guild_id, kategori)
+
+    await save_server_features_to_disk()
+
+
+async def _kirim_panel_ikon(
+    interaction: discord.Interaction,
+    guild_id: int,
+    *,
+    body: str,
+    note: str,
+    changed: int,
+) -> None:
+    """Kirim panel & embed ringkasan ikon server stats."""
+    import ui_kit
+
+    import ui_theme
+
+
+    await ui_kit.follow_panel(
+        interaction,
+        ui_kit.build_view(
+            guild_id,
+            ui_kit.card(
+                guild_id,
+                ui_kit.text(body[:3900]),
+                ui_kit.text(note[:1200]),
+            ),
+            timeout=None,
+        ),
+        embed=ui_theme.apply_embed_theme(
+            discord.Embed(
+                title="🎨 Ikon Server Stats",
+                description=(body + note)[:4000],
+                color=discord.Color.blurple(),
+            ),
+            guild_id,
+            footer="Ikon voice channel tidak bisa diubah oleh bot",
+        ),
+        ephemeral=True,
+    )
+
+
 @serverstats_group.command(
     name="ikon",
     description="Ganti emoji ikon tiap channel statistik tiket & sosial (atau hapus ikonnya)",
@@ -183,37 +256,35 @@ async def serverstats_ikon_cmd(
 ):
     if interaction.guild is None:
         return
+
     if not _ensure_admin(interaction):
         await _reject_non_admin(interaction)
         return
 
     guild_id = interaction.guild.id
-    if reset:
-        reset_serverstats_appearance(guild_id)
-    else:
-        set_serverstats_emojis(
-            guild_id,
-            {
-                "members": anggota,
-                "humans": manusia,
-                "bots": bot,
-                "online": online,
-                "boosts": boost,
-                "tickets": tiket,
-                "social": sosial,
-            },
-        )
-        if kategori is not None:
-            set_serverstats_category_name(guild_id, kategori)
 
-    await save_server_features_to_disk()
+    await _terapkan_setelan_ikon(
+        guild_id,
+        reset=reset,
+        anggota=anggota,
+        manusia=manusia,
+        bot=bot,
+        online=online,
+        boost=boost,
+        tiket=tiket,
+        sosial=sosial,
+        kategori=kategori,
+    )
     await interaction.response.defer(ephemeral=True)
+
 
     changed = await update_serverstats_channels(
         interaction.guild, force=True, bot=getattr(interaction, "client", None)
     )
 
+
     emojis = stats_emojis(guild_id)
+
     lines = [
         f"• {emojis['members']} Total Member".replace("•  ", "• "),
         f"• {emojis['humans']} Manusia".replace("•  ", "• "),
@@ -221,46 +292,28 @@ async def serverstats_ikon_cmd(
         f"• {emojis['online']} Online".replace("•  ", "• "),
         f"• {emojis['boosts']} Boost".replace("•  ", "• "),
     ]
+
     body = (
         "### 🎨 Ikon Server Stats\n"
         + "\n".join(lines)
         + f"\n\n`{changed}` channel diperbarui."
     )
+
     note = (
         "\n\n**Catatan:** ikon 🔊 di sisi kiri nama channel mengikuti **tipe channel**. "
         "Kalau ingin ikon lain (`#`, 📢, 🎤), ganti tipenya lewat `/serverstats tipe`. "
         "Yang diatur di sini adalah emoji di dalam nama channel dan nama kategorinya."
     )
+
     if not serverstats_guilds.get(guild_id, {}).get("enabled"):
         note = (
             "\n\n⚠️ Server Stats otomatis sedang **nonaktif**. Aktifkan dengan "
             "`/serverstats otomatis aktif:True` agar channel dibuat/diperbarui." + note
         )
 
-    import ui_kit
-    import ui_theme
 
-    await ui_kit.follow_panel(
-        interaction,
-        ui_kit.build_view(
-            guild_id,
-            ui_kit.card(
-                guild_id,
-                ui_kit.text(body[:3900]),
-                ui_kit.text(note[:1200]),
-            ),
-            timeout=None,
-        ),
-        embed=ui_theme.apply_embed_theme(
-            discord.Embed(
-                title="🎨 Ikon Server Stats",
-                description=(body + note)[:4000],
-                color=discord.Color.blurple(),
-            ),
-            guild_id,
-            footer="Ikon voice channel tidak bisa diubah oleh bot",
-        ),
-        ephemeral=True,
+    await _kirim_panel_ikon(
+        interaction, guild_id, body=body, note=note, changed=changed
     )
 
 
@@ -554,90 +607,69 @@ async def _facts_schedule_autocomplete(
     return choices[:10]
 
 
-@fakta_group.command(
-    name="atur",
-    description="Atur channel & jadwal multi-slot rubrik Fakta Unik Dunia (default 08/12/16/20)",
-)
-@app_commands.describe(
-    channel="Channel tujuan fakta unik (kosongkan untuk memakai channel yang sudah tersimpan)",
-    aktif="True untuk mengaktifkan jadwal, False untuk mematikan",
-    jadwal=f"Slot jam dipisah koma, misal 08:00,12:00,16:00,20:00 (maks {FACTS_MAX_SLOTS} slot/hari)",
-)
-@app_commands.autocomplete(jadwal=_facts_schedule_autocomplete)
-async def fakta_atur_cmd(
+async def _matikan_rubrik_fakta(
     interaction: discord.Interaction,
-    channel: discord.TextChannel | None = None,
-    aktif: bool = True,
-    jadwal: str | None = None,
-):
-    if interaction.guild is None:
-        return
-    if not _ensure_admin(interaction):
-        await _reject_non_admin(interaction)
-        return
-
-    existing = facts_guilds.get(interaction.guild.id) or {}
-    stored_channel_id = int(existing.get("channel_id") or 0)
-
-    if not aktif:
-        set_facts_config(interaction.guild.id, channel.id if channel else stored_channel_id, enabled=False)
-        await save_server_features_to_disk()
-        await interaction.response.send_message(
-            "🛑 **Rubrik Fakta Unik Dunia** dinonaktifkan di server ini.\n"
-            "> Jadwal yang tersimpan akan dipakai lagi saat diaktifkan kembali.",
-            ephemeral=True,
-        )
-        return
-
-    target = channel or (
-        interaction.guild.get_channel(stored_channel_id) if stored_channel_id else None
-    )
-    if target is None:
-        await interaction.response.send_message(
-            "⚠️ Pilih `channel` tujuan terlebih dahulu, misalnya "
-            "`/fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00`.",
-            ephemeral=True,
-        )
-        return
-
-    parsed_times: list[str] | None = None
-    if jadwal and jadwal.strip():
-        parsed_times, error = parse_schedule_input(jadwal)
-        if error or not parsed_times:
-            await interaction.response.send_message(
-                f"⚠️ {error or 'Jadwal tidak valid.'}\n"
-                "**Contoh format yang benar:**\n"
-                "• `08:00,12:00,16:00,20:00` *(4x sehari — default)*\n"
-                "• `8,12,16,20` *(format singkat)*\n"
-                "• `08:00, 20:00` *(2x sehari)*\n"
-                "• `09:00` *(1x sehari)*\n"
-                f"Maksimal **{FACTS_MAX_SLOTS} slot** per hari.",
-                ephemeral=True,
-            )
-            return
-    else:
-        # Tanpa parameter `jadwal`: pertahankan jadwal tersimpan (atau default untuk server baru).
-        parsed_times = list(existing.get("times") or FACTS_DEFAULT_TIMES)
-
-    cfg = set_facts_config(
-        interaction.guild.id,
-        target.id,
-        enabled=True,
-        times=parsed_times if jadwal and jadwal.strip() else None,
-    )
-    if cfg is None:
-        # Server baru yang belum punya jadwal tersimpan -> pakai default.
-        cfg = set_facts_config(interaction.guild.id, target.id, enabled=True, times=parsed_times)
+    guild_id: int,
+    channel: discord.TextChannel | None,
+    stored_channel_id: int,
+) -> None:
+    """Nonaktifkan rubrik fakta tanpa menghapus jadwal tersimpan."""
+    set_facts_config(guild_id, channel.id if channel else stored_channel_id, enabled=False)
     await save_server_features_to_disk()
 
-    if cfg is None:
-        await interaction.response.send_message(
-            "⚠️ Gagal menyimpan jadwal. Coba lagi sebentar lagi.", ephemeral=True
-        )
-        return
+    await interaction.response.send_message(
+        "🛑 **Rubrik Fakta Unik Dunia** dinonaktifkan di server ini.\n"
+        "> Jadwal yang tersimpan akan dipakai lagi saat diaktifkan kembali.",
+        ephemeral=True,
+    )
 
+
+async def _pastikan_target_fakta(interaction: discord.Interaction, target) -> bool:
+    """False (setelah memberi tahu pengguna) bila channel tujuan belum ada."""
+    if target is not None:
+        return True
+    await interaction.response.send_message(
+        "⚠️ Pilih `channel` tujuan terlebih dahulu, misalnya "
+        "`/fakta atur channel:#umum jadwal:08:00,12:00,16:00,20:00`.",
+        ephemeral=True,
+    )
+    return False
+
+
+async def _parse_jadwal_fakta(
+    interaction: discord.Interaction,
+    jadwal: str | None,
+    existing: dict,
+) -> list[str] | None:
+    """Daftar slot jadwal, atau None bila input ditolak (pesan sudah dikirim)."""
+    if not (jadwal and jadwal.strip()):
+        # Tanpa parameter `jadwal`: pertahankan jadwal tersimpan.
+        return list(existing.get("times") or FACTS_DEFAULT_TIMES)
+    parsed_times, error = parse_schedule_input(jadwal)
+    if error or not parsed_times:
+        await interaction.response.send_message(
+            f"⚠️ {error or 'Jadwal tidak valid.'}\n"
+            "**Contoh format yang benar:**\n"
+            "• `08:00,12:00,16:00,20:00` *(4x sehari — default)*\n"
+            "• `8,12,16,20` *(format singkat)*\n"
+            "• `08:00, 20:00` *(2x sehari)*\n"
+            "• `09:00` *(1x sehari)*\n"
+            f"Maksimal **{FACTS_MAX_SLOTS} slot** per hari.",
+            ephemeral=True,
+        )
+        return None
+    return parsed_times
+
+
+async def _kirim_kartu_fakta(
+    interaction: discord.Interaction,
+    target,
+    cfg: dict,
+    guild_id: int,
+) -> None:
+    """Kirim ringkasan jadwal fakta yang baru disimpan."""
     t_ctx = get_realtime_time_context(
-        get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
+        get_guild_settings(guild_id).get("timezone", BOT_TIMEZONE)
     )
     now_minutes = t_ctx["hour"] * 60 + t_ctx["minute"]
     next_slot = next_facts_slot(cfg["times"], now_minutes=now_minutes)
@@ -657,6 +689,72 @@ async def fakta_atur_cmd(
         f"• Ubah jadwal kapan saja, contoh: `/fakta atur channel:#{target.name} jadwal:08:00,20:00`.",
         ephemeral=True,
     )
+
+
+@fakta_group.command(
+    name="atur",
+    description="Atur channel & jadwal multi-slot rubrik Fakta Unik Dunia (default 08/12/16/20)",
+)
+@app_commands.describe(
+    channel="Channel tujuan fakta unik (kosongkan untuk memakai channel yang sudah tersimpan)",
+    aktif="True untuk mengaktifkan jadwal, False untuk mematikan",
+    jadwal=f"Slot jam dipisah koma, misal 08:00,12:00,16:00,20:00 (maks {FACTS_MAX_SLOTS} slot/hari)",
+)
+@app_commands.autocomplete(jadwal=_facts_schedule_autocomplete)
+async def fakta_atur_cmd(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel | None = None,
+    aktif: bool = True,
+    jadwal: str | None = None,
+):
+    if interaction.guild is None:
+        return
+
+    if not _ensure_admin(interaction):
+        await _reject_non_admin(interaction)
+        return
+
+    existing = facts_guilds.get(interaction.guild.id) or {}
+
+    stored_channel_id = int(existing.get("channel_id") or 0)
+
+    if not aktif:
+        await _matikan_rubrik_fakta(
+            interaction, interaction.guild.id, channel, stored_channel_id
+        )
+        return
+
+    target = channel or (
+        interaction.guild.get_channel(stored_channel_id) if stored_channel_id else None
+    )
+
+    if not await _pastikan_target_fakta(interaction, target):
+        return
+
+    parsed_times = await _parse_jadwal_fakta(interaction, jadwal, existing)
+    if parsed_times is None:
+        return
+
+    cfg = set_facts_config(
+        interaction.guild.id,
+        target.id,
+        enabled=True,
+        times=parsed_times if jadwal and jadwal.strip() else None,
+    )
+
+    if cfg is None:
+        # Server baru yang belum punya jadwal tersimpan -> pakai default.
+        cfg = set_facts_config(interaction.guild.id, target.id, enabled=True, times=parsed_times)
+
+    await save_server_features_to_disk()
+
+    if cfg is None:
+        await interaction.response.send_message(
+            "⚠️ Gagal menyimpan jadwal. Coba lagi sebentar lagi.", ephemeral=True
+        )
+        return
+
+    await _kirim_kartu_fakta(interaction, target, cfg, interaction.guild.id)
 
 
 @fakta_group.command(
@@ -982,6 +1080,58 @@ async def keamanan_spam_cmd(
     )
 
 
+async def _tampilkan_status_honeypot(interaction: discord.Interaction, gid: int) -> None:
+    """Tampilkan status honeypot (tanpa perubahan apa pun)."""
+    data = status_honeypot(gid)
+    if not data["aktif"]:
+        await interaction.response.send_message(
+            "ℹ️ Honeypot belum aktif. Pilih channel jebakan dulu:\n"
+            "`/keamanan honeypot channel:#promo-gratis aksi:timeout`.",
+            ephemeral=True,
+        )
+        return
+    daftar = ", ".join(f"<#{cid}>" for cid in data["channel_ids"]) or "-"
+    terakhir = data.get("terakhir") or {}
+    jejak = (
+        f"\n• **Terakhir:** <@{int(terakhir.get('user_id') or 0)}> di "
+        f"<#{int(terakhir.get('channel_id') or 0)}> (`{terakhir.get('aksi')}`)"
+        if terakhir
+        else ""
+    )
+    await interaction.response.send_message(
+        "🪤 **Status Honeypot**\n"
+        f"• **Channel jebakan:** {daftar}\n"
+        f"• **Tindakan:** {data['label_aksi']}\n"
+        f"• **Abaikan staf:** {'ya' if data['abaikan_staf'] else 'tidak'}\n"
+        f"• **Total tertangkap:** `{data['tangkap']}`"
+        f"{jejak}\nKosongkan channel untuk mematikan? Pakai `/keamanan honeypot aktif:False`.",
+        ephemeral=True,
+    )
+    return
+
+
+async def _matikan_honeypot(interaction: discord.Interaction, gid: int) -> None:
+    """Matikan honeypot; channel jebakan tetap tersimpan."""
+    set_honeypot(gid, enabled=False)
+    await save_honeypot_to_disk()
+    await interaction.response.send_message(
+        "🛑 **Honeypot dimatikan.** Channel jebakan tetap tersimpan, jadi bisa "
+        "dinyalakan lagi kapan pun.",
+        ephemeral=True,
+    )
+    return
+
+
+def _catatan_honeypot(data: dict, abaikan_staf: bool) -> str:
+    """Peringatan tambahan sesuai tindakan yang dipilih."""
+    catatan = ""
+    if data["aksi"] in ("kick", "ban") and not abaikan_staf:
+        catatan = "\n⚠️ **Abaikan staf dimatikan** — Admin/pengurus juga bisa tertangkap!"
+    elif data["aksi"] == "lapor":
+        catatan = "\nℹ️ Mode **lapor** belum menindak apa pun. Pilih `aksi:hapus`/`timeout` bila sudah yakin."
+    return catatan
+
+
 @keamanan_group.command(
     name="honeypot",
     description="Channel jebakan: siapa pun yang menulis di sana langsung ditindak (self-bot & skrip raid)",
@@ -1016,42 +1166,13 @@ async def keamanan_honeypot_cmd(
         return
 
     gid = interaction.guild.id
+
     if not aktif:
-        set_honeypot(gid, enabled=False)
-        await save_honeypot_to_disk()
-        await interaction.response.send_message(
-            "🛑 **Honeypot dimatikan.** Channel jebakan tetap tersimpan, jadi bisa "
-            "dinyalakan lagi kapan pun.",
-            ephemeral=True,
-        )
+        await _matikan_honeypot(interaction, gid)
         return
 
     if channel is None and aksi is None and not timeout_detik and log_channel is None:
-        data = status_honeypot(gid)
-        if not data["aktif"]:
-            await interaction.response.send_message(
-                "ℹ️ Honeypot belum aktif. Pilih channel jebakan dulu:\n"
-                "`/keamanan honeypot channel:#promo-gratis aksi:timeout`.",
-                ephemeral=True,
-            )
-            return
-        daftar = ", ".join(f"<#{cid}>" for cid in data["channel_ids"]) or "-"
-        terakhir = data.get("terakhir") or {}
-        jejak = (
-            f"\n• **Terakhir:** <@{int(terakhir.get('user_id') or 0)}> di "
-            f"<#{int(terakhir.get('channel_id') or 0)}> (`{terakhir.get('aksi')}`)"
-            if terakhir
-            else ""
-        )
-        await interaction.response.send_message(
-            "🪤 **Status Honeypot**\n"
-            f"• **Channel jebakan:** {daftar}\n"
-            f"• **Tindakan:** {data['label_aksi']}\n"
-            f"• **Abaikan staf:** {'ya' if data['abaikan_staf'] else 'tidak'}\n"
-            f"• **Total tertangkap:** `{data['tangkap']}`"
-            f"{jejak}\nKosongkan channel untuk mematikan? Pakai `/keamanan honeypot aktif:False`.",
-            ephemeral=True,
-        )
+        await _tampilkan_status_honeypot(interaction, gid)
         return
 
     lama = status_honeypot(gid)
@@ -1070,11 +1191,7 @@ async def keamanan_honeypot_cmd(
     assert cfg is not None
     data = status_honeypot(gid)
     log_tujuan = f"<#{data['log_channel_id']}>" if data["log_channel_id"] else "belum diatur"
-    catatan = ""
-    if data["aksi"] in ("kick", "ban") and not abaikan_staf:
-        catatan = "\n⚠️ **Abaikan staf dimatikan** — Admin/pengurus juga bisa tertangkap!"
-    elif data["aksi"] == "lapor":
-        catatan = "\nℹ️ Mode **lapor** belum menindak apa pun. Pilih `aksi:hapus`/`timeout` bila sudah yakin."
+    catatan = _catatan_honeypot(data, abaikan_staf)
     await interaction.response.send_message(
         "🪤 **Honeypot aktif**\n"
         f"• **Channel jebakan:** {', '.join(f'<#{cid}>' for cid in data['channel_ids'])}\n"

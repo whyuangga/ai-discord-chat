@@ -797,8 +797,8 @@ async def save_to_disk() -> None:
             sementara = Path(str(FORMS_FILE) + ".tmp")
             sementara.write_text(json.dumps(isi, ensure_ascii=False, indent=2), encoding="utf-8")
             sementara.replace(Path(FORMS_FILE))
-        except Exception as exc:  # pragma: no cover - IO jarang gagal
-            logger.warning("Gagal menyimpan %s: %s", FORMS_FILE, exc)
+        except Exception:  # pragma: no cover - IO jarang gagal
+            logger.exception("Gagal menyimpan %s")
 
 
 __all__ = [

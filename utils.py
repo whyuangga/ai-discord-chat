@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import html
 import io
 import ipaddress
+import logging
 import re
 import time
 from pathlib import Path
@@ -28,6 +29,8 @@ from config import (
     parse_gemini_keys,
 )
 from storage import is_bot_ui_message
+
+logger = logging.getLogger("gemini_bot.utils")
 
 IMAGE_MIME_BY_EXT: dict[str, str] = {
     ".png": "image/png",
@@ -88,8 +91,8 @@ def is_discord_voice_attachment(att) -> bool:
         try:
             if checker():
                 return True
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - atribut discord.py berubah
+            logger.debug("is_voice_message() gagal: %s", exc)
     fname = str(getattr(att, "filename", "") or "").lower()
     has_waveform = bool(getattr(att, "waveform", None))
     return has_waveform or fname.startswith("voice-message.")
@@ -314,6 +317,124 @@ def split_discord_message(text: str, max_length: int = 1900) -> list[str]:
     return chunks or [cleaned[:max_length]]
 
 
+async def _lampiran_gambar(
+    att, mime: str, image_parts: list[dict], image_filenames: list[str], warnings: list[str]
+) -> None:
+    """Lampiran gambar (Vision / image edit): batas jumlah & ukuran lalu base64."""
+    if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
+        warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
+        return
+    if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
+        max_mb = MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)
+        warnings.append(f"Ukuran gambar `{att.filename}` melebihi batas {max_mb} MB.")
+        return
+    try:
+        raw_bytes = await att.read()
+        b64_data = base64.b64encode(raw_bytes).decode("ascii")
+        image_parts.append({"inlineData": {"mimeType": mime, "data": b64_data}})
+        image_filenames.append(att.filename)
+    except Exception as exc:
+        warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
+
+
+async def _lampiran_audio(
+    att,
+    audio_mime: str,
+    include_audio: bool,
+    image_parts: list[dict],
+    image_filenames: list[str],
+    warnings: list[str],
+) -> None:
+    """Voice note / file audio: batas jumlah & ukuran lalu base64."""
+    if not include_audio:
+        warnings.append("Ruang gambar hanya menerima lampiran gambar referensi (bukan audio/voice note).")
+        return
+    if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
+        warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
+        return
+    if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
+        max_mb = MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)
+        warnings.append(f"Ukuran audio `{att.filename}` melebihi batas {max_mb} MB.")
+        return
+    try:
+        raw_bytes = await att.read()
+        b64_data = base64.b64encode(raw_bytes).decode("ascii")
+        image_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64_data}})
+        prefix = "voice_note:" if is_discord_voice_attachment(att) else "audio:"
+        image_filenames.append(f"{prefix}{att.filename}")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
+
+
+async def _lampiran_pdf(
+    att,
+    include_pdf: bool,
+    image_parts: list[dict],
+    image_filenames: list[str],
+    warnings: list[str],
+) -> None:
+    """Dokumen PDF native (`application/pdf`): batas ukuran lalu base64."""
+    if not include_pdf:
+        warnings.append("Ruang gambar hanya menerima lampiran gambar referensi (bukan dokumen PDF).")
+        return
+    if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
+        warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
+        return
+    if att.size > MAX_PDF_ATTACHMENT_BYTES:
+        max_mb = MAX_PDF_ATTACHMENT_BYTES // (1024 * 1024)
+        warnings.append(f"Ukuran dokumen PDF `{att.filename}` melebihi batas {max_mb} MB.")
+        return
+    try:
+        raw_bytes = await att.read()
+        b64_data = base64.b64encode(raw_bytes).decode("ascii")
+        image_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_data}})
+        image_filenames.append(f"pdf:{att.filename}")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca dokumen PDF `{att.filename}`: {sanitize_error_message(exc)}")
+
+
+async def _lampiran_teks(
+    att, ext: str, text_blocks: list[str], warnings: list[str]
+) -> None:
+    """File teks/kode sumber: decode UTF-8 lalu bungkus jadi blok kode."""
+    if att.size > MAX_TEXT_ATTACHMENT_BYTES:
+        max_kb = MAX_TEXT_ATTACHMENT_BYTES // 1024
+        warnings.append(f"File teks `{att.filename}` melebihi batas {max_kb} KB.")
+        return
+    try:
+        raw_bytes = await att.read()
+        decoded = raw_bytes.decode("utf-8", errors="replace").strip()
+        if decoded:
+            lang_hint = ext.lstrip(".")
+            text_blocks.append(f"📄 **Lampiran File `{att.filename}`:**\n```{lang_hint}\n{decoded}\n```")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca file `{att.filename}`: {sanitize_error_message(exc)}")
+
+
+async def _lampiran_stiker(
+    sticker,
+    http_session,
+    image_parts: list[dict],
+    image_filenames: list[str],
+    text_blocks: list[str],
+) -> None:
+    """Stiker Discord: unduh bila bukan Lottie, selain itu catat sebagai teks."""
+    s_name = getattr(sticker, "name", "stiker")
+    fmt = getattr(sticker, "format", None)
+    s_url = str(getattr(sticker, "url", "") or "")
+    if fmt != discord.StickerFormatType.lottie and s_url and len(image_parts) < MAX_IMAGES_PER_MESSAGE:
+        try:
+            raw_s = await _fetch_small_media_bytes(s_url, http_session)
+            if raw_s:
+                s_mime = "image/gif" if fmt == discord.StickerFormatType.gif else "image/png"
+                image_parts.append({"inlineData": {"mimeType": s_mime, "data": base64.b64encode(raw_s).decode("ascii")}})
+                image_filenames.append(f"stiker:{s_name}")
+                return
+        except Exception as exc:  # pragma: no cover - media tak terbaca
+            logger.debug("Media opsional tidak terbaca: %s", exc)
+    text_blocks.append(f'[Pengguna mengirim Stiker Discord bernama "{s_name}"]')
+
+
 async def extract_message_attachments(
     message: discord.Message,
     http_session: aiohttp.ClientSession | None = None,
@@ -335,105 +456,42 @@ async def extract_message_attachments(
         ext = Path(att.filename).suffix.lower()
         content_type = (att.content_type or "").split(";")[0].strip().lower()
 
+    for att in getattr(message, "attachments", []) or []:
+        ext = Path(att.filename).suffix.lower()
+        content_type = (att.content_type or "").split(";")[0].strip().lower()
+
         # 1. Deteksi Lampiran Gambar (Vision / Image Edit)
         mime = content_type if content_type in SUPPORTED_IMAGE_MIMES else IMAGE_MIME_BY_EXT.get(ext)
         if mime:
-            if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
-                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
-                continue
-            if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
-                max_mb = MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)
-                warnings.append(f"Ukuran gambar `{att.filename}` melebihi batas {max_mb} MB.")
-                continue
-            try:
-                raw_bytes = await att.read()
-                b64_data = base64.b64encode(raw_bytes).decode("ascii")
-                image_parts.append({"inlineData": {"mimeType": mime, "data": b64_data}})
-                image_filenames.append(att.filename)
-            except Exception as exc:
-                warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
+            await _lampiran_gambar(att, mime, image_parts, image_filenames, warnings)
             continue
 
-        # 2. Deteksi Voice Note (Pesan Suara 🎤) & File Audio (.ogg, .mp3, .wav, .m4a, .flac)
+        # 2. Voice Note (🎤) & file audio (.ogg, .mp3, .wav, .m4a, .flac)
         audio_mime = resolve_audio_mime(att)
         if audio_mime:
-            if not include_audio:
-                warnings.append("Ruang gambar hanya menerima lampiran gambar referensi (bukan audio/voice note).")
-                continue
-            if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
-                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
-                continue
-            if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
-                max_mb = MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)
-                warnings.append(f"Ukuran audio `{att.filename}` melebihi batas {max_mb} MB.")
-                continue
-            try:
-                raw_bytes = await att.read()
-                b64_data = base64.b64encode(raw_bytes).decode("ascii")
-                image_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64_data}})
-                prefix = "voice_note:" if is_discord_voice_attachment(att) else "audio:"
-                image_filenames.append(f"{prefix}{att.filename}")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
+            await _lampiran_audio(
+                att, audio_mime, include_audio, image_parts, image_filenames, warnings
+            )
             continue
 
-        # 2B. Deteksi Dokumen PDF Native (.pdf / application/pdf)
+        # 2B. Dokumen PDF native (.pdf / application/pdf)
         if ext == ".pdf" or content_type == "application/pdf":
-            if not include_pdf:
-                warnings.append("Ruang gambar hanya menerima lampiran gambar referensi (bukan dokumen PDF).")
-                continue
-            if len(image_parts) >= MAX_IMAGES_PER_MESSAGE:
-                warnings.append(f"Maksimal {MAX_IMAGES_PER_MESSAGE} lampiran media per pesan (`{att.filename}` dilewati).")
-                continue
-            if att.size > MAX_PDF_ATTACHMENT_BYTES:
-                max_mb = MAX_PDF_ATTACHMENT_BYTES // (1024 * 1024)
-                warnings.append(f"Ukuran dokumen PDF `{att.filename}` melebihi batas {max_mb} MB.")
-                continue
-            try:
-                raw_bytes = await att.read()
-                b64_data = base64.b64encode(raw_bytes).decode("ascii")
-                image_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_data}})
-                image_filenames.append(f"pdf:{att.filename}")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca dokumen PDF `{att.filename}`: {sanitize_error_message(exc)}")
+            await _lampiran_pdf(att, include_pdf, image_parts, image_filenames, warnings)
             continue
 
-        # 3. Deteksi Lampiran File Teks / Kode Sumber
+        # 3. File teks / kode sumber
         if ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/"):
-            if att.size > MAX_TEXT_ATTACHMENT_BYTES:
-                max_kb = MAX_TEXT_ATTACHMENT_BYTES // 1024
-                warnings.append(f"File teks `{att.filename}` melebihi batas {max_kb} KB.")
-                continue
-            try:
-                raw_bytes = await att.read()
-                decoded = raw_bytes.decode("utf-8", errors="replace").strip()
-                if decoded:
-                    lang_hint = ext.lstrip(".")
-                    text_blocks.append(f"📄 **Lampiran File `{att.filename}`:**\n```{lang_hint}\n{decoded}\n```")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca file `{att.filename}`: {sanitize_error_message(exc)}")
+            await _lampiran_teks(att, ext, text_blocks, warnings)
             continue
 
         warnings.append(
-            f"Format lampiran `{att.filename}` belum didukung (gunakan gambar, Voice Note/audio, PDF, atau file teks/kode)."
+            f"Format lampiran `{att.filename}` belum didukung (gunakan gambar, "
+            "Voice Note/audio, PDF, atau file teks/kode)."
         )
 
     # 3. Deteksi Stiker Discord di ruang chat privat
     for sticker in getattr(message, "stickers", []) or []:
-        s_name = getattr(sticker, "name", "stiker")
-        fmt = getattr(sticker, "format", None)
-        s_url = str(getattr(sticker, "url", "") or "")
-        if fmt != discord.StickerFormatType.lottie and s_url and len(image_parts) < MAX_IMAGES_PER_MESSAGE:
-            try:
-                raw_s = await _fetch_small_media_bytes(s_url, http_session)
-                if raw_s:
-                    s_mime = "image/gif" if fmt == discord.StickerFormatType.gif else "image/png"
-                    image_parts.append({"inlineData": {"mimeType": s_mime, "data": base64.b64encode(raw_s).decode("ascii")}})
-                    image_filenames.append(f"stiker:{s_name}")
-                    continue
-            except Exception:
-                pass
-        text_blocks.append(f'[Pengguna mengirim Stiker Discord bernama "{s_name}"]')
+        await _lampiran_stiker(sticker, http_session, image_parts, image_filenames, text_blocks)
 
     return image_parts, image_filenames, text_blocks, warnings
 
@@ -460,6 +518,205 @@ async def _fetch_small_media_bytes(
             return data if len(data) <= max_bytes else None
 
 
+async def _proses_gambar(
+    att, img_mime: str, media_parts: list, descriptions: list, warnings: list
+) -> None:
+    """Tambahkan gambar sebagai inlineData (batas jumlah & ukuran)."""
+    if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
+        return
+
+    if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
+        warnings.append(f"Gambar `{att.filename}` terlalu besar (> {MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)} MB).")
+        return
+
+    try:
+        raw = await att.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        media_parts.append({"inlineData": {"mimeType": img_mime, "data": b64}})
+        descriptions.append(f"[Mengirim foto/gambar: {att.filename}]")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_audio(
+    att, audio_mime: str, media_parts: list, descriptions: list, warnings: list
+) -> None:
+    """Tambahkan voice note / audio sebagai inlineData."""
+    if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
+        return
+
+    if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
+        warnings.append(
+            f"Audio `{att.filename}` melebihi batas {MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)} MB."
+        )
+        return
+
+    try:
+        raw = await att.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        media_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
+        dur = getattr(att, "duration", None)
+        dur_info = f" ({dur:.0f} detik)" if isinstance(dur, (int, float)) and dur > 0 else ""
+        if is_discord_voice_attachment(att):
+            descriptions.append(
+                f"[Mengirim Voice Note / Pesan Suara{dur_info} — dengarkan isi ucapannya dan balas langsung!]"
+            )
+        else:
+            descriptions.append(f"[Mengirim file audio: {att.filename}{dur_info} — dengarkan isinya!]")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_video(
+    att, vid_mime: str, media_parts: list, descriptions: list, warnings: list
+) -> None:
+    """Tambahkan video pendek sebagai inlineData."""
+    if att.size > MAX_VIDEO_ATTACHMENT_BYTES:
+        warnings.append(
+            f"Video `{att.filename}` melebihi batas {MAX_VIDEO_ATTACHMENT_BYTES // (1024 * 1024)} MB untuk di-scan AI."
+        )
+        return
+
+    try:
+        raw = await att.read()
+        b64 = base64.b64encode(raw).decode("ascii")
+        media_parts.append({"inlineData": {"mimeType": vid_mime, "data": b64}})
+        descriptions.append(f"[Mengirim video: {att.filename}]")
+    except Exception as exc:
+        warnings.append(f"Gagal membaca video `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_pdf(att, media_parts: list, descriptions: list, warnings: list) -> None:
+    """Tambahkan dokumen PDF sebagai inlineData."""
+    if len(media_parts) < MAX_IMAGES_PER_MESSAGE and att.size <= MAX_PDF_ATTACHMENT_BYTES:
+        try:
+            raw_pdf = await att.read()
+            b64_pdf = base64.b64encode(raw_pdf).decode("ascii")
+            media_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}})
+            descriptions.append(f"[Melampirkan dokumen PDF: {att.filename} — baca & pahami isi dokumennya!]")
+        except Exception as exc:
+            warnings.append(f"Gagal membaca PDF `{att.filename}`: {sanitize_error_message(exc)}")
+
+    return
+
+
+async def _proses_teks(att, ext: str, descriptions: list) -> None:
+    """Sisipkan isi berkas teks (maks. 3500 huruf) ke deskripsi lampiran."""
+    if att.size <= MAX_TEXT_ATTACHMENT_BYTES:
+        try:
+            raw_txt = await att.read()
+            decoded = raw_txt.decode("utf-8", errors="replace").strip()
+            if decoded:
+                lang_hint = ext.lstrip(".")
+                descriptions.append(
+                    f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
+                )
+        except Exception as exc:  # pragma: no cover - media tak terbaca
+            logger.debug("Media opsional tidak terbaca: %s", exc)
+
+
+async def _kumpulkan_lampiran(
+    message: discord.Message,
+    http_session: aiohttp.ClientSession | None,
+    media_parts: list[dict],
+    descriptions: list[str],
+    warnings: list[str],
+    *,
+    include_video: bool,
+    include_audio: bool,
+    include_text_files: bool,
+) -> None:
+    """Gambar, Voice Note/audio, video pendek, PDF, dan berkas teks."""
+    for att in getattr(message, "attachments", []) or []:
+        ext = Path(att.filename).suffix.lower()
+        content_type = (att.content_type or "").split(";")[0].strip().lower()
+
+        img_mime = content_type if content_type in SUPPORTED_IMAGE_MIMES else IMAGE_MIME_BY_EXT.get(ext)
+        if img_mime:
+            await _proses_gambar(att, img_mime, media_parts, descriptions, warnings)
+            continue
+
+        audio_mime = resolve_audio_mime(att)
+        if include_audio and audio_mime:
+            await _proses_audio(att, audio_mime, media_parts, descriptions, warnings)
+            continue
+
+        vid_mime = content_type if content_type in SUPPORTED_VIDEO_MIMES else VIDEO_MIME_BY_EXT.get(ext)
+        if include_video and vid_mime:
+            await _proses_video(att, vid_mime, media_parts, descriptions, warnings)
+            continue
+
+        if include_text_files and (ext == ".pdf" or content_type == "application/pdf"):
+            await _proses_pdf(att, media_parts, descriptions, warnings)
+            continue
+
+        if include_text_files and (ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/")):
+            await _proses_teks(att, ext, descriptions)
+
+
+async def _kumpulkan_stiker(
+    message: discord.Message,
+    http_session: aiohttp.ClientSession | None,
+    media_parts: list[dict],
+    descriptions: list[str],
+) -> None:
+    """Stiker Discord (PNG/APNG/GIF bisa dilihat langsung oleh Gemini Vision)."""
+    # 2. Stiker Discord (PNG / APNG / GIF dapat dilihat langsung visualnya oleh Gemini Vision!)
+    for sticker in getattr(message, "stickers", []) or []:
+        sticker_name = getattr(sticker, "name", "stiker")
+        fmt = getattr(sticker, "format", None)
+        sticker_url = str(getattr(sticker, "url", "") or "")
+
+        if fmt != discord.StickerFormatType.lottie and sticker_url and len(media_parts) < MAX_IMAGES_PER_MESSAGE:
+            try:
+                raw_sticker = await _fetch_small_media_bytes(sticker_url, http_session)
+                if raw_sticker:
+                    s_mime = "image/gif" if fmt == discord.StickerFormatType.gif else "image/png"
+                    b64 = base64.b64encode(raw_sticker).decode("ascii")
+                    media_parts.append({"inlineData": {"mimeType": s_mime, "data": b64}})
+                    descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}" — lihat gambar stikernya]')
+                    continue
+            except Exception as exc:  # pragma: no cover - media tak terbaca
+                logger.debug("Media opsional tidak terbaca: %s", exc)
+
+        descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}"]')
+
+
+async def _kumpulkan_custom_emoji(
+    message: discord.Message,
+    http_session: aiohttp.ClientSession | None,
+    media_parts: list[dict],
+    descriptions: list[str],
+) -> None:
+    """Custom emoji server (`<:nama:id>` / `<a:nama:id>`) — unduh visualnya."""
+    # 3. Custom Emoji Server (<:nama:id> atau <a:nama:id>) -> Unduh visual ekspresinya!
+    content_str = getattr(message, "content", "") or ""
+    custom_emojis = _CUSTOM_EMOJI_RE.findall(content_str)
+    for is_anim, emoji_name, emoji_id in custom_emojis[:2]:
+        if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
+            descriptions.append(f"[Menggunakan custom emoji :{emoji_name}:]")
+            continue
+        ext = "gif" if is_anim else "png"
+        emoji_url = f"https://cdn.discordapp.com/emojis/{emoji_id}.{ext}?size=128"
+        try:
+            raw_emoji = await _fetch_small_media_bytes(emoji_url, http_session)
+            if raw_emoji:
+                e_mime = "image/gif" if is_anim else "image/png"
+                b64 = base64.b64encode(raw_emoji).decode("ascii")
+                media_parts.append({"inlineData": {"mimeType": e_mime, "data": b64}})
+                descriptions.append(f"[Menggunakan custom emoji :{emoji_name}: — lihat ekspresi gambar emojinya]")
+                continue
+        except Exception as exc:  # pragma: no cover - atribut discord.py berubah
+            logger.debug("is_voice_message() gagal: %s", exc)
+        descriptions.append(f"[Menggunakan custom emoji :{emoji_name}:]")
+
+
 async def extract_social_media_and_stickers(
     message: discord.Message,
     http_session: aiohttp.ClientSession | None = None,
@@ -479,131 +736,22 @@ async def extract_social_media_and_stickers(
     warnings: list[str] = []
 
     # 1. Lampiran File Gambar, Voice Note / Audio, & Video Klip
-    for att in getattr(message, "attachments", []) or []:
-        ext = Path(att.filename).suffix.lower()
-        content_type = (att.content_type or "").split(";")[0].strip().lower()
+    await _kumpulkan_lampiran(
+        message,
+        http_session,
+        media_parts,
+        descriptions,
+        warnings,
+        include_video=include_video,
+        include_audio=include_audio,
+        include_text_files=include_text_files,
+    )
 
-        img_mime = content_type if content_type in SUPPORTED_IMAGE_MIMES else IMAGE_MIME_BY_EXT.get(ext)
-        if img_mime:
-            if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
-                continue
-            if att.size > MAX_IMAGE_ATTACHMENT_BYTES:
-                warnings.append(f"Gambar `{att.filename}` terlalu besar (> {MAX_IMAGE_ATTACHMENT_BYTES // (1024 * 1024)} MB).")
-                continue
-            try:
-                raw = await att.read()
-                b64 = base64.b64encode(raw).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": img_mime, "data": b64}})
-                descriptions.append(f"[Mengirim foto/gambar: {att.filename}]")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca gambar `{att.filename}`: {sanitize_error_message(exc)}")
-            continue
+    # 2. Stiker Discord
+    await _kumpulkan_stiker(message, http_session, media_parts, descriptions)
 
-        audio_mime = resolve_audio_mime(att)
-        if include_audio and audio_mime:
-            if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
-                continue
-            if att.size > MAX_AUDIO_ATTACHMENT_BYTES:
-                warnings.append(
-                    f"Audio `{att.filename}` melebihi batas {MAX_AUDIO_ATTACHMENT_BYTES // (1024 * 1024)} MB."
-                )
-                continue
-            try:
-                raw = await att.read()
-                b64 = base64.b64encode(raw).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": audio_mime, "data": b64}})
-                dur = getattr(att, "duration", None)
-                dur_info = f" ({dur:.0f} detik)" if isinstance(dur, (int, float)) and dur > 0 else ""
-                if is_discord_voice_attachment(att):
-                    descriptions.append(
-                        f"[Mengirim Voice Note / Pesan Suara{dur_info} — dengarkan isi ucapannya dan balas langsung!]"
-                    )
-                else:
-                    descriptions.append(f"[Mengirim file audio: {att.filename}{dur_info} — dengarkan isinya!]")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca pesan suara/audio `{att.filename}`: {sanitize_error_message(exc)}")
-            continue
-
-        vid_mime = content_type if content_type in SUPPORTED_VIDEO_MIMES else VIDEO_MIME_BY_EXT.get(ext)
-        if include_video and vid_mime:
-            if att.size > MAX_VIDEO_ATTACHMENT_BYTES:
-                warnings.append(
-                    f"Video `{att.filename}` melebihi batas {MAX_VIDEO_ATTACHMENT_BYTES // (1024 * 1024)} MB untuk di-scan AI."
-                )
-                continue
-            try:
-                raw = await att.read()
-                b64 = base64.b64encode(raw).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": vid_mime, "data": b64}})
-                descriptions.append(f"[Mengirim video: {att.filename}]")
-            except Exception as exc:
-                warnings.append(f"Gagal membaca video `{att.filename}`: {sanitize_error_message(exc)}")
-            continue
-
-        if include_text_files and (ext == ".pdf" or content_type == "application/pdf"):
-            if len(media_parts) < MAX_IMAGES_PER_MESSAGE and att.size <= MAX_PDF_ATTACHMENT_BYTES:
-                try:
-                    raw_pdf = await att.read()
-                    b64_pdf = base64.b64encode(raw_pdf).decode("ascii")
-                    media_parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_pdf}})
-                    descriptions.append(f"[Melampirkan dokumen PDF: {att.filename} — baca & pahami isi dokumennya!]")
-                except Exception as exc:
-                    warnings.append(f"Gagal membaca PDF `{att.filename}`: {sanitize_error_message(exc)}")
-            continue
-
-        if include_text_files and (ext in TEXT_FILE_EXTENSIONS or content_type.startswith("text/")):
-            if att.size <= MAX_TEXT_ATTACHMENT_BYTES:
-                try:
-                    raw_txt = await att.read()
-                    decoded = raw_txt.decode("utf-8", errors="replace").strip()
-                    if decoded:
-                        lang_hint = ext.lstrip(".")
-                        descriptions.append(
-                            f"[Lampiran file `{att.filename}`:\n```{lang_hint}\n{decoded[:3500]}\n```]"
-                        )
-                except Exception:
-                    pass
-
-    # 2. Stiker Discord (PNG / APNG / GIF dapat dilihat langsung visualnya oleh Gemini Vision!)
-    for sticker in getattr(message, "stickers", []) or []:
-        sticker_name = getattr(sticker, "name", "stiker")
-        fmt = getattr(sticker, "format", None)
-        sticker_url = str(getattr(sticker, "url", "") or "")
-
-        if fmt != discord.StickerFormatType.lottie and sticker_url and len(media_parts) < MAX_IMAGES_PER_MESSAGE:
-            try:
-                raw_sticker = await _fetch_small_media_bytes(sticker_url, http_session)
-                if raw_sticker:
-                    s_mime = "image/gif" if fmt == discord.StickerFormatType.gif else "image/png"
-                    b64 = base64.b64encode(raw_sticker).decode("ascii")
-                    media_parts.append({"inlineData": {"mimeType": s_mime, "data": b64}})
-                    descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}" — lihat gambar stikernya]')
-                    continue
-            except Exception:
-                pass
-
-        descriptions.append(f'[Mengirim Stiker Discord bernama "{sticker_name}"]')
-
-    # 3. Custom Emoji Server (<:nama:id> atau <a:nama:id>) -> Unduh visual ekspresinya!
-    content_str = getattr(message, "content", "") or ""
-    custom_emojis = _CUSTOM_EMOJI_RE.findall(content_str)
-    for is_anim, emoji_name, emoji_id in custom_emojis[:2]:
-        if len(media_parts) >= MAX_IMAGES_PER_MESSAGE:
-            descriptions.append(f"[Menggunakan custom emoji :{emoji_name}:]")
-            continue
-        ext = "gif" if is_anim else "png"
-        emoji_url = f"https://cdn.discordapp.com/emojis/{emoji_id}.{ext}?size=128"
-        try:
-            raw_emoji = await _fetch_small_media_bytes(emoji_url, http_session)
-            if raw_emoji:
-                e_mime = "image/gif" if is_anim else "image/png"
-                b64 = base64.b64encode(raw_emoji).decode("ascii")
-                media_parts.append({"inlineData": {"mimeType": e_mime, "data": b64}})
-                descriptions.append(f"[Menggunakan custom emoji :{emoji_name}: — lihat ekspresi gambar emojinya]")
-                continue
-        except Exception:
-            pass
-        descriptions.append(f"[Menggunakan custom emoji :{emoji_name}:]")
+    # 3. Custom Emoji Server (<:nama:id> atau <a:nama:id>)
+    await _kumpulkan_custom_emoji(message, http_session, media_parts, descriptions)
 
     return media_parts, descriptions, warnings
 
@@ -1156,6 +1304,114 @@ async def _search_wikipedia_api(
     return results
 
 
+async def _cari_dengan_sesi(
+    clean_q: str, sess: aiohttp.ClientSession, max_results: int
+) -> tuple[str, list[dict]]:
+    """Cari lewat DuckDuckGo + Google News RSS, lalu susun blok konteks."""
+    ddg_task = _search_duckduckgo_html(clean_q, sess, max_items=4)
+
+    news_task = _search_google_news_rss(clean_q, sess, max_items=4)
+
+    ddg_res, news_res = await asyncio.gather(ddg_task, news_task)
+
+    combined = await _gabung_hasil_pencarian(
+        clean_q, sess, ddg_res, news_res, max_results
+    )
+    if not combined:
+        return "", []
+
+    top_web_excerpt = await _kutipan_halaman_teratas(ddg_res, sess)
+    return _susun_blok_konteks(clean_q, combined, max_results, top_web_excerpt)
+
+
+async def _gabung_hasil_pencarian(
+    clean_q: str,
+    sess: aiohttp.ClientSession,
+    ddg_res: list[dict],
+    news_res: list[dict],
+    max_results: int,
+) -> list[dict]:
+    """Selang-seling hasil berita & web, tambal Wikipedia bila kurang dari dua."""
+    combined: list[dict] = []
+
+    seen_urls: set[str] = set()
+
+    for bucket in (news_res, ddg_res):
+        for item in bucket:
+            u = item.get("url") or ""
+            if not u or u in seen_urls:
+                continue
+            seen_urls.add(u)
+            combined.append(item)
+            if len(combined) >= max_results:
+                break
+        if len(combined) >= max_results:
+            break
+
+    if len(combined) < 2:
+        wiki_res = await _search_wikipedia_api(clean_q, sess, max_items=3)
+        for item in wiki_res:
+            u = item.get("url") or ""
+            if u and u not in seen_urls:
+                seen_urls.add(u)
+                combined.append(item)
+
+    return combined
+
+
+async def _kutipan_halaman_teratas(
+    ddg_res: list[dict], sess: aiohttp.ClientSession
+) -> str:
+    """Ambil kutipan satu halaman web teratas agar angka/fakta lebih presisi."""
+    top_web_excerpt = ""
+
+    for item in ddg_res[:2]:
+        candidate_url = item.get("url") or ""
+        if candidate_url and is_safe_public_url(candidate_url):
+            try:
+                _, body = await asyncio.wait_for(
+                    fetch_webpage_text(candidate_url, http_session=sess),
+                    timeout=4.5,
+                )
+                if body:
+                    top_web_excerpt = (
+                        f"\n\n[Kutipan Isi Halaman Teratas ({item['title']})]:\n{body[:1800]}"
+                    )
+                    break
+            except Exception:
+                continue
+
+    return top_web_excerpt
+
+
+def _susun_blok_konteks(
+    clean_q: str,
+    combined: list[dict],
+    max_results: int,
+    top_web_excerpt: str,
+) -> tuple[str, list[dict]]:
+    """Rangkai blok konteks untuk Gemini beserta daftar tautan sumber."""
+    lines: list[str] = []
+
+    sources: list[dict] = []
+
+    for idx, item in enumerate(combined[:max_results], start=1):
+        date_tag = f" ({item['date']})" if item.get("date") else ""
+        snip_tag = f"\n   Ringkasan: {item['snippet']}" if item.get("snippet") else ""
+        lines.append(f"{idx}. **{item['title']}**{date_tag}{snip_tag}\n   URL: {item['url']}")
+        if len(sources) < 4 and item.get("url"):
+            short_label = item.get("source_label") or item["title"]
+            sources.append({"title": short_label[:55], "url": item["url"]})
+
+    context_block = (
+        f"Hasil Pencarian Web & Berita Terkini untuk `{clean_q}`:\n"
+        + "\n".join(lines)
+        + top_web_excerpt
+    )
+
+    return context_block, sources
+
+
 async def free_live_web_search(
     query: str,
     *,
@@ -1171,78 +1427,11 @@ async def free_live_web_search(
     if not clean_q:
         return "", []
 
-    async def _run_with_session(sess: aiohttp.ClientSession) -> tuple[str, list[dict]]:
-        ddg_task = _search_duckduckgo_html(clean_q, sess, max_items=4)
-        news_task = _search_google_news_rss(clean_q, sess, max_items=4)
-        ddg_res, news_res = await asyncio.gather(ddg_task, news_task)
-
-        combined: list[dict] = []
-        seen_urls: set[str] = set()
-
-        # Selang-seling hasil web umum & berita terbaru agar cakupan lengkap
-        for bucket in (news_res, ddg_res):
-            for item in bucket:
-                u = item.get("url") or ""
-                if not u or u in seen_urls:
-                    continue
-                seen_urls.add(u)
-                combined.append(item)
-                if len(combined) >= max_results:
-                    break
-            if len(combined) >= max_results:
-                break
-
-        if len(combined) < 2:
-            wiki_res = await _search_wikipedia_api(clean_q, sess, max_items=3)
-            for item in wiki_res:
-                u = item.get("url") or ""
-                if u and u not in seen_urls:
-                    seen_urls.add(u)
-                    combined.append(item)
-
-        if not combined:
-            return "", []
-
-        # Perkaya 1 halaman web langsung teratas (bukan redirect RSS) bila tersedia agar detail angka/fakta presisi
-        top_web_excerpt = ""
-        for item in ddg_res[:2]:
-            candidate_url = item.get("url") or ""
-            if candidate_url and is_safe_public_url(candidate_url):
-                try:
-                    _, body = await asyncio.wait_for(
-                        fetch_webpage_text(candidate_url, http_session=sess),
-                        timeout=4.5,
-                    )
-                    if body:
-                        top_web_excerpt = (
-                            f"\n\n[Kutipan Isi Halaman Teratas ({item['title']})]:\n{body[:1800]}"
-                        )
-                        break
-                except Exception:
-                    continue
-
-        lines: list[str] = []
-        sources: list[dict] = []
-        for idx, item in enumerate(combined[:max_results], start=1):
-            date_tag = f" ({item['date']})" if item.get("date") else ""
-            snip_tag = f"\n   Ringkasan: {item['snippet']}" if item.get("snippet") else ""
-            lines.append(f"{idx}. **{item['title']}**{date_tag}{snip_tag}\n   URL: {item['url']}")
-            if len(sources) < 4 and item.get("url"):
-                short_label = item.get("source_label") or item["title"]
-                sources.append({"title": short_label[:55], "url": item["url"]})
-
-        context_block = (
-            f"Hasil Pencarian Web & Berita Terkini untuk `{clean_q}`:\n"
-            + "\n".join(lines)
-            + top_web_excerpt
-        )
-        return context_block, sources
-
     timeout = aiohttp.ClientTimeout(total=10, connect=5)
     if http_session is not None and not http_session.closed:
-        return await _run_with_session(http_session)
+        return await _cari_dengan_sesi(clean_q, http_session, max_results)
     async with aiohttp.ClientSession(timeout=timeout) as temp_sess:
-        return await _run_with_session(temp_sess)
+        return await _cari_dengan_sesi(clean_q, temp_sess, max_results)
 
 
 def extract_message_text_for_context(message: discord.Message) -> str:

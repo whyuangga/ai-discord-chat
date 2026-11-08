@@ -246,7 +246,7 @@ async def _jalankan(monkeypatch, bot, fn, tmp_path):
 
     assert await web_dashboard.start_dashboard(bot) is True
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             return await fn(session, f"http://127.0.0.1:{port}")
     finally:
         await web_dashboard.stop_dashboard()
@@ -290,13 +290,18 @@ async def test_http_unggah_kartu_pratinjau_dan_hapus(monkeypatch, tmp_path):
             assert resp.status == 200 and await resp.read() == PNG
             assert resp.headers["Content-Type"] == "image/png"
         async with session.get(f"{base}/api/kartu/welcome?guild={GID}") as resp:
-            assert resp.status == 401
+            assert resp.status == 200          # sesi cookie, tanpa ?token=
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+            async with anon.get(f"{base}/api/kartu/welcome?guild={GID}") as resp:
+                assert resp.status == 401
         async with session.get(f"{base}/api/kartu/goodbye?{halaman}") as resp:
             assert resp.status == 404
 
         # Halaman kini menampilkan thumbnail
         async with session.get(f"{base}/sambutan?{halaman}") as resp:
-            assert f"/api/kartu/welcome?token={TOKEN}" in await resp.text()
+            # Thumbnail tidak lagi membawa token — sesi lewat cookie.
+            isi = await resp.text()
+            assert "/api/kartu/welcome" in isi and f"token={TOKEN}" not in isi
 
         # Hapus
         async with session.post(
@@ -344,6 +349,7 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
         # Bookmark lama /uji dialihkan ke halaman AI setelah diagnostik dipindahkan
         async with session.get(f"{base}/uji?{halaman}", allow_redirects=False) as resp:
             assert resp.status == 303 and resp.headers["Location"].startswith("/ai?")
+            assert "token=" not in resp.headers["Location"]   # sesi lewat cookie
 
         # Tombol tes → 303 kembali ke halaman fiturnya + pesan
         async with session.post(
@@ -380,9 +386,10 @@ async def test_http_halaman_uji_dan_endpoint(monkeypatch, tmp_path):
             assert resp.status == 400 and data["ok"] is False
             assert "belum aktif" in data["message"]
 
-        # Tanpa token
-        async with session.post(f"{base}/api/uji", data={"guild": str(GID)}) as resp:
-            assert resp.status == 401
+        # Tanpa kredensial apa pun (klien anonim) tetap ditolak
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+            async with anon.post(f"{base}/api/uji", data={"guild": str(GID)}) as resp:
+                assert resp.status == 401
 
     await _jalankan(monkeypatch, bot, skenario, tmp_path)
 

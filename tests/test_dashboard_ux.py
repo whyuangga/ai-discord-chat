@@ -136,7 +136,7 @@ async def _jalankan(monkeypatch, bot, fn, tmp_path):
 
     assert await web_dashboard.start_dashboard(bot) is True
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             return await fn(session, f"http://127.0.0.1:{port}")
     finally:
         await web_dashboard.stop_dashboard()

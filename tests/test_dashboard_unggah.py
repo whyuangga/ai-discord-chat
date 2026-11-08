@@ -271,7 +271,7 @@ async def test_http_unggah_pratinjau_dan_kirim(tmp_path, monkeypatch):
     assert await web_dashboard.start_dashboard(_Bot(ch)) is True
     base = f"http://127.0.0.1:{port}"
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             # Unggah tanpa token → 401
             form = aiohttp.FormData()
             form.add_field("token", "salah")
@@ -294,9 +294,12 @@ async def test_http_unggah_pratinjau_dan_kirim(tmp_path, monkeypatch):
             assert len(daftar) == 1
             nama = daftar[0]["nama"]
 
-            # Pratinjau butuh token, dan nama milik server lain ditolak
-            async with session.get(f"{base}/api/unggahan/{nama}") as resp:
-                assert resp.status == 401
+            # Pratinjau: cookie sesi cukup, tanpa sesi ditolak 401
+            async with session.get(f"{base}/api/unggahan/{nama}?guild=1234") as resp:
+                assert resp.status == 200
+            async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as anon:
+                async with anon.get(f"{base}/api/unggahan/{nama}?guild=1234") as resp:
+                    assert resp.status == 401
             async with session.get(
                 f"{base}/api/unggahan/{nama}?token=token-up&guild=1234"
             ) as resp:
@@ -371,7 +374,7 @@ async def test_unggahan_kebesaran_ditolak_dengan_pesan(tmp_path, monkeypatch):
     ch = _Channel()
     assert await web_dashboard.start_dashboard(_Bot(ch)) is True
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             form = aiohttp.FormData()
             form.add_field("token", "token-up")
             form.add_field("guild", "1234")
@@ -409,7 +412,7 @@ async def test_batas_body_aiohttp_mengikuti_setelan_unggah(tmp_path, monkeypatch
     assert await web_dashboard.start_dashboard(_Bot(ch)) is True
     try:
         besar = PNG + b"\x00" * (3 * 1024 * 1024)     # 3 MB: > 1 MB, < 5 MB
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             form = aiohttp.FormData()
             form.add_field("token", "token-up")
             form.add_field("guild", "1234")

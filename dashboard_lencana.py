@@ -23,17 +23,8 @@ def _bar(persen: int) -> str:
     return "▰" * penuh + "▱" * (10 - penuh)
 
 
-def render_lencana_block(bot, guild_id: int, token: str) -> str:
-    """Panel lencana untuk halaman ⚙️ Inti & level."""
-    import achievements
-
-    gid = int(guild_id or 0)
-    cfg = achievements.peek_config(gid)
-    data = achievements.statistik(gid)
-    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
-    kanal = list(getattr(guild, "text_channels", []) or [])[:80]
-    roles = [r for r in (getattr(guild, "roles", []) or []) if not getattr(r, "is_default", False)][:60]
-
+def _status_lencana(achievements, data: dict) -> str:
+    """Baris status: aktif/nonaktif, jumlah member, tingkat, role hadiah."""
     lencana = (
         '<span class="lencana on">aktif</span>'
         if data["aktif"]
@@ -48,7 +39,11 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
         f"<b>{data['total_tingkat']}</b> tingkat diberikan ({rincian}) · "
         f"role hadiah: <b>{data['hadiah_role']}</b></p>"
     )
+    return status
 
+
+def _form_setelan(achievements, data: dict, kanal: list, gid: int, token: str) -> str:
+    """Form pemilihan channel pengumuman & sakelar aktif lencana."""
     opsi_channel = '<option value="0">— tanpa pengumuman —</option>' + "".join(
         '<option value="{0}"{1}>#{2}</option>'.format(
             int(getattr(ch, "id", 0)),
@@ -68,7 +63,11 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
         "</select></div>"
         '<button type="submit">Simpan setelan lencana</button></form>'
     )
+    return setelan
 
+
+def _form_hadiah(achievements, roles: list, gid: int, token: str) -> str:
+    """Form pemasangan role hadiah per lencana/tingkat."""
     opsi_kunci = "".join(
         '<option value="{0}">{1} {2} ({3} tingkat)</option>'.format(
             item["kunci"],
@@ -93,7 +92,11 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
         f'<div class="medan"><label>Role hadiah</label><select name="role_id">{opsi_role}</select></div>'
         '<button type="submit">Pasang role hadiah</button></form>'
     )
+    return form_hadiah
 
+
+def _tabel_hadiah(cfg: dict, achievements, gid: int, token: str) -> str:
+    """Tabel role hadiah terpasang beserta tombol hapus."""
     rewards = cfg.get("rewards") or {}
     if rewards:
         baris = []
@@ -124,16 +127,11 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
             '<p class="muted">Belum ada role hadiah. Angka di bawah menunjukkan kapan '
             "tiap tingkat terbuka.</p>"
         )
+    return tabel_hadiah
 
-    daftar_tingkat = "".join(
-        '<li><b>{0} {1}</b> — {2}</li>'.format(
-            item["emoji"],
-            dashboard_ui._esc(item["label"]),
-            " · ".join(f"{ambang:,} {item['satuan']}" for ambang in item["tingkat"]),
-        )
-        for item in achievements.ACHIEVEMENTS
-    )
 
+def _papan_lencana(achievements, gid: int) -> str:
+    """Tabel 5 member dengan lencana terbanyak."""
     papan = achievements.papan(gid, limit=5)
     if papan:
         baris_papan = "".join(
@@ -149,7 +147,34 @@ def render_lencana_block(bot, guild_id: int, token: str) -> str:
         )
     else:
         tabel_papan = '<p class="muted">Belum ada lencana tercatat.</p>'
+    return tabel_papan
 
+
+def render_lencana_block(bot, guild_id: int, token: str) -> str:
+    """Panel lencana untuk halaman ⚙️ Inti & level."""
+    import achievements
+
+    gid = int(guild_id or 0)
+    cfg = achievements.peek_config(gid)
+    data = achievements.statistik(gid)
+    guild = bot.get_guild(gid) if callable(getattr(bot, "get_guild", None)) else None
+    kanal = list(getattr(guild, "text_channels", []) or [])[:80]
+    roles = [r for r in (getattr(guild, "roles", []) or []) if not getattr(r, "is_default", False)][:60]
+    daftar_tingkat = "".join(
+        '<li><b>{0} {1}</b> — {2}</li>'.format(
+            item["emoji"],
+            dashboard_ui._esc(item["label"]),
+            " · ".join(f"{ambang:,} {item['satuan']}" for ambang in item["tingkat"]),
+        )
+        for item in achievements.ACHIEVEMENTS
+    )
+
+    status = _status_lencana(achievements, data)
+    setelan = _form_setelan(achievements, data, kanal, gid, token)
+    form_hadiah = _form_hadiah(achievements, roles, gid, token)
+    tabel_hadiah = _tabel_hadiah(cfg, achievements, gid, token)
+
+    tabel_papan = _papan_lencana(achievements, gid)
     return (
         '<div class="subpanel"><h3>🏅 Lencana bertingkat</h3>'
         '<p class="muted">Lencana dihitung dari data yang <b>sudah</b> dicatat bot '

@@ -283,8 +283,8 @@ async def save_playlists_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, MUSIC_PLAYLISTS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan music_playlists.json: %s", exc)
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan music_playlists.json")
 
 
 def cleanup_music_playlist_runtime() -> int:

@@ -81,30 +81,8 @@ ringkas_group = app_commands.Group(
 )
 
 
-@ringkas_group.command(
-    name="chat",
-    description="Rangkum inti obrolan terakhir di channel/thread ini agar tidak ketinggalan topik",
-)
-@app_commands.describe(
-    jumlah="Berapa banyak pesan terakhir yang ingin dirangkum",
-    channel="Channel yang ingin dirangkum (kosongkan untuk channel saat ini)",
-    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
-)
-@app_commands.choices(
-    jumlah=[
-        app_commands.Choice(name="25 Pesan Terakhir", value="25"),
-        app_commands.Choice(name="50 Pesan Terakhir - Default", value="50"),
-        app_commands.Choice(name="100 Pesan Terakhir", value="100"),
-        app_commands.Choice(name="150 Pesan Terakhir", value="150"),
-    ]
-)
-async def ringkas_chat_cmd(
-    interaction: discord.Interaction,
-    jumlah: app_commands.Choice[str] | None = None,
-    channel: discord.TextChannel | None = None,
-    publik: bool = False,
-):
-    target = channel or interaction.channel
+async def _validasi_target_ringkas(interaction: discord.Interaction, target) -> bool:
+    """Cek jenis channel & izin baca riwayat untuk pengguna dan bot."""
     if not isinstance(target, (discord.TextChannel, discord.Thread)) or interaction.guild is None:
         await interaction.response.send_message(
             "⚠️ Command `/ringkas chat` hanya dapat digunakan di Text Channel atau Thread server.",
@@ -129,17 +107,13 @@ async def ringkas_chat_cmd(
                 ephemeral=True,
             )
             return
+    return True
 
-    if not await enforce_member_cooldown(interaction, "ringkas"):
-        return
 
-    limit_count = int(jumlah.value) if jumlah else 50
-    await interaction.response.defer(ephemeral=not publik)
-
-    g_cfg = get_guild_settings(interaction.guild.id)
-    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
-    http_session = get_interaction_http_session(interaction)
-
+async def _kumpulkan_pesan_ringkas(
+    interaction: discord.Interaction, target, limit_count: int
+) -> list[str] | None:
+    """Ambil `limit_count` pesan teks terakhir; `None` bila pengambilan gagal."""
     collected_lines: list[str] = []
     try:
         async for msg in target.history(limit=limit_count + 20):
@@ -169,8 +143,53 @@ async def ringkas_chat_cmd(
             f"⚠️ Gagal mengambil riwayat pesan: `{sanitize_error_message(exc)}`",
             ephemeral=True,
         )
+        return None
+    return collected_lines
+
+
+@ringkas_group.command(
+    name="chat",
+    description="Rangkum inti obrolan terakhir di channel/thread ini agar tidak ketinggalan topik",
+)
+@app_commands.describe(
+    jumlah="Berapa banyak pesan terakhir yang ingin dirangkum",
+    channel="Channel yang ingin dirangkum (kosongkan untuk channel saat ini)",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+@app_commands.choices(
+    jumlah=[
+        app_commands.Choice(name="25 Pesan Terakhir", value="25"),
+        app_commands.Choice(name="50 Pesan Terakhir - Default", value="50"),
+        app_commands.Choice(name="100 Pesan Terakhir", value="100"),
+        app_commands.Choice(name="150 Pesan Terakhir", value="150"),
+    ]
+)
+async def ringkas_chat_cmd(
+    interaction: discord.Interaction,
+    jumlah: app_commands.Choice[str] | None = None,
+    channel: discord.TextChannel | None = None,
+    publik: bool = False,
+):
+    target = channel or interaction.channel
+
+    if not await _validasi_target_ringkas(interaction, target):
         return
 
+    if not await enforce_member_cooldown(interaction, "ringkas"):
+        return
+
+    limit_count = int(jumlah.value) if jumlah else 50
+    await interaction.response.defer(ephemeral=not publik)
+
+    g_cfg = get_guild_settings(interaction.guild.id)
+    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
+    http_session = get_interaction_http_session(interaction)
+
+    collected_lines: list[str] = []
+
+    collected_lines = await _kumpulkan_pesan_ringkas(interaction, target, limit_count)
+    if collected_lines is None:
+        return
     if len(collected_lines) < 2:
         await interaction.followup.send(
             f"ℹ️ Belum cukup obrolan teks di {target.mention} untuk dirangkum.",
@@ -206,34 +225,17 @@ async def ringkas_chat_cmd(
     await interaction.followup.send(embed=embed, ephemeral=not publik)
 
 
-@ringkas_group.command(
-    name="channel",
-    description="Rekap obrolan channel per periode (ber-cache, mengulang = 0 kuota AI)",
-)
-@app_commands.describe(
-    periode="Rentang waktu obrolan yang direkap",
-    paksa="True = abaikan cache dan buat rekap baru (memakai kuota AI)",
-    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
-)
-@app_commands.choices(
-    periode=[
-        app_commands.Choice(name=f"{insights.period_label(hours)}", value=key)
-        for key, hours in insights.REKAP_PERIODS.items()
-    ]
-)
-async def ringkas_channel_cmd(
-    interaction: discord.Interaction,
-    periode: app_commands.Choice[str] | None = None,
-    paksa: bool = False,
-    publik: bool = False,
-):
-    target = interaction.channel
+async def _ringkas_cek_izin(interaction: discord.Interaction, target) -> bool:
+    """Pastikan channel valid dan bot/member punya izin baca riwayat.
+
+    Mengembalikan `False` bila pesan penolakan sudah dikirim.
+    """
     if not isinstance(target, (discord.TextChannel, discord.Thread, discord.VoiceChannel)) or interaction.guild is None:
         await interaction.response.send_message(
             "⚠️ Command `/ringkas channel` hanya dapat digunakan di Text Channel, Voice Channel, atau Thread server.",
             ephemeral=True,
         )
-        return
+        return False
 
     if isinstance(interaction.user, discord.Member):
         user_perms = target.permissions_for(interaction.user)
@@ -242,7 +244,7 @@ async def ringkas_channel_cmd(
                 f"⚠️ Anda tidak memiliki izin membaca riwayat pesan di {target.mention}.",
                 ephemeral=True,
             )
-            return
+            return False
 
     if interaction.guild.me is not None:
         bot_perms = target.permissions_for(interaction.guild.me)
@@ -251,14 +253,16 @@ async def ringkas_channel_cmd(
                 f"⚠️ Bot belum memiliki izin `Read Message History` di {target.mention}.",
                 ephemeral=True,
             )
-            return
+            return False
+    return True
 
-    hours = insights.REKAP_PERIODS.get(periode.value, 24) if periode else 24
-    label = insights.period_label(hours)
 
-    if not paksa:
-        cached = insights.get_cached_rekap(target.id, hours)
-        if cached:
+async def _ringkas_dari_cache(
+    interaction: discord.Interaction, target, hours: int, publik: bool
+) -> bool:
+    """Kirim rekap dari cache bila tersedia; `True` bila sudah dikirim."""
+    cached = insights.get_cached_rekap(target.id, hours)
+    if cached:
             insights.record_ai_usage(
                 "rekap",
                 user_id=getattr(getattr(interaction, "user", None), "id", 0) or 0,
@@ -283,19 +287,14 @@ async def ringkas_channel_cmd(
                 )
             )
             await interaction.response.send_message(embed=embed, ephemeral=not publik)
-            return
+            return True
+    return False
 
-    if not await enforce_member_cooldown(interaction, "rekap"):
-        return
 
-    await interaction.response.defer(ephemeral=not publik)
-
-    g_cfg = get_guild_settings(interaction.guild.id)
-    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
-    http_session = get_interaction_http_session(interaction)
-
-    cutoff = time.time() - hours * 3600
-    limit_count = insights.rekap_message_limit()
+async def _ringkas_kumpulkan_pesan(
+    interaction: discord.Interaction, target, *, cutoff: float, limit_count: int, label: str
+) -> list[str] | None:
+    """Ambil riwayat sejak `cutoff`; `None` bila gagal atau kosong (sudah diberi tahu)."""
     collected_lines: list[str] = []
     try:
         async for msg in target.history(limit=limit_count * 3):
@@ -334,6 +333,56 @@ async def ringkas_channel_cmd(
             f"Coba periode yang lebih panjang.",
             ephemeral=True,
         )
+        return
+    return collected_lines
+
+
+@ringkas_group.command(
+    name="channel",
+    description="Rekap obrolan channel per periode (ber-cache, mengulang = 0 kuota AI)",
+)
+@app_commands.describe(
+    periode="Rentang waktu obrolan yang direkap",
+    paksa="True = abaikan cache dan buat rekap baru (memakai kuota AI)",
+    publik="False = hanya terlihat oleh Anda sendiri, True = tampilkan ke channel",
+)
+@app_commands.choices(
+    periode=[
+        app_commands.Choice(name=f"{insights.period_label(hours)}", value=key)
+        for key, hours in insights.REKAP_PERIODS.items()
+    ]
+)
+async def ringkas_channel_cmd(
+    interaction: discord.Interaction,
+    periode: app_commands.Choice[str] | None = None,
+    paksa: bool = False,
+    publik: bool = False,
+):
+    """Rekap percakapan channel dengan AI (atau dari cache 0 kuota)."""
+    target = interaction.channel
+    if not await _ringkas_cek_izin(interaction, target):
+        return
+
+    hours = insights.REKAP_PERIODS.get(periode.value, 24) if periode else 24
+    label = insights.period_label(hours)
+    if not paksa and await _ringkas_dari_cache(interaction, target, hours, publik):
+        return
+
+    if not await enforce_member_cooldown(interaction, "rekap"):
+        return
+
+    await interaction.response.defer(ephemeral=not publik)
+
+    g_cfg = get_guild_settings(interaction.guild.id)
+    tz_name = g_cfg.get("timezone", BOT_TIMEZONE)
+    http_session = get_interaction_http_session(interaction)
+
+    cutoff = time.time() - hours * 3600
+    limit_count = insights.rekap_message_limit()
+    collected_lines = await _ringkas_kumpulkan_pesan(
+        interaction, target, cutoff=cutoff, limit_count=limit_count, label=label
+    )
+    if collected_lines is None:
         return
 
     collected_lines.reverse()
@@ -545,12 +594,8 @@ async def slash_bantuan(interaction: discord.Interaction):
         )
 
 
-@app_commands.command(
-    name="status",
-    description="Lihat status koneksi bot, latensi, RAM, antrean AI, & kesehatan fitur",
-)
-@app_commands.describe(publik="True bila ingin menampilkan status ini ke seluruh channel")
-async def slash_status(interaction: discord.Interaction, publik: bool = False):
+def _status_metrik(interaction: discord.Interaction) -> dict:
+    """Angka dasar diagnostik: latensi, RAM, uptime, kunci API, dan konteks waktu."""
     client = getattr(interaction, "client", None)
     started_at = float(getattr(client, "started_at", time.time()))
     uptime_sec = max(0, int(time.time() - started_at))
@@ -564,21 +609,31 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
     if interaction.guild is not None:
         tz_name = get_guild_settings(interaction.guild.id).get("timezone", BOT_TIMEZONE)
     time_ctx = get_realtime_time_context(tz_name)
+    return {
+        "ping_ms": ping_ms,
+        "ram_mb": ram_mb,
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": seconds,
+        "gemini_ready": gemini_ready,
+        "ok_key": bool(ai_handler.is_gemini_key_configured()),
+        "time_ctx": time_ctx,
+    }
 
-    embed = discord.Embed(
-        title=f"📊 Diagnostik Bot Gemini AI (`v{BOT_VERSION}`)",
-        color=discord.Color.green() if ai_handler.is_gemini_key_configured() else discord.Color.orange(),
-        timestamp=discord.utils.utcnow(),
+
+def _status_teks_error() -> str:
+    """Ringkasan error terakhir yang tercatat di runtime."""
+    last_error = get_last_error()
+    if not last_error["at"]:
+        return "_Tidak ada error tercatat_"
+    return (
+        f"`{last_error['context']}` — {time.strftime('%d/%m %H:%M', time.localtime(last_error['at']))}\n"
+        f"> {last_error['message'][:200]}"
     )
-    embed.add_field(name="📡 Latensi Discord", value=f"`{ping_ms} ms`", inline=True)
-    embed.add_field(name="💾 Pemakaian RAM", value=f"`{ram_mb} MB`", inline=True)
-    embed.add_field(name="⏱️ Uptime", value=f"`{hours}j {minutes}m {seconds}d`", inline=True)
-    embed.add_field(name="🔑 Gemini API Key", value=gemini_ready, inline=True)
-    embed.add_field(
-        name="🔒 Ruang Privat Aktif",
-        value=f"`{len(thread_chats)}` chat | `{len(image_thread_settings)}` gambar",
-        inline=True,
-    )
+
+
+def _field_statistik_komunitas(embed: discord.Embed) -> None:
+    """Empat field ringkasan jumlah fitur yang aktif di memori."""
     embed.add_field(
         name="🌐 Agent & Game",
         value=(
@@ -613,7 +668,10 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         ),
         inline=False,
     )
-    music_player = get_player(interaction.guild) if interaction.guild else None
+
+
+def _field_musik(embed: discord.Embed, music_player) -> None:
+    """Field status pemutar musik beserta channel dan panjang antrean."""
     embed.add_field(
         name="🎵 Streaming Musik",
         value=(
@@ -623,16 +681,10 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         )[:1024],
         inline=False,
     )
-    last_error = get_last_error()
-    if last_error["at"]:
-        error_text = (
-            f"`{last_error['context']}` — {time.strftime('%d/%m %H:%M', time.localtime(last_error['at']))}\n"
-            f"> {last_error['message'][:200]}"
-        )
-    else:
-        error_text = "_Tidak ada error tercatat_"
-    embed.add_field(name="🩺 Error Terakhir", value=error_text[:1024], inline=False)
-    embed.add_field(name="🕒 Jam Lokal Server", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
+
+
+def _field_mesin_model(embed: discord.Embed) -> None:
+    """Field mesin/model aktif (teks, gambar, pencarian)."""
     img_engine_info = (
         f"`{GEMINI_IMAGE_MODEL}` (Paid)"
         if GEMINI_PAID_IMAGE_ENABLED
@@ -653,12 +705,51 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         ),
         inline=False,
     )
-    await interaction.response.send_message(embed=embed, ephemeral=not publik)
 
 
-    # ── V2: kartu diagnostik bergaya dashboard (mundur otomatis ke embed di atas) ──
-    gid = interaction.guild.id if interaction.guild else None
-    ok_key = bool(ai_handler.is_gemini_key_configured())
+def _status_embed(metrik: dict, music_player, error_text: str) -> discord.Embed:
+    """Embed diagnostik klasik (jalur mundur bila panel V2 gagal)."""
+    ping_ms = metrik["ping_ms"]
+    ram_mb = metrik["ram_mb"]
+    hours = metrik["hours"]
+    minutes = metrik["minutes"]
+    seconds = metrik["seconds"]
+    gemini_ready = metrik["gemini_ready"]
+    time_ctx = metrik["time_ctx"]
+    embed = discord.Embed(
+        title=f"📊 Diagnostik Bot Gemini AI (`v{BOT_VERSION}`)",
+        color=discord.Color.green() if ai_handler.is_gemini_key_configured() else discord.Color.orange(),
+        timestamp=discord.utils.utcnow(),
+    )
+
+    embed.add_field(name="📡 Latensi Discord", value=f"`{ping_ms} ms`", inline=True)
+    embed.add_field(name="💾 Pemakaian RAM", value=f"`{ram_mb} MB`", inline=True)
+    embed.add_field(name="⏱️ Uptime", value=f"`{hours}j {minutes}m {seconds}d`", inline=True)
+    embed.add_field(name="🔑 Gemini API Key", value=gemini_ready, inline=True)
+    embed.add_field(
+        name="🔒 Ruang Privat Aktif",
+        value=f"`{len(thread_chats)}` chat | `{len(image_thread_settings)}` gambar",
+        inline=True,
+    )
+
+    _field_statistik_komunitas(embed)
+    _field_musik(embed, music_player)
+    embed.add_field(name="🩺 Error Terakhir", value=error_text[:1024], inline=False)
+    embed.add_field(name="🕒 Jam Lokal Server", value=f"`{time_ctx['clock']}` ({time_ctx['day_name']})", inline=False)
+
+    _field_mesin_model(embed)
+    return embed
+
+
+def _status_panel_lines(metrik: dict) -> list[str]:
+    """Baris ringkas bagian atas panel diagnostik V2."""
+    ping_ms = metrik["ping_ms"]
+    ram_mb = metrik["ram_mb"]
+    hours = metrik["hours"]
+    minutes = metrik["minutes"]
+    seconds = metrik["seconds"]
+    ok_key = metrik["ok_key"]
+    time_ctx = metrik["time_ctx"]
     panel_lines = [
         ui_kit.status_line("Latensi Discord", f"`{ping_ms} ms`", state="on" if ping_ms < 200 else "warn"),
         ui_kit.status_line("Pemakaian RAM", f"`{ram_mb} MB`", state="on" if ram_mb < 200 else "warn"),
@@ -668,6 +759,11 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
         ),
         ui_kit.status_line("Jam server", f"`{time_ctx['clock']}` ({time_ctx['day_name']})"),
     ]
+    return panel_lines
+
+
+def _status_panel_body(gid, metrik: dict, panel_lines: list[str], music_player, error_text: str) -> list:
+    """Isi kartu panel V2 (judul, metrik, blok fitur, error, dan tombol)."""
     panel_body = [
         ui_kit.text(ui_kit.title_line(gid, "status", "Diagnostik Bot", f"`v{BOT_VERSION}` • kesehatan semua modul")),
         ui_kit.sep(),
@@ -727,12 +823,34 @@ async def slash_status(interaction: discord.Interaction, publik: bool = False):
             f"-# {ui_theme.footer_text(gid, 'Data dibaca langsung dari runtime bot') or 'Data runtime • 0 kuota AI'}"
         ),
     ]
+    return panel_body
+
+
+@app_commands.command(
+    name="status",
+    description="Lihat status koneksi bot, latensi, RAM, antrean AI, & kesehatan fitur",
+)
+@app_commands.describe(publik="True bila ingin menampilkan status ini ke seluruh channel")
+async def slash_status(interaction: discord.Interaction, publik: bool = False):
+    """Tampilkan diagnostik bot: embed klasik lalu panel V2 bila tersedia."""
+    metrik = _status_metrik(interaction)
+    gid = interaction.guild.id if interaction.guild else None
+    music_player = get_player(interaction.guild) if interaction.guild else None
+    error_text = _status_teks_error()
+
+    embed = _status_embed(metrik, music_player, error_text)
+    await interaction.response.send_message(embed=embed, ephemeral=not publik)
+
+    # ── V2: kartu diagnostik bergaya dashboard (mundur otomatis ke embed di atas) ──
+    panel_lines = _status_panel_lines(metrik)
+    panel_body = _status_panel_body(gid, metrik, panel_lines, music_player, error_text)
     await ui_kit.send_panel(
         interaction,
         ui_kit.build_view(gid, ui_kit.card(gid, *panel_body), timeout=300),
         embed=embed,
         ephemeral=not publik,
     )
+
 
 
 async def _status_refresh_callback(interaction: discord.Interaction) -> None:

@@ -152,8 +152,8 @@ async def save_music_settings_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, MUSIC_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan music_settings.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan music_settings.json")
 
 
 def get_music_settings(guild_id: int) -> dict:
@@ -439,8 +439,8 @@ async def ensure_nodes_alive(client: discord.Client | None = None, *, force: boo
             continue
         try:
             await node.close()
-        except Exception:  # pragma: no cover - sudah tertutup
-            pass
+        except Exception as exc:  # pragma: no cover - sudah tertutup
+            logger.debug("Efek samping opsional gagal: %s", exc)
     try:
         await wavelink.Pool.reconnect()
     except Exception as exc:  # pragma: no cover - node mati
@@ -506,8 +506,8 @@ def mark_requester(track, user: discord.abc.User) -> None:
     try:
         extras["requester"] = getattr(user, "display_name", "Member")
         extras["requester_id"] = int(getattr(user, "id", 0))
-    except (TypeError, AttributeError):  # pragma: no cover - extras tidak mendukung dict
-        pass
+    except (TypeError, AttributeError) as exc:  # pragma: no cover - extras tidak mendukung dict
+        logger.debug("extras tidak mendukung dict: %s", exc)
 
 
 def build_now_playing_embed(
@@ -696,8 +696,8 @@ async def ensure_player(interaction: discord.Interaction):
     settings = get_music_settings(guild.id)
     try:
         await player.set_volume(int(settings.get("volume") or MUSIC_DEFAULT_VOLUME))
-    except Exception:  # pragma: no cover - node belum siap
-        pass
+    except Exception as exc:  # pragma: no cover - node belum siap
+        logger.debug("Efek samping opsional gagal: %s", exc)
     # Terapkan kembali filter audio & autoplay yang tersimpan untuk server ini
     saved_filter = settings.get("filter", "off")
     if saved_filter and saved_filter != "off":
@@ -957,6 +957,69 @@ def _v2_panel(player, guild_id: int, *, filter_name: str | None = "off", autopla
         return None
 
 
+_PANEL_HILANG = object()  # penanda: pesan panel lama sudah tidak ada
+
+
+def _pilih_panel_view(view, player, guild_id: int, filter_name: str, autoplay: bool):
+    """Pakai view yang diberikan, atau bangun view V2 bila tersedia."""
+    panel_view = view if view is not None else _panel_view()
+    use_v2 = False
+    if panel_view is None or type(panel_view).__name__ == "MusicPlayerView":
+        v2_view = _v2_panel(player, guild_id, filter_name=filter_name, autoplay=autoplay)
+        if v2_view is not None:
+            panel_view = v2_view
+            use_v2 = True
+
+    return panel_view, use_v2
+
+
+async def _edit_panel_lama(
+    bot: discord.Client,
+    guild_id: int,
+    panel: dict,
+    *,
+    embed,
+    panel_view,
+    use_v2: bool,
+):
+    """Perbarui pesan panel lama.
+
+    Kembalikan pesan bila berhasil, None bila gagal/izin kurang, atau
+    `_PANEL_HILANG` bila pesannya sudah tidak ada (perlu kirim ulang).
+    """
+    get_channel = getattr(bot, "get_channel", None)
+    target = get_channel(panel.get("channel_id")) if callable(get_channel) else None
+    if target is None:
+        return _PANEL_HILANG
+    try:
+        message = target.get_partial_message(int(panel["message_id"]))
+        if use_v2:
+            await message.edit(view=panel_view)
+        else:
+            await message.edit(embed=embed, view=panel_view)
+        panel["updated_at"] = time.time()
+        return message
+    except discord.NotFound:
+        music_panels.pop(guild_id, None)
+        return _PANEL_HILANG
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.debug("Gagal memperbarui panel musik: %s", sanitize_error_message(exc))
+        return None
+
+
+def _panel_target_channel(bot: discord.Client, guild_id: int, panel: dict | None, channel):
+    """Channel tujuan panel: argumen eksplisit, panel lama, atau announce."""
+    get_channel = getattr(bot, "get_channel", None)
+    target = channel
+    if target is None and callable(get_channel):
+        if panel:
+            target = get_channel(int(panel.get("channel_id") or 0))
+        if target is None:
+            target = get_channel(announce_channels.get(guild_id, 0))
+
+    return target
+
+
 async def send_or_update_panel(
     bot: discord.Client,
     guild_id: int,
@@ -972,51 +1035,27 @@ async def send_or_update_panel(
     if player is None or getattr(player, "channel", None) is None:
         await close_panel(bot, guild_id)
         return None
-
     settings = get_music_settings(guild_id)
     filter_name = settings.get("filter", "off")
     autoplay = bool(settings.get("autoplay", False))
     embed = build_player_embed(player, filter_name=filter_name, autoplay=autoplay)
-
-    panel_view = view if view is not None else _panel_view()
-    use_v2 = False
-    if panel_view is None or type(panel_view).__name__ == "MusicPlayerView":
-        v2_view = _v2_panel(player, guild_id, filter_name=filter_name, autoplay=autoplay)
-        if v2_view is not None:
-            panel_view = v2_view
-            use_v2 = True
+    panel_view, use_v2 = _pilih_panel_view(
+        view, player, guild_id, filter_name, autoplay
+    )
     panel = music_panels.get(guild_id)
 
-    # Mode tampilan berubah (mis. setelah pembaruan versi) → panel lama diganti baru
     if panel and bool(panel.get("v2")) != use_v2:
         await close_panel(bot, guild_id)
         panel = None
 
     if panel and not force_new:
-        get_channel = getattr(bot, "get_channel", None)
-        target = get_channel(panel.get("channel_id")) if callable(get_channel) else None
-        if target is not None:
-            try:
-                message = target.get_partial_message(int(panel["message_id"]))
-                if use_v2:
-                    await message.edit(view=panel_view)
-                else:
-                    await message.edit(embed=embed, view=panel_view)
-                panel["updated_at"] = time.time()
-                return message
-            except discord.NotFound:
-                music_panels.pop(guild_id, None)
-            except (discord.Forbidden, discord.HTTPException) as exc:
-                logger.debug("Gagal memperbarui panel musik: %s", sanitize_error_message(exc))
-                return None
+        hasil = await _edit_panel_lama(
+            bot, guild_id, panel, embed=embed, panel_view=panel_view, use_v2=use_v2
+        )
+        if hasil is not _PANEL_HILANG:
+            return hasil
 
-    get_channel = getattr(bot, "get_channel", None)
-    target = channel
-    if target is None and callable(get_channel):
-        if panel:
-            target = get_channel(int(panel.get("channel_id") or 0))
-        if target is None:
-            target = get_channel(announce_channels.get(guild_id, 0))
+    target = _panel_target_channel(bot, guild_id, panel, channel)
     if target is None:
         return None
 
@@ -1037,7 +1076,6 @@ async def send_or_update_panel(
         except (discord.Forbidden, discord.HTTPException) as exc:
             logger.info("Gagal mengirim panel musik: %s", sanitize_error_message(exc))
             return None
-
     music_panels[guild_id] = {
         "channel_id": int(getattr(target, "id", 0)),
         "message_id": int(message.id),
@@ -1155,8 +1193,8 @@ async def skip_previous(player) -> bool:
             history.delete(-1)       # wavelink.Queue
         else:
             history.pop(-1)          # list biasa (unit test)
-    except Exception:  # pragma: no cover - history kosong
-        pass
+    except Exception as exc:  # pragma: no cover - history kosong
+        logger.debug("Efek samping opsional gagal: %s", exc)
     await player.play(previous, add_history=False)
     return True
 

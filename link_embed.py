@@ -343,8 +343,8 @@ async def save_to_disk() -> None:
             sementara = Path(str(LINKS_FILE) + ".tmp")
             sementara.write_text(json.dumps(isi, ensure_ascii=False, indent=2), encoding="utf-8")
             sementara.replace(Path(LINKS_FILE))
-        except Exception as exc:  # pragma: no cover - IO jarang gagal
-            logger.warning("Gagal menyimpan %s: %s", LINKS_FILE, exc)
+        except Exception:  # pragma: no cover - IO jarang gagal
+            logger.exception("Gagal menyimpan %s")
 
 
 __all__ = [

@@ -205,8 +205,10 @@ def test_tes_kartu_menghasilkan_png():
         display_name = "Sari"
 
         class display_avatar:
+            # Tiru discord.py: `with_size()` mengembalikan objek Asset (bukan
+            # coroutine) sehingga `.read()` di dalamnya bisa di-await.
             @staticmethod
-            async def with_size(_size):
+            def with_size(_size):
                 return _Member.display_avatar
 
             @staticmethod

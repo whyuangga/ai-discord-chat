@@ -24,7 +24,6 @@ from pathlib import Path
 import discord
 
 from config import DATA_DIR, BOT_VERSION
-from utils import sanitize_error_message
 
 logger = logging.getLogger("gemini_bot.ui_theme")
 
@@ -403,8 +402,8 @@ async def save_ui_themes_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, UI_THEME_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan ui_theme.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan ui_theme.json")
 
 
 def cleanup_ui_runtime(limit: int = 2000) -> int:

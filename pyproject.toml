@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ai-discord-chat"
 version = "1.40.0b0"
@@ -14,12 +18,15 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    # Catatan: requirements.txt adalah sumber kebenaran saat deploy — daftar ini
+    # hanya untuk `pip install .` / `pip install -e .[dev]`. Nama paket harus
+    # persis sama dengan PyPI (davey, bukan devey).
     "discord.py>=2.5.0,<3.0.0",
     "aiohttp>=3.10.0,<4.0.0",
     "python-dotenv>=1.0.1,<2.0.0",
     "wavelink>=3.5.0",
     "PyNaCl>=1.5.0",
-    "devey>=0.2.0",
+    "davey>=0.2.0",
     "Pillow>=10.0.0",
 ]
 
@@ -28,9 +35,123 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pyflakes>=3.0",
+    "ruff>=0.5",
 ]
+
+[project.scripts]
+ai-discord-chat = "main:main"
+
+[tool.setuptools]
+# Bot ini bukan library: modulnya berada di root repo (flat layout: main.py,
+# ai_handler.py, cogs/, views/, …). Tanpa daftar eksplisit, setuptools menolak
+# build karena menemukan beberapa paket top-level (cogs, views, site, data).
+py-modules = [
+    "achievements",
+    "ai_guard",
+    "ai_handler",
+    "ai_user_settings",
+    "analytics_export",
+    "antinuke",
+    "antispam",
+    "audit_log",
+    "backup_restore",
+    "channel_targets",
+    "command_policy",
+    "community_agent",
+    "community_tools",
+    "confessions",
+    "config",
+    "dashboard_admin",
+    "dashboard_ai",
+    "dashboard_bangun",
+    "dashboard_curhat",
+    "dashboard_form_inbox",
+    "dashboard_giveaway",
+    "dashboard_highlights",
+    "dashboard_info",
+    "dashboard_keamanan",
+    "dashboard_lencana",
+    "dashboard_moderasi",
+    "dashboard_panel",
+    "dashboard_pesan",
+    "dashboard_security",
+    "dashboard_snipe",
+    "dashboard_sosial",
+    "dashboard_stats",
+    "dashboard_tags",
+    "dashboard_tema",
+    "dashboard_tiket",
+    "dashboard_ui",
+    "dashboard_uji",
+    "dashboard_unggah",
+    "dashboard_voice",
+    "economy",
+    "engagement",
+    "flow_triggers",
+    "flows",
+    "games",
+    "growth_tracker",
+    "highlights",
+    "honeypot",
+    "i18n",
+    "info_channel",
+    "insights",
+    "levels",
+    "link_embed",
+    "main",
+    "meme_maker",
+    "memory_audit",
+    "menu_builder",
+    "message_template",
+    "modal_forms",
+    "moderation",
+    "music",
+    "music_playlists",
+    "prefixes",
+    "presets",
+    "raid_guard",
+    "rank_card",
+    "reports",
+    "server_builder",
+    "server_features",
+    "server_tools",
+    "snipe",
+    "social_notify",
+    "storage",
+    "suggestions",
+    "tags",
+    "temp_voice",
+    "ticket_archive",
+    "tickets",
+    "translate_tools",
+    "ui_kit",
+    "ui_theme",
+    "user_data",
+    "utils",
+    "voice_activity",
+    "voice_link",
+    "webhook_identity",
+    "welcome_media",
+]
+packages = ["cogs", "views", "web_dashboard"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+# Target sama dengan CI (Python 3.11).
+target-version = "py311"
+line-length = 120
+exclude = [".venv", "data", "site/public", "site/resources"]
+
+[tool.ruff.lint]
+# Gerbang CI memakai pyflakes (F) + syntax error (E9). Aturan gaya lain sengaja
+# belum diaktifkan supaya perbaikan perilaku tidak tercampur.
+select = ["F", "E9"]
+
+[tool.ruff.lint.per-file-ignores]
+# `cogs/__init__.py` adalah titik re-export publik: nama yang diimpor memang
+# dipakai modul lain lewat `from cogs import ...`.
+"cogs/__init__.py" = ["F401"]

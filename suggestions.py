@@ -261,8 +261,8 @@ async def save_suggestions_to_disk() -> None:
             import os
 
             await asyncio.to_thread(os.replace, tmp, SUGGESTIONS_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan suggestions.json: %s", exc)
+        except Exception:
+            logger.exception("Gagal menyimpan suggestions.json")
 
 
 def cleanup_suggestions_runtime(limit: int = 300) -> int:

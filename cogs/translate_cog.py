@@ -66,8 +66,8 @@ async def translate_text(text: str, target: str = "id", *, guild_id: int = 0) ->
     if cached:
         try:
             insights.record_ai_usage("terjemah", guild_id=int(guild_id or 0), cache_hit=True)
-        except Exception:  # pragma: no cover - statistik tidak boleh menggagalkan
-            pass
+        except Exception as exc:  # pragma: no cover - statistik tidak boleh menggagalkan
+            logger.debug("Efek samping opsional gagal: %s", exc)
         return cached, None
 
     allowed, used, limit = ai_guard.check_guild_cap(int(guild_id or 0))
@@ -81,8 +81,8 @@ async def translate_text(text: str, target: str = "id", *, guild_id: int = 0) ->
     translate_tools.store_cached_translation(raw, target, result)
     try:
         insights.record_ai_usage("terjemah", guild_id=int(guild_id or 0))
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Efek samping opsional gagal: %s", exc)
     return result, None
 
 
@@ -379,8 +379,8 @@ async def handle_translate_reaction(bot, payload) -> bool:
         try:
             await user.send(embed=embed)
             return True
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Efek samping opsional gagal: %s", exc)
 
     # 2) Cadangan: balas pesan aslinya tanpa mention
     reply = getattr(message, "reply", None)
@@ -391,8 +391,8 @@ async def handle_translate_reaction(bot, payload) -> bool:
                 mention_author=False,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
-        except Exception:  # pragma: no cover - jaring aman
-            pass
+        except Exception as exc:  # pragma: no cover - jaring aman
+            logger.debug("Efek samping opsional gagal: %s", exc)
     return True
 
 

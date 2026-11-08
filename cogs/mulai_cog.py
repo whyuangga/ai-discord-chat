@@ -43,75 +43,31 @@ async def _tolak(interaction: discord.Interaction, gid: int) -> None:
     )
 
 
-@app_commands.command(name="mulai", description="Panduan pemasangan cepat: pilih paket, bot yang mengatur (Admin)")
-@app_commands.describe(
-    paket="Paket pengaturan yang ingin dipasang",
-    channel_sambutan="Channel untuk menyambut member baru (opsional)",
-    role_otomatis="Role yang otomatis diberikan ke member baru (opsional)",
-    channel_log="Channel log moderasi (opsional)",
-    pratinjau="True = hanya lihat rencananya, belum mengubah apa pun",
-)
-@app_commands.choices(paket=_PILIHAN)
-@app_commands.guild_only()
-async def mulai_cmd(
-    interaction: discord.Interaction,
-    paket: app_commands.Choice[str] | None = None,
-    channel_sambutan: discord.TextChannel | None = None,
-    role_otomatis: discord.Role | None = None,
-    channel_log: discord.TextChannel | None = None,
-    pratinjau: bool = False,
-):
-    if interaction.guild is None:
-        return
-    gid = interaction.guild.id
-
-    if paket is None:
-        baris = "\n\n".join(presets.ringkas(p) for p in presets.list_presets())
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "info", "Mulai dari mana?",
-                f"{baris}\n\n**Langkah berikutnya:**\n"
-                "`/mulai paket:🏡 Server Komunitas channel_sambutan:#sambutan "
-                "role_otomatis:@Member channel_log:#log`\n"
-                "-# Tambahkan `pratinjau:True` untuk melihat rencananya dulu tanpa mengubah apa pun.",
-            ),
-            ephemeral=True,
-        )
-        return
-
-    if not _is_admin(interaction):
-        await _tolak(interaction, gid)
-        return
-
-    preset = presets.get_preset(paket.value)
-    if preset is None:
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(gid, "warn", "Paket tidak dikenal", "Pilih dari daftar `/mulai`."),
-            ephemeral=True,
-        )
-        return
-
-    rencana = presets.build_plan(
-        preset,
-        channel_sambutan=channel_sambutan,
-        role_otomatis=role_otomatis,
-        channel_log=channel_log,
+async def _tampilkan_panduan(interaction: discord.Interaction, gid: int) -> None:
+    """Tampilkan daftar paket dan contoh pemakaian `/mulai`."""
+    baris = "\n\n".join(presets.ringkas(p) for p in presets.list_presets())
+    await ui_kit.send_status(
+        interaction,
+        embed=ui_theme.status_embed(
+            gid, "info", "Mulai dari mana?",
+            f"{baris}\n\n**Langkah berikutnya:**\n"
+            "`/mulai paket:🏡 Server Komunitas channel_sambutan:#sambutan "
+            "role_otomatis:@Member channel_log:#log`\n"
+            "-# Tambahkan `pratinjau:True` untuk melihat rencananya dulu tanpa mengubah apa pun.",
+        ),
+        ephemeral=True,
     )
-    ringkasan = "\n".join(("✅ " if r["siap"] else "⬜ ") + r["label"] for r in rencana)
 
-    if pratinjau:
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "info", f"Pratinjau: {preset['label']}", ringkasan[:3000],
-                footer="Belum ada yang diubah. Jalankan tanpa pratinjau untuk memasang.",
-            ),
-            ephemeral=True,
-        )
-        return
 
+async def _pasang_fitur_preset(
+    interaction: discord.Interaction,
+    gid: int,
+    preset: dict,
+    channel_sambutan: discord.TextChannel | None,
+    role_otomatis: discord.Role | None,
+    channel_log: discord.TextChannel | None,
+) -> tuple[list[str], list[str]] | None:
+    """Pasang fitur preset; `None` bila ada yang gagal (status error sudah dikirim)."""
     terpasang: list[str] = []
     dilewati: list[str] = []
     try:
@@ -149,19 +105,100 @@ async def mulai_cmd(
         )
         return
 
+    return terpasang, dilewati
+
+
+def _ringkas_hasil(terpasang: list[str], dilewati: list[str]) -> str:
+    """Rangkum fitur yang terpasang dan yang belum dipasang."""
+    isi = "\n".join(f"✅ {t}" for t in terpasang) or "Belum ada yang terpasang."
+
+    if dilewati:
+        isi += "\n\n**Belum dipasang:**\n" + "\n".join(f"⬜ {d}" for d in dilewati)
+
+    isi += "\n\n-# Ubah kapan saja dengan command yang sama, atau matikan fiturnya satu per satu."
+
+    return isi
+
+
+@app_commands.command(name="mulai", description="Panduan pemasangan cepat: pilih paket, bot yang mengatur (Admin)")
+@app_commands.describe(
+    paket="Paket pengaturan yang ingin dipasang",
+    channel_sambutan="Channel untuk menyambut member baru (opsional)",
+    role_otomatis="Role yang otomatis diberikan ke member baru (opsional)",
+    channel_log="Channel log moderasi (opsional)",
+    pratinjau="True = hanya lihat rencananya, belum mengubah apa pun",
+)
+@app_commands.choices(paket=_PILIHAN)
+@app_commands.guild_only()
+async def mulai_cmd(
+    interaction: discord.Interaction,
+    paket: app_commands.Choice[str] | None = None,
+    channel_sambutan: discord.TextChannel | None = None,
+    role_otomatis: discord.Role | None = None,
+    channel_log: discord.TextChannel | None = None,
+    pratinjau: bool = False,
+):
+    if interaction.guild is None:
+        return
+
+    gid = interaction.guild.id
+
+    if paket is None:
+        await _tampilkan_panduan(interaction, gid)
+        return
+
+    if not _is_admin(interaction):
+        await _tolak(interaction, gid)
+        return
+
+    preset = presets.get_preset(paket.value)
+
+    if preset is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "warn", "Paket tidak dikenal", "Pilih dari daftar `/mulai`."),
+            ephemeral=True,
+        )
+        return
+
+    rencana = presets.build_plan(
+        preset,
+        channel_sambutan=channel_sambutan,
+        role_otomatis=role_otomatis,
+        channel_log=channel_log,
+    )
+
+    ringkasan = "\n".join(("✅ " if r["siap"] else "⬜ ") + r["label"] for r in rencana)
+
+    if pratinjau:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "info", f"Pratinjau: {preset['label']}", ringkasan[:3000],
+                footer="Belum ada yang diubah. Jalankan tanpa pratinjau untuk memasang.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    hasil = await _pasang_fitur_preset(
+        interaction, gid, preset, channel_sambutan, role_otomatis, channel_log
+    )
+    if hasil is None:
+        return
+    terpasang, dilewati = hasil
+
     if "pengumuman" in preset["fitur"]:
         dilewati.append("pengumuman terjadwal (atur isinya lewat `/pengumuman tambah`)")
 
-    isi = "\n".join(f"✅ {t}" for t in terpasang) or "Belum ada yang terpasang."
-    if dilewati:
-        isi += "\n\n**Belum dipasang:**\n" + "\n".join(f"⬜ {d}" for d in dilewati)
-    isi += "\n\n-# Ubah kapan saja dengan command yang sama, atau matikan fiturnya satu per satu."
+    isi = _ringkas_hasil(terpasang, dilewati)
 
     await ui_kit.send_status(
         interaction,
         embed=ui_theme.status_embed(gid, "ok", f"{preset['emoji']} {preset['label']} dipasang", isi[:3500]),
         ephemeral=True,
     )
+
 
 
 def register_mulai_cog(bot: commands.Bot) -> None:

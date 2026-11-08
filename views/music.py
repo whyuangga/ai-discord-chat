@@ -1,8 +1,12 @@
 """Music views — dipisah dari views.py agar berkas tidak membengkak."""
 
+import logging
+
 import discord
 import music
 import ui_kit
+
+logger = logging.getLogger("gemini_bot.views.music")
 
 
 class QueuePaginationView(ui_kit.ui.LayoutView):
@@ -199,8 +203,8 @@ class MusicPlayerView(discord.ui.View):
             player.queue.clear()
             await player.stop()
             await player.disconnect()
-        except Exception:  # pragma: no cover - node mati
-            pass
+        except Exception as exc:  # pragma: no cover - node mati
+            logger.debug("Gagal menghentikan player: %s", exc)
         await music.close_panel(interaction.client, interaction.guild_id)
         music.forget_announce_channel(interaction.guild_id)
         await interaction.response.send_message(

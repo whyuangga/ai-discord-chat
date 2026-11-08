@@ -109,6 +109,82 @@ def describe(data: dict | None) -> list[str]:
     return baris + [f"• {b}" for b in flows.describe(data.get("steps") or [])]
 
 
+async def _alur_ubah_role(guild, member, step: dict, hasil: dict, aksi: str) -> None:
+    """Terapkan role toggle/add/remove untuk satu langkah alur."""
+    role = guild.get_role(step["role_id"])
+
+    if role is None:
+        hasil["errors"].append(f"role {step['role_id']} tidak ada")
+        return
+
+    punya = role in getattr(member, "roles", [])
+
+    try:
+        if aksi == flows.ACTION_ROLE_TOGGLE and punya:
+            await member.remove_roles(role, reason="Alur gabung")
+        elif aksi in (flows.ACTION_ROLE_TOGGLE, flows.ACTION_ROLE_ADD) and not punya:
+            await member.add_roles(role, reason="Alur gabung")
+        elif aksi == flows.ACTION_ROLE_REMOVE and punya:
+            await member.remove_roles(role, reason="Alur gabung")
+        else:
+            return
+    except Exception as exc:
+        hasil["errors"].append(f"gagal ubah role {step['role_id']}: {type(exc).__name__}")
+        return
+
+    hasil["roles"].append(step["role_id"])
+
+    return
+
+
+async def _alur_kirim(channel, step: dict, konteks: dict, hasil: dict) -> None:
+    """Kirim pesan biasa (ACTION_SAY) ke channel pemicu."""
+    teks = message_template.render(str(step.get("text") or ""), **konteks)
+
+    if teks.strip():
+        try:
+            await channel.send(teks[:2000], allowed_mentions=discord.AllowedMentions.none())
+            hasil["sent"] += 1
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            hasil["errors"].append(f"gagal kirim: {type(exc).__name__}")
+
+    return
+
+
+async def _alur_webhook(channel, step: dict, konteks: dict, hasil: dict) -> None:
+    """Kirim pesan lewat identitas webhook (ACTION_WEBHOOK)."""
+    nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
+
+    teks = message_template.render(str(step.get("text") or ""), **konteks)
+
+    ok, ket = await webhook_identity.kirim_sebagai(channel, nama=nama or "Server", isi=teks)
+
+    if ok:
+        hasil["sent"] += 1
+    else:
+        hasil["errors"].append(f"webhook: {ket}")
+
+    return
+
+
+async def _alur_thread(channel, step: dict, konteks: dict, hasil: dict) -> None:
+    """Buat thread publik (ACTION_THREAD)."""
+    nama = message_template.render(str(step.get("name") or ""), **konteks)[:90]
+
+    try:
+        thread = await channel.create_thread(
+            name=nama or "sambutan",
+            type=discord.ChannelType.public_thread,
+            auto_archive_duration=1440,
+            reason="Alur gabung",
+        )
+        hasil["threads"].append(getattr(thread, "id", 0))
+    except Exception as exc:
+        hasil["errors"].append(f"gagal buat thread: {type(exc).__name__}")
+
+    return
+
+
 async def run_join_flow(guild, member, data: dict) -> dict:
     """Jalankan alur gabung. Kembalikan ringkasan `{sent, roles, threads, errors}`."""
     hasil = {"sent": 0, "roles": [], "threads": [], "errors": []}
@@ -123,7 +199,6 @@ async def run_join_flow(guild, member, data: dict) -> dict:
                 channel = await fetch(_to_int(data.get("channel_id")))
             except Exception:
                 channel = None
-
     konteks = {"guild": guild, "member": member, "channel": channel}
 
     for step in flows.sanitize_steps(data.get("steps")):
@@ -136,25 +211,9 @@ async def run_join_flow(guild, member, data: dict) -> dict:
                 return hasil
             continue
 
+
         if aksi in (flows.ACTION_ROLE_TOGGLE, flows.ACTION_ROLE_ADD, flows.ACTION_ROLE_REMOVE):
-            role = guild.get_role(step["role_id"])
-            if role is None:
-                hasil["errors"].append(f"role {step['role_id']} tidak ada")
-                continue
-            punya = role in getattr(member, "roles", [])
-            try:
-                if aksi == flows.ACTION_ROLE_TOGGLE and punya:
-                    await member.remove_roles(role, reason="Alur gabung")
-                elif aksi in (flows.ACTION_ROLE_TOGGLE, flows.ACTION_ROLE_ADD) and not punya:
-                    await member.add_roles(role, reason="Alur gabung")
-                elif aksi == flows.ACTION_ROLE_REMOVE and punya:
-                    await member.remove_roles(role, reason="Alur gabung")
-                else:
-                    continue
-            except Exception as exc:
-                hasil["errors"].append(f"gagal ubah role {step['role_id']}: {type(exc).__name__}")
-                continue
-            hasil["roles"].append(step["role_id"])
+            await _alur_ubah_role(guild, member, step, hasil, aksi)
             continue
 
         if aksi in (flows.ACTION_SAY, flows.ACTION_STOP) and aksi == flows.ACTION_STOP:
@@ -163,47 +222,28 @@ async def run_join_flow(guild, member, data: dict) -> dict:
             hasil["stopped"] = True
             return hasil
 
+
         if channel is None:
             hasil["errors"].append("channel pemicu tidak ditemukan")
             return hasil
 
+
         if aksi == flows.ACTION_SAY:
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if teks.strip():
-                try:
-                    await channel.send(teks[:2000], allowed_mentions=discord.AllowedMentions.none())
-                    hasil["sent"] += 1
-                except (discord.Forbidden, discord.HTTPException) as exc:
-                    hasil["errors"].append(f"gagal kirim: {type(exc).__name__}")
+            await _alur_kirim(channel, step, konteks, hasil)
             continue
 
         if aksi == flows.ACTION_WEBHOOK:
-            nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            ok, ket = await webhook_identity.kirim_sebagai(channel, nama=nama or "Server", isi=teks)
-            if ok:
-                hasil["sent"] += 1
-            else:
-                hasil["errors"].append(f"webhook: {ket}")
+            await _alur_webhook(channel, step, konteks, hasil)
             continue
 
         if aksi == flows.ACTION_THREAD:
-            nama = message_template.render(str(step.get("name") or ""), **konteks)[:90]
-            try:
-                thread = await channel.create_thread(
-                    name=nama or "sambutan",
-                    type=discord.ChannelType.public_thread,
-                    auto_archive_duration=1440,
-                    reason="Alur gabung",
-                )
-                hasil["threads"].append(getattr(thread, "id", 0))
-            except Exception as exc:
-                hasil["errors"].append(f"gagal buat thread: {type(exc).__name__}")
+            await _alur_thread(channel, step, konteks, hasil)
             continue
 
         if aksi == flows.ACTION_WAIT:
             await asyncio.sleep(float(step.get("seconds") or 0))
             continue
+
 
     return hasil
 
@@ -259,5 +299,5 @@ async def save_to_disk() -> None:
             sementara = Path(str(FLOW_FILE) + ".tmp")
             sementara.write_text(json.dumps(isi, ensure_ascii=False, indent=2), encoding="utf-8")
             sementara.replace(Path(FLOW_FILE))
-        except Exception as exc:  # pragma: no cover
-            logger.warning("Gagal menyimpan %s: %s", FLOW_FILE, exc)
+        except Exception:  # pragma: no cover
+            logger.exception("Gagal menyimpan %s")

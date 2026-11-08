@@ -242,7 +242,7 @@ async def test_http_ganti_dan_hapus_banner_panel(tmp_path, monkeypatch):
     assert await web_dashboard.start_dashboard(bot) is True
     base = f"http://127.0.0.1:{port}"
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True)) as session:
             # Tanpa berkas & tanpa banner tersimpan → pesan jelas
             form = aiohttp.FormData()
             form.add_field("token", "tok-panel")

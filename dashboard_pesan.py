@@ -87,23 +87,68 @@ def _warna(nilai: str):
         return None
 
 
+async def _kirim_embed_pesan(
+    channel,
+    banner,
+    *,
+    judul: str,
+    isi: str,
+    footer: str,
+    gambar_final: str,
+    warna,
+    tombol_label: str,
+    tombol_url: str,
+) -> tuple[bool, str]:
+    """Kirim pesan/embed biasa (tanpa identitas webhook)."""
+    import discord
+
+    embed = None
+    if judul or warna is not None or footer or gambar_final:
+        embed = discord.Embed(
+            title=judul or None,
+            description=isi or None,
+            colour=warna or discord.Colour.blurple(),
+        )
+        if footer:
+            embed.set_footer(text=footer)
+        if gambar_final:
+            embed.set_image(url=gambar_final)
+    kwargs: dict = {"allowed_mentions": discord.AllowedMentions.none()}
+    if embed is not None:
+        kwargs["embed"] = embed
+        if not isi and not judul:
+            kwargs["content"] = "​"
+    else:
+        kwargs["content"] = isi or "​"
+    if tombol_label and tombol_url:
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(label=tombol_label, url=tombol_url))
+        kwargs["view"] = view
+    if banner is not None:
+        kwargs["file"] = banner
+    try:
+        await channel.send(**kwargs)
+    except discord.Forbidden:
+        return False, "Bot tidak punya izin mengirim pesan di channel itu."
+    except discord.HTTPException as exc:
+        logger.warning("Kirim dari dashboard gagal: %s", exc)
+        return False, "Discord menolak pesan itu (embed tidak valid atau channel terkunci)."
+    return True, f"Terkirim ke {getattr(channel, 'mention', 'channel')}."
+
+
 async def kirim(bot, guild_id: int, data: dict, banner=None) -> tuple[bool, str]:
     """Kirim pesan/embed ke channel, opsional dengan identitas webhook & banner.
 
     `banner` adalah `discord.File` hasil unggahan dashboard; bila ada, gambar embed
     memakai lampiran itu (`attachment://<nama>`) sehingga tidak butuh URL publik.
     """
-    import discord
-
     import message_template
     import webhook_identity
-
     gid = _to_int(guild_id)
     channel_id = _to_int((data or {}).get("channel"))
     channel = await _ambil_channel(bot, gid, channel_id)
     if channel is None:
         return False, "Channel tidak ditemukan. Pastikan bot ada di server & channel itu."
-
     judul = _bersih(data, "judul", 256)
     isi = _bersih(data, "isi", MAX_ISI)
     footer = _bersih(data, "footer", 200)
@@ -113,25 +158,20 @@ async def kirim(bot, guild_id: int, data: dict, banner=None) -> tuple[bool, str]
     avatar = _bersih(data, "avatar", 400)
     tombol_label = _bersih(data, "tombol_label", 80)
     tombol_url = _bersih(data, "tombol_url", 400)
-
     if not judul and not isi:
         return False, "Isi pesan atau judul embed harus diisi."
-
     guild = _guild_dari(bot, gid)
     if guild is not None:
         judul = message_template.render(judul, guild=guild, channel=channel)
         isi = message_template.render(isi, guild=guild, channel=channel)
-
     warna = _warna(_bersih(data, "warna", 20))
     if _bersih(data, "warna", 20) and warna is None:
         return False, "Warna tidak valid — pakai format `#5865F2` atau nama seperti `blurple`."
-
     if gambar and not gambar.lower().startswith(("http://", "https://")):
         return False, "URL gambar harus dimulai `http://` atau `https://`."
     gambar_final = f"attachment://{nama_banner}" if nama_banner else gambar
     if tombol_url and not tombol_url.lower().startswith(("http://", "https://")):
         return False, "URL tombol harus dimulai `http://` atau `https://`."
-
     if identitas:
         ok, pesan = await webhook_identity.kirim_sebagai(
             channel,
@@ -148,41 +188,17 @@ async def kirim(bot, guild_id: int, data: dict, banner=None) -> tuple[bool, str]
         await webhook_identity.save_to_disk()
         return True, f"Terkirim ke {getattr(channel, 'mention', 'channel')} lewat identitas **{identitas}**."
 
-    embed = None
-    if judul or warna is not None or footer or gambar_final:
-        embed = discord.Embed(
-            title=judul or None,
-            description=isi or None,
-            colour=warna or discord.Colour.blurple(),
-        )
-        if footer:
-            embed.set_footer(text=footer)
-        if gambar_final:
-            embed.set_image(url=gambar_final)
-
-    kwargs: dict = {"allowed_mentions": discord.AllowedMentions.none()}
-    if embed is not None:
-        kwargs["embed"] = embed
-        if not isi and not judul:
-            kwargs["content"] = "​"
-    else:
-        kwargs["content"] = isi or "​"
-
-    if tombol_label and tombol_url:
-        view = discord.ui.View()
-        view.add_item(discord.ui.Button(label=tombol_label, url=tombol_url))
-        kwargs["view"] = view
-    if banner is not None:
-        kwargs["file"] = banner
-
-    try:
-        await channel.send(**kwargs)
-    except discord.Forbidden:
-        return False, "Bot tidak punya izin mengirim pesan di channel itu."
-    except discord.HTTPException as exc:
-        logger.warning("Kirim dari dashboard gagal: %s", exc)
-        return False, "Discord menolak pesan itu (embed tidak valid atau channel terkunci)."
-    return True, f"Terkirim ke {getattr(channel, 'mention', 'channel')}."
+    return await _kirim_embed_pesan(
+        channel,
+        banner,
+        judul=judul,
+        isi=isi,
+        footer=footer,
+        gambar_final=gambar_final,
+        warna=warna,
+        tombol_label=tombol_label,
+        tombol_url=tombol_url,
+    )
 
 
 def pratinjau(bot, guild_id: int, data: dict, banner=None) -> dict:
@@ -447,8 +463,8 @@ async def ganti_banner_panel(bot, guild_id: int, ref: str, banner=None) -> tuple
             menu_builder.build_view(menu, guild=guild),
             message_id=_to_int(menu.get("message_id")),
         )
-    except Exception:  # pragma: no cover - depends on client state
-        pass
+    except Exception as exc:  # pragma: no cover - depends on client state
+        logger.debug("Efek samping opsional gagal: %s", exc)
     await menu_builder.save_menus_to_disk()
     if banner is None:
         return True, f"Banner panel **{menu.get('title') or ref}** dihapus."
@@ -550,18 +566,14 @@ async def hapus_pemicu(guild_id: int) -> tuple[bool, str]:
 # ==============================================================================
 # DAFTAR & HAPUS KONTEN
 # ==============================================================================
-def daftar_konten(guild_id: int, bot=None) -> dict:
-    """Ringkasan konten server untuk ditampilkan di dashboard."""
-    gid = _to_int(guild_id)
-    hasil: dict = {
-        "pengumuman": [], "tautan": [], "panel": [], "formulir": [], "webhook": [], "pemicu": []
-    }
-
+def _daftar_pengumuman(gid: int) -> list:
+    """Kumpulkan pengumuman milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import engagement
 
         for item in engagement.list_announcements(gid):
-            hasil["pengumuman"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Pengumuman")[:60],
@@ -570,14 +582,20 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "channel": str(item.get("channel_id") or ""),
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Daftar pengumuman gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_tautan(gid: int) -> list:
+    """Kumpulkan tautan milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import link_embed
 
         for item in link_embed.list_links(gid):
-            hasil["tautan"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Tautan")[:60],
@@ -585,14 +603,20 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "url": str(item.get("url") or ""),
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Daftar tautan gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_panel(gid: int) -> list:
+    """Kumpulkan panel menu milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import menu_builder
 
         for item in menu_builder.list_menus(gid):
-            hasil["panel"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Panel")[:60],
@@ -600,23 +624,35 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "terkirim": bool(item.get("message_id")),
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Daftar panel menu gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_formulir(gid: int) -> list:
+    """Kumpulkan formulir milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import modal_forms
 
         for item in modal_forms.list_forms(gid):
-            hasil["formulir"].append(
+            hasil.append(
                 {
                     "id": str(item.get("id")),
                     "judul": str(item.get("title") or "Formulir")[:60],
                     "ringkas": f"{len(item.get('fields') or [])} kolom",
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Daftar formulir gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_webhook(gid: int, bot=None) -> list:
+    """Kumpulkan webhook milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import webhook_identity
 
@@ -629,7 +665,7 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
             if bot is not None:
                 channel = getattr(bot, "get_channel", lambda _id: None)(_to_int(channel_id))
                 nama = str(getattr(channel, "name", "") or "")
-            hasil["webhook"].append(
+            hasil.append(
                 {
                     "id": channel_id,
                     "judul": f"#{nama}" if nama else f"channel {channel_id}",
@@ -637,15 +673,21 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                     "channel": channel_id,
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Daftar webhook gagal dimuat: %s", exc)
 
+    return hasil
+
+
+def _daftar_pemicu(gid: int) -> list:
+    """Kumpulkan pemicu alur milik server; kosong bila modulnya gagal dimuat."""
+    hasil: list = []
     try:
         import flow_triggers
 
         alur = flow_triggers.get_trigger(gid)
         if alur:
-            hasil["pemicu"].append(
+            hasil.append(
                 {
                     "id": "aktif",
                     "judul": "Alur saat member bergabung",
@@ -653,10 +695,23 @@ def daftar_konten(guild_id: int, bot=None) -> dict:
                                f"umur akun ≥ {int(alur.get('min_age_days') or 0)} hari",
                 }
             )
-    except Exception:  # pragma: no cover
-        pass
+    except Exception as exc:  # pragma: no cover
+        logger.debug("Daftar pemicu alur gagal dimuat: %s", exc)
 
     return hasil
+
+
+def daftar_konten(guild_id: int, bot=None) -> dict:
+    """Ringkasan konten server untuk ditampilkan di dashboard."""
+    gid = _to_int(guild_id)
+    return {
+        "pengumuman": _daftar_pengumuman(gid),
+        "tautan": _daftar_tautan(gid),
+        "panel": _daftar_panel(gid),
+        "formulir": _daftar_formulir(gid),
+        "webhook": _daftar_webhook(gid, bot),
+        "pemicu": _daftar_pemicu(gid),
+    }
 
 
 async def hapus(bot, guild_id: int, jenis: str, ref: str) -> tuple[bool, str]:

@@ -334,8 +334,8 @@ async def save_temp_voice_to_disk() -> None:
             import os
 
             await asyncio.to_thread(os.replace, tmp, TEMP_VOICE_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan temp_voice.json: %s", exc)
+        except Exception:
+            logger.exception("Gagal menyimpan temp_voice.json")
 
 
 def sanitize_room_name(name: str) -> str:

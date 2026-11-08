@@ -69,6 +69,19 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         logger.warning("Gagal memuat %s: %s", SERVER_FEATURES_FILE, exc)
         return 0, 0, 0, 0
 
+    _muat_serverstats(raw)
+
+    _muat_autorole(raw)
+
+    _muat_facts(raw)
+
+    _muat_security(raw)
+
+    return len(serverstats_guilds), len(autorole_guilds), len(facts_guilds), len(security_guilds)
+
+
+def _muat_serverstats(raw: dict) -> None:
+    """Isi serverstats_guilds dari data mentah."""
     for gid_str, data in (raw.get("serverstats") or {}).items():
         try:
             if not data.get("enabled", True):
@@ -91,6 +104,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+def _muat_autorole(raw: dict) -> None:
+    """Isi autorole_guilds dari data mentah."""
     for gid_str, data in (raw.get("autorole") or {}).items():
         try:
             if not data.get("enabled", True):
@@ -110,6 +126,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+def _muat_facts(raw: dict) -> None:
+    """Isi facts_guilds dari data mentah."""
     for gid_str, data in (raw.get("facts") or {}).items():
         try:
             if not data.get("enabled", True):
@@ -118,6 +137,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+def _muat_security(raw: dict) -> None:
+    """Isi security_guilds dari data mentah."""
     for gid_str, data in (raw.get("security") or {}).items():
         try:
             action = str(data.get("action") or "hapus_peringat")
@@ -133,8 +155,6 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
             }
         except (TypeError, ValueError):
             continue
-
-    return len(serverstats_guilds), len(autorole_guilds), len(facts_guilds), len(security_guilds)
 
 
 def _parse_facts_guild_config(data: dict) -> dict:
@@ -184,8 +204,8 @@ async def save_server_features_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, SERVER_FEATURES_FILE)
-        except Exception as exc:
-            logger.warning("Gagal menyimpan server_features.json: %s", sanitize_error_message(exc))
+        except Exception:
+            logger.exception("Gagal menyimpan server_features.json")
 
 
 def format_number(value: int | None) -> str:
@@ -437,12 +457,8 @@ def _count_channel_types(guild: discord.Guild) -> dict[str, int]:
     return counts
 
 
-def build_serverstats_embed(
-    guild: discord.Guild,
-    *,
-    presence_count: int | None = None,
-) -> discord.Embed:
-    """Menyusun kartu statistik server yang cantik & informatif (tanpa API berbayar)."""
+def _hitung_statistik_server(guild, presence_count: int | None) -> dict:
+    """Kumpulkan semua angka statistik yang dipakai kartu server."""
     members = list(getattr(guild, "members", []) or [])
     total_members = int(getattr(guild, "member_count", 0) or len(members) or 0)
     bots = sum(1 for m in members if getattr(m, "bot", False)) if members else 0
@@ -466,17 +482,54 @@ def build_serverstats_embed(
     owner_txt = str(owner) if owner else "Tidak diketahui"
     verify_raw = getattr(guild, "verification_level", None)
     verify_level = str(getattr(verify_raw, "name", None) or verify_raw or "Tidak diketahui").replace("_", " ").title()
+    return {
+        "members": members,
+        "total_members": total_members,
+        "bots": bots,
+        "humans": humans,
+        "presence_count": presence_count,
+        "counts": counts,
+        "roles": roles,
+        "emojis": emojis,
+        "stickers": stickers,
+        "boost_count": boost_count,
+        "boost_tier": boost_tier,
+        "created_txt": created_txt,
+        "owner_txt": owner_txt,
+        "verify_level": verify_level,
+    }
 
-    embed = discord.Embed(
-        title=f"📊 Statistik Server — {getattr(guild, 'name', 'Server')}",
-        description=(
-            getattr(guild, "description", None)
-            or "_Ringkasan lengkap kondisi server saat ini._"
-        ),
-        color=discord.Color.brand_green(),
-        timestamp=discord.utils.utcnow(),
-    )
 
+def _hitung_aktivitas_fitur(gid: int) -> tuple[int, int]:
+    """Tiket terbuka & jumlah langganan sosial; `0` bila modulnya gagal."""
+    try:
+        import tickets as tickets_mod
+
+        tiket_terbuka = tickets_mod.count_open(gid)
+    except Exception:  # pragma: no cover - jaring aman
+        tiket_terbuka = 0
+    try:
+        import social_notify
+
+        langganan_sosial = len(social_notify.get_subscriptions(gid))
+    except Exception:  # pragma: no cover - jaring aman
+        langganan_sosial = 0
+    return tiket_terbuka, langganan_sosial
+
+
+def _tambah_field_utama(embed: discord.Embed, stat: dict) -> None:
+    """Empat field pertama: anggota, aktivitas, kanal, dan lainnya."""
+    total_members = stat["total_members"]
+    humans = stat["humans"]
+    bots = stat["bots"]
+    presence_count = stat["presence_count"]
+    counts = stat["counts"]
+    roles = stat["roles"]
+    emojis = stat["emojis"]
+    stickers = stat["stickers"]
+    boost_count = stat["boost_count"]
+    boost_tier = stat["boost_tier"]
+    verify_level = stat["verify_level"]
     embed.add_field(
         name="👥 Anggota",
         value=(
@@ -513,20 +566,14 @@ def build_serverstats_embed(
         ),
         inline=True,
     )
-    gid = int(getattr(guild, "id", 0) or 0)
-    try:
-        import tickets as tickets_mod
 
-        tiket_terbuka = tickets_mod.count_open(gid)
-    except Exception:  # pragma: no cover - jaring aman
-        tiket_terbuka = 0
-    try:
-        import social_notify
 
-        langganan_sosial = len(social_notify.get_subscriptions(gid))
-    except Exception:  # pragma: no cover - jaring aman
-        langganan_sosial = 0
-
+def _tambah_field_fitur(
+    embed: discord.Embed, stat: dict, tiket_terbuka: int, langganan_sosial: int
+) -> None:
+    """Dua field terakhir: aktivitas fitur dan informasi server."""
+    created_txt = stat["created_txt"]
+    owner_txt = stat["owner_txt"]
     embed.add_field(
         name="📈 Aktivitas Fitur",
         value=(
@@ -544,6 +591,32 @@ def build_serverstats_embed(
         inline=True,
     )
 
+
+def build_serverstats_embed(
+    guild: discord.Guild,
+    *,
+    presence_count: int | None = None,
+) -> discord.Embed:
+    """Menyusun kartu statistik server yang cantik & informatif (tanpa API berbayar)."""
+    stat = _hitung_statistik_server(guild, presence_count)
+
+    embed = discord.Embed(
+        title=f"📊 Statistik Server — {getattr(guild, 'name', 'Server')}",
+        description=(
+            getattr(guild, "description", None)
+            or "_Ringkasan lengkap kondisi server saat ini._"
+        ),
+        color=discord.Color.brand_green(),
+        timestamp=discord.utils.utcnow(),
+    )
+
+    _tambah_field_utama(embed, stat)
+    gid = int(getattr(guild, "id", 0) or 0)
+
+    tiket_terbuka, langganan_sosial = _hitung_aktivitas_fitur(gid)
+
+    _tambah_field_fitur(embed, stat, tiket_terbuka, langganan_sosial)
+
     icon = getattr(guild, "icon", None)
     if icon:
         embed.set_thumbnail(url=icon.url if hasattr(icon, "url") else str(icon))
@@ -554,6 +627,139 @@ def build_serverstats_embed(
 def _stats_channel_name(emoji: str, label: str, value: str) -> str:
     prefix = f"{emoji} " if emoji else ""
     return f"{prefix}{label}: {value}"[:100]
+
+
+async def _ambil_presence_count(guild: discord.Guild, bot, presence_count):
+    """Jumlah member online; ambil ulang lewat API bila belum tersedia."""
+    if bot is not None and presence_count is None:
+        try:
+            fresh = await bot.fetch_guild(guild.id, with_counts=True)
+            presence_count = getattr(fresh, "approximate_presence_count", None)
+        except (discord.HTTPException, AttributeError):
+            presence_count = None
+
+    return presence_count
+
+
+def _nilai_statistik(angka: dict) -> dict:
+    """Ubah angka statistik jadi label siap tampil di nama channel."""
+    return {
+        "members": format_number(angka["members"]),
+        "humans": format_number(angka["humans"]),
+        "bots": format_number(angka["bots"]),
+        "online": format_number(angka["online"]),
+        "boosts": format_number(angka["boosts"]),
+        "tickets": format_number(angka["tickets"]),
+        "social": format_number(angka["social"]),
+    }
+
+
+async def _pastikan_kategori_stats(
+    guild: discord.Guild, cfg: dict
+) -> tuple[discord.CategoryChannel | None, int, bool]:
+    """Pastikan kategori Server Stats ada dan namanya sesuai konfigurasi.
+
+    Mengembalikan `(kategori, jumlah perubahan, boleh lanjut)`.
+    """
+    category = None
+
+    cat_id = cfg.get("category_id")
+
+    if cat_id:
+        found = guild.get_channel(int(cat_id))
+        if isinstance(found, discord.CategoryChannel):
+            category = found
+
+
+    changed = 0
+
+    desired_category = str(cfg.get("category_name") or STATS_CATEGORY_NAME)[:100]
+
+    if category is None:
+        try:
+            category = await guild.create_category(desired_category, reason="Server Stats otomatis")
+            cfg["category_id"] = category.id
+        except (discord.Forbidden, discord.HTTPException, AttributeError) as exc:
+            logger.warning("Gagal membuat kategori Server Stats: %s", sanitize_error_message(exc))
+            return None, 0, False
+    elif str(getattr(category, "name", "")) != desired_category:
+        try:
+            await category.edit(name=desired_category, reason="Ganti nama kategori Server Stats")
+            changed += 1
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+
+    return category, changed, True
+
+
+async def _sinkron_satu_channel(
+    guild: discord.Guild,
+    key: str,
+    label: str,
+    desired: str,
+    kind: int,
+    category,
+    overwrites: dict,
+    channels_cfg: dict,
+) -> tuple[int, bool]:
+    """Selaraskan satu channel penghitung; `(jumlah perubahan, boleh lanjut)`."""
+    changed = 0
+    existing = guild.get_channel(int(channels_cfg[key])) if channels_cfg.get(key) else None
+
+    if not _stats_channel_is_type(existing, kind):
+        # Tipe channel berubah (mis. voice → text): hapus counter lama milik bot,
+        # lalu cari channel sejenis yang sudah ada agar tidak duplikat saat restart.
+        if existing is not None:
+            try:
+                await existing.delete(reason="Server Stats: ganti jenis channel")
+                changed += 1
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+        existing = None
+        for ch in getattr(guild, "channels", []) or []:
+            # Cocokkan lewat label ("Total Member:") + tipe yang sama
+            if f"{label}:" in str(getattr(ch, "name", "")) and _stats_channel_is_type(ch, kind):
+                existing = ch
+                break
+
+
+    try:
+        if existing is None:
+            created = await _create_stats_channel(guild, kind, desired, category, overwrites)
+            channels_cfg[key] = created.id
+            changed += 1
+            return changed, True
+
+        if existing.name != desired:
+            await existing.edit(name=desired, reason="Perbarui Server Stats")
+            changed += 1
+        channels_cfg[key] = existing.id
+    except discord.HTTPException as exc:
+        logger.warning("Gagal memperbarui channel statistik %s: %s", key, sanitize_error_message(exc))
+    except AttributeError:
+        return changed, False
+
+    return changed, True
+
+
+async def _sinkron_semua_channel(
+    guild: discord.Guild, cfg: dict, values: dict, kind: int, overwrites: dict, category
+) -> tuple[int, bool]:
+    """Selaraskan semua channel statistik; `(jumlah perubahan, boleh lanjut)`."""
+    channels_cfg: dict = cfg.setdefault("channels", {})
+    emojis = stats_emojis(guild.id)
+    total = 0
+    for key, _default_emoji, label in STATS_CHANNEL_SPECS:
+        emoji = emojis.get(key, _default_emoji)
+        desired = _stats_channel_name(emoji, label, values[key])
+        tambahan, lanjut = await _sinkron_satu_channel(
+            guild, key, label, desired, kind, category, overwrites, channels_cfg
+        )
+        total += tambahan
+        if not lanjut:
+            return total, False
+    return total, True
 
 
 async def update_serverstats_channels(
@@ -568,99 +774,45 @@ async def update_serverstats_channels(
     hanya dijalankan setiap `SERVERSTATS_UPDATE_SEC` (10 menit) agar 100% aman.
     """
     cfg = serverstats_guilds.get(getattr(guild, "id", 0))
+
     if not cfg or not cfg.get("enabled"):
         return 0
 
+
     now = time.time()
+
     if not force and now - float(cfg.get("last_update_at") or 0.0) < SERVERSTATS_UPDATE_SEC:
         return 0
 
-    presence_count = getattr(guild, "approximate_presence_count", None)
-    if bot is not None and presence_count is None:
-        try:
-            fresh = await bot.fetch_guild(guild.id, with_counts=True)
-            presence_count = getattr(fresh, "approximate_presence_count", None)
-        except (discord.HTTPException, AttributeError):
-            presence_count = None
+
+    presence_count = await _ambil_presence_count(
+        guild, bot, getattr(guild, "approximate_presence_count", None)
+    )
 
     angka = hitung_statistik(guild, presence_count=presence_count)
-    values = {
-        "members": format_number(angka["members"]),
-        "humans": format_number(angka["humans"]),
-        "bots": format_number(angka["bots"]),
-        "online": format_number(angka["online"]),
-        "boosts": format_number(angka["boosts"]),
-        "tickets": format_number(angka["tickets"]),
-        "social": format_number(angka["social"]),
-    }
 
-    category = None
-    cat_id = cfg.get("category_id")
-    if cat_id:
-        found = guild.get_channel(int(cat_id))
-        if isinstance(found, discord.CategoryChannel):
-            category = found
+    values = _nilai_statistik(angka)
 
-    changed = 0
-    desired_category = str(cfg.get("category_name") or STATS_CATEGORY_NAME)[:100]
-    if category is None:
-        try:
-            category = await guild.create_category(desired_category, reason="Server Stats otomatis")
-            cfg["category_id"] = category.id
-        except (discord.Forbidden, discord.HTTPException, AttributeError) as exc:
-            logger.warning("Gagal membuat kategori Server Stats: %s", sanitize_error_message(exc))
-            return 0
-    elif str(getattr(category, "name", "")) != desired_category:
-        try:
-            await category.edit(name=desired_category, reason="Ganti nama kategori Server Stats")
-            changed += 1
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+    category, changed, lanjut = await _pastikan_kategori_stats(guild, cfg)
+    if not lanjut:
+        return 0
 
     kind = stats_channel_type(guild.id)
+
     overwrites = _stats_overwrites(guild, kind)
 
-    channels_cfg: dict = cfg.setdefault("channels", {})
-    emojis = stats_emojis(guild.id)
-    for key, _default_emoji, label in STATS_CHANNEL_SPECS:
-        emoji = emojis.get(key, _default_emoji)
-        desired = _stats_channel_name(emoji, label, values[key])
-        existing = guild.get_channel(int(channels_cfg[key])) if channels_cfg.get(key) else None
 
-        if not _stats_channel_is_type(existing, kind):
-            # Tipe channel berubah (mis. voice → text): hapus counter lama milik bot,
-            # lalu cari channel sejenis yang sudah ada agar tidak duplikat saat restart.
-            if existing is not None:
-                try:
-                    await existing.delete(reason="Server Stats: ganti jenis channel")
-                    changed += 1
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-            existing = None
-            for ch in getattr(guild, "channels", []) or []:
-                # Cocokkan lewat label ("Total Member:") + tipe yang sama
-                if f"{label}:" in str(getattr(ch, "name", "")) and _stats_channel_is_type(ch, kind):
-                    existing = ch
-                    break
-
-        try:
-            if existing is None:
-                created = await _create_stats_channel(guild, kind, desired, category, overwrites)
-                channels_cfg[key] = created.id
-                changed += 1
-                continue
-
-            if existing.name != desired:
-                await existing.edit(name=desired, reason="Perbarui Server Stats")
-                changed += 1
-            channels_cfg[key] = existing.id
-        except discord.HTTPException as exc:
-            logger.warning("Gagal memperbarui channel statistik %s: %s", key, sanitize_error_message(exc))
-        except AttributeError:
-            return 0
+    tambahan, lanjut = await _sinkron_semua_channel(
+        guild, cfg, values, kind, overwrites, category
+    )
+    if not lanjut:
+        return 0
+    changed += tambahan
 
     cfg["last_update_at"] = now
+
     await save_server_features_to_disk()
+
     return changed
 
 
@@ -1272,6 +1424,80 @@ def _is_official_domain(host: str, brand: str) -> bool:
     return False
 
 
+def _skor_sinyal_domain(
+    host: str, bare_host: str, tld: str, impersonated, parts
+) -> tuple[int, list[str]]:
+    """Poin risiko dari bentuk domain itu sendiri."""
+    reasons: list[str] = []
+    score = 0
+    if bare_host in KNOWN_BAD_HOSTS or host in KNOWN_BAD_HOSTS:
+        score = 100
+        reasons.append("Domain ada di daftar hitam phishing")
+    if _PUNYCODE_RE.search(host):
+        score += 55
+        reasons.append("Domain memakai karakter punycode (`xn--`) untuk menyamarkan brand")
+    if _IPV4_RE.match(host):
+        score += 40
+        reasons.append("Link memakai alamat IP langsung, bukan nama domain resmi")
+    if impersonated:
+        score += 60
+        reasons.append(f"Meniru brand **{impersonated.title()}** tetapi bukan domain resmi")
+    if tld in HIGH_RISK_TLDS:
+        score += 40
+        reasons.append(f"Akronim domain `.{tld}` sangat sering dipakai kampanye phishing")
+    elif tld in SUSPICIOUS_TLDS:
+        score += 18
+        reasons.append(f"Akronim domain `.{tld}` perlu diwaspadai")
+    if bare_host in URL_SHORTENERS or host in URL_SHORTENERS:
+        score += 30
+        reasons.append("Link pemendek URL menyembunyikan alamat asli")
+    if "@" in (parts.netloc or ""):
+        score += 45
+        reasons.append("Link memakai trik `@` untuk menyamarkan domain asli")
+    return score, reasons
+
+
+def _skor_sinyal_struktur(
+    host: str, labels: list, tld: str, suspicious_context: bool, parts
+) -> tuple[int, list[str]]:
+    """Poin risiko dari struktur host (subdomain, tanda hubung, panjang, angka)."""
+    reasons: list[str] = []
+    score = 0
+    is_ip_host = _IPV4_RE.match(host) is not None
+    if not is_ip_host and len(labels) >= 4:
+        score += 15
+        reasons.append("Subdomain bertumpuk tidak wajar")
+    hyphen_count = host.count("-")
+    if not is_ip_host and hyphen_count >= 2:
+        score += 12
+        reasons.append("Domain memakai banyak tanda hubung (ciri domain tiruan)")
+    if not is_ip_host and tld in HIGH_RISK_TLDS and len(labels) >= 3:
+        score += 10
+    if suspicious_context and any(k in (parts.path or "").lower() for k in PHISHING_KEYWORDS):
+        score += 10
+    if suspicious_context and any(k in host for k in PHISHING_KEYWORDS):
+        score += 12
+    if len(host) > 45:
+        score += 8
+    if re.search(r"\d{4,}", host):
+        score += 8
+    return score, reasons
+
+
+def _nilai_risiko(score: int, reasons: list[str]) -> tuple[int, str]:
+    """Batasi skor 0..100 lalu tentukan vonisnya."""
+    score = max(0, min(100, score))
+    if score >= 60:
+        verdict = "berbahaya"
+    elif score >= 30:
+        verdict = "mencurigakan"
+    else:
+        verdict = "aman"
+        if not reasons:
+            reasons.append("Tidak ada pola phishing yang terdeteksi")
+    return score, verdict
+
+
 def analyze_url_risk(raw_url: str) -> dict:
     """Menganalisis risiko satu link tanpa API berbayar.
 
@@ -1319,60 +1545,14 @@ def analyze_url_risk(raw_url: str) -> dict:
         or _IPV4_RE.match(host) is not None
         or _PUNYCODE_RE.search(host) is not None
     )
+    poin_domain, alasan_domain = _skor_sinyal_domain(host, bare_host, tld, impersonated, parts)
+    poin_struktur, alasan_struktur = _skor_sinyal_struktur(
+        host, labels, tld, suspicious_context, parts
+    )
+    score += poin_domain + poin_struktur
+    reasons.extend(alasan_domain + alasan_struktur)
 
-    if bare_host in KNOWN_BAD_HOSTS or host in KNOWN_BAD_HOSTS:
-        score = 100
-        reasons.append("Domain ada di daftar hitam phishing")
-    if _PUNYCODE_RE.search(host):
-        score += 55
-        reasons.append("Domain memakai karakter punycode (`xn--`) untuk menyamarkan brand")
-    if _IPV4_RE.match(host):
-        score += 40
-        reasons.append("Link memakai alamat IP langsung, bukan nama domain resmi")
-    if impersonated:
-        score += 60
-        reasons.append(f"Meniru brand **{impersonated.title()}** tetapi bukan domain resmi")
-    if tld in HIGH_RISK_TLDS:
-        score += 40
-        reasons.append(f"Akronim domain `.{tld}` sangat sering dipakai kampanye phishing")
-    elif tld in SUSPICIOUS_TLDS:
-        score += 18
-        reasons.append(f"Akronim domain `.{tld}` perlu diwaspadai")
-    if bare_host in URL_SHORTENERS or host in URL_SHORTENERS:
-        score += 30
-        reasons.append("Link pemendek URL menyembunyikan alamat asli")
-    if "@" in (parts.netloc or ""):
-        score += 45
-        reasons.append("Link memakai trik `@` untuk menyamarkan domain asli")
-    is_ip_host = _IPV4_RE.match(host) is not None
-    if not is_ip_host and len(labels) >= 4:
-        score += 15
-        reasons.append("Subdomain bertumpuk tidak wajar")
-    hyphen_count = host.count("-")
-    if not is_ip_host and hyphen_count >= 2:
-        score += 12
-        reasons.append("Domain memakai banyak tanda hubung (ciri domain tiruan)")
-    if not is_ip_host and tld in HIGH_RISK_TLDS and len(labels) >= 3:
-        score += 10
-    if suspicious_context and any(k in (parts.path or "").lower() for k in PHISHING_KEYWORDS):
-        score += 10
-    if suspicious_context and any(k in host for k in PHISHING_KEYWORDS):
-        score += 12
-    if len(host) > 45:
-        score += 8
-    if re.search(r"\d{4,}", host):
-        score += 8
-
-    score = max(0, min(100, score))
-    if score >= 60:
-        verdict = "berbahaya"
-    elif score >= 30:
-        verdict = "mencurigakan"
-    else:
-        verdict = "aman"
-        if not reasons:
-            reasons.append("Tidak ada pola phishing yang terdeteksi")
-
+    score, verdict = _nilai_risiko(score, reasons)
     return {
         "url": url,
         "host": host,

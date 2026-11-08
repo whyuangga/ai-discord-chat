@@ -209,8 +209,8 @@ async def save_game_scores_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, GAME_SCORES_FILE)
-        except Exception as exc:
-            logger.error("Gagal menyimpan %s: %s", GAME_SCORES_FILE, exc)
+        except Exception:
+            logger.exception("Gagal menyimpan %s", GAME_SCORES_FILE)
 
 
 def award_game_points(
@@ -342,20 +342,8 @@ def _extract_json_dict(raw_text: str) -> dict | None:
         return None
 
 
-async def generate_ai_game_question(
-    mode: str,
-    guild_id: int,
-    *,
-    http_session: aiohttp.ClientSession | None = None,
-) -> dict:
-    """Membuat soal mini-game baru secara dinamis menggunakan Gemini JSON (dilengkapi fallback lokal instan)."""
-    avoid_list = _recent_game_answers.get(int(guild_id), [])[-15:]
-    avoid_note = (
-        f"\nJANGAN gunakan jawaban yang sudah pernah keluar ini: {', '.join(avoid_list)}."
-        if avoid_list
-        else ""
-    )
-
+def _prompt_game(mode: str, avoid_note: str) -> str | None:
+    """Prompt JSON sesuai mode; `None` untuk mode yang tak butuh AI."""
     if mode == "trivia":
         prompt = (
             "Buat 1 soal kuis trivia seru berbahasa Indonesia (pilih topik acak: pengetahuan umum unik, sains populer, "
@@ -394,8 +382,6 @@ async def generate_ai_game_question(
             '"extra_hint": "1 kalimat petunjuk Bahasa Indonesia tanpa membocorkan jawaban"}'
             f"{avoid_note}"
         )
-    elif mode == "word_chain":
-        return random.choice(_FALLBACK_WORD_CHAIN).copy()
     else:  # scramble
         prompt = (
             "Pilih 1 kata benda/istilah populer Bahasa Indonesia (1 kata tunggal tanpa spasi, panjang 6–9 huruf, "
@@ -404,48 +390,57 @@ async def generate_ai_game_question(
             '{"answer": "KATAJAWABAN", "category": "...", "extra_hint": "1 kalimat petunjuk arti katanya"}'
             f"{avoid_note}"
         )
+    return prompt
 
-    if is_gemini_key_configured():
-        active_keys = get_gemini_keys_rotated()
-        models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-        async with _borrow_session(http_session, FAST_TEXT_TIMEOUT) as session:
-            for idx, model_id in enumerate(models[:2]):
-                gen_cfg: dict = {
-                    "temperature": 0.9,
-                    "maxOutputTokens": 1024,
-                    "responseMimeType": "application/json",
-                }
-                t_cfg = build_thinking_config(model_id, "minimal")
-                if t_cfg:
-                    gen_cfg["thinkingConfig"] = t_cfg
-                payload = {
-                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                    "generationConfig": gen_cfg,
-                }
-                url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-                headers = {
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": active_keys[idx % len(active_keys)],
-                }
-                try:
-                    async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
-                        data = await resp.json(content_type=None)
-                        if resp.status == 200 and isinstance(data, dict):
-                            raw_txt, _, _ = _extract_text_from_gemini_response(data)
-                            parsed = _extract_json_dict(raw_txt or "") if raw_txt else None
-                            if parsed and _validate_game_payload(mode, parsed):
-                                ans_str = (
-                                    parsed["options"][parsed["correct_index"]]
-                                    if mode == "trivia"
-                                    else str(parsed["answer"])
-                                )
-                                _record_recent_answer(guild_id, ans_str)
-                                return parsed
-                        elif resp.status in (500, 502, 503, 504):
-                            mark_model_unhealthy(model_id)
-                except Exception as exc:
-                    logger.debug("Fallback game lokal karena API (%s): %s", model_id, sanitize_error_message(exc))
 
+async def _minta_soal_gemini(
+    mode: str, guild_id: int, prompt: str, http_session
+) -> dict | None:
+    """Minta satu soal JSON dari Gemini; `None` bila semua percobaan gagal."""
+    active_keys = get_gemini_keys_rotated()
+    models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
+    async with _borrow_session(http_session, FAST_TEXT_TIMEOUT) as session:
+        for idx, model_id in enumerate(models[:2]):
+            gen_cfg: dict = {
+                "temperature": 0.9,
+                "maxOutputTokens": 1024,
+                "responseMimeType": "application/json",
+            }
+            t_cfg = build_thinking_config(model_id, "minimal")
+            if t_cfg:
+                gen_cfg["thinkingConfig"] = t_cfg
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": gen_cfg,
+            }
+            url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": active_keys[idx % len(active_keys)],
+            }
+            try:
+                async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status == 200 and isinstance(data, dict):
+                        raw_txt, _, _ = _extract_text_from_gemini_response(data)
+                        parsed = _extract_json_dict(raw_txt or "") if raw_txt else None
+                        if parsed and _validate_game_payload(mode, parsed):
+                            ans_str = (
+                                parsed["options"][parsed["correct_index"]]
+                                if mode == "trivia"
+                                else str(parsed["answer"])
+                            )
+                            _record_recent_answer(guild_id, ans_str)
+                            return parsed
+                    elif resp.status in (500, 502, 503, 504):
+                        mark_model_unhealthy(model_id)
+            except Exception as exc:
+                logger.debug("Fallback game lokal karena API (%s): %s", model_id, sanitize_error_message(exc))
+    return None
+
+
+def _soal_fallback(mode: str) -> dict:
+    """Soal cadangan lokal agar game tetap jalan tanpa API."""
     # Fallback instan lokal jika API sedang sibuk
     if mode == "trivia":
         return random.choice(_FALLBACK_TRIVIA).copy()
@@ -458,6 +453,32 @@ async def generate_ai_game_question(
     if mode == "word_chain":
         return random.choice(_FALLBACK_WORD_CHAIN).copy()
     return random.choice(_FALLBACK_SCRAMBLE).copy()
+
+
+async def generate_ai_game_question(
+    mode: str,
+    guild_id: int,
+    *,
+    http_session: aiohttp.ClientSession | None = None,
+) -> dict:
+    """Membuat soal mini-game baru secara dinamis menggunakan Gemini JSON (dilengkapi fallback lokal instan)."""
+    avoid_list = _recent_game_answers.get(int(guild_id), [])[-15:]
+    avoid_note = (
+        f"\nJANGAN gunakan jawaban yang sudah pernah keluar ini: {', '.join(avoid_list)}."
+        if avoid_list
+        else ""
+    )
+    if mode == "word_chain":
+        return random.choice(_FALLBACK_WORD_CHAIN).copy()
+
+    prompt = _prompt_game(mode, avoid_note)
+    if prompt and is_gemini_key_configured():
+        soal = await _minta_soal_gemini(mode, guild_id, prompt, http_session)
+        if soal is not None:
+            return soal
+
+    # Fallback instan lokal jika API sedang sibuk
+    return _soal_fallback(mode)
 
 
 def _validate_game_payload(mode: str, data: dict) -> bool:
@@ -824,22 +845,53 @@ class WordChainControlView(discord.ui.View):
         )
 
 
-async def handle_active_game_guess(message: discord.Message) -> bool:
-    """Memeriksa apakah pesan teks di channel merupakan tebakan untuk Mini-Game yang sedang berlangsung.
+async def _catat_kata_valid(
+    message: discord.Message,
+    state: dict,
+    candidate: str,
+    used_words: set[str],
+    now_mono: float,
+) -> int:
+    """Perbarui state rantai, beri poin, dan catat skor ronde. Kembalikan poin."""
+    used_words.add(candidate)
+    state["current_word"] = candidate.upper()
+    state["last_user_id"] = message.author.id
+    state["last_turn_at"] = now_mono
+    state["chain_count"] = int(state.get("chain_count") or 0) + 1
+    state.setdefault("chain_words", []).append(candidate.upper())
+    pts = int(state.get("points") or GAME_POINTS_BY_MODE["word_chain"])
+    guild_id = message.guild.id if message.guild else int(state.get("guild_id") or 0)
+    award_game_points(
+        guild_id,
+        message.author.id,
+        message.author.display_name,
+        pts,
+        increment_win=False,
+    )
+    await save_game_scores_to_disk()
+    r_scores = state.setdefault("round_scores", {})
+    p_entry = r_scores.setdefault(
+        message.author.id,
+        {"name": message.author.display_name[:40], "points": 0, "words": 0},
+    )
+    p_entry["points"] += pts
+    p_entry["words"] += 1
+    return pts
 
-    Returns:
-        True jika pesan ditangani oleh sistem game (tebakan benar atau tebakan pendek selama ronde aktif),
-        sehingga Auto-Chat tidak ikut menimpa/membocorkan jawaban.
+
+async def _reaksi_aman(message: discord.Message, emoji: str) -> None:
+    """Tambahkan reaksi; abaikan bila bot tidak punya izin."""
+    try:
+        await message.add_reaction(emoji)
+    except discord.HTTPException:
+        pass
+
+
+async def _tebak_sambung_kata(message: discord.Message, state: dict, content: str) -> bool | None:
+    """Proses satu tebakan pada ronde sambung kata.
+
+    `None` berarti pesan bukan tebakan (biarkan Auto-Chat menanganinya).
     """
-    state = active_channel_games.get(message.channel.id)
-    if not state or state.get("type") == "trivia":
-        return False
-
-    content = (message.content or "").strip()
-    if not content:
-        return False
-
-    # Mode Khusus: ⛓️ Sambung Kata (0 panggilan API Gemini per giliran!)
     if state.get("type") == "word_chain":
         # Abaikan kalimat ngobrol panjang (> 1 kata) agar warga lain tetap bisa berdiskusi normal
         raw_tokens = content.split()
@@ -855,10 +907,7 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
         ok, reason = is_valid_indonesian_chain_word(candidate, req_letter, used_words)
         if not ok:
             if reason == "already_used":
-                try:
-                    await message.add_reaction("🔁")
-                except discord.HTTPException:
-                    pass
+                await _reaksi_aman(message, "🔁")
             return True
 
         now_mono = time.monotonic()
@@ -866,43 +915,15 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
             state.get("last_user_id") == message.author.id
             and (now_mono - float(state.get("last_turn_at") or 0.0)) < WORD_CHAIN_SOLO_COOLDOWN_SEC
         ):
-            try:
-                await message.add_reaction("⏳")
-            except discord.HTTPException:
-                pass
+            await _reaksi_aman(message, "⏳")
             return True
 
         # Kata Valid!
-        used_words.add(candidate)
-        state["current_word"] = candidate.upper()
-        state["last_user_id"] = message.author.id
-        state["last_turn_at"] = now_mono
-        state["chain_count"] = int(state.get("chain_count") or 0) + 1
-        state.setdefault("chain_words", []).append(candidate.upper())
-
-        pts = int(state.get("points") or GAME_POINTS_BY_MODE["word_chain"])
-        guild_id = message.guild.id if message.guild else int(state.get("guild_id") or 0)
-        award_game_points(
-            guild_id,
-            message.author.id,
-            message.author.display_name,
-            pts,
-            increment_win=False,
+        pts = await _catat_kata_valid(
+            message, state, candidate, used_words, now_mono
         )
-        await save_game_scores_to_disk()
 
-        r_scores = state.setdefault("round_scores", {})
-        p_entry = r_scores.setdefault(
-            message.author.id,
-            {"name": message.author.display_name[:40], "points": 0, "words": 0},
-        )
-        p_entry["points"] += pts
-        p_entry["words"] += 1
-
-        try:
-            await message.add_reaction("✅")
-        except discord.HTTPException:
-            pass
+        await _reaksi_aman(message, "✅")
 
         if state["chain_count"] >= WORD_CHAIN_MAX_TURNS:
             await finish_word_chain_round(
@@ -923,7 +944,11 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
         except discord.HTTPException:
             pass
         return True
+    return None
 
+
+async def _tebak_kata_biasa(message: discord.Message, state: dict, content: str) -> bool:
+    """Proses tebakan pada ronde tebak-teks (emoji, gambar, teka-teki, susun huruf)."""
     valid_list = [state["answer"], *state.get("aliases", [])]
     if is_matching_guess(content, valid_list):
         won_state = active_channel_games.pop(message.channel.id, None)
@@ -972,7 +997,25 @@ async def handle_active_game_guess(message: discord.Message) -> bool:
     if len(content.split()) <= 5 and not message.mentions:
         return True
 
-    return False
+
+
+async def handle_active_game_guess(message: discord.Message) -> bool:
+    """Memeriksa apakah pesan teks di channel merupakan tebakan untuk Mini-Game yang
+    sedang berjalan. Bila ya, proses tebakannya (hadiah poin) dan kembalikan `True`
+    supaya pesan itu tidak men-trigger Auto-Chat AI.
+    """
+    state = active_channel_games.get(message.channel.id)
+    if not state or state.get("type") == "trivia":
+        return False
+
+    content = (message.content or "").strip()
+    if not content:
+        return False
+    if state.get("type") == "word_chain":
+        hasil = await _tebak_sambung_kata(message, state, content)
+        return bool(hasil)
+
+    return await _tebak_kata_biasa(message, state, content)
 
 
 def cancel_channel_game(channel_id: int) -> dict | None:

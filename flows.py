@@ -1,4 +1,4 @@
-"""Alur aksi tombol (*flows*) — satu tombol bisa menjalankan beberapa aksi berurutan.
+r"""Alur aksi tombol (*flows*) — satu tombol bisa menjalankan beberapa aksi berurutan.
 
 Ide ini dipinjam dari **Discohook** (`flows`): tombol tidak hanya memberi role, tapi juga
 bisa mengirim pesan, membuat thread, menunggu, dan berhenti bila syarat tidak terpenuhi —
@@ -135,11 +135,81 @@ def _role_id(value: str) -> int:
     return int(bersih) if bersih.isdigit() else 0
 
 
+def _parse_satu_bagian(
+    posisi: int,
+    bagian: str,
+    langkah: list[dict],
+    galat: list[str],
+) -> None:
+    """Urai satu potongan teks alur; hasilnya ditambahkan ke langkah/galat."""
+    nama, _, argumen = bagian.partition(":")
+    nama = nama.strip().lower()
+    argumen = argumen.strip()
+    aksi = _PREFIX.get(nama)
+    if aksi is None:
+        galat.append(f"Langkah {posisi}: `{nama}` tidak dikenal — cek `/menu alur-bantuan`.")
+        return
+    if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE, ACTION_REQUIRE_ROLE):
+        role_id = _role_id(argumen)
+        if not role_id:
+            galat.append(f"Langkah {posisi}: `{nama}` butuh ID role angka, mis. `{nama}:123456789`.")
+            return
+        langkah.append({"action": aksi, "role_id": role_id})
+        return
+    if aksi == ACTION_SAY:
+        if not argumen:
+            galat.append(f"Langkah {posisi}: `{nama}` butuh teks pesan.")
+            return
+        langkah.append(
+            {
+                "action": ACTION_SAY,
+                "text": argumen[:MAX_TEXT],
+                "ephemeral": nama == "pesan",
+            }
+        )
+        return
+    if aksi == ACTION_THREAD:
+        if not argumen:
+            galat.append(f"Langkah {posisi}: `thread` butuh nama thread.")
+            return
+        langkah.append({"action": ACTION_THREAD, "name": argumen[:MAX_THREAD_NAME]})
+        return
+    if aksi == ACTION_WAIT:
+        try:
+            detik = float(argumen.replace(",", "."))
+        except ValueError:
+            galat.append(f"Langkah {posisi}: `tunggu` butuh angka detik, mis. `tunggu:3`.")
+            return
+        if detik <= 0 or detik > MAX_WAIT_SECONDS:
+            galat.append(f"Langkah {posisi}: `tunggu` harus antara 1–{int(MAX_WAIT_SECONDS)} detik.")
+            return
+        langkah.append({"action": ACTION_WAIT, "seconds": round(detik, 2)})
+        return
+    if aksi == ACTION_STOP:
+        langkah.append({"action": ACTION_STOP, "text": argumen[:MAX_TEXT]})
+        return
+    if aksi == ACTION_WEBHOOK:
+        identitas, _, teks = argumen.partition("|")
+        identitas = identitas.strip()[:80]
+        teks = teks.strip()
+        if not identitas or not teks:
+            galat.append(
+                f"Langkah {posisi}: `webhook` butuh format `webhook:<nama>|<teks>`."
+            )
+            return
+        langkah.append(
+            {"action": ACTION_WEBHOOK, "name": identitas, "text": teks[:MAX_TEXT]}
+        )
+        return
+    if aksi == ACTION_DELETE:
+        langkah.append({"action": ACTION_DELETE})
+        return
+
+
 def parse(text: str) -> tuple[list[dict], list[str]]:
     """Ubah teks alur menjadi daftar langkah. Kembalikan `(langkah, galat)`."""
     langkah: list[dict] = []
     galat: list[str] = []
-
     mentah = [bagian.strip() for bagian in split_steps(text)]
     mentah = [bagian for bagian in mentah if bagian]
     if not mentah:
@@ -148,75 +218,7 @@ def parse(text: str) -> tuple[list[dict], list[str]]:
         return [], [f"Terlalu banyak langkah ({len(mentah)}), maksimal {MAX_STEPS}."]
 
     for posisi, bagian in enumerate(mentah, start=1):
-        nama, _, argumen = bagian.partition(":")
-        nama = nama.strip().lower()
-        argumen = argumen.strip()
-        aksi = _PREFIX.get(nama)
-        if aksi is None:
-            galat.append(f"Langkah {posisi}: `{nama}` tidak dikenal — cek `/menu alur-bantuan`.")
-            continue
-
-        if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE, ACTION_REQUIRE_ROLE):
-            role_id = _role_id(argumen)
-            if not role_id:
-                galat.append(f"Langkah {posisi}: `{nama}` butuh ID role angka, mis. `{nama}:123456789`.")
-                continue
-            langkah.append({"action": aksi, "role_id": role_id})
-            continue
-
-        if aksi == ACTION_SAY:
-            if not argumen:
-                galat.append(f"Langkah {posisi}: `{nama}` butuh teks pesan.")
-                continue
-            langkah.append(
-                {
-                    "action": ACTION_SAY,
-                    "text": argumen[:MAX_TEXT],
-                    "ephemeral": nama == "pesan",
-                }
-            )
-            continue
-
-        if aksi == ACTION_THREAD:
-            if not argumen:
-                galat.append(f"Langkah {posisi}: `thread` butuh nama thread.")
-                continue
-            langkah.append({"action": ACTION_THREAD, "name": argumen[:MAX_THREAD_NAME]})
-            continue
-
-        if aksi == ACTION_WAIT:
-            try:
-                detik = float(argumen.replace(",", "."))
-            except ValueError:
-                galat.append(f"Langkah {posisi}: `tunggu` butuh angka detik, mis. `tunggu:3`.")
-                continue
-            if detik <= 0 or detik > MAX_WAIT_SECONDS:
-                galat.append(f"Langkah {posisi}: `tunggu` harus antara 1–{int(MAX_WAIT_SECONDS)} detik.")
-                continue
-            langkah.append({"action": ACTION_WAIT, "seconds": round(detik, 2)})
-            continue
-
-        if aksi == ACTION_STOP:
-            langkah.append({"action": ACTION_STOP, "text": argumen[:MAX_TEXT]})
-            continue
-
-        if aksi == ACTION_WEBHOOK:
-            identitas, _, teks = argumen.partition("|")
-            identitas = identitas.strip()[:80]
-            teks = teks.strip()
-            if not identitas or not teks:
-                galat.append(
-                    f"Langkah {posisi}: `webhook` butuh format `webhook:<nama>|<teks>`."
-                )
-                continue
-            langkah.append(
-                {"action": ACTION_WEBHOOK, "name": identitas, "text": teks[:MAX_TEXT]}
-            )
-            continue
-
-        if aksi == ACTION_DELETE:
-            langkah.append({"action": ACTION_DELETE})
-            continue
+        _parse_satu_bagian(posisi, bagian, langkah, galat)
 
     return langkah, galat
 
@@ -357,6 +359,167 @@ async def _kirim(interaction, teks: str, *, ephemeral: bool, sudah_balas: bool) 
         return False
 
 
+async def _aksi_ubah_role(
+    interaction, guild, member, aksi: str, step: dict, hasil: dict, sudah_balas: bool
+) -> bool:
+    """Tambah/hapus/toggle role sesuai langkah; kembalikan `sudah_balas`."""
+    if guild is None or member is None:
+        hasil["errors"].append("tanpa konteks server")
+        return sudah_balas
+    role_id = step["role_id"]
+    role = guild.get_role(role_id)
+    if role is None:
+        hasil["errors"].append(f"role {role_id} tidak ada")
+        return sudah_balas
+    import menu_builder  # impor lambat: menu_builder juga memakai modul ini
+
+    boleh, alasan = menu_builder.check_role_usable(guild, role_id)
+    if not boleh:
+        await _kirim(interaction, f"⚠️ {alasan}", ephemeral=True, sudah_balas=sudah_balas)
+        sudah_balas = True
+        hasil["errors"].append(f"role {role_id} ditolak")
+        return sudah_balas
+
+    punya = role in getattr(member, "roles", [])
+    try:
+        if aksi == ACTION_ROLE_TOGGLE and punya:
+            await member.remove_roles(role, reason="Alur menu")
+        elif aksi == ACTION_ROLE_TOGGLE:
+            await member.add_roles(role, reason="Alur menu")
+        elif aksi == ACTION_ROLE_ADD and not punya:
+            await member.add_roles(role, reason="Alur menu")
+        elif aksi == ACTION_ROLE_REMOVE and punya:
+            await member.remove_roles(role, reason="Alur menu")
+        else:
+            return sudah_balas
+    except Exception as exc:
+        hasil["errors"].append(f"gagal ubah role {role_id}: {type(exc).__name__}")
+        return sudah_balas
+    hasil["roles"].append(role_id)
+    return sudah_balas
+
+
+async def _aksi_thread(
+    channel, step: dict, hasil: dict, konteks: dict
+) -> None:
+    """Buat thread diskusi publik untuk langkah `thread`."""
+    nama = message_template.render(str(step.get("name") or ""), **konteks)[:MAX_THREAD_NAME]
+    if channel is None or not hasattr(channel, "create_thread"):
+        hasil["errors"].append("channel tidak mendukung thread")
+        return
+    try:
+        thread = await channel.create_thread(
+            name=(nama or "diskusi")[:MAX_THREAD_NAME],
+            type=discord.ChannelType.public_thread,
+            auto_archive_duration=1440,
+            reason="Alur menu",
+        )
+    except Exception as exc:
+        hasil["errors"].append(f"gagal buat thread: {type(exc).__name__}")
+        return
+    hasil["threads"].append(getattr(thread, "id", 0))
+    return
+
+
+async def _aksi_webhook(
+    channel, step: dict, hasil: dict, konteks: dict
+) -> None:
+    """Kirim pesan lewat webhook server untuk langkah `webhook`."""
+    import webhook_identity  # impor lambat: modul ini memakai data & izin channel
+
+    nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
+    teks = message_template.render(str(step.get("text") or ""), **konteks)
+    if not teks.strip() or channel is None:
+        hasil["errors"].append("webhook butuh channel teks")
+        return
+    ok, keterangan = await webhook_identity.kirim_sebagai(
+        channel, nama=nama or "Server", isi=teks
+    )
+    if not ok:
+        hasil["errors"].append(f"webhook ditolak: {keterangan}")
+        hasil["sent"] += 0
+        return
+    hasil["sent"] += 1
+    return
+
+
+async def _siapkan_defer(interaction, langkah: list[dict]) -> bool:
+    """Defer respons bila ada langkah yang butuh waktu. True bila sudah dibalas."""
+    butuh_defer = any(step["action"] in (ACTION_WAIT, ACTION_THREAD) for step in langkah)
+    if butuh_defer and not interaction.response.is_done():
+        try:
+            await interaction.response.defer(ephemeral=False, thinking=True)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Defer alur dilewati: %s", exc)
+    return bool(interaction.response.is_done())
+
+
+async def _jalankan_langkah(
+    interaction,
+    step: dict,
+    hasil: FlowResult,
+    konteks: dict,
+    guild,
+    member,
+    channel,
+    sudah_balas: bool,
+) -> tuple[bool, bool]:
+    """Proses satu langkah. Kembalikan (sudah_balas, harus_berhenti)."""
+    aksi = step["action"]
+    if aksi == ACTION_REQUIRE_ROLE:
+        role = guild.get_role(step["role_id"]) if guild is not None else None
+        punya = role is not None and role in getattr(member, "roles", [])
+        if role is None or not punya:
+            hasil["stopped"] = True
+            return sudah_balas, True
+        return sudah_balas, False
+    if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE):
+        sudah_balas = await _aksi_ubah_role(
+            interaction, guild, member, aksi, step, hasil, sudah_balas
+        )
+        return sudah_balas, False
+    if aksi == ACTION_SAY:
+        teks = message_template.render(str(step.get("text") or ""), **konteks)
+        if not teks.strip():
+            return sudah_balas, False
+        await _kirim(
+            interaction,
+            teks,
+            ephemeral=bool(step.get("ephemeral", True)),
+            sudah_balas=sudah_balas,
+        )
+        sudah_balas = True
+        hasil["sent"] += 1
+        return sudah_balas, False
+    if aksi == ACTION_THREAD:
+        await _aksi_thread(channel, step, hasil, konteks)
+        return sudah_balas, False
+    if aksi == ACTION_WAIT:
+        await asyncio.sleep(float(step.get("seconds") or 0))
+        return sudah_balas, False
+    if aksi == ACTION_WEBHOOK:
+        await _aksi_webhook(channel, step, hasil, konteks)
+        return sudah_balas, False
+    if aksi == ACTION_DELETE:
+        try:
+            pesan = await interaction.original_response()
+            await pesan.delete()
+        except Exception as exc:  # pragma: no cover - pesan sudah hilang
+            logger.debug("Alur gagal menghapus balasan: %s", exc)
+            hasil["errors"].append("balasan tidak bisa dihapus")
+        return sudah_balas, False
+    if aksi == ACTION_STOP:
+        teks = message_template.render(str(step.get("text") or ""), **konteks)
+        if teks.strip():
+            await _kirim(interaction, teks, ephemeral=True, sudah_balas=sudah_balas)
+            sudah_balas = True
+            hasil["sent"] += 1
+        hasil["stopped"] = True
+        return sudah_balas, True
+
+    return sudah_balas, False
+
+
 async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, channel=None) -> FlowResult:
     """Jalankan langkah alur atas nama member yang mengklik tombol."""
     langkah = sanitize_steps(steps)
@@ -364,138 +527,18 @@ async def run_flow(interaction, steps: list[dict], *, guild=None, member=None, c
     guild = guild if guild is not None else getattr(interaction, "guild", None)
     member = member if member is not None else getattr(interaction, "user", None)
     channel = channel if channel is not None else getattr(interaction, "channel", None)
-
     if not langkah:
         hasil["errors"].append("alur kosong")
         return hasil
 
-    butuh_defer = any(step["action"] in (ACTION_WAIT, ACTION_THREAD) for step in langkah)
-    if butuh_defer and not interaction.response.is_done():
-        try:
-            await interaction.response.defer(ephemeral=False, thinking=True)
-        except Exception as exc:  # pragma: no cover
-            logger.debug("Defer alur dilewati: %s", exc)
-
-    sudah_balas = bool(interaction.response.is_done())
+    sudah_balas = await _siapkan_defer(interaction, langkah)
     konteks = {"guild": guild, "member": member, "channel": channel}
 
-    import menu_builder  # impor lambat: menu_builder juga memakai modul ini
-
     for step in langkah:
-        aksi = step["action"]
-
-        if aksi == ACTION_REQUIRE_ROLE:
-            role = guild.get_role(step["role_id"]) if guild is not None else None
-            punya = role is not None and role in getattr(member, "roles", [])
-            if role is None or not punya:
-                hasil["stopped"] = True
-                return hasil
-            continue
-
-        if aksi in (ACTION_ROLE_TOGGLE, ACTION_ROLE_ADD, ACTION_ROLE_REMOVE):
-            if guild is None or member is None:
-                hasil["errors"].append("tanpa konteks server")
-                continue
-            role_id = step["role_id"]
-            role = guild.get_role(role_id)
-            if role is None:
-                hasil["errors"].append(f"role {role_id} tidak ada")
-                continue
-            boleh, alasan = menu_builder.check_role_usable(guild, role_id)
-            if not boleh:
-                await _kirim(interaction, f"⚠️ {alasan}", ephemeral=True, sudah_balas=sudah_balas)
-                sudah_balas = True
-                hasil["errors"].append(f"role {role_id} ditolak")
-                continue
-
-            punya = role in getattr(member, "roles", [])
-            try:
-                if aksi == ACTION_ROLE_TOGGLE and punya:
-                    await member.remove_roles(role, reason="Alur menu")
-                elif aksi == ACTION_ROLE_TOGGLE:
-                    await member.add_roles(role, reason="Alur menu")
-                elif aksi == ACTION_ROLE_ADD and not punya:
-                    await member.add_roles(role, reason="Alur menu")
-                elif aksi == ACTION_ROLE_REMOVE and punya:
-                    await member.remove_roles(role, reason="Alur menu")
-                else:
-                    continue
-            except Exception as exc:
-                hasil["errors"].append(f"gagal ubah role {role_id}: {type(exc).__name__}")
-                continue
-            hasil["roles"].append(role_id)
-            continue
-
-        if aksi == ACTION_SAY:
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if not teks.strip():
-                continue
-            await _kirim(
-                interaction,
-                teks,
-                ephemeral=bool(step.get("ephemeral", True)),
-                sudah_balas=sudah_balas,
-            )
-            sudah_balas = True
-            hasil["sent"] += 1
-            continue
-
-        if aksi == ACTION_THREAD:
-            nama = message_template.render(str(step.get("name") or ""), **konteks)[:MAX_THREAD_NAME]
-            if channel is None or not hasattr(channel, "create_thread"):
-                hasil["errors"].append("channel tidak mendukung thread")
-                continue
-            try:
-                thread = await channel.create_thread(
-                    name=(nama or "diskusi")[:MAX_THREAD_NAME],
-                    type=discord.ChannelType.public_thread,
-                    auto_archive_duration=1440,
-                    reason="Alur menu",
-                )
-            except Exception as exc:
-                hasil["errors"].append(f"gagal buat thread: {type(exc).__name__}")
-                continue
-            hasil["threads"].append(getattr(thread, "id", 0))
-            continue
-
-        if aksi == ACTION_WAIT:
-            await asyncio.sleep(float(step.get("seconds") or 0))
-            continue
-
-        if aksi == ACTION_WEBHOOK:
-            import webhook_identity  # impor lambat: modul ini memakai data & izin channel
-
-            nama = message_template.render(str(step.get("name") or ""), **konteks)[:80]
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if not teks.strip() or channel is None:
-                hasil["errors"].append("webhook butuh channel teks")
-                continue
-            ok, keterangan = await webhook_identity.kirim_sebagai(
-                channel, nama=nama or "Server", isi=teks
-            )
-            if not ok:
-                hasil["errors"].append(f"webhook ditolak: {keterangan}")
-                hasil["sent"] += 0
-                continue
-            hasil["sent"] += 1
-            continue
-
-        if aksi == ACTION_DELETE:
-            try:
-                pesan = await interaction.original_response()
-                await pesan.delete()
-            except Exception as exc:  # pragma: no cover - pesan sudah hilang
-                logger.debug("Alur gagal menghapus balasan: %s", exc)
-                hasil["errors"].append("balasan tidak bisa dihapus")
-            continue
-
-        if aksi == ACTION_STOP:
-            teks = message_template.render(str(step.get("text") or ""), **konteks)
-            if teks.strip():
-                await _kirim(interaction, teks, ephemeral=True, sudah_balas=sudah_balas)
-                sudah_balas = True
-                hasil["sent"] += 1
-            hasil["stopped"] = True
+        sudah_balas, berhenti = await _jalankan_langkah(
+            interaction, step, hasil, konteks, guild, member, channel, sudah_balas
+        )
+        if berhenti:
             return hasil
 
     return hasil

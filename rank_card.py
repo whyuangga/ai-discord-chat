@@ -243,22 +243,11 @@ def _avatar_bulat(avatar_bytes: bytes, ukuran: int):
     return avatar
 
 
-def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
-    """Menyusun kartu rank (dijalankan di thread terpisah)."""
+def _gambar_avatar(kanvas, data: dict, avatar_bytes: bytes | None, avatar_ukuran: int, posisi_x: int) -> None:
+    """Tempel avatar bulat bercincin, atau placeholder inisial bila avatar tidak ada."""
     from PIL import Image, ImageDraw
 
-    lebar, tinggi = KARTU_UKURAN
-    kanvas = _latar(data).copy()
-
-    # Panel gelap supaya teks selalu terbaca walau latar terang.
-    selubung = Image.new("RGBA", KARTU_UKURAN, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(selubung)
-    draw.rectangle([(0, 0), (lebar, tinggi)], fill=_DASAR + (150,))
-    draw.rectangle([(0, 0), (8, tinggi)], fill=(data.get("warna") or (88, 101, 242)) + (255,))
-    kanvas = Image.alpha_composite(kanvas, selubung)
-
-    avatar_ukuran = 152
-    posisi_x = 56
+    _, tinggi = KARTU_UKURAN
     avatar_y = (tinggi - avatar_ukuran) // 2
     if avatar_bytes:
         try:
@@ -294,22 +283,18 @@ def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
                 font=font_inisial,
                 fill=_TEKS + (255,),
             )
-        except Exception:  # pragma: no cover - font bitmap
-            pass
+        except Exception as exc:  # pragma: no cover - font bitmap
+            logger.debug("Efek samping opsional gagal: %s", exc)
         kanvas.alpha_composite(lingkaran, (posisi_x, avatar_y))
 
-    draw = ImageDraw.Draw(kanvas)
-    teks_x = posisi_x + avatar_ukuran + 44
-    teks_lebar = lebar - teks_x - 56
-    aksen = (data.get("warna") or (88, 101, 242)) + (255,)
 
+def _tulis_identitas(draw, data: dict, teks_x: int, teks_lebar: int, lebar: int, aksen: tuple) -> None:
+    """Nama member, lencana level/prestise, dan peringkat di kanan atas."""
     font_nama = _load_font(44)
     font_level = _load_font(34)
     font_kecil = _load_font(22)
     font_peringkat = _load_font(30)
-    font_footer = _load_font(20)
 
-    # Nama member
     draw.text(
         (teks_x, 52),
         _potong(draw, data.get("nama") or "Member", font_nama, teks_lebar - 190),
@@ -350,7 +335,11 @@ def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
         fill=_TEKS_LEMBUT + (255,),
     )
 
-    # Progress bar
+
+def _tulis_progres(draw, data: dict, teks_x: int, lebar: int, aksen: tuple) -> None:
+    """Bar XP kosong + isinya, lalu angka progres di bawahnya."""
+    font_kecil = _load_font(22)
+
     bar_x, bar_y, bar_h = teks_x, 190, 20
     bar_lebar = lebar - bar_x - 56
     draw.rounded_rectangle(
@@ -377,7 +366,10 @@ def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
         fill=_TEKS_LEMBUT + (255,),
     )
 
-    # Footer: server · musim · aktivitas (segmen dibuang dari belakang agar tidak terpotong).
+
+def _tulis_footer(draw, data: dict, teks_x: int, teks_lebar: int, tinggi: int) -> None:
+    """Footer: server · musim · aktivitas, segmen dibuang dari belakang bila sesak."""
+    font_footer = _load_font(20)
     footer: list[str] = []
     if data.get("guild_name"):
         footer.append(str(data.get("guild_name")))
@@ -399,6 +391,34 @@ def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
         font=font_footer,
         fill=_TEKS_LEMBUT + (255,),
     )
+
+
+def _render_sync(data: dict, avatar_bytes: bytes | None) -> bytes:
+    """Menyusun kartu rank (dijalankan di thread terpisah)."""
+    from PIL import Image, ImageDraw
+
+    lebar, tinggi = KARTU_UKURAN
+    kanvas = _latar(data).copy()
+
+    # Panel gelap supaya teks selalu terbaca walau latar terang.
+    selubung = Image.new("RGBA", KARTU_UKURAN, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(selubung)
+    draw.rectangle([(0, 0), (lebar, tinggi)], fill=_DASAR + (150,))
+    draw.rectangle([(0, 0), (8, tinggi)], fill=(data.get("warna") or (88, 101, 242)) + (255,))
+    kanvas = Image.alpha_composite(kanvas, selubung)
+
+    avatar_ukuran = 152
+    posisi_x = 56
+    _gambar_avatar(kanvas, data, avatar_bytes, avatar_ukuran, posisi_x)
+
+    draw = ImageDraw.Draw(kanvas)
+    teks_x = posisi_x + avatar_ukuran + 44
+    teks_lebar = lebar - teks_x - 56
+    aksen = (data.get("warna") or (88, 101, 242)) + (255,)
+
+    _tulis_identitas(draw, data, teks_x, teks_lebar, lebar, aksen)
+    _tulis_progres(draw, data, teks_x, lebar, aksen)
+    _tulis_footer(draw, data, teks_x, teks_lebar, tinggi)
 
     buffer = io.BytesIO()
     kanvas.convert("RGB").save(buffer, format="PNG", optimize=True)

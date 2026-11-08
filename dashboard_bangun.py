@@ -8,10 +8,12 @@ hanya memanggil `server_builder.bongkar`, yang menghapus ID item tercatat `/bang
 from __future__ import annotations
 
 import html
+import logging
 import time
 
 import server_builder as sb
 
+logger = logging.getLogger("gemini_bot.dashboard_bangun")
 
 
 def _esc(nilai: object) -> str:
@@ -47,13 +49,14 @@ def _daftar_preview(snapshot: dict) -> str:
     return role_html + "<ul class=\"bangun-preview\">" + "".join(bagian) + "</ul>"
 
 
-def render_bangun_block(bot, guild_id: int, token: str) -> str:
-    """Panel tema, rancangan AI, konfirmasi, riwayat, dan bongkar aman."""
-    gid = int(guild_id or 0)
+def _form_bangun(gid: int, token: str) -> str:
+    """Dua formulir: pilih tema siap pakai dan rancang dengan AI."""
     tema = sb.daftar_tema()
+
     opsi = "".join(
         f'<option value="{_esc(item["id"])}">{_esc(item["label"])}</option>' for item in tema
     )
+
     form_tema = (
         '<form method="post" action="/api/bangun" class="formgrid">'
         + _field(gid, token, "tema")
@@ -61,6 +64,7 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
         f'<select id="bangun-tema" name="tema" required>{opsi}</select></div>'
         '<button type="submit">Pratinjau tema</button></form>'
     )
+
     form_ai = (
         '<form method="post" action="/api/bangun" class="formgrid">'
         + _field(gid, token, "rancang")
@@ -70,6 +74,11 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
         '</div><button type="submit">Rancang dengan AI</button></form>'
     )
 
+    return form_tema + form_ai
+
+
+def _blok_pending_bangun(gid: int, token: str) -> str:
+    """Pratinjau rencana yang menunggu keputusan (atau keterangan kosong)."""
     pending = sb.ambil_siap(gid)
     if pending and isinstance(pending.get("snapshot"), dict):
         snapshot = pending["snapshot"]
@@ -105,6 +114,11 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
     else:
         pending_html = '<p class="muted">Belum ada pratinjau yang menunggu. Memilih tema atau merancang dengan AI belum mengubah struktur server.</p>'
 
+    return pending_html
+
+
+def _blok_sejarah_bangun(gid: int, token: str) -> str:
+    """Build terbaru, daftar build sebelumnya, dan tombol bongkar."""
     daftar_riwayat = sb.daftar_riwayat(gid)
     if daftar_riwayat:
         riwayat = daftar_riwayat[-1]
@@ -142,12 +156,22 @@ def render_bangun_block(bot, guild_id: int, token: str) -> str:
     else:
         sejarah_html = '<p class="muted">Belum ada riwayat pembangunan di server ini.</p>'
 
+    return sejarah_html
+
+
+def render_bangun_block(bot, guild_id: int, token: str) -> str:
+    """Panel tema, rancangan AI, konfirmasi, riwayat, dan bongkar aman."""
+    gid = int(guild_id or 0)
+
+    form_tema_dan_ai = _form_bangun(gid, token)
+    pending_html = _blok_pending_bangun(gid, token)
+    sejarah_html = _blok_sejarah_bangun(gid, token)
     return (
         '<div class="subpanel"><h3>🏗️ Bangun server</h3>'
         '<p class="muted">Mulai dari 15 tema lokal (0 kuota AI) atau minta Gemini merancang struktur. '
         'Tidak ada item yang dibuat sebelum tombol <b>Terapkan</b> ditekan. '
         'Pembangunan hanya menambah struktur; hak izin role tidak diubah.</p>'
-        f'{form_tema}{form_ai}{pending_html}'
+        f'{form_tema_dan_ai}{pending_html}'
         '<div class="subpanel"><h4>📜 Riwayat &amp; rollback</h4>'
         '<p class="muted">Build dibongkar berurutan dari yang terbaru; '
         'item baru dicocokkan dengan ID Discord yang dicatat.</p>'
@@ -191,8 +215,8 @@ async def _rancang_ai(guild_id: int, prompt: str) -> str:
         ai_handler.thread_chats.pop(thread_id, None)
         try:
             await ai_handler.save_sessions_to_disk()
-        except Exception:
-            pass
+        except Exception:  # pragma: no cover - disk penuh/di luar kendali
+            logger.exception("Gagal menyimpan sesi setelah pratinjau /bangun")
 
 
 async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
@@ -212,57 +236,19 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
         snapshot = sb.tema_ke_snapshot(key, nama_server=str(getattr(guild, "name", "")))
         sumber = f"tema:{key}"
     elif aksi == "rancang":
-        deskripsi = " ".join(str(payload.get("deskripsi") or "").split())
-        if len(deskripsi) < 10:
-            return False, "Deskripsi minimal 10 huruf."
-        if len(deskripsi) > 600:
-            deskripsi = deskripsi[:600]
-        snapshot, sumber = await sb.rancang(
-            deskripsi,
-            ai_call=lambda teks: _rancang_ai(gid, teks),
-        )
-        snapshot = sb.normalisasi(snapshot, label=str(getattr(guild, "name", "")))
+        try:
+            snapshot, sumber = await _aksi_rancang(gid, guild, payload)
+        except ValueError as exc:
+            return False, str(exc)
     elif aksi == "batal":
         if sb.ambil_siap(gid) is None:
             return False, "Tidak ada pratinjau yang menunggu."
         sb.lupakan_siap(gid)
         return True, "Pratinjau dibatalkan — tidak ada yang dibuat."
     elif aksi == "terapkan":
-        entri = sb.ambil_siap(gid)
-        if not entri or not isinstance(entri.get("snapshot"), dict):
-            return False, "Tidak ada pratinjau. Buat pratinjau tema atau AI terlebih dahulu."
-        snapshot = sb.normalisasi(entri["snapshot"], label=str(getattr(guild, "name", "")))
-        ok, alasan = sb.validasi(snapshot)
-        if not ok:
-            return False, f"Pratinjau ditolak saat validasi ulang: {alasan}"
-        has_roles = bool(snapshot.get("roles"))
-        boleh, pesan_izin = _izin_bot(guild, butuh_role=has_roles)
-        if not boleh:
-            return False, pesan_izin
-        hasil, pesan = await sb.terapkan(
-            guild, snapshot, actor_id=0, alasan="Bangun server via dashboard"
-        )
-        sb.lupakan_siap(gid)
-        await sb.save_to_disk()
-        dibuat = sum(int(hasil.get(k) or 0) for k in ("roles", "categories", "channels"))
-        galat = hasil.get("errors") or []
-        return dibuat > 0 or not galat, pesan
+        return await _aksi_terapkan(guild, gid)
     elif aksi == "bongkar":
-        if str(payload.get("konfirmasi") or "").strip().lower() != "ya":
-            return False, "Centang konfirmasi rollback terlebih dahulu."
-        riwayat = sb.riwayat.get(gid)
-        if not riwayat:
-            return False, "Belum ada riwayat pembangunan untuk dibongkar."
-        tercatat = riwayat.get("dibuat") or {}
-        boleh, pesan_izin = _izin_bot(
-            guild, butuh_role=bool(tercatat.get("roles"))
-        )
-        if not boleh:
-            return False, pesan_izin
-        ok, pesan = await sb.bongkar(guild, gid=gid)
-        if ok:
-            await sb.save_to_disk()
-        return ok, pesan
+        return await _aksi_bongkar(guild, gid, payload)
     else:
         return False, f"Aksi bangun `{aksi or '-'}` tidak dikenal."
 
@@ -280,3 +266,58 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
 
 
 __all__ = ["proses_aksi", "render_bangun_block"]
+
+
+async def _aksi_terapkan(guild, gid: int) -> tuple[bool, str]:
+    """Terapkan pratinjau yang menunggu, lalu lupakan."""
+    entri = sb.ambil_siap(gid)
+    if not entri or not isinstance(entri.get("snapshot"), dict):
+        return False, "Tidak ada pratinjau. Buat pratinjau tema atau AI terlebih dahulu."
+    snapshot = sb.normalisasi(entri["snapshot"], label=str(getattr(guild, "name", "")))
+    ok, alasan = sb.validasi(snapshot)
+    if not ok:
+        return False, f"Pratinjau ditolak saat validasi ulang: {alasan}"
+    has_roles = bool(snapshot.get("roles"))
+    boleh, pesan_izin = _izin_bot(guild, butuh_role=has_roles)
+    if not boleh:
+        return False, pesan_izin
+    hasil, pesan = await sb.terapkan(
+        guild, snapshot, actor_id=0, alasan="Bangun server via dashboard"
+    )
+    sb.lupakan_siap(gid)
+    await sb.save_to_disk()
+    dibuat = sum(int(hasil.get(k) or 0) for k in ("roles", "categories", "channels"))
+    galat = hasil.get("errors") or []
+    return dibuat > 0 or not galat, pesan
+
+async def _aksi_bongkar(guild, gid: int, payload: dict) -> tuple[bool, str]:
+    """Bongkar server hasil pembangunan sebelumnya."""
+    if str(payload.get("konfirmasi") or "").strip().lower() != "ya":
+        return False, "Centang konfirmasi rollback terlebih dahulu."
+    riwayat = sb.riwayat.get(gid)
+    if not riwayat:
+        return False, "Belum ada riwayat pembangunan untuk dibongkar."
+    tercatat = riwayat.get("dibuat") or {}
+    boleh, pesan_izin = _izin_bot(
+        guild, butuh_role=bool(tercatat.get("roles"))
+    )
+    if not boleh:
+        return False, pesan_izin
+    ok, pesan = await sb.bongkar(guild, gid=gid)
+    if ok:
+        await sb.save_to_disk()
+    return ok, pesan
+
+async def _aksi_rancang(gid: int, guild, payload: dict) -> tuple[dict, str]:
+    """Rancang snapshot lewat AI dari deskripsi pengguna."""
+    deskripsi = " ".join(str(payload.get("deskripsi") or "").split())
+    if len(deskripsi) < 10:
+        raise ValueError("Deskripsi minimal 10 huruf.")
+    if len(deskripsi) > 600:
+        deskripsi = deskripsi[:600]
+    snapshot, sumber = await sb.rancang(
+        deskripsi,
+        ai_call=lambda teks: _rancang_ai(gid, teks),
+    )
+    snapshot = sb.normalisasi(snapshot, label=str(getattr(guild, "name", "")))
+    return snapshot, sumber

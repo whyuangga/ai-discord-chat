@@ -91,6 +91,76 @@ def _to_int(value: object, default: int = 0) -> int:
 # ==============================================================================
 # PERSISTENSI
 # ==============================================================================
+def _muat_guild_tiket(gid: int, data: dict) -> None:
+    """Isi ticket_guilds & _ticket_seq untuk satu server."""
+    base = default_config()
+    base.update(
+        {
+            "enabled": bool(data.get("enabled", True)),
+            "panel_channel_id": _to_int(data.get("panel_channel_id")) or None,
+            "panel_message_id": _to_int(data.get("panel_message_id")) or None,
+            "staff_role_id": _to_int(data.get("staff_role_id")) or None,
+            "category_id": _to_int(data.get("category_id")) or None,
+            "log_channel_id": _to_int(data.get("log_channel_id")) or None,
+            "max_open": max(1, _to_int(data.get("max_open"), base["max_open"])),
+            "ping_staff": bool(data.get("ping_staff", True)),
+            "opened": max(0, _to_int(data.get("opened"))),
+            "closed": max(0, _to_int(data.get("closed"))),
+            "rating_aktif": bool(data.get("rating_aktif", True)),
+            "sla_jam": max(0, min(720, _to_int(data.get("sla_jam")))),
+            "auto_close_jam": max(0, min(720, _to_int(data.get("auto_close_jam"), base["auto_close_jam"]))),
+            "sla_channel_id": _to_int(data.get("sla_channel_id")) or None,
+            "rating_sum": max(0, _to_int(data.get("rating_sum"))),
+            "rating_count": max(0, _to_int(data.get("rating_count"))),
+            "auto_closed": max(0, _to_int(data.get("auto_closed"))),
+            "sla_alerted": max(0, _to_int(data.get("sla_alerted"))),
+            "topics": normalize_topics(data.get("topics")),
+        }
+    )
+    ticket_guilds[gid] = base
+    _ticket_seq[gid] = max(_ticket_seq.get(gid, 0), _to_int(data.get("seq")))
+
+
+def _muat_satu_tiket(tid: int, gid: int, uid: int, data: dict) -> None:
+    """Isi tickets & _ticket_seq untuk satu tiket (id sudah tervalidasi)."""
+    if not gid or not uid:
+        return
+    number = max(1, _to_int(data.get("number"), 1))
+    tickets[tid] = {
+        "thread_id": tid,
+        "guild_id": gid,
+        "user_id": uid,
+        "number": number,
+        "status": str(data.get("status") or "terbuka")
+        if str(data.get("status") or "terbuka") in TICKET_STATUS
+        else "terbuka",
+        "topic": str(data.get("topic") or "")[:200],
+        "created_at": float(data.get("created_at") or 0),
+        "claimed_by": _to_int(data.get("claimed_by")) or None,
+        "closed_by": _to_int(data.get("closed_by")) or None,
+        "closed_at": float(data.get("closed_at") or 0),
+        "added_users": [_to_int(u) for u in (data.get("added_users") or []) if _to_int(u)],
+        "first_response_at": float(data.get("first_response_at") or 0),
+        "first_response_by": _to_int(data.get("first_response_by")) or None,
+        "last_activity": float(data.get("last_activity") or data.get("created_at") or 0),
+        "sla_alerted": bool(data.get("sla_alerted", False)),
+        "rating": max(0, min(5, _to_int(data.get("rating")))),
+        "rated_at": float(data.get("rated_at") or 0),
+        "closed_reason": str(data.get("closed_reason") or "")[:100],
+        "topik": str(data.get("topik") or "")[:TICKET_TOPIC_LEN],
+        "notes": [
+            {
+                "teks": str(item.get("teks") or "")[:TICKET_NOTE_LEN],
+                "oleh": _to_int(item.get("oleh")),
+                "at": float(item.get("at") or 0),
+            }
+            for item in (data.get("notes") or [])
+            if isinstance(item, dict) and str(item.get("teks") or "").strip()
+        ][-TICKET_NOTE_MAX:],
+    }
+    _ticket_seq[gid] = max(_ticket_seq.get(gid, 0), number)
+
+
 def load_tickets_from_disk() -> int:
     """Memuat konfigurasi panel tiket & tiket yang tercatat."""
     ticket_guilds.clear()
@@ -110,32 +180,7 @@ def load_tickets_from_disk() -> int:
             gid = int(gid_str)
         except (TypeError, ValueError):
             continue
-        base = default_config()
-        base.update(
-            {
-                "enabled": bool(data.get("enabled", True)),
-                "panel_channel_id": _to_int(data.get("panel_channel_id")) or None,
-                "panel_message_id": _to_int(data.get("panel_message_id")) or None,
-                "staff_role_id": _to_int(data.get("staff_role_id")) or None,
-                "category_id": _to_int(data.get("category_id")) or None,
-                "log_channel_id": _to_int(data.get("log_channel_id")) or None,
-                "max_open": max(1, _to_int(data.get("max_open"), base["max_open"])),
-                "ping_staff": bool(data.get("ping_staff", True)),
-                "opened": max(0, _to_int(data.get("opened"))),
-                "closed": max(0, _to_int(data.get("closed"))),
-                "rating_aktif": bool(data.get("rating_aktif", True)),
-                "sla_jam": max(0, min(720, _to_int(data.get("sla_jam")))),
-                "auto_close_jam": max(0, min(720, _to_int(data.get("auto_close_jam"), base["auto_close_jam"]))),
-                "sla_channel_id": _to_int(data.get("sla_channel_id")) or None,
-                "rating_sum": max(0, _to_int(data.get("rating_sum"))),
-                "rating_count": max(0, _to_int(data.get("rating_count"))),
-                "auto_closed": max(0, _to_int(data.get("auto_closed"))),
-                "sla_alerted": max(0, _to_int(data.get("sla_alerted"))),
-                "topics": normalize_topics(data.get("topics")),
-            }
-        )
-        ticket_guilds[gid] = base
-        _ticket_seq[gid] = max(_ticket_seq.get(gid, 0), _to_int(data.get("seq")))
+        _muat_guild_tiket(gid, data)
 
     for tid_str, data in (raw.get("tickets") or {}).items():
         try:
@@ -144,42 +189,7 @@ def load_tickets_from_disk() -> int:
             uid = _to_int(data.get("user_id"))
         except (TypeError, ValueError):
             continue
-        if not gid or not uid:
-            continue
-        number = max(1, _to_int(data.get("number"), 1))
-        tickets[tid] = {
-            "thread_id": tid,
-            "guild_id": gid,
-            "user_id": uid,
-            "number": number,
-            "status": str(data.get("status") or "terbuka")
-            if str(data.get("status") or "terbuka") in TICKET_STATUS
-            else "terbuka",
-            "topic": str(data.get("topic") or "")[:200],
-            "created_at": float(data.get("created_at") or 0),
-            "claimed_by": _to_int(data.get("claimed_by")) or None,
-            "closed_by": _to_int(data.get("closed_by")) or None,
-            "closed_at": float(data.get("closed_at") or 0),
-            "added_users": [_to_int(u) for u in (data.get("added_users") or []) if _to_int(u)],
-            "first_response_at": float(data.get("first_response_at") or 0),
-            "first_response_by": _to_int(data.get("first_response_by")) or None,
-            "last_activity": float(data.get("last_activity") or data.get("created_at") or 0),
-            "sla_alerted": bool(data.get("sla_alerted", False)),
-            "rating": max(0, min(5, _to_int(data.get("rating")))),
-            "rated_at": float(data.get("rated_at") or 0),
-            "closed_reason": str(data.get("closed_reason") or "")[:100],
-            "topik": str(data.get("topik") or "")[:TICKET_TOPIC_LEN],
-            "notes": [
-                {
-                    "teks": str(item.get("teks") or "")[:TICKET_NOTE_LEN],
-                    "oleh": _to_int(item.get("oleh")),
-                    "at": float(item.get("at") or 0),
-                }
-                for item in (data.get("notes") or [])
-                if isinstance(item, dict) and str(item.get("teks") or "").strip()
-            ][-TICKET_NOTE_MAX:],
-        }
-        _ticket_seq[gid] = max(_ticket_seq.get(gid, 0), number)
+        _muat_satu_tiket(tid, gid, uid, data)
     return len(ticket_guilds)
 
 
@@ -201,8 +211,8 @@ async def save_tickets_to_disk() -> None:
             serialized = json.dumps(payload, ensure_ascii=False, indent=2)
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, TICKETS_FILE)
-        except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan tickets.json: %s", sanitize_error_message(exc))
+        except Exception:  # pragma: no cover - I/O gagal
+            logger.exception("Gagal menyimpan tickets.json")
 
 
 # ==============================================================================
@@ -1064,7 +1074,7 @@ async def run_ticket_check(bot) -> dict:
                         )
                         result["sla"] += len(overdue)
                     except (discord.Forbidden, discord.HTTPException):
-                        pass
+                        pass  # diabaikan (opsional)
 
         # 2. Auto-close tiket yang menganggur
         for tid in stale_tickets(guild_id=gid):
@@ -1084,8 +1094,8 @@ async def run_ticket_check(bot) -> dict:
                     ticket_archive.simpan(
                         closed, pesan_arsip, guild_name=str(getattr(guild, "name", "") or "")
                     )
-                except Exception:  # pragma: no cover - arsip opsional
-                    pass
+                except Exception as exc:  # pragma: no cover - arsip opsional
+                    logger.debug("Efek samping opsional gagal: %s", exc)
                 try:
                     await thread.send(
                         f"⏰ Tiket ditutup **otomatis** karena tidak ada aktivitas selama "
@@ -1093,7 +1103,7 @@ async def run_ticket_check(bot) -> dict:
                         "Buka tiket baru kapan saja bila masih butuh bantuan."
                     )
                 except (discord.Forbidden, discord.HTTPException, AttributeError):
-                    pass
+                    pass  # diabaikan (opsional)
                 try:
                     await thread.edit(
                         name=f"tiket-{_to_int(closed.get('number')):04d}-otomatis"[:100],
@@ -1102,7 +1112,7 @@ async def run_ticket_check(bot) -> dict:
                         reason="Auto-close tiket menganggur",
                     )
                 except (discord.Forbidden, discord.HTTPException, AttributeError):
-                    pass
+                    pass  # diabaikan (opsional)
 
     if result["sla"] or result["closed"]:
         await save_tickets_to_disk()

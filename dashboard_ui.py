@@ -509,6 +509,61 @@ banner per server. Semua berkas diperiksa isinya (bukan hanya ekstensi).</p>
     return unggah + f'<div class="galeri">{kartu}</div>'
 
 
+def _slot_kartu(
+    guild_id: int,
+    token: str,
+    jenis: str,
+    data: dict | None,
+    label: str,
+    tampilkan_judul: bool,
+) -> str:
+    """HTML satu slot kartu (pratinjau, form unggah, dan tombol hapus)."""
+    if data:
+        url = f"/api/kartu/{jenis}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
+        pratinjau = f'<img src="{url}" alt="{_esc(data["nama"])}" loading="lazy">'
+        keterangan = (
+            f'<div class="muted">{int(data["ukuran_kb"])} KB · {_esc(data["dibuat"])}</div>'
+            f'<code class="kecil">{_esc(data["nama"])}</code>'
+        )
+        hapus = (
+            '<form method="post" action="/api/unggah">'
+            f'{_hidden(guild_id, token, "kartu.hapus:" + jenis)}'
+            '<button type="submit" class="danger">Hapus kartu</button></form>'
+        )
+    else:
+        pratinjau = '<div class="kosong">Belum ada gambar</div>'
+        keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
+        hapus = ""
+
+    judul = f"<h4>{_esc(label.capitalize())}</h4>" if tampilkan_judul else ""
+    return (
+        '<div class="kartu-slot">'
+        f"{judul}{pratinjau}{keterangan}"
+        '<form method="post" action="/api/unggah" class="formgrid" '
+        'enctype="multipart/form-data">'
+        f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
+        f'{_medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")}'
+        f'<button type="submit">Unggah kartu {_esc(label)}</button>'
+        "</form>"
+        f"{hapus}"
+        "</div>"
+    )
+
+
+def _mode_kartu_sambutan(guild_id: int) -> str:
+    """Mode tampilan kartu sambutan tersimpan (mati/statis/dinamis)."""
+    try:
+        import community_agent
+
+        return str(
+            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
+            .get("card_mode")
+            or "mati"
+        )
+    except Exception:  # pragma: no cover - jaring aman
+        return "statis"
+
+
 def render_kartu_block(
     guild_id: int,
     token: str,
@@ -520,8 +575,6 @@ def render_kartu_block(
     sambutan, halaman Perpisahan hanya kartu perpisahan, dan seterusnya.
     """
     info = dashboard_unggah.kartu_info(guild_id)
-    # Tanpa `hanya`, panel ini menampilkan tiga slot agen sambutan/perpisahan/boost.
-    # Kartu rank punya panelnya sendiri (`render_kartu_rank_block`).
     jenis_dipakai = tuple(
         j
         for j in dashboard_unggah.JENIS_KARTU
@@ -531,57 +584,24 @@ def render_kartu_block(
         return ""
     slot = ""
     for jenis in jenis_dipakai:
-        data = info.get(jenis)
-        label = dashboard_unggah.LABEL_KARTU[jenis]
-        if data:
-            url = f"/api/kartu/{jenis}?token={_esc(token)}&amp;guild={int(guild_id or 0)}"
-            pratinjau = f'<img src="{url}" alt="{_esc(data["nama"])}" loading="lazy">'
-            keterangan = (
-                f'<div class="muted">{int(data["ukuran_kb"])} KB · {_esc(data["dibuat"])}</div>'
-                f'<code class="kecil">{_esc(data["nama"])}</code>'
-            )
-            hapus = (
-                '<form method="post" action="/api/unggah">'
-                f'{_hidden(guild_id, token, "kartu.hapus:" + jenis)}'
-                '<button type="submit" class="danger">Hapus kartu</button></form>'
-            )
-        else:
-            pratinjau = '<div class="kosong">Belum ada gambar</div>'
-            keterangan = '<div class="muted">Bot memakai tampilan teks/embed biasa.</div>'
-            hapus = ""
-        judul = f'<h4>{_esc(label.capitalize())}</h4>' if len(jenis_dipakai) > 1 else ""
-        slot += (
-            '<div class="kartu-slot">'
-            f"{judul}{pratinjau}{keterangan}"
-            '<form method="post" action="/api/unggah" class="formgrid" '
-            'enctype="multipart/form-data">'
-            f'{_hidden(guild_id, token, "kartu.simpan:" + jenis)}'
-            f'{_medan_berkas("Gambar kartu (PNG/JPG/GIF/WEBP)", "banner")}'
-            f'<button type="submit">Unggah kartu {_esc(label)}</button>'
-            "</form>"
-            f"{hapus}"
-            "</div>"
+        slot += _slot_kartu(
+            guild_id,
+            token,
+            jenis,
+            info.get(jenis),
+            dashboard_unggah.LABEL_KARTU[jenis],
+            len(jenis_dipakai) > 1,
         )
-
     catatan_ukuran = (
         '<p class="muted">Ukuran ideal <b>1024×420 px</b>, maksimal '
         f"{dashboard_unggah.batas_mb()} MB (PNG/JPG/GIF/WEBP). Gambar disimpan di server bot, "
         "jadi tidak pernah kedaluwarsa seperti tautan CDN Discord.</p>"
     )
+
     if "welcome" not in jenis_dipakai:
         return f'<div class="kartu-sambutan tunggal">{slot}</div>' + catatan_ukuran
 
-    mode = "statis"
-    try:
-        import community_agent
-
-        mode = str(
-            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
-            .get("card_mode")
-            or "mati"
-        )
-    except Exception:  # pragma: no cover - jaring aman
-        mode = "statis"
+    mode = _mode_kartu_sambutan(guild_id)
     opsi = "".join(
         f'<option value="{nilai}"{" selected" if nilai == mode else ""}>{teks}</option>'
         for nilai, teks in (("mati", "💬 Teks saja"), ("statis", "🖼️ Kartu statis"),
@@ -674,6 +694,69 @@ def render_honeypot_block(bot, guild_id: int, token: str) -> str:
     )
 
 
+def _tabel_statistik_aturan(stat: dict) -> str:
+    """Tabel jumlah tangkapan per aturan, atau pesan kosong."""
+    baris_stat = ""
+
+    for item in stat.get("aturan") or []:
+        baris_stat += (
+            f'<tr><td>{_esc(item.get("label"))}</td>'
+            f'<td class="angka">{int(item.get("hari_ini") or 0)}</td>'
+            f'<td class="angka">{int(item.get("total") or 0)}</td></tr>'
+        )
+
+    tabel_stat = (
+        '<table><thead><tr><th>Aturan</th><th class="angka">Hari ini</th>'
+        f'<th class="angka">Total</th></tr></thead><tbody>{baris_stat}</tbody></table>'
+        if baris_stat
+        else '<div class="muted">Belum ada statistik.</div>'
+    )
+
+    return tabel_stat
+
+
+def _panel_hasil_uji(uji: dict, label_mode: str) -> str:
+    """Panel hasil uji aturan terakhir (apa yang kena + detailnya)."""
+    baris_uji = ""
+
+    kena = set(uji.get("kena") or [])
+
+    for item in uji.get("aturan") or []:
+        tanda = "⚠️" if item.get("kena") else ("✅" if item.get("aktif") else "⏸️")
+        status = (
+            "<b>kena</b>"
+            if item.get("kena")
+            else ("aman" if item.get("aktif") else "nonaktif")
+        )
+        baris_uji += (
+            f'<tr><td>{tanda} {_esc(item.get("label"))}</td>'
+            f'<td>{status}</td>'
+            f'<td class="muted">{_esc(item.get("detail"))}</td></tr>'
+        )
+
+    ringkas = (
+        f"⚠️ <b>{len(kena)} aturan kena</b>: "
+        + ", ".join(sorted(kena))
+        if kena
+        else "✅ <b>Tidak ada aturan yang kena</b> untuk teks ini."
+    )
+
+    contoh = _esc(str(uji.get("teks") or ""))[:400]
+
+    hasil = (
+        '<div class="subpanel"><h3>Hasil uji terakhir</h3>'
+        f'<p>{ringkas} · simulasi dikirim <b>{int(uji.get("ulang") or 1)}×</b> · '
+        f'mode tindakan sekarang: <b>{_esc(label_mode)}</b></p>'
+        f'<p class="muted">Teks: <code>{contoh}</code></p>'
+        '<table><thead><tr><th>Aturan</th><th>Status</th><th>Detail</th></tr></thead>'
+        f"<tbody>{baris_uji}</tbody></table>"
+        '<p class="muted">Penguji tidak menghapus pesan, tidak me-time-out siapa pun, '
+        "dan tidak mengubah riwayat anti-spam.</p></div>"
+    )
+
+    return hasil
+
+
 def render_aturan_block(guild_id: int, token: str, data: dict) -> str:
     """Penguji aturan + statistik per aturan di halaman Keamanan."""
     import antispam
@@ -688,54 +771,8 @@ def render_aturan_block(guild_id: int, token: str, data: dict) -> str:
         "timeout": "⏳ hapus + time-out",
     }.get(mode, antispam.SPAM_MODES.get(mode, mode))
 
-    baris_stat = ""
-    for item in stat.get("aturan") or []:
-        baris_stat += (
-            f'<tr><td>{_esc(item.get("label"))}</td>'
-            f'<td class="angka">{int(item.get("hari_ini") or 0)}</td>'
-            f'<td class="angka">{int(item.get("total") or 0)}</td></tr>'
-        )
-    tabel_stat = (
-        '<table><thead><tr><th>Aturan</th><th class="angka">Hari ini</th>'
-        f'<th class="angka">Total</th></tr></thead><tbody>{baris_stat}</tbody></table>'
-        if baris_stat
-        else '<div class="muted">Belum ada statistik.</div>'
-    )
-
-    hasil = ""
-    if uji:
-        baris_uji = ""
-        kena = set(uji.get("kena") or [])
-        for item in uji.get("aturan") or []:
-            tanda = "⚠️" if item.get("kena") else ("✅" if item.get("aktif") else "⏸️")
-            status = (
-                "<b>kena</b>"
-                if item.get("kena")
-                else ("aman" if item.get("aktif") else "nonaktif")
-            )
-            baris_uji += (
-                f'<tr><td>{tanda} {_esc(item.get("label"))}</td>'
-                f'<td>{status}</td>'
-                f'<td class="muted">{_esc(item.get("detail"))}</td></tr>'
-            )
-        ringkas = (
-            f"⚠️ <b>{len(kena)} aturan kena</b>: "
-            + ", ".join(sorted(kena))
-            if kena
-            else "✅ <b>Tidak ada aturan yang kena</b> untuk teks ini."
-        )
-        contoh = _esc(str(uji.get("teks") or ""))[:400]
-        hasil = (
-            '<div class="subpanel"><h3>Hasil uji terakhir</h3>'
-            f'<p>{ringkas} · simulasi dikirim <b>{int(uji.get("ulang") or 1)}×</b> · '
-            f'mode tindakan sekarang: <b>{_esc(label_mode)}</b></p>'
-            f'<p class="muted">Teks: <code>{contoh}</code></p>'
-            '<table><thead><tr><th>Aturan</th><th>Status</th><th>Detail</th></tr></thead>'
-            f"<tbody>{baris_uji}</tbody></table>"
-            '<p class="muted">Penguji tidak menghapus pesan, tidak me-time-out siapa pun, '
-            "dan tidak mengubah riwayat anti-spam.</p></div>"
-        )
-
+    tabel_stat = _tabel_statistik_aturan(stat)
+    hasil = _panel_hasil_uji(uji, label_mode) if uji else ""
     form = (
         '<form method="post" action="/api/keamanan" class="formgrid">'
         + _hidden(gid, token, "uji-aturan")
@@ -888,6 +925,81 @@ def render_kartu_rank_block(bot, guild_id: int, token: str) -> str:
     )
 
 
+def _opsi_channel_uji(guild) -> str:
+    """Daftar `<option>` channel teks untuk kolom tes."""
+    channel_opsi = ""
+    for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
+        channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
+    if not channel_opsi:
+        channel_opsi = '<option value="0">(belum ada channel)</option>'
+    return channel_opsi
+
+
+def _opsi_orang_uji(dashboard_uji, guild) -> str:
+    """Daftar `<option>` subjek tes, diawali pilihan "pemilik server".
+
+    Tanpa ID apa pun, bot memakai pemilik server.
+    """
+    # Opsi default selalu ada: tanpa ID apa pun, bot memakai pemilik server.
+    nama_pemilik = dashboard_uji.nama_pemilik(guild)
+    label_pemilik = "👑 Pemilik server (otomatis)"
+    if nama_pemilik:
+        label_pemilik += f" · {nama_pemilik}"
+    orang_opsi = f'<option value="">{_esc(label_pemilik)}</option>' + "".join(
+        f'<option value="{_esc(uid)}">{_esc(nama)}</option>'
+        for uid, nama in dashboard_uji.pilihan_subjek(guild, sertakan_pemilik=False)
+    )
+    return orang_opsi
+
+
+def _masukan_uji(keadaan: dict, orang_opsi: str, channel_opsi: str) -> str:
+    """Kolom masukan sesuai jenis tes (`member`, `id`/`ref`, atau `channel`)."""
+    kolom = keadaan.get("kolom") or ""
+    masukan = ""
+    if kolom == "member":
+        masukan = (
+            f'<select name="opsi" aria-label="Contoh atas nama">{orang_opsi}</select>'
+            '<input type="text" name="opsi_manual" placeholder="atau tempel @nama /'
+            ' &lt;@id&gt; (opsional)">'
+        )
+    elif kolom in ("id", "ref"):
+        pilihan = keadaan.get("pilihan") or []
+        if pilihan:
+            masukan = '<select name="opsi">' + "".join(
+                f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
+            ) + "</select>"
+        else:
+            masukan = (
+                '<input type="text" name="opsi_manual" '
+                'placeholder="Kosongkan = pilih otomatis">'
+            )
+    elif kolom == "channel":
+        masukan = f'<select name="opsi">{channel_opsi}</select>'
+    return masukan
+
+
+def _tombol_kirim_uji(guild_id: int, token: str, item: dict, masukan: str) -> str:
+    """Form tombol "Kirim tes" (hanya untuk fitur yang sudah aktif)."""
+    tombol = (
+        '<form method="post" action="/api/uji">'
+        f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
+        f'{masukan}<button type="submit">Kirim tes</button></form>'
+    )
+    return tombol
+
+
+def _tombol_atur_uji(dashboard_uji, guild_id: int, token: str, item: dict) -> str:
+    """Tautan "Atur dulu" ke halaman pengaturan fitur."""
+    jalur = _JALUR_FITUR.get(item["kunci"], "/")
+    anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-kontrol")
+    tombol = (
+        '<a class="tombol-unduh" href="'
+        f'{_esc(jalur)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}'
+        f'#{_esc(anchor)}">Atur dulu</a>'
+    )
+    return tombol
+
+
 def render_uji_block(
     bot,
     guild_id: int,
@@ -899,21 +1011,8 @@ def render_uji_block(
 
     status = dashboard_uji.status_uji(guild_id)
     guild = bot.get_guild(int(guild_id or 0)) if callable(getattr(bot, "get_guild", None)) else None
-    channel_opsi = ""
-    for ch in list(getattr(guild, "text_channels", []) or [])[:60]:
-        channel_opsi += f'<option value="{int(getattr(ch, "id", 0))}">#{_esc(getattr(ch, "name", "-"))}</option>'
-    if not channel_opsi:
-        channel_opsi = '<option value="0">(belum ada channel)</option>'
-
-    # Opsi default selalu ada: tanpa ID apa pun, bot memakai pemilik server.
-    nama_pemilik = dashboard_uji.nama_pemilik(guild)
-    label_pemilik = "👑 Pemilik server (otomatis)"
-    if nama_pemilik:
-        label_pemilik += f" · {nama_pemilik}"
-    orang_opsi = f'<option value="">{_esc(label_pemilik)}</option>' + "".join(
-        f'<option value="{_esc(uid)}">{_esc(nama)}</option>'
-        for uid, nama in dashboard_uji.pilihan_subjek(guild, sertakan_pemilik=False)
-    )
+    channel_opsi = _opsi_channel_uji(guild)
+    orang_opsi = _opsi_orang_uji(dashboard_uji, guild)
 
     dipakai = tuple(
         item for item in dashboard_uji.UJI
@@ -933,7 +1032,9 @@ def render_uji_block(
             getter = getattr(bot, "get_channel", None)
             ch = getter(channel_id) if callable(getter) else None
             nama_channel = (
-                f"<code>#{_esc(getattr(ch, 'name', ''))}</code>" if ch else f"<code>#{channel_id}</code>"
+                f"<code>#{_esc(getattr(ch, 'name', ''))}</code>"
+                if ch
+                else f"<code>#{channel_id}</code>"
             )
             lencana = f"✅ aktif → {nama_channel}"
         elif aktif:
@@ -941,41 +1042,12 @@ def render_uji_block(
         else:
             lencana = "⬜ belum aktif"
 
-        kolom = keadaan.get("kolom") or ""
         if aktif:
-            masukan = ""
-            if kolom == "member":
-                masukan = (
-                    f'<select name="opsi" aria-label="Contoh atas nama">{orang_opsi}</select>'
-                    '<input type="text" name="opsi_manual" placeholder="atau tempel @nama /'
-                    ' &lt;@id&gt; (opsional)">'
-                )
-            elif kolom in ("id", "ref"):
-                pilihan = keadaan.get("pilihan") or []
-                if pilihan:
-                    masukan = '<select name="opsi">' + "".join(
-                        f'<option value="{_esc(v)}">{_esc(t)}</option>' for v, t in pilihan
-                    ) + "</select>"
-                else:
-                    masukan = (
-                        '<input type="text" name="opsi_manual" '
-                        'placeholder="Kosongkan = pilih otomatis">'
-                    )
-            elif kolom == "channel":
-                masukan = f'<select name="opsi">{channel_opsi}</select>'
-            tombol = (
-                '<form method="post" action="/api/uji">'
-                f'{_hidden(guild_id, token, "uji." + item["kunci"])}'
-                f'{masukan}<button type="submit">Kirim tes</button></form>'
+            tombol = _tombol_kirim_uji(
+                guild_id, token, item, _masukan_uji(keadaan, orang_opsi, channel_opsi)
             )
         else:
-            jalur = _JALUR_FITUR.get(item["kunci"], "/")
-            anchor = dashboard_uji.ANCHOR_UJI.get(item["kunci"], "p-kontrol")
-            tombol = (
-                '<a class="tombol-unduh" href="'
-                f'{_esc(jalur)}?token={_esc(token)}&amp;guild={int(guild_id or 0)}'
-                f'#{_esc(anchor)}">Atur dulu</a>'
-            )
+            tombol = _tombol_atur_uji(dashboard_uji, guild_id, token, item)
 
         if grup not in baris_per_grup:
             baris_per_grup[grup] = ""
@@ -1435,25 +1507,9 @@ def _form_panel_tiket(bot, guild_id: int, token: str) -> str:
 """
 
 
-def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
-    """Kotak masuk tiket: ringkasan + daftar tiket aktif + form balas/tutup."""
-    paket = data or {}
-    items = paket.get("items") or []
-    stat = paket.get("statistik") or {}
-    ringkas = (
-        f'<p class="muted">🔢 Aktif: <b>{int(stat.get("aktif") or 0)}</b> · '
-        f'diklaim: {int(stat.get("diklaim") or 0)} · '
-        f'lewat SLA: {int(stat.get("lewat_sla") or 0)} · '
-        f'rating: {_esc(stat.get("rating") or "-")}'
-        + ("" if stat.get("aktifkan", True) else " · ⛔ Sistem tiket nonaktif")
-        + "</p>"
-    )
-    pasang = _form_panel_tiket(bot, guild_id, token) if bot is not None else ""
-
+def _blok_topik_tiket(paket: dict, stat: dict, token: str, guild_id: int, role_opsi: str) -> str:
+    """Detail daftar topik + form tambah topik; kosong bila tiket nonaktif."""
     topik = paket.get("topik") or []
-    role_opsi = (
-        _opsi_html(pilihan_role(bot, guild_id)) if bot is not None else '<option value="0">—</option>'
-    )
 
     def _baris_topik(item: dict) -> str:
         role_id = int(item.get("staff_role_id") or 0)
@@ -1493,15 +1549,11 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
         '<input type="text" name="deskripsi" maxlength="100" placeholder="Beli / kirim barang"></div>'
         '<button type="submit">Simpan topik</button></form></details>'
     )
-    if not items:
-        return (
-            ringkas
-            + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
-            "member menekan tombol <b>Buat Tiket</b> di panel.</div>"
-            + pasang
-            + blok_topik
-        )
+    return blok_topik
 
+
+def _daftar_tiket_aktif(items: list, guild_id: int, token: str) -> str:
+    """Daftar tiket aktif: info ringkas, form balas, tombol tutup & catatan."""
     baris = ""
     for item in items:
         tid = str(item.get("id"))
@@ -1551,6 +1603,37 @@ def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
             + blok_catatan
             + "</div>"
         )
+    return baris
+
+
+def render_tiket_block(guild_id: int, data: dict, token: str, bot=None) -> str:
+    """Kotak masuk tiket: ringkasan + daftar tiket aktif + form balas/tutup."""
+    paket = data or {}
+    items = paket.get("items") or []
+    stat = paket.get("statistik") or {}
+    ringkas = (
+        f'<p class="muted">🔢 Aktif: <b>{int(stat.get("aktif") or 0)}</b> · '
+        f'diklaim: {int(stat.get("diklaim") or 0)} · '
+        f'lewat SLA: {int(stat.get("lewat_sla") or 0)} · '
+        f'rating: {_esc(stat.get("rating") or "-")}'
+        + ("" if stat.get("aktifkan", True) else " · ⛔ Sistem tiket nonaktif")
+        + "</p>"
+    )
+    pasang = _form_panel_tiket(bot, guild_id, token) if bot is not None else ""
+
+    role_opsi = (
+        _opsi_html(pilihan_role(bot, guild_id)) if bot is not None else '<option value="0">—</option>'
+    )
+    blok_topik = _blok_topik_tiket(paket, stat, token, guild_id, role_opsi)
+    if not items:
+        return (
+            ringkas
+            + '<div class="muted">Tidak ada tiket aktif. Tiket baru muncul di sini setelah '
+            "member menekan tombol <b>Buat Tiket</b> di panel.</div>"
+            + pasang
+            + blok_topik
+        )
+    baris = _daftar_tiket_aktif(items, guild_id, token)
     return ringkas + f'<div class="daftar-tiket">{baris}</div>' + pasang + blok_topik
 
 
@@ -1560,6 +1643,163 @@ def _opsi_dari(opsi: list[tuple[str, str]], terpilih: str = "") -> str:
         f"{_esc(str(teks))}</option>"
         for nilai, teks in opsi
     )
+
+
+def _gv_form_buat(gid: int, token: str, channel_opsi: str, role_opsi_bonus: str, bawaan: dict) -> str:
+    """Formulir "buat giveaway" (setara `/giveaway mulai`)."""
+    form_buat = (
+        '<details><summary class="muted">➕ Buat giveaway dari sini (setara /giveaway mulai)</summary>'
+        '<form method="post" action="/api/giveaway" class="formgrid">'
+        + _hidden(gid, token, "buat")
+        + '<div class="medan"><label>Hadiah</label>'
+        '<input type="text" name="hadiah" maxlength="200" placeholder="Nitro 1 Bulan" required></div>'
+        f'<div class="medan"><label>Channel</label><select name="channel">{channel_opsi}</select></div>'
+        '<div class="medan"><label>Durasi (menit)</label>'
+        f'<input type="number" name="menit" min="1" max="43200" value="{int(bawaan.get("seconds") or 3600) // 60}"></div>'
+        '<div class="medan"><label>Jumlah pemenang</label>'
+        f'<input type="number" name="pemenang" min="1" max="20" value="{int(bawaan.get("winner_count") or 1)}"></div>'
+        '<div class="medan"><label>Syarat level minimal (0 = tanpa)</label>'
+        f'<input type="number" name="level" min="0" max="500" value="{int(bawaan.get("level") or 0)}"></div>'
+        '<div class="medan"><label>Syarat umur akun (hari, 0 = tanpa)</label>'
+        f'<input type="number" name="umur" min="0" max="3650" value="{int(bawaan.get("account_age_days") or 0)}"></div>'
+        f'<div class="medan"><label>Role bonus (peluang ekstra)</label>'
+        f'<select name="role_bonus">{role_opsi_bonus}</select></div>'
+        '<div class="medan"><label>Tambahan peluang (1–5)</label>'
+        f'<input type="number" name="bobot" min="1" max="5" value="{int(bawaan.get("bonus_weight") or 1)}"></div>'
+        '<button type="submit">Pasang giveaway</button></form></details>'
+    )
+    return form_buat
+
+
+def _gv_daftar_aktif(aktif: list, gid: int, token: str) -> str:
+    """Daftar giveaway yang masih berjalan, lengkap tombol Hentikan."""
+    if aktif:
+        baris = ""
+        for item in aktif:
+            baris += (
+                '<div class="tiket-baris"><div>'
+                f'<b>{_esc(item.get("hadiah"))}</b> · {int(item.get("peserta") or 0)} peserta'
+                f'<div class="muted">{_esc(item.get("syarat"))} · berakhir '
+                f'{_esc(_waktu_relatif(item.get("berakhir")))}</div></div>'
+                '<form method="post" action="/api/giveaway">'
+                + _hidden(gid, token, f"akhiri:{int(item.get('message_id') or 0)}")
+                + '<button type="submit" class="danger">Hentikan</button></form></div>'
+            )
+        daftar_aktif = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar_aktif = (
+            '<div class="muted">Belum ada giveaway berjalan. Buat dari formulir di atas '
+            "atau lewat <code>/giveaway mulai</code>.</div>"
+        )
+    return daftar_aktif
+
+
+def _gv_daftar_selesai(selesai: list, gid: int, token: str) -> str:
+    """Daftar giveaway selesai + tombol reroll bila masih ada sisa undi."""
+    if selesai:
+        baris = ""
+        for item in selesai:
+            pemenang = ", ".join(f"<@{uid}>" for uid in (item.get("pemenang") or [])) or "_tanpa pemenang_"
+            sisa = int(item.get("sisa_undi") or 0)
+            tombol = (
+                '<form method="post" action="/api/giveaway">'
+                + _hidden(gid, token, f"reroll:{int(item.get('message_id') or 0)}")
+                + f'<button type="submit" class="ghost">Reroll ({sisa})</button></form>'
+                if sisa
+                else '<span class="muted">semua peserta sudah menang</span>'
+            )
+            baris += (
+                '<div class="tiket-baris"><div>'
+                f'<b>{_esc(item.get("hadiah"))}</b> · {pemenang}'
+                f'<div class="muted">{_esc(item.get("syarat"))} · {int(item.get("peserta") or 0)} peserta</div>'
+                f"</div>{tombol}</div>"
+            )
+        daftar_selesai = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar_selesai = '<div class="muted">Belum ada giveaway yang selesai.</div>'
+    return daftar_selesai
+
+
+def _gv_daftar_template(template: list, gid: int, token: str) -> str:
+    """Daftar template giveaway beserta tombol Hapus."""
+    if template:
+        baris = "".join(
+            '<div class="tiket-baris"><div>'
+            f'<b>{_esc(tpl.get("nama"))}</b>'
+            f'<div class="muted">{int(tpl.get("winner_count") or 1)} pemenang · '
+            f'{int(tpl.get("seconds") or 0) // 60} menit · '
+            f'{_esc(_ringkas_syarat(tpl))}</div></div>'
+            '<form method="post" action="/api/giveaway">'
+            + _hidden(gid, token, "template-hapus")
+            + f'<input type="hidden" name="nama" value="{_esc(tpl.get("nama"))}">'
+            '<button type="submit" class="danger">Hapus</button></form></div>'
+            for tpl in template[:20]
+        )
+        daftar_template = f'<div class="daftar-tiket">{baris}</div>'
+    else:
+        daftar_template = (
+            '<div class="muted">Belum ada template. Template berguna untuk giveaway rutin '
+            "(mis. “Nitro bulanan” dengan syarat level 5).</div>"
+        )
+    return daftar_template
+
+
+def _gv_form_template(gid: int, token: str, role_opsi: str) -> str:
+    """Formulir simpan template giveaway baru."""
+    form_template = (
+        '<details><summary class="muted">🗂️ Simpan template baru</summary>'
+        '<form method="post" action="/api/giveaway" class="formgrid">'
+        + _hidden(gid, token, "template-simpan")
+        + '<div class="medan"><label>Nama template</label>'
+        '<input type="text" name="nama" maxlength="40" placeholder="Nitro bulanan"></div>'
+        '<div class="medan"><label>Durasi (menit)</label>'
+        '<input type="number" name="menit" min="1" max="43200" value="60"></div>'
+        '<div class="medan"><label>Jumlah pemenang</label>'
+        '<input type="number" name="pemenang" min="1" max="20" value="1"></div>'
+        '<div class="medan"><label>Level minimal (0 = tanpa)</label>'
+        '<input type="number" name="level" min="0" max="500" value="0"></div>'
+        '<div class="medan"><label>Umur akun (hari, 0 = tanpa)</label>'
+        '<input type="number" name="umur" min="0" max="3650" value="0"></div>'
+        f'<div class="medan"><label>Role bonus</label><select name="role_bonus">{role_opsi}</select></div>'
+        '<div class="medan"><label>Tambahan peluang (1–5)</label>'
+        '<input type="number" name="bobot" min="1" max="5" value="1"></div>'
+        '<button type="submit">Simpan template</button></form></details>'
+    )
+    return form_template
+
+
+def _gv_opsi_ping(bawaan: dict) -> str:
+    """Pilihan dropdown untuk ping `@everyone` saat giveaway dipasang."""
+    ping_opsi = _opsi_dari(
+        (("off", "Tidak ping"), ("on", "Ping @everyone")),
+        "on" if bawaan.get("ping_everyone") else "off",
+    )
+    return ping_opsi
+
+
+def _gv_form_bawaan(gid: int, token: str, role_opsi_bonus: str, ping_opsi: str, bawaan: dict) -> str:
+    """Formulir setelan bawaan giveaway baru."""
+    form_bawaan = (
+        '<details open><summary class="muted">⚙️ Setelan bawaan giveaway baru</summary>'
+        '<p class="muted">Dipakai saat <code>/giveaway mulai</code> tanpa argumen, dan '
+        "sebagai nilai awal formulir di atas.</p>"
+        '<form method="post" action="/api/giveaway" class="formgrid">'
+        + _hidden(gid, token, "simpan-bawaan")
+        + '<div class="medan"><label>Durasi bawaan (menit)</label>'
+        f'<input type="number" name="menit" min="1" max="43200" value="{int(bawaan.get("seconds") or 3600) // 60}"></div>'
+        '<div class="medan"><label>Jumlah pemenang bawaan</label>'
+        f'<input type="number" name="pemenang" min="1" max="20" value="{int(bawaan.get("winner_count") or 1)}"></div>'
+        '<div class="medan"><label>Level minimal bawaan</label>'
+        f'<input type="number" name="level" min="0" max="500" value="{int(bawaan.get("level") or 0)}"></div>'
+        '<div class="medan"><label>Umur akun bawaan (hari)</label>'
+        f'<input type="number" name="umur" min="0" max="3650" value="{int(bawaan.get("account_age_days") or 0)}"></div>'
+        f'<div class="medan"><label>Role bonus bawaan</label><select name="role_bonus">{role_opsi_bonus}</select></div>'
+        '<div class="medan"><label>Tambahan peluang bawaan</label>'
+        f'<input type="number" name="bobot" min="1" max="5" value="{int(bawaan.get("bonus_weight") or 1)}"></div>'
+        f'<div class="medan"><label>Saat giveaway dipasang</label><select name="ping">{ping_opsi}</select></div>'
+        '<button type="submit">Simpan setelan bawaan</button></form></details>'
+    )
+    return form_bawaan
 
 
 def render_giveaway_block(
@@ -1589,133 +1829,13 @@ def render_giveaway_block(
         pilihan_role(bot, gid), str(int(bawaan.get("bonus_role_id") or 0))
     ) if bot is not None else '<option value="0">—</option>'
 
-    form_buat = (
-        '<details><summary class="muted">➕ Buat giveaway dari sini (setara /giveaway mulai)</summary>'
-        '<form method="post" action="/api/giveaway" class="formgrid">'
-        + _hidden(gid, token, "buat")
-        + '<div class="medan"><label>Hadiah</label>'
-        '<input type="text" name="hadiah" maxlength="200" placeholder="Nitro 1 Bulan" required></div>'
-        f'<div class="medan"><label>Channel</label><select name="channel">{channel_opsi}</select></div>'
-        '<div class="medan"><label>Durasi (menit)</label>'
-        f'<input type="number" name="menit" min="1" max="43200" value="{int(bawaan.get("seconds") or 3600) // 60}"></div>'
-        '<div class="medan"><label>Jumlah pemenang</label>'
-        f'<input type="number" name="pemenang" min="1" max="20" value="{int(bawaan.get("winner_count") or 1)}"></div>'
-        '<div class="medan"><label>Syarat level minimal (0 = tanpa)</label>'
-        f'<input type="number" name="level" min="0" max="500" value="{int(bawaan.get("level") or 0)}"></div>'
-        '<div class="medan"><label>Syarat umur akun (hari, 0 = tanpa)</label>'
-        f'<input type="number" name="umur" min="0" max="3650" value="{int(bawaan.get("account_age_days") or 0)}"></div>'
-        f'<div class="medan"><label>Role bonus (peluang ekstra)</label>'
-        f'<select name="role_bonus">{role_opsi_bonus}</select></div>'
-        '<div class="medan"><label>Tambahan peluang (1–5)</label>'
-        f'<input type="number" name="bobot" min="1" max="5" value="{int(bawaan.get("bonus_weight") or 1)}"></div>'
-        '<button type="submit">Pasang giveaway</button></form></details>'
-    )
-
-    if aktif:
-        baris = ""
-        for item in aktif:
-            baris += (
-                '<div class="tiket-baris"><div>'
-                f'<b>{_esc(item.get("hadiah"))}</b> · {int(item.get("peserta") or 0)} peserta'
-                f'<div class="muted">{_esc(item.get("syarat"))} · berakhir '
-                f'{_esc(_waktu_relatif(item.get("berakhir")))}</div></div>'
-                '<form method="post" action="/api/giveaway">'
-                + _hidden(gid, token, f"akhiri:{int(item.get('message_id') or 0)}")
-                + '<button type="submit" class="danger">Hentikan</button></form></div>'
-            )
-        daftar_aktif = f'<div class="daftar-tiket">{baris}</div>'
-    else:
-        daftar_aktif = (
-            '<div class="muted">Belum ada giveaway berjalan. Buat dari formulir di atas '
-            "atau lewat <code>/giveaway mulai</code>.</div>"
-        )
-
-    if selesai:
-        baris = ""
-        for item in selesai:
-            pemenang = ", ".join(f"<@{uid}>" for uid in (item.get("pemenang") or [])) or "_tanpa pemenang_"
-            sisa = int(item.get("sisa_undi") or 0)
-            tombol = (
-                '<form method="post" action="/api/giveaway">'
-                + _hidden(gid, token, f"reroll:{int(item.get('message_id') or 0)}")
-                + f'<button type="submit" class="ghost">Reroll ({sisa})</button></form>'
-                if sisa
-                else '<span class="muted">semua peserta sudah menang</span>'
-            )
-            baris += (
-                '<div class="tiket-baris"><div>'
-                f'<b>{_esc(item.get("hadiah"))}</b> · {pemenang}'
-                f'<div class="muted">{_esc(item.get("syarat"))} · {int(item.get("peserta") or 0)} peserta</div>'
-                f"</div>{tombol}</div>"
-            )
-        daftar_selesai = f'<div class="daftar-tiket">{baris}</div>'
-    else:
-        daftar_selesai = '<div class="muted">Belum ada giveaway yang selesai.</div>'
-
-    if template:
-        baris = "".join(
-            '<div class="tiket-baris"><div>'
-            f'<b>{_esc(tpl.get("nama"))}</b>'
-            f'<div class="muted">{int(tpl.get("winner_count") or 1)} pemenang · '
-            f'{int(tpl.get("seconds") or 0) // 60} menit · '
-            f'{_esc(_ringkas_syarat(tpl))}</div></div>'
-            '<form method="post" action="/api/giveaway">'
-            + _hidden(gid, token, "template-hapus")
-            + f'<input type="hidden" name="nama" value="{_esc(tpl.get("nama"))}">'
-            '<button type="submit" class="danger">Hapus</button></form></div>'
-            for tpl in template[:20]
-        )
-        daftar_template = f'<div class="daftar-tiket">{baris}</div>'
-    else:
-        daftar_template = (
-            '<div class="muted">Belum ada template. Template berguna untuk giveaway rutin '
-            "(mis. “Nitro bulanan” dengan syarat level 5).</div>"
-        )
-
-    form_template = (
-        '<details><summary class="muted">🗂️ Simpan template baru</summary>'
-        '<form method="post" action="/api/giveaway" class="formgrid">'
-        + _hidden(gid, token, "template-simpan")
-        + '<div class="medan"><label>Nama template</label>'
-        '<input type="text" name="nama" maxlength="40" placeholder="Nitro bulanan"></div>'
-        '<div class="medan"><label>Durasi (menit)</label>'
-        '<input type="number" name="menit" min="1" max="43200" value="60"></div>'
-        '<div class="medan"><label>Jumlah pemenang</label>'
-        '<input type="number" name="pemenang" min="1" max="20" value="1"></div>'
-        '<div class="medan"><label>Level minimal (0 = tanpa)</label>'
-        '<input type="number" name="level" min="0" max="500" value="0"></div>'
-        '<div class="medan"><label>Umur akun (hari, 0 = tanpa)</label>'
-        '<input type="number" name="umur" min="0" max="3650" value="0"></div>'
-        f'<div class="medan"><label>Role bonus</label><select name="role_bonus">{role_opsi}</select></div>'
-        '<div class="medan"><label>Tambahan peluang (1–5)</label>'
-        '<input type="number" name="bobot" min="1" max="5" value="1"></div>'
-        '<button type="submit">Simpan template</button></form></details>'
-    )
-
-    ping_opsi = _opsi_dari(
-        (("off", "Tidak ping"), ("on", "Ping @everyone")),
-        "on" if bawaan.get("ping_everyone") else "off",
-    )
-    form_bawaan = (
-        '<details open><summary class="muted">⚙️ Setelan bawaan giveaway baru</summary>'
-        '<p class="muted">Dipakai saat <code>/giveaway mulai</code> tanpa argumen, dan '
-        "sebagai nilai awal formulir di atas.</p>"
-        '<form method="post" action="/api/giveaway" class="formgrid">'
-        + _hidden(gid, token, "simpan-bawaan")
-        + '<div class="medan"><label>Durasi bawaan (menit)</label>'
-        f'<input type="number" name="menit" min="1" max="43200" value="{int(bawaan.get("seconds") or 3600) // 60}"></div>'
-        '<div class="medan"><label>Jumlah pemenang bawaan</label>'
-        f'<input type="number" name="pemenang" min="1" max="20" value="{int(bawaan.get("winner_count") or 1)}"></div>'
-        '<div class="medan"><label>Level minimal bawaan</label>'
-        f'<input type="number" name="level" min="0" max="500" value="{int(bawaan.get("level") or 0)}"></div>'
-        '<div class="medan"><label>Umur akun bawaan (hari)</label>'
-        f'<input type="number" name="umur" min="0" max="3650" value="{int(bawaan.get("account_age_days") or 0)}"></div>'
-        f'<div class="medan"><label>Role bonus bawaan</label><select name="role_bonus">{role_opsi_bonus}</select></div>'
-        '<div class="medan"><label>Tambahan peluang bawaan</label>'
-        f'<input type="number" name="bobot" min="1" max="5" value="{int(bawaan.get("bonus_weight") or 1)}"></div>'
-        f'<div class="medan"><label>Saat giveaway dipasang</label><select name="ping">{ping_opsi}</select></div>'
-        '<button type="submit">Simpan setelan bawaan</button></form></details>'
-    )
+    form_buat = _gv_form_buat(gid, token, channel_opsi, role_opsi_bonus, bawaan)
+    daftar_aktif = _gv_daftar_aktif(aktif, gid, token)
+    daftar_selesai = _gv_daftar_selesai(selesai, gid, token)
+    daftar_template = _gv_daftar_template(template, gid, token)
+    form_template = _gv_form_template(gid, token, role_opsi)
+    ping_opsi = _gv_opsi_ping(bawaan)
+    form_bawaan = _gv_form_bawaan(gid, token, role_opsi_bonus, ping_opsi, bawaan)
 
     return (
         ringkas
@@ -1822,27 +1942,10 @@ def _waktu_arsip(nilai: object) -> str:
         return "-"
 
 
-def render_halaman_arsip(
-    guild_id: int,
-    token: str,
-    *,
-    kata: str = "",
-    hasil: list[dict] | None = None,
-    stat: dict | None = None,
-    nama_server: str = "",
-) -> str:
-    """Halaman mandiri `/transkrip`: pencarian arsip + daftar hasil (tanpa JS)."""
-    import dashboard_tema as tema
-
-    gid = int(guild_id or 0)
-    daftar = hasil or []
-    stat = stat or {}
-    retensi_hari = int(stat.get("retensi_hari") or 0)
-    retensi = f"hapus setelah {retensi_hari} hari" if retensi_hari else "tanpa batas umur"
-    kueri = str(kata or "").strip()
-
+def _daftar_arsip_html(daftar: list[dict], kueri: str, token: str, gid: int) -> str:
+    """Baris hasil pencarian arsip, atau pesan kosong bila tak ada yang cocok."""
     if daftar:
-        baris = "".join(
+        return "".join(
             '<div class="hasil"><div>'
             f'<b>#{_esc(item.get("kode"))}</b> — {_esc(item.get("topik") or "-")}'
             f'<div class="redup">Pembuat <code>{_esc(item.get("user_id") or "-")}</code> · '
@@ -1863,13 +1966,35 @@ def render_halaman_arsip(
             for item in daftar
         )
     else:
-        baris = (
+        return (
             f'<p class="redup">Tidak ada arsip yang cocok dengan '
             f"<b>{_esc(kueri)}</b>.</p>" if kueri
             else '<p class="redup">Belum ada transkrip tersimpan di server ini.</p>'
         )
 
+
+def render_halaman_arsip(
+    guild_id: int,
+    token: str,
+    *,
+    kata: str = "",
+    hasil: list[dict] | None = None,
+    stat: dict | None = None,
+    nama_server: str = "",
+) -> str:
+    """Halaman mandiri `/transkrip`: pencarian arsip + daftar hasil (tanpa JS)."""
+    import dashboard_tema as tema
+
+
+    gid = int(guild_id or 0)
+    daftar = hasil or []
+    stat = stat or {}
+    retensi_hari = int(stat.get("retensi_hari") or 0)
+    retensi = f"hapus setelah {retensi_hari} hari" if retensi_hari else "tanpa batas umur"
+    kueri = str(kata or "").strip()
+    baris = _daftar_arsip_html(daftar, kueri, token, gid)
     kembali = f"/tiket?token={_esc(token)}&amp;guild={gid}"
+
     return f"""<!doctype html>
 <html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

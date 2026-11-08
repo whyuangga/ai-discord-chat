@@ -123,28 +123,8 @@ _WEEKDAYS = ("senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu")
 # ==============================================================================
 # PERSISTENSI
 # ==============================================================================
-def load_engagement_from_disk() -> tuple[int, int, int, int]:
-    """Memuat giveaway, ulang tahun, auto-responder, & pengumuman terjadwal."""
-    global _giveaway_seq, _announcement_seq
-    giveaways.clear()
-    giveaway_templates.clear()
-    giveaway_defaults.clear()
-    birthday_guilds.clear()
-    birthdays.clear()
-    auto_reply_channels.clear()
-    announcements.clear()
-    _giveaway_seq = 0
-    _announcement_seq = 0
-
-    if not ENGAGEMENT_FILE.exists():
-        return 0, 0, 0, 0
-
-    try:
-        raw = json.loads(ENGAGEMENT_FILE.read_text(encoding="utf-8"))
-    except Exception as exc:  # pragma: no cover - berkas rusak
-        logger.warning("Gagal memuat %s: %s", ENGAGEMENT_FILE, exc)
-        return 0, 0, 0, 0
-
+def _muat_giveaway(raw: dict) -> None:
+    """Giveaway aktif beserta riwayat & bobot bonus role."""
     for mid_str, data in (raw.get("giveaways") or {}).items():
         try:
             mid = int(mid_str)
@@ -193,6 +173,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_giveaway_template(raw: dict) -> None:
+    """Template giveaway per server."""
     for gid_str, data in (raw.get("giveaway_templates") or {}).items():
         try:
             gid = int(gid_str)
@@ -221,6 +205,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_giveaway_default(raw: dict) -> None:
+    """Nilai bawaan giveaway per server (durasi, syarat, pemenang)."""
     for gid_str, data in (raw.get("giveaway_defaults") or {}).items():
         try:
             gid = int(gid_str)
@@ -238,6 +226,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_channel_ultah(raw: dict) -> None:
+    """Channel pengumuman ulang tahun per server."""
     for gid_str, data in (raw.get("birthday_channels") or {}).items():
         try:
             birthday_guilds[int(gid_str)] = {
@@ -249,6 +241,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_ultah(raw: dict) -> None:
+    """Data ulang tahun member."""
     for key, data in (raw.get("birthdays") or {}).items():
         try:
             day = _to_int(data.get("day"))
@@ -267,6 +263,10 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_auto_reply(raw: dict) -> None:
+    """Auto-responder per channel."""
     for cid_str, data in (raw.get("auto_replies") or {}).items():
         try:
             rules = []
@@ -294,6 +294,11 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+def _muat_pengumuman(raw: dict) -> None:
+    """Pengumuman terjadwal (harian & interval)."""
+    global _giveaway_seq, _announcement_seq
     for aid_str, data in (raw.get("announcements") or {}).items():
         try:
             aid = int(aid_str)
@@ -329,6 +334,43 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+
+
+def load_engagement_from_disk() -> tuple[int, int, int, int]:
+    """Memuat giveaway, ulang tahun, auto-responder, & pengumuman terjadwal.
+
+    Tiap kelompok dimuat oleh helper sendiri (`_muat_*`) agar satu data rusak
+    hanya melewati bagiannya, bukan seluruh berkas.
+    """
+    global _giveaway_seq, _announcement_seq
+    giveaways.clear()
+    giveaway_templates.clear()
+    giveaway_defaults.clear()
+    birthday_guilds.clear()
+    birthdays.clear()
+    auto_reply_channels.clear()
+    announcements.clear()
+    _giveaway_seq = 0
+    _announcement_seq = 0
+
+    if not ENGAGEMENT_FILE.exists():
+        return 0, 0, 0, 0
+
+    try:
+        raw = json.loads(ENGAGEMENT_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:  # pragma: no cover - berkas rusak
+        logger.warning("Gagal memuat %s: %s", ENGAGEMENT_FILE, exc)
+        return 0, 0, 0, 0
+
+    _muat_giveaway(raw)
+    _muat_giveaway_template(raw)
+    _muat_giveaway_default(raw)
+    _muat_channel_ultah(raw)
+    _muat_ultah(raw)
+    _muat_auto_reply(raw)
+    _muat_pengumuman(raw)
+
     return (
         len(giveaways),
         len(birthdays),
@@ -336,6 +378,12 @@ def load_engagement_from_disk() -> tuple[int, int, int, int]:
         len(announcements),
     )
 
+
+def _pesan_galat(exc: Exception) -> str:
+    """Pesan galat yang aman dicatat (token/URL sudah disaring)."""
+    from utils import sanitize_error_message
+
+    return sanitize_error_message(exc)
 
 async def save_engagement_to_disk() -> None:
     """Menyimpan seluruh data fitur engagement secara atomik."""
@@ -367,7 +415,7 @@ async def save_engagement_to_disk() -> None:
             await asyncio.to_thread(tmp_file.write_text, serialized, "utf-8")
             await asyncio.to_thread(os.replace, tmp_file, ENGAGEMENT_FILE)
         except Exception as exc:  # pragma: no cover - I/O gagal
-            logger.warning("Gagal menyimpan engagement.json: %s", sanitize_error_message(exc))
+            logger.exception("Gagal menyimpan engagement.json: %s", _pesan_galat(exc))
 
 
 # ==============================================================================
@@ -1265,6 +1313,60 @@ def match_auto_reply(channel_id: int, content: str, *, now: float | None = None)
 # ==============================================================================
 # 4. PENGUMUMAN TERJADWAL (/pengumuman)
 # ==============================================================================
+def _jadwal_interval(teks: str) -> dict | None:
+    """Parse `setiap 3 jam` / `tiap 90 menit` jadi jadwal interval."""
+
+    teks = re.sub(r"^(setiap|tiap|interval)\s*", "", teks).strip()
+
+    cocok = re.search(r"(\d{1,4})\s*(menit|mnt|min|jam|j|hr|hours?)", teks)
+
+    if not cocok:
+        return None
+
+    jumlah = int(cocok.group(1))
+
+    satuan = cocok.group(2)
+
+    menit = jumlah if satuan in ("menit", "mnt", "min") else jumlah * 60
+
+    if not (MIN_INTERVAL_MINUTES <= menit <= MAX_INTERVAL_MINUTES):
+        return None
+
+    return {
+        "kind": "interval",
+        "interval_minutes": menit,
+        "hour": 0,
+        "minute": 0,
+        "weekday": 0,
+    }
+
+
+def _jadwal_sekali(teks: str, hour: int | None, minute: int | None) -> dict | None:
+    """Parse `sekali 31-12-2026 23:59` jadi jadwal satu kali."""
+    date_match = re.search(r"(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})", teks)
+
+    if not date_match or hour is None:
+        return None
+
+    day, month, year = (int(g) for g in date_match.groups())
+
+    if not (1 <= day <= 31 and 1 <= month <= 12):
+        return None
+
+    try:
+        once_dt = datetime(year, month, day, hour, minute or 0)
+    except ValueError:
+        return None
+
+    return {
+        "kind": "sekali",
+        "hour": hour,
+        "minute": minute or 0,
+        "weekday": 0,
+        "once_at": once_dt,
+    }
+
+
 def parse_announcement_schedule(raw: str | None) -> dict | None:
     """Membaca jadwal pengumuman.
 
@@ -1280,26 +1382,10 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     if not text:
         return None
     text = re.sub(r"\s+", " ", text)
-
     kind = "harian"
+
     if text.startswith(("setiap", "tiap", "interval")):
-        kind = "interval"
-        text = re.sub(r"^(setiap|tiap|interval)\s*", "", text).strip()
-        cocok = re.search(r"(\d{1,4})\s*(menit|mnt|min|jam|j|hr|hours?)", text)
-        if not cocok:
-            return None
-        jumlah = int(cocok.group(1))
-        satuan = cocok.group(2)
-        menit = jumlah if satuan in ("menit", "mnt", "min") else jumlah * 60
-        if not (MIN_INTERVAL_MINUTES <= menit <= MAX_INTERVAL_MINUTES):
-            return None
-        return {
-            "kind": "interval",
-            "interval_minutes": menit,
-            "hour": 0,
-            "minute": 0,
-            "weekday": 0,
-        }
+        return _jadwal_interval(text)
     if text.startswith("sekali"):
         kind = "sekali"
         text = text[len("sekali"):].strip()
@@ -1309,7 +1395,6 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
     elif text.startswith("harian"):
         kind = "harian"
         text = text[len("harian"):].strip()
-
     time_match = re.search(r"(\d{1,2})\s*[:.]\s*(\d{2})", text)
     hour = minute = None
     if time_match:
@@ -1318,29 +1403,10 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
             return None
 
     if kind == "sekali":
-        date_match = re.search(r"(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})", text)
-        if not date_match or hour is None:
-            return None
-        day, month, year = (int(g) for g in date_match.groups())
-        if not (1 <= day <= 31 and 1 <= month <= 12):
-            return None
-        try:
-            once_dt = datetime(year, month, day, hour, minute or 0)
-        except ValueError:
-            return None
-        return {
-            "kind": "sekali",
-            "hour": hour,
-            "minute": minute or 0,
-            "weekday": 0,
-            "once_at": once_dt,
-        }
+        return _jadwal_sekali(text, hour, minute)
 
     if hour is None:
         return None
-
-    # "senin 19:00" tanpa kata "mingguan" tetap dianggap mingguan — dulu nama hari
-    # diabaikan sehingga jadwalnya berjalan SETIAP HARI.
     weekday = 0
     ada_hari = False
     for idx, name in enumerate(_WEEKDAYS):
@@ -1348,12 +1414,10 @@ def parse_announcement_schedule(raw: str | None) -> dict | None:
             weekday = idx
             ada_hari = True
             break
-
     if kind == "harian" and ada_hari:
         kind = "mingguan"
     if kind == "mingguan" and not ada_hari:
         return None
-
     return {
         "kind": kind,
         "hour": hour,
