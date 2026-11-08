@@ -256,6 +256,46 @@ async def trigger_member_boost(
     return None
 
 
+async def _kirim_pamit_goodbye(
+    ch,
+    *,
+    farewell: str,
+    member,
+    guild: discord.Guild,
+    days_in_server: int | None,
+) -> None:
+    """Kirim kartu perpisahan (lengkap dengan banner) ke satu channel."""
+    embed = discord.Embed(
+        title="👋 Sampai Jumpa Lagi!",
+        description=farewell[:3900],
+        color=discord.Color.dark_grey(),
+        timestamp=discord.utils.utcnow(),
+    )
+    avatar = getattr(member, "display_avatar", None)
+    avatar_url = getattr(avatar, "url", None)
+    if avatar_url:
+        embed.set_thumbnail(url=avatar_url)
+    farewell_file = None
+    banner = welcome_media.banner_path(guild.id, kind="goodbye")
+    if banner is None:
+        banner = welcome_media.banner_path(guild.id, kind="welcome")
+    if banner is not None:
+        banner_name = f"banner-goodbye{banner.suffix.lower()}"
+        embed.set_image(url=f"attachment://{banner_name}")
+        farewell_file = discord.File(str(banner), filename=banner_name)
+    if days_in_server:
+        embed.add_field(
+            name="📅 Masa Kebersamaan",
+            value=f"`{days_in_server} hari` bersama {guild.name}",
+            inline=True,
+        )
+    embed.set_footer(text=f"Terima kasih sudah menjadi bagian dari {guild.name}")
+    if farewell_file is not None:
+        await ch.send(embed=embed, file=farewell_file)
+    else:
+        await ch.send(embed=embed)
+
+
 async def trigger_member_goodbye(
     bot: discord.Client,
     guild: discord.Guild,
@@ -311,35 +351,13 @@ async def trigger_member_goodbye(
                     return None
 
                 async def _kirim_pamit(ch):
-                    embed = discord.Embed(
-                        title="👋 Sampai Jumpa Lagi!",
-                        description=farewell[:3900],
-                        color=discord.Color.dark_grey(),
-                        timestamp=discord.utils.utcnow(),
+                    await _kirim_pamit_goodbye(
+                        ch,
+                        farewell=farewell,
+                        member=member,
+                        guild=guild,
+                        days_in_server=days_in_server,
                     )
-                    avatar = getattr(member, "display_avatar", None)
-                    avatar_url = getattr(avatar, "url", None)
-                    if avatar_url:
-                        embed.set_thumbnail(url=avatar_url)
-                    farewell_file = None
-                    banner = welcome_media.banner_path(guild.id, kind="goodbye")
-                    if banner is None:
-                        banner = welcome_media.banner_path(guild.id, kind="welcome")
-                    if banner is not None:
-                        banner_name = f"banner-goodbye{banner.suffix.lower()}"
-                        embed.set_image(url=f"attachment://{banner_name}")
-                        farewell_file = discord.File(str(banner), filename=banner_name)
-                    if days_in_server:
-                        embed.add_field(
-                            name="📅 Masa Kebersamaan",
-                            value=f"`{days_in_server} hari` bersama {guild.name}",
-                            inline=True,
-                        )
-                    embed.set_footer(text=f"Terima kasih sudah menjadi bagian dari {guild.name}")
-                    if farewell_file is not None:
-                        await ch.send(embed=embed, file=farewell_file)
-                    else:
-                        await ch.send(embed=embed)
 
                 if await channel_targets.sebarkan(bot, ch_ids, _kirim_pamit):
                     return farewell
