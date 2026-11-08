@@ -304,6 +304,7 @@ ANCHOR_HALAMAN.update({
     "p-curhat": "konten",
     "p-sosial": "konten",
     "p-voice": "konten",
+    "p-musik": "konten",
     "p-info": "konten",
     "p-form-inbox": "buat",
     "p-statistik": "konten",

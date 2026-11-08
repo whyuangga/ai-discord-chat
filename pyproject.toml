@@ -72,6 +72,7 @@ py-modules = [
     "dashboard_keamanan",
     "dashboard_lencana",
     "dashboard_moderasi",
+    "dashboard_musik",
     "dashboard_panel",
     "dashboard_pesan",
     "dashboard_security",

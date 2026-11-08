@@ -25,7 +25,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🌐 **AI Agent publik** | `/agent` | Auto-chat dengan **etika anti-nimbrung**, forum auto-tag + `✅ Tandai Selesai`, digest pagi, welcome & goodbye | AI |
 | 🔎 **Pintasan pintar** | `/ringkas`, `/cari`, `/terjemah`, `/faq` | Rekap chat/link/YouTube, info terkini, terjemahan ter-cache, FAQ lokal | AI / 0 |
 | 🎮 **Hiburan** | `/game` | 6 mini-game tongkrongan + papan skor server | AI |
-| 🎵 **Musik 24/7** | `/musik` | Lavalink v4, panel ala Rythm, filter audio, **playlist pribadi** per member | 0 |
+| 🎵 **Musik 24/7** | `/musik` | Lavalink v4, panel **gaya LunaBot** (grid 5×3 + mini-player + rekomendasi lagu), filter audio, **playlist pribadi** per member, setelan dari dashboard | 0 |
 | 🛠️ **Server otomatis** | `/serverstats`, `/autorole`, `/fakta`, `/keamanan` | Channel statistik, auto role, fakta 4× sehari, anti-phishing | 0 |
 | 🧩 **Komunitas** | `/panel-role`, `/menu`, `/poll`, `/saran`, `/embed`, `/tempvoice`, `/starboard`, `/sticky`, `/verifikasi`, `/ingatkan`, `/info` | Reaction role, menu builder, polling, kotak saran, temp voice, sorotan pesan | 0 |
 | 📈 **Retensi & pelayanan** | `/level`, `/tiket` | XP pesan + voice, **musim** & **prestige**; tiket thread + **SLA**, **auto-close**, **rating bintang** | 0 |
@@ -250,6 +250,30 @@ Kedua fitur ini bersifat **per-channel** — Anda bisa mengaktifkannya di satu c
 - `/fakta sekarang` mengirim contoh rubrik fakta saat itu juga (tanpa menunggu slot jadwal).
 - `/fakta status` menampilkan seluruh slot, slot berikutnya, dan slot yang sudah terkirim hari ini.
 - `/keamanan cek link:https://...` bisa dipakai semua member untuk memeriksa link.
+
+---
+
+### 🎵 Panel pemutar musik (gaya LunaBot)
+
+`/musik panel` — dan panel yang diperbarui otomatis setiap ganti lagu — menampilkan satu kartu:
+
+- **Mini-player**: judul, progress bar, `posisi / durasi`, volume, `Requested by`, dan sumber lagu.
+- **Dropdown “Select a suggested song”**: 5 rekomendasi lagu sejenis; tiap opsi berketerangan
+  `artis • sumber • durasi`. Bila node belum tersambung, dropdown tidak dibuat dan panel tetap jalan.
+- **15 tombol dalam grid 5×3**:
+
+| Baris | Tombol |
+| :--- | :--- |
+| 1 | putar/jeda · sebelumnya · berikutnya · berhenti · antrean |
+| 2 | mundur 10 dtk · maju 10 dtk · favorit · radio (autoplay) · filter |
+| 3 | volume − · volume + · loop · acak · tutup panel |
+
+Tombol **favorit** menyimpan lagu yang sedang diputar ke playlist pribadi bernama **Favorit**.
+
+Setelan musik bisa diubah tanpa command dari dashboard web: buka **🧩 Konten & interaksi → 🎵 Musik**
+untuk mengatur volume default, role DJ, filter default, mode loop, batas antrean, pengumuman panel,
+autoplay, sekaligus melihat **status node Lavalink** (tersambung / menyambung / terputus). Perubahan
+langsung berlaku ke pemutar yang sedang aktif. 0 kuota AI.
 
 ---
 
@@ -617,6 +641,7 @@ ai-discord-chat/
 │   ├── dashboard_stats.py  # Channel statistik: angka + ikon per channel
 │   ├── voice_link.py       # Voice linking — role + channel teks privat selama di voice
 │   ├── dashboard_voice.py  # Panel voice linking di halaman Konten & interaksi
+│   ├── dashboard_musik.py  # Panel musik: volume, DJ, filter, loop, batas antrean, status node
 │   ├── confessions.py      # Curhat anonim (`/curhat`) — tanpa menyimpan isi curhat
 │   ├── dashboard_curhat.py # Panel curhat di halaman Konten & interaksi
 │   ├── dashboard_sosial.py # Panel notifikasi sosial (YouTube/Twitch/TikTok/Reddit/RSS)
@@ -712,7 +737,7 @@ ai-discord-chat/
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
 │   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 64 berkas pytest → 1251 tes (1246 lulus, 5 dilewati)
+├── tests/                  # 67 berkas pytest → 1288 tes (1283 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

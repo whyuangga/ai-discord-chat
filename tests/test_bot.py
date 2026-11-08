@@ -3480,7 +3480,7 @@ async def test_music_rythm_panel_progress_seek_filters_and_pagination():
     empty_page, _, empty_total = music.build_queue_page_embed([])
     assert empty_total == 1 and "masih kosong" in empty_page.description
 
-    # 7. Tombol panel persisten (9 tombol) & paginasi antrean
+    # 7. Tombol panel persisten (15 tombol, grid 5x3) & paginasi antrean
     panel_view = views.MusicPlayerView()
     assert panel_view.is_persistent() is True
     assert [c.custom_id for c in panel_view.children] == [
@@ -3493,6 +3493,12 @@ async def test_music_rythm_panel_progress_seek_filters_and_pagination():
         "music:panel:shuffle",
         "music:panel:vol_down",
         "music:panel:vol_up",
+        "music:panel:seek_back",
+        "music:panel:seek_fwd",
+        "music:panel:fav",
+        "music:panel:radio",
+        "music:panel:filter",
+        "music:panel:tutup",
     ]
     queue_view = views.QueuePaginationView(tracks, requester_id=501, page=1)
     queue_items = list(queue_view.walk_children())
@@ -5404,7 +5410,9 @@ async def test_embed_to_container_help_panel_and_music_panel_v2():
     m_buttons = [i for i in panel.walk_children() if isinstance(i, discord.ui.Button)]
     assert [b.custom_id for b in m_buttons] == views.MUSIC_PANEL_ORDER
     m_rows = [i for i in panel.walk_children() if isinstance(i, discord.ui.ActionRow)]
-    assert len(m_rows) == 2 and len(m_rows[0].children) == 5
+    # Grid 5x3 gaya LunaBot: 15 tombol tersusun 5 per baris.
+    assert len(m_buttons) == 15
+    assert len(m_rows) == 3 and all(len(r.children) == 5 for r in m_rows)
 
 
 @pytest.mark.asyncio

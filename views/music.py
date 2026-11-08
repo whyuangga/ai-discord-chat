@@ -4,6 +4,7 @@ import logging
 
 import discord
 import music
+import music_playlists
 import ui_kit
 
 logger = logging.getLogger("gemini_bot.views.music")
@@ -127,6 +128,10 @@ class QueuePaginationView(ui_kit.ui.LayoutView):
                 timeout=None,
             )
         )
+# Langkah geser posisi (detik) untuk tombol ⏪ / ⏩ di panel.
+SEEK_STEP_SECONDS = 10
+
+
 class MusicPlayerView(discord.ui.View):
     """Panel kontrol pemutar musik persisten ala Rythm (tombol selalu aktif walau bot restart)."""
 
@@ -275,16 +280,123 @@ class MusicPlayerView(discord.ui.View):
         music.set_music_settings(interaction.guild_id, volume=new_volume)
         await self._refresh(interaction)
         await interaction.response.send_message(f"🔊 Volume: **{new_volume}%**", ephemeral=True)
+
+    # ---------------------------------------------------- tombol tambahan (V2)
+    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary, custom_id="music:panel:seek_back")
+    async def seek_back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Mundur 10 detik dari posisi sekarang."""
+        await self._seek_relatif(interaction, -SEEK_STEP_SECONDS)
+
+    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.secondary, custom_id="music:panel:seek_fwd")
+    async def seek_fwd_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Maju 10 detik dari posisi sekarang."""
+        await self._seek_relatif(interaction, SEEK_STEP_SECONDS)
+
+    @discord.ui.button(emoji="💜", style=discord.ButtonStyle.secondary, custom_id="music:panel:fav")
+    async def favorite_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Simpan lagu yang sedang diputar ke playlist pribadi pemencet."""
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        current = getattr(player, "current", None)
+        if current is None:
+            await interaction.response.send_message(
+                "⚠️ Tidak ada lagu yang sedang diputar.", ephemeral=True
+            )
+            return
+        entri = music_playlists._entry_from_track(current)
+        if not entri:
+            await interaction.response.send_message(
+                "⚠️ Judul lagu ini tidak bisa disimpan.", ephemeral=True
+            )
+            return
+        gid = interaction.guild_id or 0
+        nama = "Favorit"
+        ok, pesan = music_playlists.save_playlist(gid, interaction.user.id, nama, [entri], replace=False)
+        if ok:
+            await music_playlists.save_playlists_to_disk()
+        await interaction.response.send_message(
+            ("💜 Disimpan ke playlist **Favorit**." if ok else "⚠️ " + pesan), ephemeral=True
+        )
+
+    @discord.ui.button(emoji="🔀", label="Radio", style=discord.ButtonStyle.secondary, custom_id="music:panel:radio")
+    async def radio_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Nyalakan/matikan autoplay (radio lagu sejenis)."""
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        mode = getattr(player, "autoplay", None)
+        aktif = getattr(mode, "name", "") != "enabled"
+        music.set_autoplay(player, aktif)
+        music.set_music_settings(interaction.guild_id, autoplay=aktif)
+        await self._refresh(interaction)
+        await interaction.response.send_message(
+            f"🔀 Radio (autoplay): **{'AKTIF' if aktif else 'NONAKTIF'}**", ephemeral=True
+        )
+
+    @discord.ui.button(emoji="🎛️", style=discord.ButtonStyle.secondary, custom_id="music:panel:filter")
+    async def filter_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Putar ke filter berikutnya lalu terapkan ke player."""
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        sekarang = str(music.get_music_settings(interaction.guild_id).get("filter") or "off")
+        kunci = list(music.FILTER_PRESETS)
+        berikut = kunci[(kunci.index(sekarang) + 1) % len(kunci)] if sekarang in kunci else kunci[0]
+        diterapkan = await music.apply_filter(player, berikut)
+        music.set_music_settings(interaction.guild_id, filter_name=berikut)
+        await self._refresh(interaction)
+        await interaction.response.send_message(
+            f"🎛️ Filter: **{music.FILTER_PRESETS.get(berikut, berikut)}**"
+            + ("" if diterapkan else " (node belum siap, disimpan untuk putar berikutnya)"),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(emoji="✖️", style=discord.ButtonStyle.secondary, custom_id="music:panel:tutup")
+    async def close_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Sembunyikan panel (pesan dihapus)."""
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except Exception:  # pragma: no cover - pesan sudah hilang / tanpa izin
+            logger.debug("Panel musik gagal dihapus", exc_info=True)
+
+    async def _seek_relatif(self, interaction: discord.Interaction, detik: int) -> None:
+        """Geser posisi pemutaran relatif terhadap posisi sekarang."""
+        player = await self._player_or_warn(interaction)
+        if player is None:
+            return
+        posisi = max(0, int(getattr(player, "position", 0) or 0) + detik)
+        panjang = int(getattr(getattr(player, "current", None), "length", 0) or 0)
+        if panjang and posisi > panjang:
+            posisi = panjang
+        await player.seek(posisi)
+        await self._refresh(interaction)
+        arah = "⏩" if detik > 0 else "⏪"
+        tanda = "+" if detik > 0 else "−"
+        await interaction.response.send_message(
+            f"{arah} Posisi: **{music.format_duration(posisi)}** ({tanda}{abs(detik)} dtk)", ephemeral=True
+        )
+# Susunan grid 5 kolom x 3 baris, meniru tata letak LunaBot:
+#   baris 1 (pemutaran) : putar/jeda, sebelumnya, berikutnya, berhenti, antrean
+#   baris 2 (navigasi)  : mundur 10s, maju 10s, favorit, radio/autoplay, filter
+#   baris 3 (audio)     : volume turun, volume naik, ulang (loop), acak (shuffle), tutup
 MUSIC_PANEL_ORDER: list[str] = [
-    "music:panel:previous",
     "music:panel:pause",
+    "music:panel:previous",
     "music:panel:skip",
     "music:panel:stop",
-    "music:panel:loop",
-    "music:panel:shuffle",
+    "music:panel:queue",
+    "music:panel:seek_back",
+    "music:panel:seek_fwd",
+    "music:panel:fav",
+    "music:panel:radio",
+    "music:panel:filter",
     "music:panel:vol_down",
     "music:panel:vol_up",
-    "music:panel:queue",
+    "music:panel:loop",
+    "music:panel:shuffle",
+    "music:panel:tutup",
 ]
 def build_music_panel_view(
     player,
@@ -309,11 +421,124 @@ def build_music_panel_view(
     buttons = [by_id[cid] for cid in MUSIC_PANEL_ORDER if cid in by_id]
     if not buttons:  # pragma: no cover - jaga-jaga bila custom_id berubah
         return None
-    rows = [ui_kit.action_row(*buttons[:5])]
-    if buttons[5:]:
-        rows.append(ui_kit.action_row(*buttons[5:10]))
+    # Grid 5 kolom: maksimum 5 tombol per ActionRow (batas Discord).
+    rows = [ui_kit.action_row(*buttons[i:i + 5]) for i in range(0, len(buttons), 5)]
     return ui_kit.build_view(
         guild_id,
         ui_kit.embed_to_container(guild_id, embed, extra_children=rows),
         timeout=None,
+    )
+
+
+# ==============================================================================
+# PANEL ALTERNATIF GAYA LUNABOT (mini-player + rekomendasi)
+# ==============================================================================
+class SuggestedSongSelect(ui_kit.ui.Select):
+    """Dropdown "Select a suggested song" — memutar lagu sejenis yang dipilih."""
+
+    def __init__(self, rekomendasi: list):
+        self.rekomendasi = list(rekomendasi)
+        opsi = [
+            ui_kit.option(
+                music.track_title(lagu, 95),
+                str(i),
+                description=music.deskripsi_rekomendasi(lagu),
+            )
+            for i, lagu in enumerate(self.rekomendasi[: ui_kit.MAX_SELECT_OPTIONS])
+        ]
+        super().__init__(
+            placeholder="Select a suggested song",
+            min_values=1,
+            max_values=1,
+            options=opsi,
+            custom_id="music:panel:suggest",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            lagu = self.rekomendasi[int(self.values[0])]
+        except (IndexError, ValueError):  # pragma: no cover - opsi basi
+            await interaction.response.send_message(
+                "⚠️ Rekomendasi sudah kedaluwarsa, tekan **Panel** sekali lagi.", ephemeral=True
+            )
+            return
+        player = music.get_player(interaction.guild)
+        if player is None:
+            await interaction.response.send_message(
+                "⚠️ Tidak ada pemutar aktif di server ini.", ephemeral=True
+            )
+            return
+        try:
+            await player.queue.put_wait(lagu)
+        except Exception as exc:  # pragma: no cover - node terputus
+            await interaction.response.send_message(
+                f"⚠️ Gagal menambahkan lagu: `{music.sanitize_error_message(exc)[:100]}`",
+                ephemeral=True,
+            )
+            return
+        if not getattr(player, "playing", False):
+            await player.play(lagu)
+        await interaction.response.send_message(
+            f"➕ Ditambahkan ke antrean: **{music.track_title(lagu, 70)}**", ephemeral=True
+        )
+
+
+def build_mini_player(player, *, guild_id: int | None = None) -> str:
+    """Baris mini-player `judul` + `Requested by` + durasi + volume."""
+    current = getattr(player, "current", None) if player is not None else None
+    if current is None:
+        return "### ⏹️ Tidak ada lagu yang diputar\n`Tambahkan lagu dengan /musik putar`"
+
+    posisi = max(0, music._to_int(getattr(player, "position", 0)))
+    panjang = max(0, music._to_int(getattr(current, "length", 0)))
+    volume = music._to_int(getattr(player, "volume", 0))
+    jeda = bool(getattr(player, "paused", False))
+
+    if getattr(current, "is_stream", False):
+        waktu = "🔴 **LIVE**"
+    else:
+        waktu = f"`{music.format_duration(posisi)} / {music.format_duration(panjang)}`"
+
+    baris = [
+        f"### {'⏸️' if jeda else '🎶'} {music.track_title(current, 80)}",
+        f"{waktu}  •  🔊 `{volume}%`",
+        f"-# 👤 Requested by **{music.track_requester_name(current)}**  •  📡 {music.source_label(current)}",
+    ]
+    if not getattr(current, "is_stream", False) and panjang > 0:
+        baris.insert(1, music.build_progress_bar(posisi, panjang))
+    return "\n".join(baris)
+
+
+def build_music_panel_luna_view(
+    player,
+    *,
+    guild_id: int | None = None,
+    rekomendasi: list | None = None,
+    filter_name: str | None = None,
+    timeout: float | None = None,
+):
+    """Panel bergaya LunaBot: kartu mini-player + dropdown rekomendasi + grid 5x3.
+
+    `rekomendasi` diisi pemanggil (hasil `music.rekomendasi_lagu`); bila kosong
+    dropdown tidak dibuat agar Discord tidak menolak menu tanpa opsi.
+    """
+    classic = MusicPlayerView()
+    by_id = {item.custom_id: item for item in list(classic.children)}
+    for item in list(classic.children):
+        classic.remove_item(item)
+    tombol = [by_id[cid] for cid in MUSIC_PANEL_ORDER if cid in by_id]
+
+    isi: list = [ui_kit.text(build_mini_player(player, guild_id=guild_id))]
+    daftar = list(rekomendasi or [])
+    if daftar:
+        isi.append(ui_kit.sep())
+        isi.append(ui_kit.action_row(SuggestedSongSelect(daftar)))
+
+    for i in range(0, len(tombol), 5):
+        isi.append(ui_kit.action_row(*tombol[i:i + 5]))
+
+    return ui_kit.build_view(
+        guild_id,
+        ui_kit.card(guild_id, *isi, accent=discord.Colour.purple()),
+        timeout=timeout,
     )
