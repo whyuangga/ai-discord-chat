@@ -541,6 +541,94 @@ class ServerFaqManagerView(discord.ui.View):
             ),
             view=fresh_view,
         )
+_PESAN_FORUM_TERJADWAL: dict[str, str] = {
+    'toggle_welcome': (
+        '⚠️ Sambutan Member Baru hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).'
+    ),
+    'toggle_digest': (
+        '⚠️ Koran Pagi (Morning Digest) hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).'
+    ),
+    'toggle_goodbye': (
+        '⚠️ Pesan Perpisahan (Goodbye) hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).'
+    ),
+    'toggle_facts': (
+        '⚠️ Fakta Unik Dunia hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).'
+    ),
+}
+
+
+def _toggle_kanal_agen(guild_id: int, cid: int, action: str, is_forum_like: bool) -> str:
+    """Nyalakan/matikan Auto-Chat, Galeri, YouTube, atau Pencarian di satu channel."""
+    if action == "toggle_chat":
+        new_state = not bool(chat_agent_channels.get(cid, {}).get("enabled"))
+        set_chat_channel_config(
+            guild_id,
+            cid,
+            enabled=new_state,
+            reply_mode="smart",
+            idle_minutes=0 if is_forum_like else AGENT_DEFAULT_IDLE_MINUTES,
+        )
+        return f"💬 **Auto-Chat** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+
+    if action == "toggle_gallery":
+        new_state = not bool(gallery_agent_channels.get(cid, {}).get("enabled"))
+        set_gallery_channel_config(guild_id, cid, enabled=new_state, auto_reaction=True)
+        return f"🎨 **Komentator Galeri** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+
+    if action == "toggle_youtube":
+        new_state = not bool(youtube_agent_channels.get(cid, {}).get("enabled"))
+        set_youtube_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=False)
+        return f"▶️ **Rangkum YouTube & Link** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+
+    new_state = not bool(search_agent_channels.get(cid, {}).get("enabled"))
+    set_search_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=True)
+    return f"🌐 **Pencarian Berita (`/cari`)** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
+
+
+async def _toggle_fitur_terjadwal(
+    interaction: discord.Interaction,
+    cid: int,
+    action: str,
+    guild_id: int,
+    is_forum_like: bool,
+) -> str | None:
+    """Nyalakan/matikan Welcome, Digest, Goodbye, atau Fakta. None bila ditolak."""
+    if action not in _PESAN_FORUM_TERJADWAL:
+        return ""
+    if is_forum_like:
+        await interaction.response.send_message(
+            _PESAN_FORUM_TERJADWAL[action], ephemeral=True
+        )
+        return None
+
+    if action == "toggle_welcome":
+        w_cur = welcome_agent_guilds.get(guild_id)
+        turn_on = not (w_cur and w_cur.get("enabled") and w_cur.get("channel_id") == cid)
+        set_welcome_config(guild_id, cid, enabled=turn_on)
+        return f"👋 **Auto-Welcomer** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+
+    if action == "toggle_digest":
+        d_cur = digest_agent_guilds.get(guild_id)
+        turn_on = not (d_cur and d_cur.get("enabled") and d_cur.get("channel_id") == cid)
+        set_digest_config(guild_id, cid, enabled=turn_on, hour=7, minute=0)
+        return f"☀️ **Koran Pagi 07:00** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+
+    if action == "toggle_goodbye":
+        gb_cur = goodbye_agent_guilds.get(guild_id)
+        turn_on = not (gb_cur and gb_cur.get("enabled") and gb_cur.get("channel_id") == cid)
+        set_goodbye_config(guild_id, cid, enabled=turn_on)
+        return f"👣 **Pesan Perpisahan (Goodbye)** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+
+    f_cur = facts_guilds.get(guild_id)
+    turn_on = not (f_cur and f_cur.get("enabled") and f_cur.get("channel_id") == cid)
+    f_cfg_new = set_facts_config(guild_id, cid, enabled=turn_on)
+    f_slots = format_facts_schedule((f_cfg_new or {}).get("times"))
+    return (
+        f"🌍 **Fakta Unik Dunia** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
+        + (f"\n⏰ Jadwal aktif: {f_slots} *(ubah lewat `/fakta atur`)*" if turn_on else "")
+    )
+
+
 async def apply_agent_toggle(interaction: discord.Interaction, cid: int, action: str) -> str | None:
     """Menyalakan/mematikan satu fitur AI Agent pada channel tertentu (0 kuota AI).
 
@@ -551,82 +639,21 @@ async def apply_agent_toggle(interaction: discord.Interaction, cid: int, action:
         return None
     target_ch = interaction.guild.get_channel(cid)
     is_forum_like = isinstance(target_ch, discord.ForumChannel)
-    banner = ""
     guild_id = interaction.guild.id
 
-    if action == "toggle_chat":
-        new_state = not bool(chat_agent_channels.get(cid, {}).get("enabled"))
-        set_chat_channel_config(
-            guild_id,
-            cid,
-            enabled=new_state,
-            reply_mode="smart",
-            idle_minutes=0 if is_forum_like else AGENT_DEFAULT_IDLE_MINUTES,
-        )
-        banner = f"💬 **Auto-Chat** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-    elif action == "toggle_gallery":
-        new_state = not bool(gallery_agent_channels.get(cid, {}).get("enabled"))
-        set_gallery_channel_config(guild_id, cid, enabled=new_state, auto_reaction=True)
-        banner = f"🎨 **Komentator Galeri** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-    elif action == "toggle_youtube":
-        new_state = not bool(youtube_agent_channels.get(cid, {}).get("enabled"))
-        set_youtube_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=False)
-        banner = f"▶️ **Rangkum YouTube & Link** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-    elif action == "toggle_search":
-        new_state = not bool(search_agent_channels.get(cid, {}).get("enabled"))
-        set_search_channel_config(guild_id, cid, enabled=new_state, auto_in_chat=True)
-        banner = f"🌐 **Pencarian Berita (`/cari`)** di <#{cid}> ➔ **{'AKTIF' if new_state else 'NONAKTIF'}**"
-    elif action == "toggle_welcome":
-        if is_forum_like:
-            await interaction.response.send_message(
-                "⚠️ Sambutan Member Baru hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
-                ephemeral=True,
-            )
-            return
-        w_cur = welcome_agent_guilds.get(guild_id)
-        turn_on = not (w_cur and w_cur.get("enabled") and w_cur.get("channel_id") == cid)
-        set_welcome_config(guild_id, cid, enabled=turn_on)
-        banner = f"👋 **Auto-Welcomer** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-    elif action == "toggle_digest":
-        if is_forum_like:
-            await interaction.response.send_message(
-                "⚠️ Koran Pagi (Morning Digest) hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
-                ephemeral=True,
-            )
-            return
-        d_cur = digest_agent_guilds.get(guild_id)
-        turn_on = not (d_cur and d_cur.get("enabled") and d_cur.get("channel_id") == cid)
-        set_digest_config(guild_id, cid, enabled=turn_on, hour=7, minute=0)
-        banner = f"☀️ **Koran Pagi 07:00** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-    elif action == "toggle_goodbye":
-        if is_forum_like:
-            await interaction.response.send_message(
-                "⚠️ Pesan Perpisahan (Goodbye) hanya dapat dipasang pada **Text Channel** biasa (bukan Forum).",
-                ephemeral=True,
-            )
-            return
-        gb_cur = goodbye_agent_guilds.get(guild_id)
-        turn_on = not (gb_cur and gb_cur.get("enabled") and gb_cur.get("channel_id") == cid)
-        set_goodbye_config(guild_id, cid, enabled=turn_on)
-        banner = f"👣 **Pesan Perpisahan (Goodbye)** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-    elif action == "toggle_facts":
-        if is_forum_like:
-            await interaction.response.send_message(
-                "⚠️ Fakta Unik Dunia hanya dapat dikirim ke **Text Channel** biasa (bukan Forum).",
-                ephemeral=True,
-            )
-            return
-        f_cur = facts_guilds.get(guild_id)
-        turn_on = not (f_cur and f_cur.get("enabled") and f_cur.get("channel_id") == cid)
-        f_cfg_new = set_facts_config(guild_id, cid, enabled=turn_on)
-        f_slots = format_facts_schedule((f_cfg_new or {}).get("times"))
-        banner = (
-            f"🌍 **Fakta Unik Dunia** di <#{cid}> ➔ **{'AKTIF' if turn_on else 'NONAKTIF'}**"
-            + (f"\n⏰ Jadwal aktif: {f_slots} *(ubah lewat `/fakta atur`)*" if turn_on else "")
-        )
+    if action in (
+        "toggle_chat",
+        "toggle_gallery",
+        "toggle_youtube",
+        "toggle_search",
+    ):
+        return _toggle_kanal_agen(guild_id, cid, action, is_forum_like)
+
+    return await _toggle_fitur_terjadwal(
+        interaction, cid, action, guild_id, is_forum_like
+    )
 
 
-    return banner
 class AgentAdminPanelView(discord.ui.View):
     """Panel Kontrol Admin Interaktif (/agent panel) dengan Spotlight Channel, Toggle Mulus, & Pengelola FAQ."""
 
