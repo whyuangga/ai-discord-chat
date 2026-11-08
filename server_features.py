@@ -69,6 +69,19 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         logger.warning("Gagal memuat %s: %s", SERVER_FEATURES_FILE, exc)
         return 0, 0, 0, 0
 
+    _muat_serverstats(raw)
+
+    _muat_autorole(raw)
+
+    _muat_facts(raw)
+
+    _muat_security(raw)
+
+    return len(serverstats_guilds), len(autorole_guilds), len(facts_guilds), len(security_guilds)
+
+
+def _muat_serverstats(raw: dict) -> None:
+    """Isi serverstats_guilds dari data mentah."""
     for gid_str, data in (raw.get("serverstats") or {}).items():
         try:
             if not data.get("enabled", True):
@@ -91,6 +104,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+def _muat_autorole(raw: dict) -> None:
+    """Isi autorole_guilds dari data mentah."""
     for gid_str, data in (raw.get("autorole") or {}).items():
         try:
             if not data.get("enabled", True):
@@ -110,6 +126,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+def _muat_facts(raw: dict) -> None:
+    """Isi facts_guilds dari data mentah."""
     for gid_str, data in (raw.get("facts") or {}).items():
         try:
             if not data.get("enabled", True):
@@ -118,6 +137,9 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
         except (TypeError, ValueError):
             continue
 
+
+def _muat_security(raw: dict) -> None:
+    """Isi security_guilds dari data mentah."""
     for gid_str, data in (raw.get("security") or {}).items():
         try:
             action = str(data.get("action") or "hapus_peringat")
@@ -133,8 +155,6 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
             }
         except (TypeError, ValueError):
             continue
-
-    return len(serverstats_guilds), len(autorole_guilds), len(facts_guilds), len(security_guilds)
 
 
 def _parse_facts_guild_config(data: dict) -> dict:
