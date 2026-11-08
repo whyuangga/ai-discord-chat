@@ -2797,6 +2797,72 @@ def _build_greeting_system_prompt(
     )
 
 
+def _susun_prompt_welcome(
+    *,
+    member_display_name: str,
+    member_mention: str,
+    member_count: int | None,
+    time_ctx: dict,
+    persona: dict,
+    hello: dict,
+    w_cfg: dict,
+    guild_name: str,
+    recent_welcomes: list,
+) -> str:
+    """Rangkai prompt sambutan lengkap untuk Gemini."""
+    avoid_block = ""
+    if recent_welcomes:
+        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_welcomes)
+        avoid_block = (
+            f"\nPENTING ANTI-MONOTON: Sambutan sebelumnya yang sudah pernah kamu kirim: [{joined_prev}]. "
+            "Buat variasi kalimat & pembuka yang berbeda supaya setiap member baru mendapat sambutan segar!"
+        )
+    extra_note = str(w_cfg.get("extra_note") or "").strip()
+    note_instruction = (
+        f"\nSelipkan juga info penting ini secara santai (jangan kaku seperti pengumuman): \"{extra_note}\""
+        if extra_note
+        else ""
+    )
+    count_info = f" (member ke-{member_count})" if member_count else ""
+    server_label = f" di server '{guild_name}'" if guild_name else ""
+    angle = random.choice(_WELCOME_ANGLES)
+
+    return (
+        f"(Instruksi situasi: Member baru bernama '{member_display_name}'{count_info} baru saja bergabung{server_label} "
+        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
+        f"Persona sambutan: {persona['label']}\n"
+        f"KATA SAPAAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan, "
+        f"jangan tambahkan huruf latin atau artinya): {format_greeting_word(hello, dengan_arti=False)}\n"
+        f"Gaya sambutan kali ini: {angle}\n"
+        f"Sertakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention. "
+        "Tulis 1–2 kalimat pendek yang ramah dan mengundang dia ikut ngobrol, sisanya tetap Bahasa Indonesia!)"
+        f"{note_instruction}{avoid_block}"
+    )
+
+
+async def _simpan_balasan_welcome(
+    reply: str,
+    *,
+    hello: dict,
+    member_mention: str,
+    w_cfg: dict,
+    recent_welcomes: list,
+    recent_hellos: list,
+) -> str:
+    """Rapikan teks, simpan riwayat, dan catat ke histori channel chat."""
+    reply = _finalize_greeting_text(
+        reply, hello, member_mention, dengan_arti=bool(w_cfg.get("arti", True))
+    )
+    recent_welcomes.append(reply)
+    w_cfg["recent_welcomes"] = recent_welcomes[-5:]
+    w_cfg["recent_hellos"] = (recent_hellos + [hello["word"]])[-8:]
+    channel_id = int(w_cfg["channel_id"])
+    if channel_id in chat_agent_channels:
+        _append_channel_history(channel_id, "model", reply)
+    await save_agent_config_to_disk()
+    return reply
+
+
 async def generate_welcome_greeting(
     guild_id: int,
     member_display_name: str,
@@ -2816,50 +2882,30 @@ async def generate_welcome_greeting(
     guild_cfg = get_guild_settings(guild_id)
     time_ctx = get_realtime_time_context(guild_cfg.get("timezone", BOT_TIMEZONE))
     agent_name = guild_cfg.get("nickname") or bot_display_name or "Teman"
-
     persona_key = persona_override if persona_override in GREETING_PERSONAS else str(w_cfg.get("persona") or "hangat")
     persona = GREETING_PERSONAS.get(persona_key, GREETING_PERSONAS["hangat"])
-
     recent_hellos = list(w_cfg.get("recent_hellos") or [])[-8:]
     hello = pick_greeting_word(
         ASIAN_GREETINGS,
         language=str(w_cfg.get("hello_language") or "auto"),
         recent_words=recent_hellos,
     )
-
     system_prompt = _build_greeting_system_prompt(
         agent_name, persona, guild_name=guild_name, mode="welcome"
     )
 
     recent_welcomes = list(w_cfg.get("recent_welcomes") or [])[-5:]
-    avoid_block = ""
-    if recent_welcomes:
-        joined_prev = " | ".join(f'"{m[:110]}"' for m in recent_welcomes)
-        avoid_block = (
-            f"\nPENTING ANTI-MONOTON: Sambutan sebelumnya yang sudah pernah kamu kirim: [{joined_prev}]. "
-            "Buat variasi kalimat & pembuka yang berbeda supaya setiap member baru mendapat sambutan segar!"
-        )
 
-    extra_note = str(w_cfg.get("extra_note") or "").strip()
-    note_instruction = (
-        f"\nSelipkan juga info penting ini secara santai (jangan kaku seperti pengumuman): \"{extra_note}\""
-        if extra_note
-        else ""
-    )
-    count_info = f" (member ke-{member_count})" if member_count else ""
-    server_label = f" di server '{guild_name}'" if guild_name else ""
-    angle = random.choice(_WELCOME_ANGLES)
-
-    welcome_prompt = (
-        f"(Instruksi situasi: Member baru bernama '{member_display_name}'{count_info} baru saja bergabung{server_label} "
-        f"pada hari {time_ctx['day_name']} pukul {time_ctx['clock']} ({time_ctx['vibe']}).\n"
-        f"Persona sambutan: {persona['label']}\n"
-        f"KATA SAPAAN PEMBUKA WAJIB (tulis persis di awal kalimat, jangan diubah/diterjemahkan, "
-        f"jangan tambahkan huruf latin atau artinya): {format_greeting_word(hello, dengan_arti=False)}\n"
-        f"Gaya sambutan kali ini: {angle}\n"
-        f"Sertakan tag persis {member_mention} satu kali di dalam kalimatmu agar member tersebut ter-mention. "
-        "Tulis 1–2 kalimat pendek yang ramah dan mengundang dia ikut ngobrol, sisanya tetap Bahasa Indonesia!)"
-        f"{note_instruction}{avoid_block}"
+    welcome_prompt = _susun_prompt_welcome(
+        member_display_name=member_display_name,
+        member_mention=member_mention,
+        member_count=member_count,
+        time_ctx=time_ctx,
+        persona=persona,
+        hello=hello,
+        w_cfg=w_cfg,
+        guild_name=guild_name,
+        recent_welcomes=recent_welcomes,
     )
 
     reply = await _call_gemini_agent(
@@ -2875,17 +2921,16 @@ async def generate_welcome_greeting(
         safety_level=get_guild_safety_level(guild_id),
     )
 
+
     if reply:
-        reply = _finalize_greeting_text(
-            reply, hello, member_mention, dengan_arti=bool(w_cfg.get("arti", True))
+        reply = await _simpan_balasan_welcome(
+            reply,
+            hello=hello,
+            member_mention=member_mention,
+            w_cfg=w_cfg,
+            recent_welcomes=recent_welcomes,
+            recent_hellos=recent_hellos,
         )
-        recent_welcomes.append(reply)
-        w_cfg["recent_welcomes"] = recent_welcomes[-5:]
-        w_cfg["recent_hellos"] = (recent_hellos + [hello["word"]])[-8:]
-        channel_id = int(w_cfg["channel_id"])
-        if channel_id in chat_agent_channels:
-            _append_channel_history(channel_id, "model", reply)
-        await save_agent_config_to_disk()
 
     return reply
 
