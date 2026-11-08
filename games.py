@@ -845,6 +845,48 @@ class WordChainControlView(discord.ui.View):
         )
 
 
+async def _catat_kata_valid(
+    message: discord.Message,
+    state: dict,
+    candidate: str,
+    used_words: set[str],
+    now_mono: float,
+) -> int:
+    """Perbarui state rantai, beri poin, dan catat skor ronde. Kembalikan poin."""
+    used_words.add(candidate)
+    state["current_word"] = candidate.upper()
+    state["last_user_id"] = message.author.id
+    state["last_turn_at"] = now_mono
+    state["chain_count"] = int(state.get("chain_count") or 0) + 1
+    state.setdefault("chain_words", []).append(candidate.upper())
+    pts = int(state.get("points") or GAME_POINTS_BY_MODE["word_chain"])
+    guild_id = message.guild.id if message.guild else int(state.get("guild_id") or 0)
+    award_game_points(
+        guild_id,
+        message.author.id,
+        message.author.display_name,
+        pts,
+        increment_win=False,
+    )
+    await save_game_scores_to_disk()
+    r_scores = state.setdefault("round_scores", {})
+    p_entry = r_scores.setdefault(
+        message.author.id,
+        {"name": message.author.display_name[:40], "points": 0, "words": 0},
+    )
+    p_entry["points"] += pts
+    p_entry["words"] += 1
+    return pts
+
+
+async def _reaksi_aman(message: discord.Message, emoji: str) -> None:
+    """Tambahkan reaksi; abaikan bila bot tidak punya izin."""
+    try:
+        await message.add_reaction(emoji)
+    except discord.HTTPException:
+        pass
+
+
 async def _tebak_sambung_kata(message: discord.Message, state: dict, content: str) -> bool | None:
     """Proses satu tebakan pada ronde sambung kata.
 
@@ -865,10 +907,7 @@ async def _tebak_sambung_kata(message: discord.Message, state: dict, content: st
         ok, reason = is_valid_indonesian_chain_word(candidate, req_letter, used_words)
         if not ok:
             if reason == "already_used":
-                try:
-                    await message.add_reaction("🔁")
-                except discord.HTTPException:
-                    pass
+                await _reaksi_aman(message, "🔁")
             return True
 
         now_mono = time.monotonic()
@@ -876,43 +915,15 @@ async def _tebak_sambung_kata(message: discord.Message, state: dict, content: st
             state.get("last_user_id") == message.author.id
             and (now_mono - float(state.get("last_turn_at") or 0.0)) < WORD_CHAIN_SOLO_COOLDOWN_SEC
         ):
-            try:
-                await message.add_reaction("⏳")
-            except discord.HTTPException:
-                pass
+            await _reaksi_aman(message, "⏳")
             return True
 
         # Kata Valid!
-        used_words.add(candidate)
-        state["current_word"] = candidate.upper()
-        state["last_user_id"] = message.author.id
-        state["last_turn_at"] = now_mono
-        state["chain_count"] = int(state.get("chain_count") or 0) + 1
-        state.setdefault("chain_words", []).append(candidate.upper())
-
-        pts = int(state.get("points") or GAME_POINTS_BY_MODE["word_chain"])
-        guild_id = message.guild.id if message.guild else int(state.get("guild_id") or 0)
-        award_game_points(
-            guild_id,
-            message.author.id,
-            message.author.display_name,
-            pts,
-            increment_win=False,
+        pts = await _catat_kata_valid(
+            message, state, candidate, used_words, now_mono
         )
-        await save_game_scores_to_disk()
 
-        r_scores = state.setdefault("round_scores", {})
-        p_entry = r_scores.setdefault(
-            message.author.id,
-            {"name": message.author.display_name[:40], "points": 0, "words": 0},
-        )
-        p_entry["points"] += pts
-        p_entry["words"] += 1
-
-        try:
-            await message.add_reaction("✅")
-        except discord.HTTPException:
-            pass
+        await _reaksi_aman(message, "✅")
 
         if state["chain_count"] >= WORD_CHAIN_MAX_TURNS:
             await finish_word_chain_round(
