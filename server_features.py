@@ -80,9 +80,20 @@ def load_server_features_from_disk() -> tuple[int, int, int, int]:
     return len(serverstats_guilds), len(autorole_guilds), len(facts_guilds), len(security_guilds)
 
 
+def _entri_aman(raw: dict, kunci: str):
+    """Iterasi `(k, v)` untuk `raw[kunci]`, aman bila nilainya bukan dict.
+
+    Lihat catatan di `economy._entri`: data JSON tidak bisa dipercaya tipenya.
+    """
+    bagian = raw.get(kunci) if isinstance(raw, dict) else None
+    return bagian.items() if isinstance(bagian, dict) else ()
+
+
 def _muat_serverstats(raw: dict) -> None:
     """Isi serverstats_guilds dari data mentah."""
-    for gid_str, data in (raw.get("serverstats") or {}).items():
+    for gid_str, data in _entri_aman(raw, "serverstats"):
+        if not isinstance(data, dict):
+            continue
         try:
             if not data.get("enabled", True):
                 continue
@@ -107,7 +118,9 @@ def _muat_serverstats(raw: dict) -> None:
 
 def _muat_autorole(raw: dict) -> None:
     """Isi autorole_guilds dari data mentah."""
-    for gid_str, data in (raw.get("autorole") or {}).items():
+    for gid_str, data in _entri_aman(raw, "autorole"):
+        if not isinstance(data, dict):
+            continue
         try:
             if not data.get("enabled", True):
                 continue
@@ -129,7 +142,9 @@ def _muat_autorole(raw: dict) -> None:
 
 def _muat_facts(raw: dict) -> None:
     """Isi facts_guilds dari data mentah."""
-    for gid_str, data in (raw.get("facts") or {}).items():
+    for gid_str, data in _entri_aman(raw, "facts"):
+        if not isinstance(data, dict):
+            continue
         try:
             if not data.get("enabled", True):
                 continue
@@ -140,7 +155,9 @@ def _muat_facts(raw: dict) -> None:
 
 def _muat_security(raw: dict) -> None:
     """Isi security_guilds dari data mentah."""
-    for gid_str, data in (raw.get("security") or {}).items():
+    for gid_str, data in _entri_aman(raw, "security"):
+        if not isinstance(data, dict):
+            continue
         try:
             action = str(data.get("action") or "hapus_peringat")
             if action not in PHISHING_ACTIONS:
