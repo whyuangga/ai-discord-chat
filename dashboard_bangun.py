@@ -16,7 +16,6 @@ import server_builder as sb
 logger = logging.getLogger("gemini_bot.dashboard_bangun")
 
 
-
 def _esc(nilai: object) -> str:
     return html.escape(str(nilai or ""), quote=True)
 
@@ -237,57 +236,19 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
         snapshot = sb.tema_ke_snapshot(key, nama_server=str(getattr(guild, "name", "")))
         sumber = f"tema:{key}"
     elif aksi == "rancang":
-        deskripsi = " ".join(str(payload.get("deskripsi") or "").split())
-        if len(deskripsi) < 10:
-            return False, "Deskripsi minimal 10 huruf."
-        if len(deskripsi) > 600:
-            deskripsi = deskripsi[:600]
-        snapshot, sumber = await sb.rancang(
-            deskripsi,
-            ai_call=lambda teks: _rancang_ai(gid, teks),
-        )
-        snapshot = sb.normalisasi(snapshot, label=str(getattr(guild, "name", "")))
+        try:
+            snapshot, sumber = await _aksi_rancang(gid, guild, payload)
+        except ValueError as exc:
+            return False, str(exc)
     elif aksi == "batal":
         if sb.ambil_siap(gid) is None:
             return False, "Tidak ada pratinjau yang menunggu."
         sb.lupakan_siap(gid)
         return True, "Pratinjau dibatalkan — tidak ada yang dibuat."
     elif aksi == "terapkan":
-        entri = sb.ambil_siap(gid)
-        if not entri or not isinstance(entri.get("snapshot"), dict):
-            return False, "Tidak ada pratinjau. Buat pratinjau tema atau AI terlebih dahulu."
-        snapshot = sb.normalisasi(entri["snapshot"], label=str(getattr(guild, "name", "")))
-        ok, alasan = sb.validasi(snapshot)
-        if not ok:
-            return False, f"Pratinjau ditolak saat validasi ulang: {alasan}"
-        has_roles = bool(snapshot.get("roles"))
-        boleh, pesan_izin = _izin_bot(guild, butuh_role=has_roles)
-        if not boleh:
-            return False, pesan_izin
-        hasil, pesan = await sb.terapkan(
-            guild, snapshot, actor_id=0, alasan="Bangun server via dashboard"
-        )
-        sb.lupakan_siap(gid)
-        await sb.save_to_disk()
-        dibuat = sum(int(hasil.get(k) or 0) for k in ("roles", "categories", "channels"))
-        galat = hasil.get("errors") or []
-        return dibuat > 0 or not galat, pesan
+        return await _aksi_terapkan(guild, gid)
     elif aksi == "bongkar":
-        if str(payload.get("konfirmasi") or "").strip().lower() != "ya":
-            return False, "Centang konfirmasi rollback terlebih dahulu."
-        riwayat = sb.riwayat.get(gid)
-        if not riwayat:
-            return False, "Belum ada riwayat pembangunan untuk dibongkar."
-        tercatat = riwayat.get("dibuat") or {}
-        boleh, pesan_izin = _izin_bot(
-            guild, butuh_role=bool(tercatat.get("roles"))
-        )
-        if not boleh:
-            return False, pesan_izin
-        ok, pesan = await sb.bongkar(guild, gid=gid)
-        if ok:
-            await sb.save_to_disk()
-        return ok, pesan
+        return await _aksi_bongkar(guild, gid, payload)
     else:
         return False, f"Aksi bangun `{aksi or '-'}` tidak dikenal."
 
@@ -305,3 +266,58 @@ async def proses_aksi(bot, guild_id: int, payload: dict) -> tuple[bool, str]:
 
 
 __all__ = ["proses_aksi", "render_bangun_block"]
+
+
+async def _aksi_terapkan(guild, gid: int) -> tuple[bool, str]:
+    """Terapkan pratinjau yang menunggu, lalu lupakan."""
+    entri = sb.ambil_siap(gid)
+    if not entri or not isinstance(entri.get("snapshot"), dict):
+        return False, "Tidak ada pratinjau. Buat pratinjau tema atau AI terlebih dahulu."
+    snapshot = sb.normalisasi(entri["snapshot"], label=str(getattr(guild, "name", "")))
+    ok, alasan = sb.validasi(snapshot)
+    if not ok:
+        return False, f"Pratinjau ditolak saat validasi ulang: {alasan}"
+    has_roles = bool(snapshot.get("roles"))
+    boleh, pesan_izin = _izin_bot(guild, butuh_role=has_roles)
+    if not boleh:
+        return False, pesan_izin
+    hasil, pesan = await sb.terapkan(
+        guild, snapshot, actor_id=0, alasan="Bangun server via dashboard"
+    )
+    sb.lupakan_siap(gid)
+    await sb.save_to_disk()
+    dibuat = sum(int(hasil.get(k) or 0) for k in ("roles", "categories", "channels"))
+    galat = hasil.get("errors") or []
+    return dibuat > 0 or not galat, pesan
+
+async def _aksi_bongkar(guild, gid: int, payload: dict) -> tuple[bool, str]:
+    """Bongkar server hasil pembangunan sebelumnya."""
+    if str(payload.get("konfirmasi") or "").strip().lower() != "ya":
+        return False, "Centang konfirmasi rollback terlebih dahulu."
+    riwayat = sb.riwayat.get(gid)
+    if not riwayat:
+        return False, "Belum ada riwayat pembangunan untuk dibongkar."
+    tercatat = riwayat.get("dibuat") or {}
+    boleh, pesan_izin = _izin_bot(
+        guild, butuh_role=bool(tercatat.get("roles"))
+    )
+    if not boleh:
+        return False, pesan_izin
+    ok, pesan = await sb.bongkar(guild, gid=gid)
+    if ok:
+        await sb.save_to_disk()
+    return ok, pesan
+
+async def _aksi_rancang(gid: int, guild, payload: dict) -> tuple[dict, str]:
+    """Rancang snapshot lewat AI dari deskripsi pengguna."""
+    deskripsi = " ".join(str(payload.get("deskripsi") or "").split())
+    if len(deskripsi) < 10:
+        raise ValueError("Deskripsi minimal 10 huruf.")
+    if len(deskripsi) > 600:
+        deskripsi = deskripsi[:600]
+    snapshot, sumber = await sb.rancang(
+        deskripsi,
+        ai_call=lambda teks: _rancang_ai(gid, teks),
+    )
+    snapshot = sb.normalisasi(snapshot, label=str(getattr(guild, "name", "")))
+    return snapshot, sumber
