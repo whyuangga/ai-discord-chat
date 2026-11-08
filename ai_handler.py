@@ -662,7 +662,6 @@ async def _siapkan_prompt(
     }
 
 
-
 def _susun_system_prompt(model_info: dict, server_knowledge: str, session_data: dict) -> str:
     """System instruction: kepribadian model + waktu + pengetahuan server + ringkasan."""
     import ai_guard
@@ -1306,21 +1305,9 @@ async def _cari_jalur_gratis(
 ) -> tuple[str | None, str | None, str]:
     """Jalur Free Tier: hasil pencarian web/RSS gratis lalu dijawab model teks."""
     live_ctx, live_sources = await free_live_web_search(query, http_session=session)
-    if live_ctx:
-        user_prompt = (
-            f"Pertanyaan Pengguna: {query}\n\n"
-            f"{live_ctx}\n\n"
-            "Berdasarkan hasil pencarian web & berita terbaru di atas, berikan jawaban yang akurat, "
-            "jelas, dan terstruktur dalam bahasa Indonesia!"
-        )
-    else:
-        user_prompt = (
-            f"Pertanyaan Pengguna: {query}\n\n"
-            "Jawablah pertanyaan di atas secara informatif dan jujur dalam bahasa Indonesia."
-        )
+    user_prompt = _prompt_jalur_gratis(query, live_ctx)
 
     text_models = _build_model_chain(GEMINI_DEFAULT_MODEL, GEMINI_TEXT_FALLBACK_CHAIN)
-    # Tambahkan jeda ulang singkat bila seluruh model terkena lonjakan batas RPM sesaat
     all_candidates = [*text_models, f"__retry__:{GEMINI_FAST_MODEL}"]
 
     for idx, raw_model in enumerate(all_candidates):
@@ -1330,52 +1317,107 @@ async def _cari_jalur_gratis(
         else:
             model_id = raw_model
 
-        gen_config = {"temperature": 0.35, "maxOutputTokens": 3072}
-        t_cfg = build_thinking_config(model_id, "low")
-        if t_cfg:
-            gen_config["thinkingConfig"] = t_cfg
-        payload = {
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": gen_config,
-        }
         api_key = active_keys[idx % len(active_keys)]
-        url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
-        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-        try:
-            async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status == 200 and isinstance(data, dict):
-                    _record_token_usage(data)
-                    reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
-                    if reply_text:
-                        if include_sources_footer and live_sources:
-                            footer = _format_grounding_footer(live_sources)
-                            max_body = max(500, 3850 - len(footer))
-                            clipped = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
-                            reply_text = f"{clipped}{footer}"
-                        elif not live_ctx:
-                            reply_text += (
-                                "\n\n*(Catatan: Pencarian berita eksternal sedang tidak terjangkau — "
-                                "dijawab berdasarkan pengetahuan model)*"
-                            )
-                        return reply_text, None, last_err
-                    if block_msg and not should_retry:
-                        return None, block_msg, last_err
-                    continue
-
-                if resp.status in (500, 502, 503, 504):
-                    mark_model_unhealthy(model_id)
-                err_detail = (
-                    data.get("error", {}).get("message", f"HTTP {resp.status}")
-                    if isinstance(data, dict)
-                    else f"HTTP {resp.status}"
-                )
-                last_err = sanitize_error_message(err_detail)
-        except (asyncio.TimeoutError, aiohttp.ClientError):
-            mark_model_unhealthy(model_id)
+        reply, block_msg, last_err_baru = await _coba_model_gratis(
+            session, model_id, api_key, system_prompt, user_prompt
+        )
+        if reply:
+            return (
+                _tempel_footer_gratis(
+                    reply,
+                    include_sources_footer=include_sources_footer,
+                    live_sources=live_sources,
+                    live_ctx=live_ctx,
+                ),
+                None,
+                last_err,
+            )
+        if block_msg:
+            return None, block_msg, last_err
+        if last_err_baru is not None:
+            last_err = last_err_baru
 
     return None, None, last_err
+
+
+def _prompt_jalur_gratis(query: str, live_ctx: str) -> str:
+    """Susun prompt pengguna, dengan atau tanpa konteks hasil pencarian."""
+    if live_ctx:
+        return (
+            f"Pertanyaan Pengguna: {query}\n\n"
+            f"{live_ctx}\n\n"
+            "Berdasarkan hasil pencarian web & berita terbaru di atas, berikan jawaban yang akurat, "
+            "jelas, dan terstruktur dalam bahasa Indonesia!"
+        )
+    return (
+        f"Pertanyaan Pengguna: {query}\n\n"
+        "Jawablah pertanyaan di atas secara informatif dan jujur dalam bahasa Indonesia."
+    )
+
+
+async def _coba_model_gratis(
+    session,
+    model_id: str,
+    api_key: str,
+    system_prompt: str,
+    user_prompt: str,
+) -> tuple[str | None, str | None, str | None]:
+    """Satu percobaan model teks. (balasan, pesan_blokir, last_err_baru)."""
+    gen_config: dict = {"temperature": 0.35, "maxOutputTokens": 3072}
+    t_cfg = build_thinking_config(model_id, "low")
+    if t_cfg:
+        gen_config["thinkingConfig"] = t_cfg
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": gen_config,
+    }
+    url = f"{GEMINI_API_BASE}/{model_id}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    try:
+        async with session.post(url, headers=headers, json=payload, timeout=FAST_TEXT_TIMEOUT) as resp:
+            data = await resp.json(content_type=None)
+            if resp.status == 200 and isinstance(data, dict):
+                _record_token_usage(data)
+                reply_text, block_msg, should_retry = _extract_text_from_gemini_response(data)
+                if reply_text:
+                    return reply_text, None, None
+                if block_msg and not should_retry:
+                    return None, block_msg, None
+                return None, None, None
+
+            if resp.status in (500, 502, 503, 504):
+                mark_model_unhealthy(model_id)
+            err_detail = (
+                data.get("error", {}).get("message", f"HTTP {resp.status}")
+                if isinstance(data, dict)
+                else f"HTTP {resp.status}"
+            )
+            return None, None, sanitize_error_message(err_detail)
+    except (asyncio.TimeoutError, aiohttp.ClientError):
+        mark_model_unhealthy(model_id)
+        return None, None, None
+
+
+def _tempel_footer_gratis(
+    reply_text: str,
+    *,
+    include_sources_footer: bool,
+    live_sources,
+    live_ctx: str,
+) -> str:
+    """Tambahkan footer kutipan atau catatan pencarian yang tidak terjangkau."""
+    if include_sources_footer and live_sources:
+        kutipan = _format_grounding_footer(live_sources)
+        max_body = max(500, 3850 - len(kutipan))
+        terpotong = reply_text[:max_body] + ("…" if len(reply_text) > max_body else "")
+        return f"{terpotong}{kutipan}"
+    if not live_ctx:
+        return reply_text + (
+            "\n\n*(Catatan: Pencarian berita eksternal sedang tidak terjangkau — "
+            "dijawab berdasarkan pengetahuan model)*"
+        )
+    return reply_text
 
 
 async def search_web_with_gemini(
