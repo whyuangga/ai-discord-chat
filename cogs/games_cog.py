@@ -144,21 +144,15 @@ async def _game_mulai_trivia(
     return True
 
 
-async def _game_mulai_tebak_teks(
-    interaction: discord.Interaction,
-    channel,
+def _susun_ronde_tebak_teks(
     chosen_mode: str,
     q_data: dict,
     points: int,
-    http_session,
-) -> None:
-    """Ronde tebak-teks (gambar AI, emoji, teka-teki, susun huruf)."""
+    img_bytes: bytes | None,
+) -> tuple[str, str, discord.Color, list, discord.File | None]:
+    """Judul, deskripsi, warna, alias, dan berkas gambar untuk satu ronde."""
     mystery_file: discord.File | None = None
     if chosen_mode == "image_guess":
-        img_bytes = await ai_handler.generate_mystery_game_image_bytes(
-            str(q_data.get("visual_prompt") or ""),
-            http_session=http_session,
-        )
         title = f"🖼️ TEBAK GAMBAR AI — Berhadiah +{points} Poin!"
         if img_bytes:
             mystery_file = discord.File(io.BytesIO(img_bytes), filename="misteri.png")
@@ -205,7 +199,28 @@ async def _game_mulai_tebak_teks(
         )
         color = discord.Color.blurple()
         aliases = []
+    return title, desc, color, aliases, mystery_file
 
+
+async def _game_mulai_tebak_teks(
+    interaction: discord.Interaction,
+    channel,
+    chosen_mode: str,
+    q_data: dict,
+    points: int,
+    http_session,
+) -> None:
+    """Ronde tebak-teks (gambar AI, emoji, teka-teki, susun huruf)."""
+    img_bytes: bytes | None = None
+    if chosen_mode == "image_guess":
+        img_bytes = await ai_handler.generate_mystery_game_image_bytes(
+            str(q_data.get("visual_prompt") or ""),
+            http_session=http_session,
+        )
+
+    title, desc, color, aliases, mystery_file = _susun_ronde_tebak_teks(
+        chosen_mode, q_data, points, img_bytes
+    )
     embed = discord.Embed(title=title, description=desc, color=color)
     if mystery_file is not None:
         embed.set_image(url="attachment://misteri.png")
