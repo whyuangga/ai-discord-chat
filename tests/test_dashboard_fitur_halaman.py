@@ -197,12 +197,14 @@ def test_kartu_dan_tes_hanya_muncul_di_halaman_fiturnya():
     assert kartu is None
     import dashboard_ui
 
+    # Sambutan & perpisahan tidak lagi memakai slot unggah kartu: tampilannya
+    # dipilih lewat panel "Tampilan pesan" (Card/Embed/Text/Container).
     sambutan = dashboard_ui.render_kartu_block(GID, TOKEN, hanya=("welcome",))
+    assert "set.sambutan.kartu" not in sambutan
+    assert "set.sambutan.tampilan" not in sambutan
+
     boost = dashboard_ui.render_kartu_block(GID, TOKEN, hanya=("boost",))
-    assert "kartu.simpan:welcome" in sambutan and "kartu.simpan:boost" not in sambutan
     assert "kartu.simpan:boost" in boost and "kartu.simpan:welcome" not in boost
-    # Mode kartu (statis/dinamis) hanya relevan untuk sambutan
-    assert "set.sambutan.kartu" in sambutan
     assert "set.sambutan.kartu" not in boost
 
 

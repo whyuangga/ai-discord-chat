@@ -9,6 +9,7 @@ import aiohttp
 import discord
 
 import insights
+import welcome_view  # noqa: E402  (dipakai setelan tampilan sambutan)
 
 
 def _record_ai_usage_safe(
@@ -79,7 +80,6 @@ def set_guild_safety_level(guild_id: int, level: str) -> str:
     return chosen
 
 
-from welcome_media import CARD_MODES
 from config import (
     AGENT_CHANNEL_COOLDOWN_SEC,
     GEMINI_API_KEY,
@@ -921,7 +921,8 @@ def set_welcome_config(
         "persona": chosen_persona,
         "hello_language": chosen_lang,
         "arti": bool(existing.get("arti", True)) if arti is None else bool(arti),
-        "card_mode": str(existing.get("card_mode") or "mati"),
+        "view_mode": str(existing.get("view_mode") or "text"),
+        "template": str(existing.get("template") or ""),
         "dm": bool(existing.get("dm", False)),
         "recent_welcomes": list(existing.get("recent_welcomes") or [])[-5:],
         "recent_hellos": list(existing.get("recent_hellos") or [])[-8:],
@@ -930,14 +931,46 @@ def set_welcome_config(
 
 
 def set_welcome_card_mode(guild_id: int, mode: str) -> str:
-    """Mengatur tampilan sambutan: `mati`, `statis`, atau `dinamis`."""
-    chosen = str(mode or "mati").strip().lower()
-    if chosen not in CARD_MODES:
-        chosen = "mati"
+    """Mengatur tampilan sambutan: `card`, `embed`, `text`, atau `container`.
+
+    Nama lama (`mati`/`statis`/`dinamis`) tetap diterima lewat
+    `welcome_view.normalisasi_mode` agar data setelan lama tidak rusak.
+    """
+    chosen = welcome_view.normalisasi_mode(mode)
     cfg = welcome_agent_guilds.get(int(guild_id))
     if cfg is None:
-        return "mati"
-    cfg["card_mode"] = chosen
+        return chosen
+    cfg["view_mode"] = chosen
+    return chosen
+
+
+def set_template_greeting(guild_id: int, kind: str, template: str) -> str:
+    """Menyimpan template teks sambutan (`welcome`) atau perpisahan (`goodbye`)."""
+    kunci = "goodbye" if str(kind or "").lower().startswith("good") else "welcome"
+    pool = goodbye_agent_guilds if kunci == "goodbye" else welcome_agent_guilds
+    cfg = pool.get(int(guild_id))
+    if cfg is None:
+        return ""
+    isi = str(template or "").strip()[:1500]
+    cfg["template"] = isi
+    return isi
+
+
+def template_greeting(guild_id: int, kind: str = "welcome") -> str:
+    """Template tersimpan, atau template bawaan bila Admin belum mengisinya."""
+    kunci = "goodbye" if str(kind or "").lower().startswith("good") else "welcome"
+    pool = goodbye_agent_guilds if kunci == "goodbye" else welcome_agent_guilds
+    cfg = pool.get(int(guild_id)) or {}
+    return str(cfg.get("template") or "") or welcome_view.template_bawaan(kunci)
+
+
+def set_goodbye_view_mode(guild_id: int, mode: str) -> str:
+    """Mengatur tampilan pesan perpisahan (sama seperti sambutan)."""
+    chosen = welcome_view.normalisasi_mode(mode)
+    cfg = goodbye_agent_guilds.get(int(guild_id))
+    if cfg is None:
+        return chosen
+    cfg["view_mode"] = chosen
     return chosen
 
 
@@ -1067,16 +1100,14 @@ def _parse_greeting_guild_config(
     persona = str(raw.get("persona") or "hangat").strip().lower()
     if persona not in GREETING_PERSONAS:
         persona = "hangat"
-    card_mode = str(raw.get("card_mode") or "mati").strip().lower()
-    if card_mode not in {"mati", "statis", "dinamis"}:
-        card_mode = "mati"
+    card_mode = welcome_view.normalisasi_mode(raw.get("view_mode") or raw.get("card_mode"))
     return {
         "enabled": True,
         "channel_id": int(raw["channel_id"]),
         "extra_note": str(raw.get("extra_note") or "").strip()[:250],
         "persona": persona,
         "hello_language": str(raw.get("hello_language") or "auto").strip().lower() or "auto",
-        "card_mode": card_mode,
+        "view_mode": card_mode,
         "dm": bool(raw.get("dm", False)),
         recent_text_key: [str(x) for x in (raw.get(recent_text_key) or [])[-5:]],
         recent_word_key: [str(x) for x in (raw.get(recent_word_key) or [])[-8:]],

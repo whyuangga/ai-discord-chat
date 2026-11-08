@@ -414,6 +414,22 @@ def _baca_pamit_bahasa(guild_id: int | None = None):
     return baca
 
 
+def _baca_pamit_tampilan(guild_id: int) -> str:
+    """Nilai `view_mode` perpisahan untuk form setelan."""
+    cfg = (_mod("community_agent").goodbye_agent_guilds or {}).get(int(guild_id)) or {}
+    return str(cfg.get("view_mode") or "embed")
+
+
+def _set_pamit_tampilan(guild_id: int, nilai: str) -> tuple[bool, str]:
+    """Simpan mode tampilan pesan perpisahan (card/embed/text/container)."""
+    import welcome_view
+
+    mode = _mod("community_agent").set_goodbye_view_mode(int(guild_id), nilai)
+    if not (_mod("community_agent").goodbye_agent_guilds or {}).get(int(guild_id)):
+        return False, "Atur channel perpisahan lebih dulu sebelum memilih tampilan."
+    return True, f"Tampilan perpisahan diset ke **{welcome_view.label(mode)}**."
+
+
 def _baca_pamit_arti(guild_id: int) -> str:
     cfg = (_mod("community_agent").goodbye_agent_guilds or {}).get(int(guild_id)) or {}
     return "on" if cfg.get("arti", True) else "off"
@@ -1035,9 +1051,11 @@ FITUR_LIST = [
        ), "community_agent"),
     _f("sambutan.dm", "Sambutan via DM", "saklar", _baca_sambutan_dm,
        _set_sambutan_dm, "community_agent"),
-    _f("sambutan.kartu", "Kartu sambutan", "pilihan", _baca_sambutan("card_mode", "mati"),
-       _set_sambutan_kartu, "community_agent",
-       opsi=(("mati", "Mati"), ("statis", "Statis"), ("dinamis", "Dinamis"))),
+    _f("sambutan.tampilan", "Tampilan sambutan", "pilihan",
+       _baca_sambutan("view_mode", "text"), _set_sambutan_kartu, "community_agent",
+       opsi=(("card", "🖼️ Card"), ("embed", "🧱 Embed"), ("text", "📝 Text"),
+             ("container", "🗂️ Container")),
+       bantuan="Pratinjau tiap mode ada di panel **🎨 Tampilan pesan** di atas."),
     _f("sambutan.persona", "Persona sambutan", "pilihan", _baca_sambutan("persona", "hangat"),
        _set_sambutan_persona, "community_agent",
        opsi=(("hangat", "🤗 Hangat"), ("lucu", "😄 Lucu"), ("santai", "😎 Santai"),
@@ -1056,6 +1074,10 @@ FITUR_LIST = [
            lambda g: (_mod("community_agent").goodbye_agent_guilds or {}).get(g) or {},
            label="Pesan pamit",
        ), "community_agent"),
+    _f("pamit.tampilan", "Tampilan pesan perpisahan", "pilihan",
+       _baca_pamit_tampilan, _set_pamit_tampilan, "community_agent",
+       opsi=(("card", "🖼️ Card"), ("embed", "🧱 Embed"), ("text", "📝 Text"),
+             ("container", "🗂️ Container"))),
     _f("pamit.bahasa", "Bahasa kata perpisahan", "pilihan",
        _baca_pamit_bahasa(), _set_pamit_bahasa, "community_agent",
        opsi=_daftar_bahasa("ASIAN_FAREWELLS")),
@@ -1206,9 +1228,9 @@ GRUP: tuple[dict, ...] = (
         "kunci": "sambutan",
         "judul": "👋 Sambutan & pamit",
         "keterangan": "Pilih channel; pilih “— tidak dipakai —” untuk mematikan.",
-        "fitur": ("sambutan.channel", "sambutan.dm", "sambutan.kartu", "sambutan.persona",
-                  "sambutan.bahasa", "sambutan.arti", "pamit.channel", "pamit.bahasa",
-                  "pamit.arti", "boost.channel"),
+        "fitur": ("sambutan.channel", "sambutan.dm", "sambutan.tampilan", "sambutan.persona",
+                  "sambutan.bahasa", "sambutan.arti", "pamit.channel", "pamit.tampilan",
+                  "pamit.bahasa", "pamit.arti", "boost.channel"),
     },
     {
         "kunci": "keamanan",

@@ -32,7 +32,7 @@ Gemini (`AI`) atau berjalan lokal (`0`).
 | 🛡️ **Keamanan** | `/mod`, `/keamanan spam`, `/nuke`, `/raid` | Moderasi bercatatan, anti-spam/anti-raid, anti-nuke (**bot asing** & **mode beku**), raid guard otomatis | 0 |
 | 💰 **Ekonomi & tumbuh** | `/ekonomi`, `/tumbuh`, `/log` | Koin + toko role, invite tracker & retensi, audit log pesan | 0 |
 | 🧰 **Admin & diagnosa** | `/backup`, `/analitik`, `/bahasa`, `/prefix`, `/perawatan`, `/panel`, `/tampilan` | Restore struktur, ekspor CSV/webhook, i18n ID/EN, prefix per server, audit RAM, tema | 0 |
-| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **56 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **kartu sambutan unggah sendiri**, **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
+| 📊 **Hemat kuota** | `/pemakaian`, dashboard web | Statistik AI, cache jawaban, cap harian, **57 setelan dalam 14 halaman** (1 grup fitur = 1 halaman), kirim embed/webhook + pratinjau, unggah banner, grafik tren, **auto-refresh yang bisa diatur**, **channel bisa lebih dari satu**, **kotak masuk tiket** (balas/tutup/pasang panel) + **arsip transkrip HTML yang bisa dicari** + **catatan internal staf**, editor panel, panel verifikasi, ekspor CSV, **empat tampilan sambutan** (Card/Embed/Text/Container + pratinjau), **kartu rank PNG**, **papan sorotan varian** (skullboard dll.), **panel `/bangun`** (pratinjau → Terapkan), halaman **AI & Privasi** (`/gambar`, prompt server, privasi mandiri), dan tombol tes fitur | AI* |
 
 > `AI*` berarti kuota hanya terpakai bila operator secara eksplisit menjalankan generator gambar atau rancangan AI `/bangun`; membuka dashboard dan menyimpan prompt server tidak memanggil model.
 
@@ -686,6 +686,8 @@ ai-discord-chat/
 │   ├── social_notify.py    # Notifikasi YouTube/Twitch/TikTok-RSS (parser feed, template)
 │   ├── voice_activity.py   # Pencatat aktivitas voice untuk XP & statistik
 │   ├── welcome_media.py    # Penyimpanan banner + perender kartu sambutan (Pillow)
+│   ├── welcome_view.py     # Empat mode sambutan/pamit: Card, Embed, Text, Container
+│   ├── dashboard_sambutan.py # Pemilih tampilan + pratinjau + template sambutan/pamit
 │   ├── translate_tools.py  # Mesin terjemahan + rate limit per channel
 │   ├── analytics_export.py # Ekspor CSV (level/moderasi/tiket/pemakaian) & kirim webhook
 │   └── memory_audit.py     # Audit RAM, ukuran data/, & jumlah entri cache
@@ -735,9 +737,12 @@ ai-discord-chat/
 ├── tools/
 │   ├── sync_docs.py        # docs/*.md → site/content/ (juga dipakai tes sinkronisasi)
 │   ├── dashboard_token.py  # Buat token dashboard & isi .env (--tulis / --periksa)
-│   └── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
+│   ├── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
+│   └── demo/               # Alat bantu pratinjau UI (tidak dipanggil bot)
+│       ├── sambutan_pratinjau.py # Jalankan dashboard mode demo + data contoh sambutan
+│       └── sambutan_gambar.py    # Render panel sambutan jadi PNG (dokumentasi)
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 67 berkas pytest → 1288 tes (1283 lulus, 5 dilewati)
+├── tests/                  # 68 berkas pytest → 1334 tes (1329 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

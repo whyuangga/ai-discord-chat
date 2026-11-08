@@ -35,6 +35,10 @@ def _anchor_aksi(aksi: str) -> str:
             if nama.startswith(awalan):
                 return anchor
         return _ANCHOR_GRUP.get(HALAMAN_SETELAN.get(nama, ""), "p-inti")
+    # Panel tampilan sambutan/perpisahan: kembali ke bagian yang bersangkutan.
+    for awalan, anchor in _ANCHOR_BAGIAN:
+        if kunci.startswith(awalan):
+            return anchor
     # Aksi lain (sakelar level/ekonomi/pertumbuhan) ada di halaman Inti.
     return "p-kontrol"
 def _anchor_konten(aksi: str) -> str:
@@ -312,6 +316,7 @@ ANCHOR_HALAMAN.update({
     "p-perpisahan": "sambutan",
     "p-boost": "sambutan",
     "p-welcome": "sambutan",
+    "p-tampilan": "sambutan",
     "p-goodbye": "sambutan",
     "p-boost-slot": "sambutan",
 })

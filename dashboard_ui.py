@@ -550,20 +550,6 @@ def _slot_kartu(
     )
 
 
-def _mode_kartu_sambutan(guild_id: int) -> str:
-    """Mode tampilan kartu sambutan tersimpan (mati/statis/dinamis)."""
-    try:
-        import community_agent
-
-        return str(
-            ((community_agent.welcome_agent_guilds or {}).get(int(guild_id or 0)) or {})
-            .get("card_mode")
-            or "mati"
-        )
-    except Exception:  # pragma: no cover - jaring aman
-        return "statis"
-
-
 def render_kartu_block(
     guild_id: int,
     token: str,
@@ -598,27 +584,11 @@ def render_kartu_block(
         "jadi tidak pernah kedaluwarsa seperti tautan CDN Discord.</p>"
     )
 
-    if "welcome" not in jenis_dipakai:
-        return f'<div class="kartu-sambutan tunggal">{slot}</div>' + catatan_ukuran
-
-    mode = _mode_kartu_sambutan(guild_id)
-    opsi = "".join(
-        f'<option value="{nilai}"{" selected" if nilai == mode else ""}>{teks}</option>'
-        for nilai, teks in (("mati", "💬 Teks saja"), ("statis", "🖼️ Kartu statis"),
-                            ("dinamis", "✨ Kartu dinamis"))
-    )
-    pengaturan = (
-        '<form method="post" action="/api/aksi" class="kontrol">'
-        f'{_hidden(guild_id, token, "set.sambutan.kartu")}'
-        '<label for="mode-kartu">Tampilan kartu sambutan</label>'
-        f'<select name="value" id="mode-kartu">{opsi}</select>'
-        '<button type="submit">Simpan mode</button></form>'
-        '<p class="muted"><b>Teks saja</b> = pesan polos. <b>Kartu statis</b> = gambarmu '
-        "dikirim apa adanya di dalam embed (+ foto profil kecil). <b>Kartu dinamis</b> = "
-        "gambarmu jadi latar, lalu bot menambahkan foto profil bulat, nama member, dan "
-        "“Member ke-N” di atasnya. Butuh gambar kartu yang sudah diunggah.</p>"
-    )
-    return f'<div class="kartu-sambutan">{slot}</div>{pengaturan}{catatan_ukuran}'
+    # Pemilihan mode tampilan sambutan (Card/Embed/Text/Container) kini ada di
+    # panel `dashboard_sambutan.render_tampilan_block` — di sini tinggal slot gambar.
+    tunggal = len(jenis_dipakai) == 1
+    kelas = "kartu-sambutan tunggal" if tunggal else "kartu-sambutan"
+    return f'<div class="{kelas}">{slot}</div>{catatan_ukuran}'
 
 
 def render_honeypot_block(bot, guild_id: int, token: str) -> str:

@@ -5619,28 +5619,40 @@ async def test_greeting_payload_modes_boost_and_commands():
 
     guild, member = _Guild(), _Member()
 
-    # 1. mode mati → teks biasa
-    payload = await build_greeting_payload(guild, member, "Halo semua", mode="mati")
+    # 1. mode text → teks biasa
+    payload = await build_greeting_payload(guild, member, "Halo semua", mode="text")
     assert payload == {"content": "Halo semua"}
 
-    # 2. mode statis tanpa banner → tetap teks
-    assert (await build_greeting_payload(guild, member, "Hai", mode="statis"))["content"] == "Hai"
+    # 2. mode embed tanpa banner → embed tanpa berkas
+    payload = await build_greeting_payload(guild, member, "Hai", mode="embed")
+    assert "embed" in payload and "file" not in payload
+    assert payload["embed"].description == "Hai"
 
-    # 3. mode statis dengan banner → embed + file lokal
+    # 3. mode embed dengan banner → embed + file lokal
     from PIL import Image
 
     buf = io.BytesIO()
     Image.new("RGB", (1024, 420), (120, 60, 200)).save(buf, format="PNG")
     wm.save_banner(gid, buf.getvalue())
-    payload = await build_greeting_payload(guild, member, "Hai", mode="statis")
+    payload = await build_greeting_payload(guild, member, "Hai", mode="embed")
     assert "embed" in payload and payload["file"].filename.startswith("banner-welcome")
     assert payload["embed"].image.url.startswith("attachment://")
 
-    # 4. mode dinamis → kartu PNG (atau mundur ke banner bila Pillow tak ada)
-    payload = await build_greeting_payload(guild, member, "Hai", mode="dinamis")
+    # 4. mode card → kartu PNG (atau mundur ke embed bila Pillow tak ada)
+    payload = await build_greeting_payload(guild, member, "Hai", mode="card")
     assert "embed" in payload and payload["file"] is not None
 
-    # 5. konfigurasi boost: pesan & anti-dobel
+    # 5. mode container → kartu Components V2, mention tetap lewat content
+    payload = await build_greeting_payload(guild, member, "Hai <@501>", mode="container")
+    assert "view" in payload and payload["view"] is not None
+    assert payload["content"] == "<@501>"
+
+    # 6. nama mode lama tetap diterima (data setelan lama tidak rusak)
+    assert (await build_greeting_payload(guild, member, "Hai", mode="mati"))["content"] == "Hai"
+    assert "embed" in await build_greeting_payload(guild, member, "Hai", mode="statis")
+    assert "embed" in await build_greeting_payload(guild, member, "Hai", mode="dinamis")
+
+    # 7. konfigurasi boost: pesan & anti-dobel
     ca.boost_agent_guilds.pop(gid, None)
     assert ca.set_boost_config(gid, enabled=True, channel_id=700, message="Hai {user}") is not None
     assert ca.boost_agent_guilds[gid]["message"] == "Hai {user}"
@@ -5652,12 +5664,15 @@ async def test_greeting_payload_modes_boost_and_commands():
     names = {c.name for c in agent_group.commands}
     assert {"banner", "kartu", "dm", "boost", "welcome", "goodbye"} <= names
 
-    # 7. mode kartu & DM tersimpan di konfigurasi sambutan
+    # 8. mode tampilan & DM tersimpan di konfigurasi sambutan
     ca.set_welcome_config(gid, 600, enabled=True)
-    assert ca.set_welcome_card_mode(gid, "dinamis") == "dinamis"
+    assert ca.set_welcome_card_mode(gid, "card") == "card"
     assert ca.set_welcome_dm(gid, True) is True
-    assert ca.welcome_agent_guilds[gid]["card_mode"] == "dinamis"
-    assert ca.set_welcome_card_mode(gid, "ngawur") == "mati"
+    assert ca.welcome_agent_guilds[gid]["view_mode"] == "card"
+    assert ca.set_welcome_card_mode(gid, "ngawur") == "text"
+    # Nama mode lama tetap dipetakan, bukan ditolak
+    assert ca.set_welcome_card_mode(gid, "dinamis") == "card"
+    assert ca.set_welcome_card_mode(gid, "statis") == "embed"
     ca.welcome_agent_guilds.pop(gid, None)
     wm.delete_banner(gid)
 

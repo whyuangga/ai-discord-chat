@@ -277,6 +277,68 @@ CSS_HALAMAN = f"""
   .kartu-slot form {{ margin: 0; }}
   .kartu-slot .medan label {{ font-size: 11.5px; }}
 
+  /* --- Panel tampilan sambutan (Card / Embed / Text / Container) --- */
+  .sambutan-tampilan {{
+    border: 1px solid var(--garis); border-radius: 12px; padding: 12px;
+    margin: 10px 0; background: var(--kartu-2);
+  }}
+  .sambutan-tampilan h4 {{ margin: 0 0 4px; font-size: 13.5px; font-weight: 600; }}
+  .pemilih-mode {{
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px; margin: 10px 0;
+  }}
+  .pemilih-mode .pilihan-mode {{
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 9px 6px; font-size: 12px; font-weight: 600;
+    background: var(--latar); color: var(--redup);
+    border: 1px solid var(--garis); border-radius: 9px; cursor: pointer;
+  }}
+  .pemilih-mode .pilihan-mode:hover {{ color: var(--teks); border-color: var(--garis-kuat); }}
+  .pemilih-mode .pilihan-mode.aktif {{
+    background: var(--aksen); color: #fff; border-color: var(--aksen);
+  }}
+  .pratinjau-kotak {{
+    border-radius: 12px; padding: 12px; margin: 8px 0 12px;
+    background: var(--latar); border: 1px solid var(--garis);
+  }}
+  .pratinjau-label {{
+    font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--redup-2); margin-bottom: 8px;
+  }}
+  .pratinjau-kotak p.muted {{ margin: 6px 0 0; }}
+  .pratinjau-judul {{ font-weight: 700; font-size: 13.5px; margin-bottom: 4px; }}
+  .pratinjau-baris {{ font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }}
+  .pratinjau-kaki {{ font-size: 11px; color: var(--redup-2); margin-top: 8px; }}
+  .pratinjau-teks {{
+    background: var(--kartu-2); border-radius: 8px; padding: 10px;
+    font-size: 12.5px; line-height: 1.5;
+  }}
+  .pratinjau-embed {{
+    border-left: 3px solid var(--aksen); background: var(--kartu-2);
+    border-radius: 6px; padding: 10px 12px;
+  }}
+  .pratinjau-container {{
+    border: 1px solid var(--aksen); border-radius: 10px;
+    background: var(--kartu-2); padding: 10px 12px;
+  }}
+  .pratinjau-kartu {{
+    display: flex; gap: 12px; align-items: center;
+    background: linear-gradient(135deg, rgba(235,69,158,.18), rgba(88,101,242,.18));
+    border: 1px solid var(--garis-kuat); border-radius: 10px; padding: 12px;
+  }}
+  .pratinjau-avatar {{
+    width: 52px; height: 52px; flex: 0 0 52px; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 700; font-size: 20px;
+    background: var(--aksen); color: #fff;
+  }}
+  .pratinjau-nama {{ font-size: 12px; color: var(--redup); margin-bottom: 2px; }}
+  .daftar-variabel {{
+    margin: 8px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--redup);
+  }}
+  .daftar-variabel code {{ font-size: 11px; }}
+  .lebar-penuh {{ grid-column: 1 / -1; }}
+  .lebar-penuh textarea {{ width: 100%; font-family: inherit; }}
+
   /* --- kartu rank (PNG, perender yang sama dengan /level kartu) --- */
   .kartu-rank {{ display: grid; gap: 8px; margin: 10px 0; }}
   .kartu-rank img {{

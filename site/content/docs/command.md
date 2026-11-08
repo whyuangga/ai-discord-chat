@@ -47,7 +47,7 @@ fitur. Setiap entri bisa dipakai langsung di Discord (butuh izin sesuai kolom ya
 | `/agent chat` | `channel`, `aktif`, `mode_balas`, `menit_sepi` | Mengaktifkan/mematikan Auto-Chat di Text Channel maupun **Channel Forum** (+ Pemecah Sepi di Text Channel). |
 | `/agent welcome` | `channel`, `aktif`, `persona`, `bahasa_sapaan`, `pesan_tambahan`, `tes_sekarang` | Auto-Welcomer dengan **persona sambutan khusus** + **kata sapaan bahasa Asia** yang berganti-ganti. |
 | `/agent banner` | `gambar`, `jenis`, `hapus` | *(Admin)* Unggah/hapus banner sambutan, perpisahan, atau boost (disimpan di `data/media/`). |
-| `/agent kartu` | `mode` | *(Admin)* Tampilan sambutan: teks, banner statis, atau kartu dinamis (avatar + nama). |
+| `/agent kartu` | `mode` | *(Admin)* Tampilan sambutan: **Card**, **Embed**, **Text**, atau **Container**. |
 | `/agent dm` | `aktif` | *(Admin)* Kirim salinan sambutan lewat DM ke member baru. |
 | `/agent boost` | `channel`, `aktif`, `pesan` | *(Admin)* Pesan terima kasih otomatis saat ada member boost server. |
 | `/sosial tambah` | `platform`, `target`, `channel`, `role`, `pesan` | *(Admin)* Pantau YouTube / Twitch / TikTok / **Reddit** / **RSS-Atom** lalu kirim notifikasi otomatis (0 kuota AI). |
