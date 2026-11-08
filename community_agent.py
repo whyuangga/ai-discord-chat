@@ -1154,42 +1154,84 @@ def _muat_gallery_channels(raw: dict) -> None:
 
 
 
+def _isi_kanal_youtube(cid: int, ydata: dict) -> None:
+    """Simpan konfigurasi channel perangkum YouTube."""
+    youtube_agent_channels[cid] = {
+        "guild_id": int(ydata["guild_id"]),
+        "enabled": True,
+        "auto_in_chat": bool(ydata.get("auto_in_chat", False)),
+    }
+
+
+def _isi_kanal_pencarian(cid: int, sdata: dict) -> None:
+    """Simpan konfigurasi channel pencarian berita/web."""
+    search_agent_channels[cid] = {
+        "guild_id": int(sdata["guild_id"]),
+        "enabled": True,
+        "auto_in_chat": bool(sdata.get("auto_in_chat", True)),
+    }
+
+
+def _isi_guild_sambutan(gid: int, wdata: dict) -> None:
+    """Simpan konfigurasi sambutan (welcome) satu server."""
+    welcome_agent_guilds[gid] = _parse_greeting_guild_config(
+        wdata, recent_text_key="recent_welcomes", recent_word_key="recent_hellos"
+    )
+
+
+def _isi_guild_boost(gid: int, bdata: dict) -> None:
+    """Simpan konfigurasi ucapan boost satu server."""
+    boost_agent_guilds[gid] = {
+        "enabled": True,
+        "channel_id": int(bdata["channel_id"]),
+        "message": str(bdata.get("message") or "")[:400],
+    }
+
+
+def _isi_guild_goodbye(gid: int, gdata: dict) -> None:
+    """Simpan konfigurasi goodbye satu server."""
+    goodbye_agent_guilds[gid] = _parse_greeting_guild_config(
+        gdata, recent_text_key="recent_goodbyes", recent_word_key="recent_farewells"
+    )
+
+
+def _isi_guild_digest(gid: int, ddata: dict) -> None:
+    """Simpan konfigurasi koran pagi (digest) satu server."""
+    digest_agent_guilds[gid] = {
+        "enabled": True,
+        "channel_id": int(ddata["channel_id"]),
+        "hour": max(0, min(23, int(ddata.get("hour", 7)))),
+        "minute": max(0, min(59, int(ddata.get("minute", 0)))),
+        "topic": str(
+            ddata.get("topic") or "berita populer Indonesia, teknologi, & game terbaru hari ini"
+        ).strip()[:180],
+        "last_sent_date": str(ddata.get("last_sent_date") or "").strip(),
+    }
+
+
 def _muat_kanal_lain_dan_riwayat(raw: dict) -> None:
     """YouTube, pencarian, welcome/boost/goodbye, digest, dan riwayat."""
     for cid_str, ydata in (raw.get("youtube_channels") or {}).items():
         try:
-            cid = int(cid_str)
             if not ydata.get("enabled", True):
                 continue
-            youtube_agent_channels[cid] = {
-                "guild_id": int(ydata["guild_id"]),
-                "enabled": True,
-                "auto_in_chat": bool(ydata.get("auto_in_chat", False)),
-            }
+            _isi_kanal_youtube(int(cid_str), ydata)
         except (KeyError, ValueError, TypeError):
             continue
 
     for cid_str, sdata in (raw.get("search_channels") or {}).items():
         try:
-            cid = int(cid_str)
             if not sdata.get("enabled", True):
                 continue
-            search_agent_channels[cid] = {
-                "guild_id": int(sdata["guild_id"]),
-                "enabled": True,
-                "auto_in_chat": bool(sdata.get("auto_in_chat", True)),
-            }
+            _isi_kanal_pencarian(int(cid_str), sdata)
         except (KeyError, ValueError, TypeError):
             continue
 
     for gid_str, wdata in (raw.get("welcome_guilds") or {}).items():
         try:
-            gid = int(gid_str)
             if not wdata.get("enabled", True):
                 continue
-            welcome_agent_guilds[gid] = _parse_greeting_guild_config(
-                wdata, recent_text_key="recent_welcomes", recent_word_key="recent_hellos"
-            )
+            _isi_guild_sambutan(int(gid_str), wdata)
         except (KeyError, ValueError, TypeError):
             continue
 
@@ -1197,45 +1239,29 @@ def _muat_kanal_lain_dan_riwayat(raw: dict) -> None:
         try:
             if not bdata.get("enabled", True):
                 continue
-            boost_agent_guilds[int(gid_str)] = {
-                "enabled": True,
-                "channel_id": int(bdata["channel_id"]),
-                "message": str(bdata.get("message") or "")[:400],
-            }
-        except (KeyError, TypeError, ValueError):
+            _isi_guild_boost(int(gid_str), bdata)
+        except (KeyError, ValueError, TypeError):
             continue
 
     for gid_str, gdata in (raw.get("goodbye_guilds") or {}).items():
         try:
-            gid = int(gid_str)
             if not gdata.get("enabled", True):
                 continue
-            goodbye_agent_guilds[gid] = _parse_greeting_guild_config(
-                gdata, recent_text_key="recent_goodbyes", recent_word_key="recent_farewells"
-            )
+            _isi_guild_goodbye(int(gid_str), gdata)
         except (KeyError, ValueError, TypeError):
             continue
 
     for gid_str, ddata in (raw.get("digest_guilds") or {}).items():
         try:
-            gid = int(gid_str)
             if not ddata.get("enabled", True):
                 continue
-            digest_agent_guilds[gid] = {
-                "enabled": True,
-                "channel_id": int(ddata["channel_id"]),
-                "hour": max(0, min(23, int(ddata.get("hour", 7)))),
-                "minute": max(0, min(59, int(ddata.get("minute", 0)))),
-                "topic": str(
-                    ddata.get("topic") or "berita populer Indonesia, teknologi, & game terbaru hari ini"
-                ).strip()[:180],
-                "last_sent_date": str(ddata.get("last_sent_date") or "").strip(),
-            }
+            _isi_guild_digest(int(gid_str), ddata)
         except (KeyError, ValueError, TypeError):
             continue
 
     raw_histories = list((raw.get("channel_histories") or {}).items())[-60:]
     has_any_active_feature = bool(chat_agent_channels or youtube_agent_channels or search_agent_channels)
+
     for cid_str, hist in raw_histories:
         try:
             cid = int(cid_str)
