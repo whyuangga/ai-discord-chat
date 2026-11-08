@@ -852,11 +852,9 @@ class AgentPanelView(ui_kit.ui.LayoutView):
         ]
         return f"**Channel target:** <#{cid}>\n" + "\n".join(lines)
 
-    def _build(self) -> None:
-        self.clear_items()
+    def _header_card(self) -> object:
+        """Kartu judul + status ringkas di bagian atas panel."""
         gid = self.guild_id
-        cid = self.selected_channel_id
-
         header = ui_kit.card(
             gid,
             ui_kit.text(
@@ -872,6 +870,11 @@ class AgentPanelView(ui_kit.ui.LayoutView):
             ui_kit.text(self._status_text()),
         )
 
+        return header
+
+
+    def _channel_select(self, cid):
+        """Dropdown pemilih channel/forum target."""
         channel_select = ui.ChannelSelect(
             channel_types=[
                 discord.ChannelType.text,
@@ -884,11 +887,19 @@ class AgentPanelView(ui_kit.ui.LayoutView):
             max_values=1,
             custom_id="agent:v2:channel",
         )
+
         if cid:
             channel_select.placeholder = "1️⃣ Ganti channel target…"[:150]
+
         channel_select.callback = self.on_pick_channel
 
+        return channel_select
+
+
+    def _tombol_fitur(self, gid: int, cid) -> list:
+        """Tombol ON/OFF untuk tiap fitur agent (label & emoji disetel)."""
         states = agent_feature_states(gid, cid)
+
         toggle_buttons = [
             ui_kit.toggle_button(
                 gid,
@@ -899,10 +910,16 @@ class AgentPanelView(ui_kit.ui.LayoutView):
             )
             for action, label, emoji in AGENT_FEATURES
         ]
+
         for btn, (_, label, emoji) in zip(toggle_buttons, AGENT_FEATURES):
             btn.emoji = emoji
             btn.label = label[:80]
 
+        return toggle_buttons
+
+
+    def _controls_card(self, gid: int, channel_select, toggle_buttons: list):
+        """Kartu pengaturan cepat: pilih channel, tombol fitur, dan aksi panel."""
         controls = ui_kit.card(
             gid,
             ui_kit.text("**⚙️ Pengaturan Cepat**"),
@@ -945,8 +962,27 @@ class AgentPanelView(ui_kit.ui.LayoutView):
                 ),
             ),
         )
+
+        return controls
+
+
+    def _build(self) -> None:
+        self.clear_items()
+
+        gid = self.guild_id
+
+        cid = self.selected_channel_id
+
+
+        header = self._header_card()
+        channel_select = self._channel_select(cid)
+        toggle_buttons = self._tombol_fitur(gid, cid)
+        controls = self._controls_card(gid, channel_select, toggle_buttons)
+
         self.add_item(header)
+
         self.add_item(controls)
+
 
     async def _refresh(self, interaction: discord.Interaction) -> None:
         self._build()
