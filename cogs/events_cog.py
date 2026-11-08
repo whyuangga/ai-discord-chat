@@ -206,21 +206,8 @@ async def on_guild_channel_create(bot, channel: discord.abc.GuildChannel):
         logger.debug("Efek samping opsional gagal: %s", exc)
 
 
-async def on_guild_channel_delete(bot, channel: discord.abc.GuildChannel):
-    """Membersihkan konfigurasi AI Agent & game aktif jika channel publik dihapus dari server."""
-    try:
-        import audit_log
-
-        await audit_log.log_channel_change(
-            bot, getattr(channel, "guild", None), "delete", channel
-        )
-        if audit_log.handle_channel_delete(getattr(channel, "id", 0)):
-            await audit_log.save_audit_to_disk()
-        import snipe
-
-        snipe.lupakan_channel(getattr(channel, "id", 0))
-    except Exception as exc:  # pragma: no cover - jaring aman
-        logger.debug("Audit log channel hapus dilewati: %s", exc)
+async def _bersihkan_kanal_agen(channel) -> bool:
+    """Matikan konfigurasi agen yang menunjuk channel ini; True bila ada yang berubah."""
     removed = False
     if channel.id in chat_agent_channels:
         set_chat_channel_config(channel.guild.id, channel.id, enabled=False)
@@ -250,24 +237,11 @@ async def on_guild_channel_delete(bot, channel: discord.abc.GuildChannel):
     if f_cfg and int(f_cfg.get("channel_id") or 0) == channel.id:
         set_facts_config(channel.guild.id, channel.id, enabled=False)
         await save_server_features_to_disk()
-    sec_cfg = security_guilds.get(channel.guild.id)
-    if sec_cfg:
-        if int(sec_cfg.get("log_channel_id") or 0) == channel.id:
-            sec_cfg["log_channel_id"] = None
-            await save_server_features_to_disk()
-        if channel.id in (sec_cfg.get("channel_ids") or []):
-            sec_cfg["channel_ids"] = [c for c in sec_cfg["channel_ids"] if c != channel.id]
-            await save_server_features_to_disk()
-    if handle_community_channel_delete(channel):
-        await save_community_tools_to_disk()
-    if handle_engagement_channel_delete(channel):
-        await save_engagement_to_disk()
-    if handle_antispam_channel_delete(channel):
-        await save_antispam_to_disk()
-    if handle_levels_channel_delete(channel):
-        await save_levels_to_disk()
-    if handle_tickets_channel_delete(channel):
-        await save_tickets_to_disk()
+    return removed
+
+
+async def _bersihkan_kanal_keamanan(channel) -> None:
+    """Pembersihan Raid Guard, honeypot, dan anti-nuke untuk channel yang dihapus."""
     try:
         import raid_guard
 
@@ -284,6 +258,24 @@ async def on_guild_channel_delete(bot, channel: discord.abc.GuildChannel):
             await antinuke.save_antinuke_to_disk()
     except Exception as exc:  # pragma: no cover - jaring aman
         logger.debug("Pembersihan anti-nuke dilewati: %s", exc)
+
+
+async def _bersihkan_kanal_modul(channel) -> None:
+    """Pembersihan modul komunitas, engagement, antispam, level, tiket, dan menu."""
+    if handle_community_channel_delete(channel):
+        await save_community_tools_to_disk()
+    if handle_engagement_channel_delete(channel):
+        await save_engagement_to_disk()
+    if handle_antispam_channel_delete(channel):
+        await save_antispam_to_disk()
+    if handle_levels_channel_delete(channel):
+        await save_levels_to_disk()
+    if handle_tickets_channel_delete(channel):
+        await save_tickets_to_disk()
+
+
+async def _bersihkan_panel_menu(channel) -> None:
+    """Hapus panel menu yang menunjuk channel ini (bila modul tersedia)."""
     try:
         import menu_builder
 
@@ -291,6 +283,37 @@ async def on_guild_channel_delete(bot, channel: discord.abc.GuildChannel):
             await menu_builder.save_menus_to_disk()
     except Exception as exc:  # pragma: no cover - jaring aman
         logger.debug("Pembersihan panel menu dilewati: %s", exc)
+
+
+async def on_guild_channel_delete(bot, channel: discord.abc.GuildChannel):
+    """Membersihkan konfigurasi AI Agent & game aktif jika channel publik dihapus dari server."""
+    try:
+        import audit_log
+
+        await audit_log.log_channel_change(
+            bot, getattr(channel, "guild", None), "delete", channel
+        )
+        if audit_log.handle_channel_delete(getattr(channel, "id", 0)):
+            await audit_log.save_audit_to_disk()
+        import snipe
+
+        snipe.lupakan_channel(getattr(channel, "id", 0))
+    except Exception as exc:  # pragma: no cover - jaring aman
+        logger.debug("Audit log channel hapus dilewati: %s", exc)
+
+    removed = await _bersihkan_kanal_agen(channel)
+    sec_cfg = security_guilds.get(channel.guild.id)
+    if sec_cfg:
+        if int(sec_cfg.get("log_channel_id") or 0) == channel.id:
+            sec_cfg["log_channel_id"] = None
+            await save_server_features_to_disk()
+        if channel.id in (sec_cfg.get("channel_ids") or []):
+            sec_cfg["channel_ids"] = [c for c in sec_cfg["channel_ids"] if c != channel.id]
+            await save_server_features_to_disk()
+
+    await _bersihkan_kanal_modul(channel)
+    await _bersihkan_kanal_keamanan(channel)
+    await _bersihkan_panel_menu(channel)
     cancel_channel_game(channel.id)
     remove_agent_thread_runtime(channel.id)
     if removed:
