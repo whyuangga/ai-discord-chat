@@ -213,19 +213,11 @@ def _teks_digest(guild_id: int, t_ctx: dict) -> str:
     )
 
 
-def build_agent_status_embed(
-    guild: discord.Guild,
-    *,
-    selected_channel_id: int | None = None,
-    notice_banner: str | None = None,
-) -> discord.Embed:
-    """Embed ringkasan status terpadu untuk `/agent status` sekaligus `/agent panel`."""
+def _kumpulkan_status_agent(guild, cfg: dict, t_ctx: dict) -> dict:
+    """Kumpulkan angka & teks status AI Agent untuk satu server."""
     guild_id = guild.id
-    cfg = get_guild_settings(guild_id)
-    t_ctx = get_realtime_time_context(cfg.get("timezone", BOT_TIMEZONE))
     faq_entries = get_server_knowledge_entries(guild_id)
     now_ts = time.time()
-
     guild_chats = [
         (cid, cdata)
         for cid, cdata in chat_agent_channels.items()
@@ -238,7 +230,6 @@ def build_agent_status_embed(
     ]
     guild_yt = get_guild_youtube_channels(guild_id)
     guild_search = get_guild_search_channels(guild_id)
-
     chat_lines = _sorot_chat(guild, guild_chats, now_ts)
     gal_lines = [
         f"• <#{cid}> — Auto-Reaction: `{'ON' if gdata.get('auto_reaction', True) else 'OFF'}`"
@@ -252,11 +243,48 @@ def build_agent_status_embed(
     security_text = _teks_keamanan(guild_id)
     digest_text = _teks_digest(guild_id, t_ctx)
 
+
+    return {
+        "faq_entries": faq_entries,
+        "chat_lines": chat_lines,
+        "gal_lines": gal_lines,
+        "yt_text": yt_text,
+        "search_text": search_text,
+        "welcome_text": welcome_text,
+        "goodbye_text": goodbye_text,
+        "facts_text": facts_text,
+        "security_text": security_text,
+        "digest_text": digest_text,
+    }
+
+
+def build_agent_status_embed(
+    guild: discord.Guild,
+    *,
+    selected_channel_id: int | None = None,
+    notice_banner: str | None = None,
+) -> discord.Embed:
+    """Embed ringkasan status terpadu untuk `/agent status` sekaligus `/agent panel`."""
+    guild_id = guild.id
+    cfg = get_guild_settings(guild_id)
+    t_ctx = get_realtime_time_context(cfg.get("timezone", BOT_TIMEZONE))
+
+    data = _kumpulkan_status_agent(guild, cfg, t_ctx)
+    faq_entries = data["faq_entries"]
+    chat_lines = data["chat_lines"]
+    gal_lines = data["gal_lines"]
+    yt_text = data["yt_text"]
+    search_text = data["search_text"]
+    welcome_text = data["welcome_text"]
+    goodbye_text = data["goodbye_text"]
+    facts_text = data["facts_text"]
+    security_text = data["security_text"]
+    digest_text = data["digest_text"]
+
     desc_parts: list[str] = []
     if notice_banner:
         desc_parts.append(notice_banner)
     desc_parts.append(f"🕒 **Waktu Lokal Server:** `{t_ctx['summary']}`")
-
     bot_disp = guild.me.display_name if guild.me else "Bot"
     embed = discord.Embed(
         title=f"🤖 Dashboard AI Community Agent (`v{BOT_VERSION}`)",
@@ -264,14 +292,12 @@ def build_agent_status_embed(
         color=discord.Color.blurple(),
         timestamp=discord.utils.utcnow(),
     )
-
     if selected_channel_id is not None:
         embed.add_field(
             name="📍 Channel Target Terpilih di Panel",
             value=_build_channel_spotlight_summary(guild, selected_channel_id),
             inline=False,
         )
-
     embed.add_field(
         name="🎭 Persona & Memori FAQ Server",
         value=(
