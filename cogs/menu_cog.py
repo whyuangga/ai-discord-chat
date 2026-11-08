@@ -532,50 +532,8 @@ async def menu_alur_bantuan_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-@menu_group.command(name="alur", description="Tambah tombol yang menjalankan alur aksi (Admin)")
-@app_commands.describe(
-    aksi="Alur, mis. `+role:123 > pesan:Halo {member.mention} > thread:tiket`",
-    menu="ID panel atau judulnya",
-    label="Teks tombol",
-    emoji="Emoji tombol (opsional)",
-    gaya="Warna tombol",
-)
-@app_commands.choices(gaya=_GAYA_CHOICES)
-async def menu_alur_cmd(
-    interaction: discord.Interaction,
-    aksi: str,
-    menu: str | None = None,
-    label: str | None = None,
-    emoji: str | None = None,
-    gaya: app_commands.Choice[str] | None = None,
-):
-    if interaction.guild is None:
-        return
-    gid = interaction.guild.id
-    if not await _guard(interaction, gid):
-        return
-
-    record = _menu_or_error(interaction, gid, menu)
-    if record is None:
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Buat dulu lewat `/menu buat`."),
-            ephemeral=True,
-        )
-        return
-
-    langkah, galat = flows.parse(aksi)
-    if galat:
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Alur belum valid", "\n".join(f"• {g}" for g in galat)[:1500]
-            ),
-            ephemeral=True,
-        )
-        return
-
-    # Role pada alur harus bisa diberikan bot
+async def _validasi_role_alur(interaction: discord.Interaction, gid: int, langkah: list) -> bool:
+    """Pastikan setiap role di alur ada & bisa diberikan bot; kirim status bila gagal."""
     for step in langkah:
         if step.get("action") in (
             flows.ACTION_ROLE_TOGGLE,
@@ -605,6 +563,53 @@ async def menu_alur_cmd(
                 )
                 return
 
+    return True
+
+
+@menu_group.command(name="alur", description="Tambah tombol yang menjalankan alur aksi (Admin)")
+@app_commands.describe(
+    aksi="Alur, mis. `+role:123 > pesan:Halo {member.mention} > thread:tiket`",
+    menu="ID panel atau judulnya",
+    label="Teks tombol",
+    emoji="Emoji tombol (opsional)",
+    gaya="Warna tombol",
+)
+@app_commands.choices(gaya=_GAYA_CHOICES)
+async def menu_alur_cmd(
+    interaction: discord.Interaction,
+    aksi: str,
+    menu: str | None = None,
+    label: str | None = None,
+    emoji: str | None = None,
+    gaya: app_commands.Choice[str] | None = None,
+):
+    if interaction.guild is None:
+        return
+    gid = interaction.guild.id
+    if not await _guard(interaction, gid):
+        return
+    record = _menu_or_error(interaction, gid, menu)
+    if record is None:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "warn", "Panel tidak ditemukan", "Buat dulu lewat `/menu buat`."),
+            ephemeral=True,
+        )
+        return
+    langkah, galat = flows.parse(aksi)
+    if galat:
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Alur belum valid", "\n".join(f"• {g}" for g in galat)[:1500]
+            ),
+            ephemeral=True,
+        )
+        return
+
+    if not await _validasi_role_alur(interaction, gid, langkah):
+        return
+
     nama_tombol = (label or "").strip() or "Aksi"
     item = menu_builder.add_flow_button(
         record,
@@ -623,7 +628,6 @@ async def menu_alur_cmd(
             ephemeral=True,
         )
         return
-
     await interaction.response.defer(ephemeral=True, thinking=True)
     await menu_builder.save_menus_to_disk()
     refreshed = await menu_builder.refresh_panel(interaction.client, record)
