@@ -74,6 +74,71 @@ def _menu_or_error(interaction: discord.Interaction, gid: int, ref: str | None) 
 # ==============================================================================
 # MEMBUAT & MENGIRIM PANEL
 # ==============================================================================
+async def _validasi_banner_menu(
+    interaction: discord.Interaction,
+    gid: int,
+    banner,
+    banner_url: str | None,
+) -> bool:
+    """Pastikan banner berupa gambar valid; kirim status bila tidak."""
+    if banner is not None and not menu_builder.is_image_attachment(banner):
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Banner tidak valid",
+                "Unggah gambar **PNG/JPG/WebP** maksimal **8 MB**.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    if banner_url and not str(banner_url).startswith(("http://", "https://")):
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(gid, "error", "URL banner tidak valid", "Harus diawali `http://` atau `https://`."),
+            ephemeral=True,
+        )
+        return
+
+    return True
+
+
+async def _kirim_panel_baru(
+    interaction: discord.Interaction, gid: int, menu: dict, target, banner
+) -> bool:
+    """Kirim panel baru + banner; hapus menu & beri status bila gagal."""
+    file = None
+
+    ref = None
+
+    if banner is not None:
+        try:
+            data = await banner.read()
+            file, ref = menu_builder.banner_file_from_attachment(banner, data)
+        except (discord.HTTPException, AttributeError) as exc:
+            logger.warning("Gagal membaca banner menu: %s", exc)
+
+
+    message = await menu_builder.send_panel(interaction.client, menu, target, banner_file=file, banner_ref=ref)
+
+    if message is None:
+        menu_builder.delete_menu(gid, menu["id"])
+        await ui_kit.send_status(
+            interaction,
+            embed=ui_theme.status_embed(
+                gid, "error", "Gagal mengirim panel",
+                f"Cek izin **Send Messages** & **Embed Links** di {getattr(target, 'mention', 'channel itu')}.",
+            ),
+            follow=True,
+            ephemeral=True,
+        )
+        return
+
+
+    await menu_builder.save_menus_to_disk()
+    return True
+
+
 @menu_group.command(name="buat", description="Buat panel menu baru & kirim ke channel (Admin)")
 @app_commands.describe(
     judul="Judul panel, misal: Pusat Info Server",
@@ -96,22 +161,7 @@ async def menu_buat_cmd(
     if not await _guard(interaction, gid):
         return
 
-    if banner is not None and not menu_builder.is_image_attachment(banner):
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Banner tidak valid",
-                "Unggah gambar **PNG/JPG/WebP** maksimal **8 MB**.",
-            ),
-            ephemeral=True,
-        )
-        return
-    if banner_url and not str(banner_url).startswith(("http://", "https://")):
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(gid, "error", "URL banner tidak valid", "Harus diawali `http://` atau `https://`."),
-            ephemeral=True,
-        )
+    if not await _validasi_banner_menu(interaction, gid, banner, banner_url):
         return
 
     menu = menu_builder.create_menu(
@@ -122,6 +172,7 @@ async def menu_buat_cmd(
         banner_url=str(banner_url) if banner_url else None,
         channel_id=(channel or interaction.channel).id if (channel or interaction.channel) else None,
     )
+
     if menu is None:
         await ui_kit.send_status(
             interaction,
@@ -135,32 +186,13 @@ async def menu_buat_cmd(
         return
 
     await interaction.response.defer(ephemeral=True, thinking=True)
+
     target = channel or interaction.channel
 
-    file = None
-    ref = None
-    if banner is not None:
-        try:
-            data = await banner.read()
-            file, ref = menu_builder.banner_file_from_attachment(banner, data)
-        except (discord.HTTPException, AttributeError) as exc:
-            logger.warning("Gagal membaca banner menu: %s", exc)
-
-    message = await menu_builder.send_panel(interaction.client, menu, target, banner_file=file, banner_ref=ref)
-    if message is None:
-        menu_builder.delete_menu(gid, menu["id"])
-        await ui_kit.send_status(
-            interaction,
-            embed=ui_theme.status_embed(
-                gid, "error", "Gagal mengirim panel",
-                f"Cek izin **Send Messages** & **Embed Links** di {getattr(target, 'mention', 'channel itu')}.",
-            ),
-            follow=True,
-            ephemeral=True,
-        )
+    if not await _kirim_panel_baru(interaction, gid, menu, target, banner):
         return
-
     await menu_builder.save_menus_to_disk()
+
     await ui_kit.send_status(
         interaction,
         embed=ui_theme.status_embed(
