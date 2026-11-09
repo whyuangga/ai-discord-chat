@@ -58,10 +58,10 @@ from web_dashboard import (  # inti: token, data, perakitan halaman
     render_features_block,
 )
 from web_dashboard.halaman import (
+    kunci_halaman,
     COOKIE_AUTO,
     COOKIE_AUTO_MAKS,
     FIELD_AUTO_MANUAL,
-    GRUP_HALAMAN,
     HALAMAN_SLUG,
     LEGACY_HALAMAN,
     SETELAN_BOOST,
@@ -73,7 +73,6 @@ from web_dashboard.halaman import (
     _id_aman,
     detik_auto,
     detik_dari_kueri,
-    fitur_grup,
     halaman_dari_path,
     url_halaman,
 )
@@ -1331,8 +1330,9 @@ class HalamanDashboard:
             lambda: dashboard_ui.render_uji_block(self.bot, gid, "", hanya=UJI_HALAMAN.get(slug, ())),
             "",
         )
-        grup_slug = {v: k for k, v in GRUP_HALAMAN.items()}.get(slug)
-        semua["setelan_block"] = setelan(fitur_grup(grup_slug)) if grup_slug else ""
+        # Setelan yang tampil = milik halaman ini (grup bisa dipecah ke beberapa
+        # halaman, mis. grup Konten → /konten dan /interaksi).
+        semua["setelan_block"] = setelan(kunci_halaman(slug)) if kunci_halaman(slug) else ""
         semua["ekspor_block"] = blok(
             lambda: dashboard_ui.render_ekspor_block(gid, ""),
             '<div class="muted">Ekspor tidak tersedia.</div>',

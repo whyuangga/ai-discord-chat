@@ -317,9 +317,16 @@ PANEL: dict[str, object] = {
         "aturan",
     ),
     "p-konten": _panel_grup(
-        "p-konten", "🧩 Konten &amp; interaksi",
-        "Fitur AI per channel (boleh lebih dari satu), starboard, kotak saran, fakta harian, "
-        "koran pagi, &amp; backup otomatis.",
+        "p-konten", "🧩 Konten &amp; channel",
+        "Channel AI (boleh lebih dari satu), starboard, kotak saran, fakta harian, "
+        "koran pagi, galeri, YouTube, penjawab cari, terjemahan, &amp; backup otomatis.",
+        "starboard",
+        "uji",
+    ),
+    "p-interaksi": _panel_grup(
+        "p-interaksi", "🔔 Interaksi &amp; tag",
+        "Tag jawaban siap pakai, highlight kata kunci, curhat anonim, notifikasi sosial, "
+        "voice linking, musik, &amp; info channel otomatis.",
         "tag",
         "pantau",
         "curhat",
@@ -327,8 +334,6 @@ PANEL: dict[str, object] = {
         "voice",
         "musik",
         "info",
-        "starboard",
-        "uji",
     ),
     "p-rank": lambda d: (
         '<div class="panel" id="p-rank">\n    <h2>🖼️ Kartu rank (PNG)</h2>\n'

@@ -275,10 +275,10 @@ def test_group_kanal_info_terdaftar():
         assert len(cmd.description) <= 100, cmd.name
 
 
-def test_panel_info_menempel_di_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-info"] == "konten"
+def test_panel_info_menempel_di_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-info"] == "interaksi"
     peta = {kunci: slug for slug, daftar in web_dashboard.UJI_HALAMAN.items() for kunci in daftar}
-    assert peta["info"] == "konten"
+    assert peta["info"] == "interaksi"
     assert dashboard_uji.ANCHOR_UJI["info"] == "p-info"
 
 

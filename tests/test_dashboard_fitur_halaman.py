@@ -331,12 +331,19 @@ def test_lima_grup_setelan_punya_halaman():
         "bantuan": "tiket", "konten": "konten",
     }
     halaman = {h["slug"]: h for h in web_dashboard.HALAMAN}
-    # Semua fitur tiap grup kelihatan di halamannya masing-masing
+    # Semua fitur tiap grup kelihatan di halamannya masing-masing. Grup Konten
+    # dipecah ke /konten dan /interaksi, jadi tiap kunci diperiksa ke halaman
+    # yang benar-benar memuatnya.
     for grup, slug in web_dashboard.GRUP_HALAMAN.items():
         fitur = web_dashboard.fitur_grup(grup)
         assert fitur, grup
         for kunci in fitur:
-            assert web_dashboard.HALAMAN_SETELAN[kunci] == slug
+            tujuan = web_dashboard.HALAMAN_SETELAN[kunci]
+            assert tujuan in (slug, *web_dashboard.SUBGRUP_KONTEN.values()), (kunci, tujuan)
+            assert tujuan in halaman, tujuan
+    # Setiap setelan grup Konten muncul di tepat satu halaman.
+    konten_slug = {web_dashboard.HALAMAN_SETELAN[k] for k in web_dashboard.fitur_grup("konten")}
+    assert konten_slug == {"konten", "interaksi"}
     # Halaman sambutan memuat tiga bagian, bukan tiga halaman terpisah
     assert [b[0] for b in web_dashboard.BAGIAN_SAMBUTAN] == ["welcome", "goodbye", "boost"]
     assert "perpisahan" not in halaman and "boost" not in halaman and "setelan" not in halaman

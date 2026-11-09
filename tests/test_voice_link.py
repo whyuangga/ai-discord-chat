@@ -392,10 +392,10 @@ def test_command_tautkan_terdaftar():
     assert opsi == {"aktif", "role", "channel_privat", "hapus_kosong", "kategori"}
 
 
-def test_panel_voice_menempel_di_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-voice"] == "konten"
+def test_panel_voice_menempel_di_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-voice"] == "interaksi"
     peta = {kunci: slug for slug, daftar in web_dashboard.UJI_HALAMAN.items() for kunci in daftar}
-    assert peta["voice"] == "konten"
+    assert peta["voice"] == "interaksi"
     assert dashboard_uji.ANCHOR_UJI["voice"] == "p-voice"
 
 

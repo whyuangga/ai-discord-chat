@@ -2357,7 +2357,8 @@ sub-bagian di dalam sebuah panel ikut terdaftar — bukan hanya panel induknya.
 
 | Halaman | Bagian |
 | :--- | :--- |
-| Konten & interaksi | 9 |
+| Interaksi & tag | 8 |
+| Konten & channel | 2 |
 | Sambutan & pamit | 7 |
 | Ringkasan | 6 |
 | AI & Privasi | 4 |
@@ -2370,18 +2371,33 @@ kebisingan. Tetap tanpa JavaScript — tautan biasa yang melompat ke anchor.
 
 ### 🗂️ Sidebar berkelompok
 
-14 tautan sejajar sulit dipindai. Sekarang dikelompokkan menjadi lima:
+15 tautan sejajar sulit dipindai. Sekarang dikelompokkan menjadi lima:
 
 | Kelompok | Halaman |
 | :--- | :--- |
 | Pemantauan | Ringkasan, AI & Privasi |
 | Anggota & pesan | Sambutan & pamit, Inti & ekonomi, Tiket & ulang tahun |
 | Keamanan | Keamanan, Moderasi |
-| Konten | Konten & interaksi, Buat konten, Kirim, Panel, Giveaway |
+| Konten | Konten & channel, Interaksi & tag, Buat konten, Kirim, Panel, Giveaway |
 | Lainnya | Bangun server, Ekspor |
 
 Halaman baru yang belum terdaftar di kelompok mana pun otomatis muncul di
 **Lainnya**, jadi tidak pernah hilang dari menu.
+
+### ✂️ Halaman Konten dipecah
+
+Satu halaman memuat **17 setelan + 9 panel** (60 KB HTML) — terlalu padat meski
+sudah punya daftar isi. Grup Konten kini dibagi menurut tema:
+
+| Halaman | Isi | Setelan |
+| :--- | :--- | :--- |
+| 🧩 **Konten & channel** | Channel AI, starboard, kotak saran, fakta harian, koran pagi, galeri, YouTube, penjawab cari, terjemahan, backup | 12 |
+| 🔔 **Interaksi & tag** | Tag jawaban, highlight kata kunci, curhat anonim, notifikasi sosial, voice linking, musik, info channel | 5 |
+
+Pemetaan kunci → halaman disimpan di `SUBGRUP_KONTEN`. Fungsi `kunci_halaman()`
+menentukan setelan mana yang tampil di sebuah halaman, jadi penambahan setelan
+baru cukup didaftarkan sekali. Verifikasi: seluruh **17 setelan** tetap muncul,
+**tidak ada yang hilang atau dobel** di kedua halaman.
 
 ### 🏷️ Nama halaman diperjelas
 

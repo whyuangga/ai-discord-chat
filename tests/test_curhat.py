@@ -257,13 +257,13 @@ async def _async_noop(*args, **kwargs):
 # Dashboard
 # --------------------------------------------------------------------------- #
 
-def test_panel_curhat_menempel_di_halaman_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-curhat"] == "konten"
+def test_panel_curhat_menempel_di_halaman_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-curhat"] == "interaksi"
     peta = {kunci: slug for slug, daftar in web_dashboard.UJI_HALAMAN.items() for kunci in daftar}
-    assert peta["curhat"] == "konten"
+    assert peta["curhat"] == "interaksi"
     assert dashboard_uji.ANCHOR_UJI["curhat"] == "p-curhat"
     html = web_dashboard.render_dashboard_html(
-        status={}, usage={}, levels={}, halaman="konten",
+        status={}, usage={}, levels={}, halaman="interaksi",
         curhat_block=dashboard_curhat.render_curhat_block(SimpleNamespace(), 1, "tok"),
     )
     assert 'id="p-curhat"' in html and "curhat-setelan" in html
