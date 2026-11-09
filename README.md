@@ -740,9 +740,10 @@ ai-discord-chat/
 │   ├── command_audit.py    # Laporan permukaan command (terlihat member vs pengelola)
 │   └── demo/               # Alat bantu pratinjau UI (tidak dipanggil bot)
 │       ├── sambutan_pratinjau.py # Jalankan dashboard mode demo + data contoh sambutan
-│       └── sambutan_gambar.py    # Render panel sambutan jadi PNG (dokumentasi)
+│       ├── sambutan_gambar.py    # Render panel sambutan jadi PNG (dokumentasi)
+│       └── dashboard_gambar.py   # Render daftar isi & menu berkelompok jadi PNG
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 68 berkas pytest → 1337 tes (1332 lulus, 5 dilewati)
+├── tests/                  # 68 berkas pytest → 1342 tes (1337 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

@@ -13,6 +13,7 @@ import html
 import dashboard_tema
 from web_dashboard.halaman import (
     BAGIAN_SAMBUTAN,
+    daftar_isi_dari_isi as _daftar_isi,
     HALAMAN_SLUG,
     _flash_box,
     _label_auto,
@@ -64,6 +65,7 @@ _PAGE_TEMPLATE = """<!doctype html>
       <p class="keterangan-halaman">{keterangan}</p>
     </header>
     {flash}
+    {daftar_isi}
 
 {isi}
 
@@ -529,6 +531,7 @@ def _format_halaman(
     meta_refresh: str,
     flash_pesan: str,
     flash_ok: bool,
+    daftar_isi: str = "",
 ) -> str:
     """Isi `_PAGE_TEMPLATE` — satu-satunya tempat escaping data status."""
     return _PAGE_TEMPLATE.format(
@@ -547,6 +550,7 @@ def _format_halaman(
         keterangan=html.escape(keterangan),
         guild_picker=guild_picker,
         flash=_flash_box(flash_pesan, flash_ok),
+        daftar_isi=daftar_isi,
     )
 
 
@@ -643,6 +647,10 @@ def render_dashboard_html(
     slug, isi_halaman = _susun_halaman(status, usage, levels, halaman, isi, nilai)
     menu_html = menu or render_menu(slug, token, guild_id)
     page_title = judul_halaman or HALAMAN_SLUG.get(slug, HALAMAN_SLUG[""])["judul"]
+    # Daftar isi dibangun dari HTML yang sudah dirender, jadi sub-bagian di dalam
+    # sebuah panel (mis. 7 fitur Konten) juga ikut terdaftar. Mode `isi` eksplisit
+    # (halaman lengkap & tes) dilewati agar tidak menautkan bagian yang terpencar.
+    isi_daftar = "" if isi is not None else _daftar_isi(isi_halaman)
 
     return _format_halaman(
         status=status,
@@ -657,4 +665,5 @@ def render_dashboard_html(
         meta_refresh=meta_refresh,
         flash_pesan=flash_pesan,
         flash_ok=flash_ok,
+        daftar_isi=isi_daftar,
     )

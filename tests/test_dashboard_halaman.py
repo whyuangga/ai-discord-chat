@@ -295,3 +295,80 @@ async def test_panel_bangun_bisa_membuat_pratinjau_tanpa_menerapkan(monkeypatch,
         await _jalankan(monkeypatch, bot, skenario, tmp_path)
     finally:
         sb.reset_state()
+
+
+# ==============================================================================
+# DAFTAR ISI & KELOMPOK MENU (keterbacaan halaman panjang)
+# ==============================================================================
+def _halaman_html(slug: str) -> str:
+    """HTML satu halaman dashboard, dirender lewat jalur produksi."""
+    from web_dashboard.tampilan import susun_isi
+
+    data = web_dashboard.tampilan._data_halaman({}, {}, {})
+    data.update(web_dashboard.tampilan._blok_halaman({}))
+    return susun_isi(slug, data)
+
+
+def test_daftar_isi_menautkan_semua_bagian_halaman_panjang():
+    """Halaman dengan banyak bagian wajib punya pintasan di atas."""
+    from web_dashboard.halaman import daftar_isi_dari_isi
+
+    isi = _halaman_html("konten")
+    nav = daftar_isi_dari_isi(isi)
+    assert 'class="daftar-isi"' in nav
+    assert "Isi halaman" in nav
+    # Setiap tautan daftar isi harus benar-benar menunjuk anchor yang ada.
+    anchor = re.findall(r'href="#(p-[a-z0-9-]+)"', nav)
+    assert len(anchor) >= 2
+    for a in anchor:
+        assert f'id="{a}"' in isi, f"anchor {a} tidak ada di halaman"
+
+
+def test_daftar_isi_menangkap_sub_bagian_di_dalam_panel():
+    """Sub-bagian bersarang ikut terdaftar, bukan hanya panel induknya.
+
+    Halaman Konten menyimpan 7 fitur sebagai blok ber-id `p-*` di dalam satu
+    panel induk. Tanpa ini, daftar isi hanya menampilkan 2 tautan.
+    """
+    from web_dashboard.halaman import daftar_isi_dari_isi
+
+    html = (
+        '<div class="panel" id="p-konten"><h2>Konten</h2>'
+        '<div class="subpanel" id="p-tag"><h3>Tag jawaban</h3></div>'
+        '<div class="subpanel" id="p-curhat"><h3>Curhat anonim</h3></div>'
+        '<div class="subpanel" id="p-sosial"><h3>Notifikasi sosial</h3></div>'
+        "</div>"
+        '<div class="panel" id="p-statistik"><h2>Statistik</h2></div>'
+    )
+    nav = daftar_isi_dari_isi(html)
+    jumlah = re.search(r"Isi halaman · (\d+) bagian", nav)
+    assert jumlah and int(jumlah.group(1)) == 5
+    assert "Tag jawaban" in nav and "Curhat anonim" in nav
+    assert 'href="#p-tag"' in nav
+
+
+def test_halaman_satu_bagian_tidak_diberi_daftar_isi():
+    """Jangan menambah kebisingan kalau halaman hanya punya satu bagian."""
+    from web_dashboard.halaman import daftar_isi_dari_isi
+
+    assert daftar_isi_dari_isi('<div class="panel" id="p-panel"><h2>Satu</h2></div>') == ""
+
+
+def test_render_dashboard_html_menyisipkan_daftar_isi():
+    html = web_dashboard.tampilan.render_dashboard_html(
+        status={}, usage={}, levels={}, halaman="konten", keterangan="Uji daftar isi"
+    )
+    assert 'class="daftar-isi"' in html
+    assert html.index("daftar-isi") < html.index('id="p-konten"')
+
+
+def test_menu_dikelompokkan_dan_tidak_ada_halaman_hilang():
+    from web_dashboard.halaman import HALAMAN, render_menu
+
+    menu = render_menu("konten", TOKEN, GID)
+    judul = re.findall(r'class="menu-kelompok-judul">([^<]+)<', menu)
+    assert judul == ["Pemantauan", "Anggota &amp; pesan", "Keamanan", "Konten", "Lainnya"]
+    # Setiap halaman tetap muncul di menu meski dikelompokkan.
+    for h in HALAMAN:
+        assert f">{h['menu']}</a>" in menu
+    assert 'aria-current="page"' in menu
