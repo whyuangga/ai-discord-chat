@@ -743,7 +743,7 @@ ai-discord-chat/
 │       ├── sambutan_gambar.py    # Render panel sambutan jadi PNG (dokumentasi)
 │       └── dashboard_gambar.py   # Render daftar isi & menu berkelompok jadi PNG
 ├── .github/workflows/ci.yml # CI: pyflakes dashboard + docs sinkron + pytest (GitHub Actions)
-├── tests/                  # 68 berkas pytest → 1342 tes (1337 lulus, 5 dilewati)
+├── tests/                  # 68 berkas pytest → 1346 tes (1341 lulus, 5 dilewati)
 └── LICENSE                 # Lisensi MIT
 ```
 

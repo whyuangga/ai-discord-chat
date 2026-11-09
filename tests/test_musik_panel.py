@@ -250,8 +250,8 @@ def test_max_queue_untuk_memakai_setelan_server():
 # --------------------------------------------------------------------------- #
 # Dashboard web
 # --------------------------------------------------------------------------- #
-def test_panel_musik_menempel_di_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-musik"] == "konten"
+def test_panel_musik_menempel_di_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-musik"] == "interaksi"
 
 
 def test_panel_musik_render_lengkap():

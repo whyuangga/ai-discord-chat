@@ -242,11 +242,19 @@ HALAMAN: tuple[dict, ...] = (
     },
     {
         "slug": "konten",
-        "menu": "🧩 Konten & interaksi",
-        "judul": "🧩 Konten & interaksi",
-        "keterangan": "Fitur AI per channel, starboard, kotak saran, fakta harian, koran pagi, "
-        "tag siap pakai, highlight kata kunci, & backup.",
+        "menu": "🧩 Konten & channel",
+        "judul": "🧩 Konten & channel",
+        "keterangan": "Channel AI, starboard, kotak saran, fakta harian, koran pagi, "
+        "galeri, YouTube, penjawab cari, terjemahan, & backup otomatis.",
         "panel": ("p-konten", "p-statistik"),
+    },
+    {
+        "slug": "interaksi",
+        "menu": "🔔 Interaksi & tag",
+        "judul": "🔔 Interaksi & tag",
+        "keterangan": "Tag jawaban siap pakai, highlight kata kunci, curhat anonim, "
+        "notifikasi sosial, voice linking, musik, dan info channel otomatis.",
+        "panel": ("p-interaksi",),
     },
     {
         "slug": "bangun",
@@ -425,13 +433,15 @@ ANCHOR_HALAMAN.update({
     "p-rank": "inti",
     "p-aturan": "keamanan",
     "p-honeypot": "keamanan",
-    "p-tag": "konten",
-    "p-pantau": "konten",
-    "p-curhat": "konten",
-    "p-sosial": "konten",
-    "p-voice": "konten",
-    "p-musik": "konten",
-    "p-info": "konten",
+    # Panel interaksi pindah halaman bersama pemecahan grup Konten.
+    "p-tag": "interaksi",
+    "p-pantau": "interaksi",
+    "p-curhat": "interaksi",
+    "p-sosial": "interaksi",
+    "p-voice": "interaksi",
+    "p-musik": "interaksi",
+    "p-info": "interaksi",
+    "p-interaksi": "interaksi",
     "p-form-inbox": "buat",
     "p-statistik": "konten",
     "p-setelan": "inti",
@@ -456,6 +466,30 @@ GRUP_HALAMAN: dict[str, str] = {
     "bantuan": "tiket",
     "konten": "konten",
 }
+
+# Setelan grup Konten dipecah ke tiga halaman menurut temanya. Satu halaman
+# dengan 17 setelan + 9 panel terlalu padat (60 KB HTML, perlu gulir panjang).
+SUBGRUP_KONTEN: dict[str, str] = {
+    # channel & pengumuman otomatis
+    "chat.channel": "konten",
+    "digest.channel": "konten",
+    "galeri.channel": "konten",
+    "youtube.channel": "konten",
+    "cari.channel": "konten",
+    "terjemah.channel": "konten",
+    "statistik.aktif": "konten",
+    "fakta.channel": "konten",
+    "backup.channel": "konten",
+    "starboard.channel": "konten",
+    "starboard.ambang": "konten",
+    "starboard.warna": "konten",
+    # interaksi anggota
+    "saran.channel": "interaksi",
+    "agent.gaya": "interaksi",
+    "agent.keamanan": "interaksi",
+    "agent.tenang": "interaksi",
+    "agent.zona": "interaksi",
+}
 def fitur_grup(kunci_grup: str) -> tuple[str, ...]:
     """Daftar kunci setelan milik satu grup dashboard."""
     for grup in dashboard_admin.GRUP:
@@ -466,10 +500,15 @@ def fitur_grup(kunci_grup: str) -> tuple[str, ...]:
 HALAMAN_SETELAN: dict[str, str] = {}
 for _grup, _slug in GRUP_HALAMAN.items():
     for _kunci in fitur_grup(_grup):
-        HALAMAN_SETELAN[_kunci] = _slug
+        HALAMAN_SETELAN[_kunci] = SUBGRUP_KONTEN.get(_kunci, _slug)
 for _kunci in SETELAN_SAMBUTAN + SETELAN_PERPISAHAN + SETELAN_BOOST:
     HALAMAN_SETELAN[_kunci] = "sambutan"
 del _grup, _slug, _kunci
+
+def kunci_halaman(slug: str) -> tuple[str, ...]:
+    """Kunci setelan yang ditampilkan pada satu halaman (hasil pemecahan grup)."""
+    return tuple(k for k, s in HALAMAN_SETELAN.items() if s == slug)
+
 
 BAGIAN_SAMBUTAN: tuple[tuple[str, str, str, str], ...] = (
     ("welcome", "p-welcome", "👋 Sambutan member baru", "Dikirim saat ada member baru gabung."),
@@ -483,7 +522,8 @@ UJI_HALAMAN: dict[str, tuple[str, ...]] = {
     "buat": ("pengumuman", "formulir"),
     "panel": ("panel",),
     "tiket": ("tiket",),
-    "konten": ("digest", "tag", "pantau", "curhat", "sosial", "statistik", "voice", "info"),
+    "konten": ("digest", "statistik"),
+    "interaksi": ("tag", "pantau", "curhat", "sosial", "voice", "info"),
     "ekspor": ("ekspor",),
     "giveaway": ("giveaway",),
     "inti": ("kartu", "lencana"),
@@ -528,7 +568,7 @@ MENU_KELOMPOK: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Pemantauan", ("", "ai")),
     ("Anggota & pesan", ("sambutan", "inti", "tiket")),
     ("Keamanan", ("keamanan", "moderasi")),
-    ("Konten", ("konten", "buat", "kirim", "panel", "giveaway")),
+    ("Konten", ("konten", "interaksi", "buat", "kirim", "panel", "giveaway")),
     ("Lainnya", ("bangun", "ekspor")),
 )
 

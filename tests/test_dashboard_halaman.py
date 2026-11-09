@@ -32,13 +32,14 @@ def test_halaman_sesuai_kelompok_fitur():
     # Satu grup fitur = satu halaman: unggah kartu & tombol tes ikut di halamannya.
     # Satu halaman per grup setelan — sambutan/pamit/boost digabung.
     assert slug == ["", "ai", "sambutan", "inti", "keamanan", "moderasi", "tiket", "konten",
-                    "bangun", "giveaway", "kirim", "buat", "panel", "ekspor"]
+                    "interaksi", "bangun", "giveaway", "kirim", "buat", "panel", "ekspor"]
     assert "uji" not in slug and "setelan" not in slug
 
-    # Semua panel lama tetap punya halaman — tidak ada yang hilang
+    # Semua panel punya halaman — tidak ada yang hilang. Panel pindah halaman
+    # saat grup Konten dipecah, jadi urutannya tidak lagi sama dengan PANEL.
     semua = [a for h in web_dashboard.HALAMAN for a in h["panel"]]
-    assert sorted(semua) == sorted(web_dashboard.PANEL)
-    assert len(semua) == len(set(semua))
+    assert sorted(set(semua)) == sorted(web_dashboard.PANEL)
+    assert len(semua) == len(set(semua)), "satu panel tidak boleh tampil di dua halaman"
 
 
 def test_setiap_halaman_hanya_memuat_panelnya():
@@ -372,3 +373,49 @@ def test_menu_dikelompokkan_dan_tidak_ada_halaman_hilang():
     for h in HALAMAN:
         assert f">{h['menu']}</a>" in menu
     assert 'aria-current="page"' in menu
+
+
+# ==============================================================================
+# PEMECAHAN HALAMAN KONTEN
+# ==============================================================================
+def test_konten_dipecah_jadi_dua_halaman():
+    """17 setelan + 9 panel terlalu padat untuk satu halaman."""
+    slug = [h["slug"] for h in web_dashboard.HALAMAN]
+    assert "konten" in slug and "interaksi" in slug
+    halaman = {h["slug"]: h for h in web_dashboard.HALAMAN}
+    assert "p-interaksi" in halaman["interaksi"]["panel"]
+    # Panel interaksi tidak lagi menumpang di halaman konten.
+    for panel in ("p-tag", "p-pantau", "p-curhat", "p-sosial", "p-voice", "p-musik", "p-info"):
+        assert panel not in halaman["konten"]["panel"]
+
+
+def test_setiap_setelan_konten_punya_tepat_satu_halaman():
+    """Tidak boleh ada setelan yang hilang atau tampil di dua halaman."""
+    from collections import Counter
+
+    kunci = web_dashboard.fitur_grup("konten")
+    assert len(kunci) == 17
+    peta = Counter(web_dashboard.HALAMAN_SETELAN[k] for k in kunci)
+    assert set(peta) == {"konten", "interaksi"}
+    assert sum(peta.values()) == 17
+    # Kunci halaman hanya mengembalikan setelan miliknya.
+    assert set(web_dashboard.kunci_halaman("interaksi")) <= set(kunci)
+    assert not (set(web_dashboard.kunci_halaman("konten")) & set(web_dashboard.kunci_halaman("interaksi")))
+
+
+def test_halaman_konten_lebih_ringan_setelah_dipecah():
+    """Bukti dampak: form interaksi tidak lagi menumpang di halaman konten."""
+    a = web_dashboard.render_dashboard_html(status={}, usage={}, levels={}, halaman="konten")
+    b = web_dashboard.render_dashboard_html(status={}, usage={}, levels={}, halaman="interaksi")
+    assert 'id="p-konten"' in a and 'id="p-konten"' not in b
+    assert 'id="p-interaksi"' in b and 'id="p-interaksi"' not in a
+    # Setelan yang dirender tiap halaman tidak beririsan.
+    dari_a = set(web_dashboard.kunci_halaman("konten"))
+    dari_b = set(web_dashboard.kunci_halaman("interaksi"))
+    assert dari_a and dari_b and not (dari_a & dari_b)
+
+
+def test_anchor_panel_interaksi_menunjuk_halaman_baru():
+    for panel in ("p-tag", "p-pantau", "p-curhat", "p-sosial", "p-voice", "p-musik", "p-info"):
+        assert web_dashboard.ANCHOR_HALAMAN[panel] == "interaksi", panel
+    assert web_dashboard.ANCHOR_HALAMAN["p-konten"] == "konten"

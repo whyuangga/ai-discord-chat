@@ -217,12 +217,12 @@ def test_uji_tag_hanya_simulasi():
     assert ok is False and "dimatikan" in pesan
 
 
-def test_panel_tag_menempel_di_halaman_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-tag"] == "konten"
-    assert "tag" in web_dashboard.UJI_HALAMAN["konten"]
+def test_panel_tag_menempel_di_halaman_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-tag"] == "interaksi"
+    assert "tag" in web_dashboard.UJI_HALAMAN["interaksi"]
 
     halaman = web_dashboard.render_dashboard_html(
-        status={}, usage={}, levels={}, halaman="konten", token=TOKEN, guild_id=GID,
+        status={}, usage={}, levels={}, halaman="interaksi", token=TOKEN, guild_id=GID,
         tag_block=dashboard_tags.render_tags_block(None, GID, TOKEN),
     )
     assert "tag-simpan" in halaman

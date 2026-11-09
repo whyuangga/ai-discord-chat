@@ -227,10 +227,10 @@ async def test_aksi_sosial_menolak_input_tidak_valid():
 # Wiring halaman & penguji
 # --------------------------------------------------------------------------- #
 
-def test_sosial_menempel_di_halaman_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-sosial"] == "konten"
+def test_sosial_menempel_di_halaman_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-sosial"] == "interaksi"
     peta = {kunci: slug for slug, daftar in web_dashboard.UJI_HALAMAN.items() for kunci in daftar}
-    assert peta["sosial"] == "konten"
+    assert peta["sosial"] == "interaksi"
     assert dashboard_uji.ANCHOR_UJI["sosial"] == "p-sosial"
     assert dashboard_uji.UJI_MAP["sosial"]["grup"] == "Konten & interaksi"
 

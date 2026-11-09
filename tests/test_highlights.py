@@ -343,13 +343,13 @@ def test_atur_hanya_admin():
 # Dashboard
 # --------------------------------------------------------------------------- #
 
-def test_panel_highlight_menempel_di_halaman_konten():
-    assert web_dashboard.ANCHOR_HALAMAN["p-pantau"] == "konten"
+def test_panel_highlight_menempel_di_halaman_interaksi():
+    assert web_dashboard.ANCHOR_HALAMAN["p-pantau"] == "interaksi"
     peta = {kunci: slug for slug, daftar in web_dashboard.UJI_HALAMAN.items() for kunci in daftar}
-    assert peta["pantau"] == "konten"
+    assert peta["pantau"] == "interaksi"
     assert dashboard_uji.ANCHOR_UJI["pantau"] == "p-pantau"
     html = web_dashboard.render_dashboard_html(
-        status={}, usage={}, levels={}, halaman="konten",
+        status={}, usage={}, levels={}, halaman="interaksi",
         pantau_block=dashboard_highlights.render_highlights_block(SimpleNamespace(), 1, "tok"),
     )
     assert 'id="p-pantau"' in html and "pantau-setelan" in html
