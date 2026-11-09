@@ -109,3 +109,62 @@ Dari purpleGPT (`/settings` & `/server_prompt`), tanpa biaya tambahan: instruksi
 (tidak ada API gambar & tidak ada berkas aset): 6 gaya — `klasik`, `impact`, `drake` (dua panel
 ditolak/diterima), `neon`, `kertas`, `terminal`. Teks otomatis dibungkus (maks 6 baris × 120 huruf)
 dan hasilnya dikirim sebagai PNG 800×800.
+
+---
+
+## Y. Dashboard Web: Keterbacaan Halaman
+
+Dashboard punya 14 halaman dan 31 panel, sebagian halaman memuat banyak bagian
+sekaligus (halaman Konten punya 9 bagian). Agar tidak perlu menggulir panjang
+tanpa tahu isi halaman, setiap halaman diberi **daftar isi** dan sidebar
+dikelompokkan.
+
+## 📑 Daftar isi per halaman
+
+Kotak **"Isi halaman · N bagian"** muncul di atas halaman berisi tautan ke tiap
+bagian (`#p-...`). Daftar ini dibangun dari HTML yang **sudah dirender**, jadi
+sub-bagian di dalam sebuah panel ikut terdaftar — bukan hanya panel induknya.
+
+| Halaman | Bagian |
+| :--- | :--- |
+| Konten & interaksi | 9 |
+| Sambutan & pamit | 7 |
+| Ringkasan | 6 |
+| AI & Privasi | 4 |
+| Inti, level & ekonomi | 4 |
+| Keamanan | 3 |
+| Buat konten | 3 |
+
+Halaman dengan **satu** bagian tidak diberi daftar isi supaya tidak menambah
+kebisingan. Tetap tanpa JavaScript — tautan biasa yang melompat ke anchor.
+
+## 🗂️ Sidebar berkelompok
+
+14 tautan sejajar sulit dipindai. Sekarang dikelompokkan menjadi lima:
+
+| Kelompok | Halaman |
+| :--- | :--- |
+| Pemantauan | Ringkasan, AI & Privasi |
+| Anggota & pesan | Sambutan & pamit, Inti & ekonomi, Tiket & ulang tahun |
+| Keamanan | Keamanan, Moderasi |
+| Konten | Konten & interaksi, Buat konten, Kirim, Panel, Giveaway |
+| Lainnya | Bangun server, Ekspor |
+
+Halaman baru yang belum terdaftar di kelompok mana pun otomatis muncul di
+**Lainnya**, jadi tidak pernah hilang dari menu.
+
+## 🏷️ Nama halaman diperjelas
+
+Beberapa nama lama menyesatkan karena isinya lebih luas dari judulnya:
+
+| Sebelum | Sesudah |
+| :--- | :--- |
+| ⚙️ Inti & level | ⚙️ Inti & ekonomi |
+| ⚙️ Inti, level, & ekonomi | ⚙️ Inti, level & ekonomi |
+| 🎫 Tiket & sapaan | 🎫 Tiket & ulang tahun |
+| 🎫 Tiket & sapaan harian | 🎫 Tiket & ucapan ulang tahun |
+| ➕ Buat | ➕ Buat konten |
+| ➕ Buat konten | ➕ Buat konten & pengumuman |
+
+Keterangan tiap halaman juga ditulis ulang agar menyebut isi yang sebenarnya
+(mis. halaman Inti kini menyebut kartu rank & lencana).

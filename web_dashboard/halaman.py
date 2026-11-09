@@ -211,9 +211,10 @@ HALAMAN: tuple[dict, ...] = (
     },
     {
         "slug": "inti",
-        "menu": "⚙️ Inti & level",
-        "judul": "⚙️ Inti, level, & ekonomi",
-        "keterangan": "Kontrol cepat + setelan level, ekonomi koin, pelacakan pertumbuhan, & prefix.",
+        "menu": "⚙️ Inti & ekonomi",
+        "judul": "⚙️ Inti, level & ekonomi",
+        "keterangan": "Kontrol cepat, setelan level & XP, ekonomi koin, pelacakan pertumbuhan, "
+                      "prefiks, serta kartu rank dan lencana.",
         "panel": ("p-kontrol", "p-inti", "p-rank", "p-lencana"),
     },
     {
@@ -233,9 +234,10 @@ HALAMAN: tuple[dict, ...] = (
     },
     {
         "slug": "tiket",
-        "menu": "🎫 Tiket & sapaan",
-        "judul": "🎫 Tiket & sapaan harian",
-        "keterangan": "Kotak masuk tiket, setelan tiket, & ucapan ulang tahun.",
+        "menu": "🎫 Tiket & ulang tahun",
+        "judul": "🎫 Tiket & ucapan ulang tahun",
+        "keterangan": "Kotak masuk tiket, setelan tiket (kategori, staf, rating), "
+                      "dan ucapan ulang tahun otomatis.",
         "panel": ("p-tiket",),
     },
     {
@@ -269,10 +271,10 @@ HALAMAN: tuple[dict, ...] = (
     },
     {
         "slug": "buat",
-        "menu": "➕ Buat",
-        "judul": "➕ Buat konten",
-        "keterangan": "Pengumuman, tautan, panel, formulir, pemicu + daftar konten tersimpan "
-        "& kotak masuk formulir.",
+        "menu": "➕ Buat konten",
+        "judul": "➕ Buat konten & pengumuman",
+        "keterangan": "Kirim pengumuman, tautan, panel & formulir, atur pemicu otomatis, "
+        "lalu kelola konten tersimpan dan kotak masuk formulir.",
         "panel": ("p-buat", "p-form-inbox", "p-tersimpan"),
     },
     {
@@ -290,10 +292,130 @@ HALAMAN: tuple[dict, ...] = (
         "panel": ("p-ekspor", "p-riwayat"),
     },
 )
+# Judul pendek tiap panel untuk daftar isi. Tanpa emoji supaya ringkas dan
+# terbaca cepat; panel yang tidak terdaftar memakai judulnya sendiri apa adanya.
+JUDUL_PANEL: dict[str, str] = {
+    "p-status": "Status bot",
+    "p-pemakaian": "Pemakaian AI",
+    "p-jenis": "Jenis operasi",
+    "p-tren": "Tren 7 hari",
+    "p-channel": "Channel teramai",
+    "p-level": "Papan peringkat",
+    "p-gambar": "Buat gambar",
+    "p-ai-settings": "Kepribadian AI",
+    "p-privasi": "Privasi & data",
+    "p-ai": "Tes koneksi AI",
+    "p-sambutan": "Sambutan & pamit",
+    "p-kontrol": "Kontrol cepat",
+    "p-inti": "Setelan inti",
+    "p-rank": "Kartu rank",
+    "p-lencana": "Lencana",
+    "p-keamanan": "Setelan keamanan",
+    "p-moderasi": "Kasus moderasi",
+    "p-snipe": "Snipe pesan",
+    "p-tiket": "Tiket & ulang tahun",
+    "p-konten": "Fitur konten",
+    "p-statistik": "Statistik",
+    "p-bangun": "Bangun server",
+    "p-giveaway": "Giveaway",
+    "p-kirim": "Kirim pesan",
+    "p-banner": "Banner",
+    "p-buat": "Buat konten",
+    "p-form-inbox": "Kotak masuk formulir",
+    "p-tersimpan": "Konten tersimpan",
+    "p-panel": "Editor panel",
+    "p-ekspor": "Ekspor CSV",
+    "p-riwayat": "Riwayat",
+    "p-tampilan": "Tampilan pesan",
+}
+
 HALAMAN_SLUG: dict[str, dict] = {h["slug"]: h for h in HALAMAN}
 ANCHOR_HALAMAN: dict[str, str] = {
     anchor: h["slug"] for h in HALAMAN for anchor in h["panel"]
 }
+
+
+def _judul_dari_html(blok: str) -> str:
+    """Ambil teks judul pertama (`<h2>`/`<h3>`) dari sepotong HTML panel."""
+    import re
+
+    cocok = re.search(r"<h[23][^>]*>(.*?)</h[23]>", blok or "", re.S)
+    if not cocok:
+        return ""
+    teks = re.sub(r"<[^>]+>", "", cocok.group(1))
+    return html.unescape(teks).strip()
+
+
+def daftar_isi(slug: str, tersedia=None) -> str:
+    """Kotak "Isi halaman" berisi tautan ke tiap bagian pada halaman ini.
+
+    `tersedia` adalah kumpulan anchor yang benar-benar dirender pemanggil, supaya
+    daftar isi tidak menautkan bagian yang tidak muncul. Halaman dengan satu
+    bagian tidak perlu daftar isi — mengembalikan string kosong agar tidak
+    menambah kebisingan.
+    """
+    halaman = HALAMAN_SLUG.get(slug) or HALAMAN_SLUG[""]
+    panel = list(halaman.get("panel", ()))
+    judul_dikenal = [JUDUL_PANEL.get(a, a) for a in panel if tersedia is None or a in tersedia]
+    if len(judul_dikenal) < 2:
+        return ""
+    tautan = "".join(
+        f'<a href="#{html.escape(a, quote=True)}">'
+        f'{html.escape(JUDUL_PANEL.get(a, a))}</a>'
+        for a in panel
+        if tersedia is None or a in tersedia
+    )
+    jumlah = len(judul_dikenal)
+    return (
+        '<nav class="daftar-isi" aria-label="Isi halaman">'
+        f'<span class="daftar-isi-label">Isi halaman · {jumlah} bagian</span>'
+        f'<div class="daftar-isi-tautan">{tautan}</div>'
+        "</nav>"
+    )
+
+
+def daftar_isi_dari_isi(isi_html: str, margin: int = 2) -> str:
+    """Daftar isi yang dibangun dari HTML halaman yang sudah dirender.
+
+    Setiap panel `<div class="panel" id="p-...">` atau `<section id="p-...">`
+    menjadi satu tautan memakai judul `<h2>`/`<h3>` pertamanya. Ini menangkap
+    sub-bagian (mis. 7 fitur di dalam panel Konten) yang tidak terlihat dari
+    tabel `HALAMAN` saja.
+
+    `margin` adalah jumlah tautan minimal; halaman dengan lebih sedikit bagian
+    tidak diberi daftar isi supaya tidak menambah kebisingan.
+    """
+    import re
+
+    # Panel (`div.panel`/`section`) dan sub-bagian (blok apa pun ber-id `p-...`).
+    pola = re.compile(
+        r'<(?:div|section|article|details)\b[^>]*\bid="(p-[a-z0-9-]+)"',
+        re.I,
+    )
+    potongan = list(pola.finditer(isi_html or ""))
+    if len(potongan) < margin:
+        return ""
+    item: list[tuple[str, str]] = []
+    terlihat: set[str] = set()
+    for i, cocok in enumerate(potongan):
+        anchor = next((g for g in cocok.groups() if g), "")
+        if not anchor or anchor in terlihat:
+            continue
+        terlihat.add(anchor)
+        akhir = potongan[i + 1].start() if i + 1 < len(potongan) else len(isi_html)
+        judul = _judul_dari_html(isi_html[cocok.start():akhir])
+        item.append((anchor, judul or JUDUL_PANEL.get(anchor, anchor)))
+    if len(item) < margin:
+        return ""
+    tautan = "".join(
+        f'<a href="#{html.escape(a, quote=True)}">{html.escape(j)}</a>' for a, j in item
+    )
+    return (
+        '<nav class="daftar-isi" aria-label="Isi halaman">'
+        f'<span class="daftar-isi-label">Isi halaman · {len(item)} bagian</span>'
+        f'<div class="daftar-isi-tautan">{tautan}</div>'
+        "</nav>"
+    )
 LEGACY_HALAMAN: dict[str, str] = {"uji": "ai", "setelan": "inti", "perpisahan": "sambutan",
                                   "boost": "sambutan"}
 
@@ -399,13 +521,60 @@ def url_halaman(slug: str, token: str = "", guild_id: int = 0) -> str:
     return f"{dasar}?{urlencode(kueri)}"
 
 
+# Kelompok menu sidebar: (judul kelompok, slug yang masuk ke dalamnya).
+# Halaman yang tidak disebut di sini tetap tampil di kelompok terakhir supaya
+# penambahan halaman baru tidak pernah menghilang dari menu.
+MENU_KELOMPOK: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Pemantauan", ("", "ai")),
+    ("Anggota & pesan", ("sambutan", "inti", "tiket")),
+    ("Keamanan", ("keamanan", "moderasi")),
+    ("Konten", ("konten", "buat", "kirim", "panel", "giveaway")),
+    ("Lainnya", ("bangun", "ekspor")),
+)
+
+
 def render_menu(slug: str, token: str = "", guild_id: int = 0) -> str:
-    """Menu utama: tautan antar-halaman, halaman aktif ditandai `aria-current`."""
+    """Menu utama berkelompok: tautan antar-halaman, halaman aktif ditandai.
+
+    Pengelompokan menjaga sidebar tetap terbaca saat jumlah halaman bertambah —
+    14 tautan sejajar lebih sulit dipindai daripada 5 kelompok pendek.
+    """
     aktif = slug if slug in HALAMAN_SLUG else ""
-    butir = []
-    for halaman in HALAMAN:
-        ini = halaman["slug"] == aktif
-        tanda = ' aria-current="page"' if ini else ""
-        tautan = html.escape(url_halaman(halaman["slug"], token, guild_id), quote=True)
-        butir.append(f'<a href="{tautan}"{tanda}>{halaman["menu"]}</a>')
-    return '<nav class="menu" aria-label="Halaman dashboard">' + "".join(butir) + "</nav>"
+    peta = {h["slug"]: h for h in HALAMAN}
+    sudah: set[str] = set()
+    bagian: list[str] = []
+    for judul, anggota in MENU_KELOMPOK:
+        butir = []
+        for s_slug in anggota:
+            halaman = peta.get(s_slug)
+            if not halaman or s_slug in sudah:
+                continue
+            sudah.add(s_slug)
+            ini = s_slug == aktif
+            tanda = ' aria-current="page"' if ini else ""
+            tautan = html.escape(url_halaman(s_slug, token, guild_id), quote=True)
+            butir.append(f'<a href="{tautan}"{tanda}>{halaman["menu"]}</a>')
+        if butir:
+            bagian.append(
+                '<div class="menu-kelompok">'
+                f'<span class="menu-kelompok-judul">{html.escape(judul)}</span>'
+                + "".join(butir)
+                + "</div>"
+            )
+    sisa = [
+        h for h in HALAMAN if h["slug"] not in sudah
+    ]
+    if sisa:
+        butir = []
+        for halaman in sisa:
+            ini = halaman["slug"] == aktif
+            tanda = ' aria-current="page"' if ini else ""
+            tautan = html.escape(url_halaman(halaman["slug"], token, guild_id), quote=True)
+            butir.append(f'<a href="{tautan}"{tanda}>{halaman["menu"]}</a>')
+        bagian.append(
+            '<div class="menu-kelompok">'
+            '<span class="menu-kelompok-judul">Lainnya</span>'
+            + "".join(butir)
+            + "</div>"
+        )
+    return '<nav class="menu" aria-label="Halaman dashboard">' + "".join(bagian) + "</nav>"

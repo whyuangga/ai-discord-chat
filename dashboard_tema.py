@@ -129,7 +129,12 @@ CSS_HALAMAN = f"""
   }}
   .nav-buka {{ position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }}
   #nav-buka:focus-visible + .brand-row .menu-btn {{ outline: 2px solid var(--aksen); outline-offset: 2px; }}
-  nav.menu {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }}
+  nav.menu {{ display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }}
+  .menu-kelompok {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }}
+  .menu-kelompok-judul {{
+    flex-basis: 100%; margin-bottom: 2px; color: rgba(255,255,255,.42);
+    font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  }}
   nav.menu a {{
     padding: 7px 12px; border-radius: 999px; text-decoration: none; white-space: nowrap;
     border: 1px solid transparent; background: rgba(255,255,255,.035);
@@ -148,6 +153,25 @@ CSS_HALAMAN = f"""
                     letter-spacing: .15em; text-transform: uppercase; }}
   .keterangan-halaman {{ max-width: 780px; margin: 8px 0 0; color: var(--redup); font-size: 13px; }}
   .keterangan-halaman:empty {{ display: none; }}
+  /* Daftar isi halaman: pintasan ke tiap bagian, menggantikan scroll panjang. */
+  .daftar-isi {{
+    margin: 0 0 22px; padding: 12px 14px; border: 1px solid var(--garis);
+    border-radius: 12px; background: var(--kartu);
+  }}
+  .daftar-isi:empty {{ display: none; }}
+  .daftar-isi-label {{
+    display: block; margin-bottom: 9px; color: var(--redup);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  }}
+  .daftar-isi-tautan {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+  .daftar-isi-tautan a {{
+    padding: 5px 11px; border: 1px solid var(--garis); border-radius: 999px;
+    color: var(--teks); font-size: 12.5px; text-decoration: none;
+    background: var(--latar); transition: border-color .15s, color .15s;
+  }}
+  .daftar-isi-tautan a:hover {{
+    border-color: var(--aksen); color: var(--aksen);
+  }}
   .panel, .subpanel, section[id] {{ scroll-margin-top: 118px; }}
 
   /* --- pesan hasil aksi --- */
@@ -492,9 +516,10 @@ CSS_HALAMAN = f"""
     .server-context .meta {{ font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }}
     nav.menu {{
       display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; flex-wrap: nowrap;
-      gap: 3px; margin: 0; padding: 2px 3px 8px 0; overflow-y: auto; align-content: start;
+      gap: 10px; margin: 0; padding: 2px 3px 8px 0; overflow-y: auto; align-content: start;
       scrollbar-color: rgba(255,255,255,.18) transparent; scrollbar-width: thin;
     }}
+    .menu-kelompok {{ flex-wrap: wrap; gap: 4px; }}
     nav.menu a {{
       display: flex; align-items: center; min-height: 39px; width: 100%; padding: 8px 11px;
       border: 1px solid transparent; border-radius: 10px; background: transparent;
